@@ -1,9 +1,6 @@
 # Radium Launcher
 
 An unofficial custom launcher for playing on the Radium public Rec Room server. Styled to look like classic desktop apps from the early 2000s.
-
-> **Latest release:** [v1.2.0](https://github.com/abod124-sudo/Radium-Launcher/releases/latest)
-
 ---
 
 ## Features
