@@ -57,24 +57,6 @@ All client data and settings are stored locally under:
 
 ---
 
-## Changelog
-
-### v1.2.0
-- Redesigned home tab — removed hero banner, cleaner download/launch panels
-- Added auto-update system with styled popup and one-click install
-- Fixed 9 bugs (crash on close, VR launch saving wrong path, poll interval leak, and more)
-
-### v1.1.0
-- Fixed game launch failing when username contains spaces
-- Fixed server status stuck on `—` at startup
-- Added 60-second server status auto-refresh
-- Fixed Reinstall/Uninstall button appearance
-
-### v1.0.0
-- Initial release
-
----
-
 ## Note
 
 Parts of this launcher's codebase were written/co-authored with the help of AI coding assistants.
