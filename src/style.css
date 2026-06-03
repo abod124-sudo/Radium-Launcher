@@ -540,19 +540,31 @@ body {
 .dlp-bottom span { flex: 1; }
 
 /* Buttons Outset Win2000 style */
-.btn-download-big, .btn-play, .btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill, .btn-reinstall, .btn-uninstall {
+.btn-download-big, .btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill, .btn-reinstall, .btn-uninstall {
   background: var(--bg-btn);
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
   color: var(--text); font-family: var(--font-ui); font-size: 11px; font-weight: bold;
   padding: 6px 16px; cursor: pointer; text-align: center;
 }
-.btn-download-big:hover, .btn-play:hover, .btn-refresh:hover, .btn-save:hover, .btn-test-server:hover, .btn-cancel-dl:hover, .btn-kill:hover, .btn-reinstall:hover, .btn-uninstall:hover {
+.btn-download-big:hover, .btn-refresh:hover, .btn-save:hover, .btn-test-server:hover, .btn-cancel-dl:hover, .btn-kill:hover {
   background: #6a7c61;
 }
-.btn-download-big:active, .btn-play:active, .btn-refresh:active, .btn-save:active, .btn-test-server:active, .btn-cancel-dl:active, .btn-kill:active, .btn-reinstall:active, .btn-uninstall:active {
+.btn-download-big:active, .btn-refresh:active, .btn-save:active, .btn-test-server:active, .btn-cancel-dl:active, .btn-kill:active {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 7px 15px 5px 17px;
+}
+.btn-reinstall, .btn-uninstall {
+  background: var(--bg-btn);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  color: var(--text); font-family: var(--font-ui); font-size: 10px; font-weight: bold;
+  padding: 3px 10px; cursor: pointer;
+}
+.btn-reinstall:hover, .btn-uninstall:hover { color: var(--text); background: #6a7c61; }
+.btn-reinstall:active, .btn-uninstall:active {
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  padding: 4px 9px 2px 11px;
 }
 
 /* Launch Panel */
@@ -560,26 +572,52 @@ body {
   background: var(--bg-panel);
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  padding: 12px 16px;
-  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 16px;
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
 }
-.launch-label { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); font-weight: bold; }
-.launch-path { font-family: var(--font-mono); font-size: 10px; color: var(--text); margin-bottom: 6px; }
+.launch-left {
+  display: flex; flex-direction: column; gap: 10px; flex: 1;
+}
+.launch-label { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); font-weight: bold; letter-spacing: 1px; }
 .mode-row { display: flex; align-items: center; gap: 8px; }
 .mode-label { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); }
-.mode-toggle-wrap { display: flex; border: 1px solid var(--border-dark); }
+.mode-toggle-wrap { display: flex; border: 2px solid var(--border-dark); }
 .mode-btn {
   background: var(--bg-btn);
-  border: 1px solid var(--border-light);
+  border: none;
+  border-right: 1px solid var(--border-dark);
   color: var(--text); font-family: var(--font-ui); font-size: 10px; font-weight: bold;
-  padding: 3px 10px; cursor: pointer;
+  padding: 4px 14px; cursor: pointer;
 }
+.mode-btn:last-child { border-right: none; }
 .mode-btn.active {
   background: var(--bg-dark);
   color: var(--green);
-  border-color: var(--border-dark);
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.4);
 }
-.launch-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.launch-secondary-actions { display: flex; gap: 6px; }
+.launch-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+
+/* Large prominent PLAY button */
+.btn-play {
+  background: var(--bg-btn);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  color: var(--text); font-family: var(--font-ui); font-weight: bold;
+  width: 120px; height: 68px;
+  cursor: pointer; text-align: center;
+  display: flex; align-items: center; justify-content: center;
+}
+.btn-play:hover { background: #6a7c61; }
+.btn-play:active {
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  padding-top: 2px; padding-left: 2px;
+}
+.btn-play.running { background: var(--bg-dark); color: var(--green); }
+.play-inner { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.play-triangle { font-size: 22px; line-height: 1; }
+.play-text { font-size: 13px; font-weight: bold; letter-spacing: 2px; }
+
 .play-status { display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--status-online); }
 .running-dot { width: 6px; height: 6px; background: var(--status-online); }
 

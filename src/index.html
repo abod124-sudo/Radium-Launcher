@@ -106,24 +106,26 @@
 
         <!-- Launch Panel (shown when installed) -->
         <div class="launch-panel" id="launchPanel" style="display:none">
+
+          <!-- Left: label + mode toggle + secondary actions -->
           <div class="launch-left">
             <div class="launch-label">GAME CLIENT</div>
-            <div class="launch-path" id="launchPathDisplay">Installed</div>
 
-            <!-- VR / Screen mode toggle -->
             <div class="mode-row">
               <span class="mode-label">PLAY MODE</span>
               <div class="mode-toggle-wrap">
-                <button class="mode-btn active" id="modeScreen" data-mode="screen">
-                  SCREEN
-                </button>
-                <button class="mode-btn" id="modeVR" data-mode="vr">
-                  VR
-                </button>
+                <button class="mode-btn active" id="modeScreen" data-mode="screen">SCREEN</button>
+                <button class="mode-btn" id="modeVR" data-mode="vr">VR</button>
               </div>
+            </div>
+
+            <div class="launch-secondary-actions">
+              <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
+              <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
             </div>
           </div>
 
+          <!-- Right: big PLAY button + running state -->
           <div class="launch-right">
             <button class="btn-play" id="btnPlay">
               <div class="play-inner">
@@ -131,18 +133,13 @@
                 <span class="play-text" id="playText">PLAY</span>
               </div>
             </button>
-
             <div class="play-status" id="playStatus" style="display:none">
               <div class="running-dot"></div>
               <span>GAME RUNNING</span>
               <button class="btn-kill" id="btnKill">STOP</button>
             </div>
-
-            <div class="launch-actions" style="display: flex; gap: 6px; margin-top: 6px;">
-              <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
-              <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
-            </div>
           </div>
+
         </div>
 
         <!-- Quick Stats Row -->

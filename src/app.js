@@ -176,16 +176,12 @@ async function checkInstall() {
     // Show launch panel, hide download section
     $('downloadSection').style.display = 'none';
     $('launchPanel').style.display     = 'flex';
-    const exePath = result.exePath || '';
-    $('launchPathDisplay').textContent = exePath || 'Installed';
-    $('cfgExePath').value              = exePath;
-    config.gameExePath                 = exePath;
     $('qsInstalled').textContent       = 'INSTALLED';
     if (qscC) {
       qscC.classList.add('installed');
       qscC.classList.remove('not-installed');
     }
-    addLog('Game client found: ' + (exePath || 'client dir'), 'ok');
+    addLog('Game client found: ' + (result.exePath || 'client dir'), 'ok');
   } else {
     // Show download section, hide launch panel
     $('downloadSection').style.display = 'block';
@@ -344,25 +340,34 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
 // Periodically ping server and update status labels
 async function checkServerStatus(silent = false) {
   const apiUrl = config.apiUrl || 'https://ns.radie.app';
-  const apiResult = await window.radium?.pingServer(apiUrl);
-  const apiOnline  = apiResult?.online ?? false;
-
-  // Ping the game download CDN separately
   const cdnUrl = 'https://cdn.recroomarchive.org';
-  const cdnResult = await window.radium?.pingServer(cdnUrl);
+
+  // Immediately show CHECKING... in quick stats while pings are in-flight
+  const qsS = $('qsStatus');
+  if (qsS) qsS.textContent = 'CHECKING...';
+
+  if (!silent) addLog('Checking server status...', 'info');
+
+  // Run both pings in parallel — max wait is 5s instead of 10s
+  let apiResult, cdnResult;
+  try {
+    [apiResult, cdnResult] = await Promise.all([
+      window.radium?.pingServer(apiUrl),
+      window.radium?.pingServer(cdnUrl),
+    ]);
+  } catch (e) {
+    console.error('pingServer error:', e);
+  }
+
+  const apiOnline = apiResult?.online ?? false;
   const cdnOnline = cdnResult?.online ?? false;
 
-  // Quick stats
-  const qsS = $('qsStatus'); if (qsS) qsS.textContent = apiOnline ? 'ONLINE' : 'OFFLINE';
+  // Quick stats card on home tab
+  if (qsS) qsS.textContent = apiOnline ? 'ONLINE' : 'OFFLINE';
   const qscS = $('qsc-status');
   if (qscS) {
-    if (apiOnline) {
-      qscS.classList.add('online');
-      qscS.classList.remove('offline');
-    } else {
-      qscS.classList.add('offline');
-      qscS.classList.remove('online');
-    }
+    qscS.classList.toggle('online',  apiOnline);
+    qscS.classList.toggle('offline', !apiOnline);
   }
 
   // Status tab cards
@@ -375,7 +380,6 @@ async function checkServerStatus(silent = false) {
     const apiHost = new URL(apiUrl).hostname;
     const scApiLabel = document.querySelector('#sc-api .sc-label');
     if (scApiLabel) scApiLabel.textContent = `REST API · ${apiHost}`;
-
     const scWsLabel = document.querySelector('#sc-ws .sc-label');
     if (scWsLabel) scWsLabel.textContent = `Realtime Gateway · ${apiHost}`;
   } catch (e) {}
@@ -468,11 +472,9 @@ async function init() {
   // Check install first (determines which panel to show)
   await checkInstall();
 
-  // Then ping server
-  await checkServerStatus(true);
-
-  // Auto-refresh every 30s
-  setInterval(() => checkServerStatus(true), 30_000);
+  // Check server on startup (show results in log), then silently every 60s
+  await checkServerStatus(false);
+  setInterval(() => checkServerStatus(true), 60_000);
 }
 
 init().catch(err => {

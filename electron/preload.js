@@ -33,4 +33,8 @@ contextBridge.exposeInMainWorld('radium', {
   // Misc
   openUrl:    (url)  => ipcRenderer.send('open-url', url),
   getVersion: ()     => ipcRenderer.invoke('get-version'),
+
+  // Debug helpers (visible in DevTools console)
+  debugExec:  (mode) => ipcRenderer.invoke('debug-exec', mode),
+  debugPaths: ()     => ipcRenderer.invoke('debug-paths'),
 });

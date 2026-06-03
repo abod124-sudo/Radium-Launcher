@@ -187,9 +187,6 @@ function createWindow() {
     }
   });
   mainWindow.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
-  if (process.argv.includes('--dev')) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
 }
 
 app.whenReady().then(() => {
@@ -301,6 +298,8 @@ ipcMain.on('cancel-download', () => {
 
 // Launch game
 ipcMain.handle('launch-game', async (_e, cfg) => {
+  console.log('[launch-game] called, cfg:', JSON.stringify(cfg));
+
   // Check if RecRoom.exe is already running
   const isRunning = await new Promise((res) => {
     exec('tasklist /NH /FI "IMAGENAME eq RecRoom.exe"', (err, stdout) => {
@@ -310,31 +309,61 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
   if (isRunning) return { success: false, error: 'Game already running.' };
 
   const batName = cfg.playMode === 'vr' ? 'RecRoom_VR.bat' : 'RecRoom_ScreenMode.bat';
-  const batPath = findBatIn(CLIENT_DIR, batName) || '';
+  console.log('[launch-game] batName:', batName);
 
-  if (!batPath || !fs.existsSync(batPath)) {
-    return { success: false, error: `Launch file not found: ${batName}\nPath: ${CLIENT_DIR}\n\nDownload the client first.` };
+  // Build the direct bat path from CLIENT_DIR — always use the known location
+  const directBatPath = path.join(CLIENT_DIR, batName);
+  let batPath = '';
+
+  if (fs.existsSync(directBatPath)) {
+    batPath = directBatPath;
+    console.log('[launch-game] found bat directly in CLIENT_DIR:', batPath);
+  } else if (cfg.gameExePath && fs.existsSync(path.join(path.dirname(cfg.gameExePath), batName))) {
+    batPath = path.join(path.dirname(cfg.gameExePath), batName);
+    console.log('[launch-game] found bat via gameExePath sibling:', batPath);
+  } else {
+    batPath = findBatIn(CLIENT_DIR, batName) || '';
+    console.log('[launch-game] findBatIn result:', batPath);
   }
 
-  try {
-    const batDir = path.dirname(batPath);
-    const spawned = spawn('cmd.exe', ['/c', batPath], { detached: true, shell: false, cwd: batDir, stdio: 'ignore' });
-    spawned.unref();
+  if (!batPath) {
+    const msg = `Launch file not found: ${batName}\nLooked in: ${CLIENT_DIR}\n\nPlease download the client first.`;
+    console.error('[launch-game]', msg);
+    return { success: false, error: msg };
+  }
 
-    gameProcess = { pid: spawned.pid };
+  const batDir = path.dirname(batPath);
+  console.log('[launch-game] launching:', batPath, '  cwd:', batDir);
 
-    spawned.on('error', (err) => {
-      gameProcess = null;
-      mainWindow?.webContents.send('game-state', { running: false, error: err.message });
+  // Save resolved batPath to config
+  const updatedCfg = ensureConfig();
+  updatedCfg.gameExePath = path.join(CLIENT_DIR, 'RecRoom_ScreenMode.bat');
+  saveConfig(updatedCfg);
+
+  return new Promise((resolve) => {
+    // exec runs the bat and waits for it to finish (bat exits immediately after `start`)
+    const child = exec(`"${batPath}"`, { cwd: batDir }, (err) => {
+      if (err) {
+        console.error('[launch-game] exec error:', err.message);
+        // Don't treat this as failure — the bat exits fast after `start`
+      }
     });
 
-    startGameMonitor();
-    mainWindow?.webContents.send('game-state', { running: true });
-    if (cfg.minimizeOnLaunch) mainWindow?.minimize();
-    return { success: true, pid: spawned.pid };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
+    child.on('error', (err) => {
+      console.error('[launch-game] child error:', err.message);
+      resolve({ success: false, error: err.message });
+    });
+
+    // Give the bat a moment to fire off RecRoom.exe, then report success
+    setTimeout(() => {
+      console.log('[launch-game] bat launched, reporting success');
+      gameProcess = { pid: child.pid };
+      startGameMonitor();
+      mainWindow?.webContents.send('game-state', { running: true });
+      if (cfg.minimizeOnLaunch) mainWindow?.minimize();
+      resolve({ success: true, pid: child.pid });
+    }, 800);
+  });
 });
 
 // Kill game
@@ -342,6 +371,36 @@ ipcMain.handle('kill-game', () => {
   exec('taskkill /F /IM RecRoom.exe', () => {});
   gameProcess = null;
   return true;
+});
+
+// Debug: directly exec a bat file — call from DevTools: window.radium.debugExec('screen')
+ipcMain.handle('debug-exec', (_e, mode) => {
+  const batName = mode === 'vr' ? 'RecRoom_VR.bat' : 'RecRoom_ScreenMode.bat';
+  const batPath = path.join(CLIENT_DIR, batName);
+  const exists = fs.existsSync(batPath);
+  console.log('[debug-exec] batPath:', batPath, '  exists:', exists);
+  console.log('[debug-exec] CLIENT_DIR:', CLIENT_DIR);
+  if (!exists) return { ok: false, msg: `Not found: ${batPath}` };
+  return new Promise((resolve) => {
+    exec(`"${batPath}"`, { cwd: CLIENT_DIR }, (err, stdout, stderr) => {
+      console.log('[debug-exec] done. err:', err?.message, 'stdout:', stdout, 'stderr:', stderr);
+      resolve({ ok: !err, err: err?.message, stdout, stderr });
+    });
+  });
+});
+
+// Debug: check all paths
+ipcMain.handle('debug-paths', () => {
+  const screenBat = path.join(CLIENT_DIR, 'RecRoom_ScreenMode.bat');
+  const vrBat     = path.join(CLIENT_DIR, 'RecRoom_VR.bat');
+  const exe       = path.join(CLIENT_DIR, 'RecRoom.exe');
+  return {
+    CLIENT_DIR,
+    USER_DATA,
+    screenBat,  screenBatExists: fs.existsSync(screenBat),
+    vrBat,      vrBatExists:     fs.existsSync(vrBat),
+    exe,        exeExists:       fs.existsSync(exe),
+  };
 });
 
 ipcMain.on('open-url', (_e, url) => shell.openExternal(url));
