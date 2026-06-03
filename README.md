@@ -1,75 +1,27 @@
 # Radium Launcher
 
-A retro-skeuomorphic, early 2000s styled desktop launcher for the **Radium Rec Room Custom Server**. Built with Electron, HTML5, and custom CSS variables, the launcher allows players to manage, update, and launch the game client in both Screen and VR play modes, with support for multiple classic operating system skins.
+just a simple custom launcher for playing on the Radium Rec Room server. it's styled to look like old desktop apps from the early 2000s. 
 
----
+## Features
+- **operating system skins**: you can toggle between Steam 2003 Green, Windows 98 Gray, Windows XP Luna, and Windows Vista Aero. they have authentic borders, rounded titlebars, custom close/minimize buttons, and glassy gradients.
+- **in-app downloads**: downloads the game zip directly inside the launcher, shows you speed & ETA, and extracts it to `%APPDATA%/radium-launcher/client` automatically.
+- **play modes**: support for both SCREEN and VR modes (executes the corresponding bat script inside the client folder).
+- **clean status telemetry**: simple online/offline check for the game gateway and CDN server (no bloated graphs or latency numbers).
+- **no emojis**: completely clean text-only layout for navigation.
 
-## 🎨 Key Features
+## Setup
+make sure you have Node.js installed on your Windows machine, then run:
 
-* **Authentic Retro Skins**: Switch between four signature operating system styles:
-  * **Steam 2003 Green**: Olive-green panels with matrix-green text, outlines, and mechanical click offsets.
-  * **Windows 98 Gray**: Windows classic light gray bevel layout, white inset cards, and solid active navy blue titlebars.
-  * **Windows XP Blue (Luna)**: Thicker titlebar with Luna blue gradient, signature red Close button, blue Minimize button, rounded window corners, and soft pill-shaped controls.
-  * **Windows Vista Aero**: Charcoal-black glossy titlebar with diagonal reflection shine overlays, glassy glowing red Close button, and split-metallic silver button textures.
-* **In-App Client Downloader**: Streamlined installer that fetches the game client `.zip` directly, displays real-time MB/s speed, ETA, and progress blocks, and extracts files locally to `%APPDATA%/radium-launcher/client`.
-* **Play Mode Selection**: Quick toggle between **SCREEN** (executes `RecRoom_ScreenMode.bat`) and **VR** (executes `RecRoom_VR.bat`) play scripts.
-* **Unified Status Telemetry**: Live connection checks against the API Gateway (`https://ns.radie.app`) and CDN (`https://cdn.recroomarchive.org`) with zero latency noise or player count bloat.
-* **Clean & Robust Architecture**: Built with modern Electron sandboxing, preload context bridges, native PowerShell archive extraction, and `tasklist` process validation.
+```bash
+# install dependencies
+npm install
 
----
+# run locally
+npm start
 
-## 🛠️ Technology Stack
-
-* **Core**: Electron (v36.3.x)
-* **Frontend**: HTML5, Vanilla JavaScript, and Custom CSS (no Tailwind/modern UI frameworks, preserving vintage pixel-alignment aesthetics)
-* **Storage**: `electron-store` (for settings and active theme config)
-
----
-
-## 🚀 Installation & Local Development
-
-### Prerequisites
-* [Node.js](https://nodejs.org/) (v16+ recommended)
-* Windows OS (required for Rec Room client execution and PowerShell archive commands)
-
-### Setup
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/radium-launcher.git
-   cd radium-launcher
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Run the launcher in developer mode:
-   ```bash
-   npm start
-   ```
-4. Build portable Windows `.exe` and NSIS installer packages:
-   ```bash
-   npm run build
-   ```
-
----
-
-## 📂 Project Structure
-
-```
-radium-electron/
-├── electron/
-│   ├── main.js        # Main process (downloading, execution, IPC management)
-│   └── preload.js     # Preload context bridge
-├── src/
-│   ├── index.html     # HTML layouts for tabs (Home, Status, Settings)
-│   ├── style.css      # Skeuomorphic styling sheet (Win2000, XP, Vista variables)
-│   └── app.js         # Frontend renderer logic & event binding
-├── package.json       # Electron builder and startup configurations
-└── README.md          # Project documentation
+# package into an installer / portable exe
+npm run build
 ```
 
----
-
-## 📜 License
-
-This project is community-driven and is not affiliated with, authorized, or endorsed by Rec Room Inc.
+## Config location
+all client data and settings are stored locally in the electron user directory under `%APPDATA%/radium-launcher/`.
