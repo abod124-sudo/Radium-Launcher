@@ -6,6 +6,9 @@ const http   = require('http');
 const { spawn, exec } = require('child_process');
 const os     = require('os');
 
+const GITHUB_OWNER = 'abod124-sudo';
+const GITHUB_REPO  = 'Radium-Launcher';
+
 // Client folders and paths under local AppData
 const USER_DATA  = app.getPath('userData');
 const CONFIG_FILE = path.join(USER_DATA, 'config.json');
@@ -202,7 +205,13 @@ app.on('window-all-closed', () => {
 
 // IPC actions called from renderer script
 ipcMain.on('win-minimize', () => mainWindow?.minimize());
-ipcMain.on('win-close',    () => { downloadAborted = true; if (gameProcess) gameProcess.kill(); app.quit(); });
+ipcMain.on('win-close', () => {
+  downloadAborted = true;
+  if (downloadReq) { try { downloadReq.destroy(); } catch {} }
+  // Kill the game if running before quitting
+  exec('taskkill /F /IM RecRoom.exe', () => {});
+  app.quit();
+});
 
 ipcMain.handle('get-config',  ()      => ensureConfig());
 ipcMain.handle('save-config', (_e, c) => { saveConfig(c); return true; });
@@ -335,9 +344,9 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
   const batDir = path.dirname(batPath);
   console.log('[launch-game] launching:', batPath, '  cwd:', batDir);
 
-  // Save resolved batPath to config
+  // Save the actual resolved bat path (not always the screen bat)
   const updatedCfg = ensureConfig();
-  updatedCfg.gameExePath = path.join(CLIENT_DIR, 'RecRoom_ScreenMode.bat');
+  updatedCfg.gameExePath = batPath;
   saveConfig(updatedCfg);
 
   return new Promise((resolve) => {
@@ -404,3 +413,80 @@ ipcMain.handle('debug-paths', () => {
 });
 
 ipcMain.on('open-url', (_e, url) => shell.openExternal(url));
+
+// ─── Auto-update: check latest GitHub release ────────────────────────────────
+function semverGt(a, b) {
+  // Returns true if version a > version b
+  const pa = String(a).replace(/^v/, '').split('.').map(Number);
+  const pb = String(b).replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const na = pa[i] || 0, nb = pb[i] || 0;
+    if (na > nb) return true;
+    if (na < nb) return false;
+  }
+  return false;
+}
+
+ipcMain.handle('check-for-update', () => {
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.github.com',
+      path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
+      method: 'GET',
+      headers: { 'User-Agent': 'Radium-Launcher-Updater' }
+    };
+    const req = https.get(options, (res) => {
+      let body = '';
+      res.on('data', (c) => body += c);
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          const latestTag = data.tag_name || '';
+          const currentVer = app.getVersion();
+          const isNewer = semverGt(latestTag, currentVer);
+          // Find the setup exe asset
+          const asset = (data.assets || []).find(a =>
+            a.name && a.name.toLowerCase().includes('setup') && a.name.endsWith('.exe')
+          );
+          resolve({
+            hasUpdate: isNewer,
+            currentVersion: currentVer,
+            latestVersion:  latestTag,
+            releaseUrl: data.html_url || '',
+            downloadUrl: asset ? asset.browser_download_url : '',
+            releaseNotes: data.body || ''
+          });
+        } catch (e) {
+          resolve({ hasUpdate: false, error: e.message });
+        }
+      });
+    });
+    req.on('error', (e) => resolve({ hasUpdate: false, error: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ hasUpdate: false, error: 'Timeout' }); });
+    req.setTimeout(10000);
+  });
+});
+
+ipcMain.handle('download-update', async (_e, downloadUrl) => {
+  if (!downloadUrl) return { success: false, error: 'No download URL' };
+  const tmpPath = path.join(os.tmpdir(), 'RadiumLauncherSetup_update.exe');
+  try {
+    // Reset abort flag and decouple from game-client download tracking
+    downloadAborted = false;
+    const savedReq = downloadReq;
+    downloadReq = null;
+    await doDownload(downloadUrl, tmpPath, () => {});
+    downloadReq = savedReq; // restore in case game client DL was ongoing
+    // Spawn the installer detached so it outlives this process
+    const child = spawn(tmpPath, [], {
+      detached: true,
+      stdio:    'ignore'
+    });
+    child.unref();
+    // Give the installer a moment to start, then quit the launcher
+    setTimeout(() => app.quit(), 1500);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});

@@ -53,7 +53,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <div class="version-tag" id="versionTag">v1.0.0</div>
+        <div class="version-tag" id="versionTag">...</div>
       </div>
     </aside>
 
@@ -63,27 +63,11 @@
       <!-- ───────── HOME TAB ─────────────────────────────── -->
       <section class="tab-panel active" id="tab-home">
 
-        <!-- Hero Banner -->
-        <div class="hero">
-          <div class="hero-bg-grid"></div>
-          <div class="hero-content">
-            <h1 class="hero-title">WELCOME TO <span class="neon">RADIUM</span></h1>
-            <p class="hero-sub">The community-run revival of Rec Room.</p>
-
-          </div>
-        </div>
-
         <!-- Download Section (shown when not installed) -->
         <div class="download-section" id="downloadSection">
-          <div class="ds-header">
-            <div class="ds-icon"></div>
-            <div class="ds-text">
-              <div class="ds-title">DOWNLOAD RADIUM CLIENT</div>
-              <div class="ds-sub">Download the game client to start playing — Windows 64-bit</div>
-            </div>
-            <button class="btn-download-big" id="btnDownload">
-              DOWNLOAD
-            </button>
+          <div class="ds-main">
+            <div class="ds-main-title">DOWNLOAD RADIUM CLIENT</div>
+            <button class="btn-download-big" id="btnDownload">⬇ DOWNLOAD</button>
           </div>
 
           <!-- Progress (hidden until downloading) -->
@@ -107,36 +91,41 @@
         <!-- Launch Panel (shown when installed) -->
         <div class="launch-panel" id="launchPanel" style="display:none">
 
-          <!-- Left: label + mode toggle + secondary actions -->
-          <div class="launch-left">
-            <div class="launch-label">GAME CLIENT</div>
-
-            <div class="mode-row">
-              <span class="mode-label">PLAY MODE</span>
-              <div class="mode-toggle-wrap">
-                <button class="mode-btn active" id="modeScreen" data-mode="screen">SCREEN</button>
-                <button class="mode-btn" id="modeVR" data-mode="vr">VR</button>
-              </div>
-            </div>
-
-            <div class="launch-secondary-actions">
-              <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
-              <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
-            </div>
+          <!-- Top header band -->
+          <div class="launch-header-band">
+            <div class="launch-band-title">RADIUM</div>
           </div>
 
-          <!-- Right: big PLAY button + running state -->
-          <div class="launch-right">
-            <button class="btn-play" id="btnPlay">
-              <div class="play-inner">
-                <span class="play-triangle">▶</span>
-                <span class="play-text" id="playText">PLAY</span>
+          <!-- Main controls row -->
+          <div class="launch-controls-row">
+            <!-- Left: mode toggle + secondary actions -->
+            <div class="launch-left">
+              <div class="launch-label">PLAY MODE</div>
+              <div class="mode-row">
+                <div class="mode-toggle-wrap">
+                  <button class="mode-btn active" id="modeScreen" data-mode="screen">SCREEN</button>
+                  <button class="mode-btn" id="modeVR" data-mode="vr">VR</button>
+                </div>
               </div>
-            </button>
-            <div class="play-status" id="playStatus" style="display:none">
-              <div class="running-dot"></div>
-              <span>GAME RUNNING</span>
-              <button class="btn-kill" id="btnKill">STOP</button>
+              <div class="launch-secondary-actions">
+                <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
+                <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
+              </div>
+            </div>
+
+            <!-- Right: big PLAY button + running state -->
+            <div class="launch-right">
+              <button class="btn-play" id="btnPlay">
+                <div class="play-inner">
+                  <span class="play-triangle">▶</span>
+                  <span class="play-text" id="playText">PLAY</span>
+                </div>
+              </button>
+              <div class="play-status" id="playStatus" style="display:none">
+                <div class="running-dot"></div>
+                <span>GAME RUNNING</span>
+                <button class="btn-kill" id="btnKill">STOP</button>
+              </div>
             </div>
           </div>
 
@@ -279,6 +268,36 @@
       </section>
 
     </main>
+  </div>
+
+  <!-- Update Available Modal -->
+  <div class="modal-overlay" id="updateModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⬆ UPDATE AVAILABLE</span>
+        <button class="modal-close-btn" id="updateModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="update-version-row">
+          <div class="update-ver-block">
+            <div class="update-ver-label">CURRENT</div>
+            <div class="update-ver-value" id="updateCurrentVer">—</div>
+          </div>
+          <div class="update-arrow">→</div>
+          <div class="update-ver-block new">
+            <div class="update-ver-label">NEW</div>
+            <div class="update-ver-value" id="updateLatestVer">—</div>
+          </div>
+        </div>
+        <div class="update-notes-label">RELEASE NOTES</div>
+        <div class="update-notes" id="updateNotes"></div>
+        <div class="update-status" id="updateStatus" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="updateLaterBtn">Later</button>
+        <button class="modal-btn modal-btn-primary" id="updateNowBtn">⬇ Update Now</button>
+      </div>
+    </div>
   </div>
 
   <!-- Toast -->

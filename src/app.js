@@ -23,7 +23,6 @@ function formatEta(secs) {
 }
 
 // Notification toasts
-let toastTimer = null;
 function toast(msg, type = 'info', ms = 3200) {
   const c = $('toastContainer');
   const el = document.createElement('div');
@@ -184,7 +183,7 @@ async function checkInstall() {
     addLog('Game client found: ' + (result.exePath || 'client dir'), 'ok');
   } else {
     // Show download section, hide launch panel
-    $('downloadSection').style.display = 'block';
+    $('downloadSection').style.display = 'flex';
     $('launchPanel').style.display     = 'none';
     $('qsInstalled').textContent       = 'NOT INSTALLED';
     if (qscC) {
@@ -272,7 +271,7 @@ $('btnCancelDl')?.addEventListener('click', () => {
 
 // Reinstall button
 $('btnReinstall')?.addEventListener('click', () => {
-  $('downloadSection').style.display = 'block';
+  $('downloadSection').style.display = 'flex';
   $('launchPanel').style.display     = 'none';
   isInstalled = false;
   addLog('Reinstall initiated.', 'info');
@@ -461,6 +460,78 @@ window.radium?.onGameState((data) => {
 
 window.radium?.onDownloadProgress(updateDlProgress);
 
+// Auto-update: check for a newer launcher release on GitHub
+let updateInfo = null;
+
+function showUpdateModal(info) {
+  updateInfo = info;
+  $('updateCurrentVer').textContent = `v${info.currentVersion}`;
+  $('updateLatestVer').textContent  = info.latestVersion;
+  $('updateNotes').textContent      = info.releaseNotes || '(No release notes provided.)';
+  const status = $('updateStatus');
+  if (status) status.style.display = 'none';
+  const nowBtn = $('updateNowBtn');
+  if (nowBtn) { nowBtn.disabled = false; nowBtn.textContent = '⬇ Update Now'; }
+  $('updateModal').style.display = 'flex';
+}
+
+function hideUpdateModal() {
+  $('updateModal').style.display = 'none';
+}
+
+$('updateModalClose')?.addEventListener('click', hideUpdateModal);
+$('updateLaterBtn')?.addEventListener('click', hideUpdateModal);
+
+$('updateNowBtn')?.addEventListener('click', async () => {
+  if (!updateInfo?.downloadUrl) {
+    // No direct download — open the release page in browser
+    window.radium?.openUrl(updateInfo?.releaseUrl || 'https://github.com/abod124-sudo/Radium-Launcher/releases/latest');
+    hideUpdateModal();
+    return;
+  }
+  const nowBtn = $('updateNowBtn');
+  const status = $('updateStatus');
+  if (nowBtn) { nowBtn.disabled = true; nowBtn.textContent = '⬇ Downloading...'; }
+  if (status) { status.style.display = 'block'; status.style.color = ''; status.textContent = 'Downloading update, please wait...'; }
+  addLog(`Downloading update ${updateInfo.latestVersion}...`, 'info');
+
+  const result = await window.radium?.downloadUpdate(updateInfo.downloadUrl);
+  if (result?.success) {
+    if (status) status.textContent = 'Update downloaded! Launching installer...';
+    addLog('Launcher update started — restarting.', 'ok');
+    // App will quit shortly from main process
+  } else {
+    const err = result?.error || 'Unknown error';
+    if (status) { status.textContent = `Error: ${err}`; status.style.color = '#ff6666'; }
+    if (nowBtn) { nowBtn.disabled = false; nowBtn.textContent = '⬇ Update Now'; }
+    addLog(`Update failed: ${err}`, 'error');
+    toast(`Update failed: ${err}`, 'error', 5000);
+  }
+});
+
+async function checkForLauncherUpdate() {
+  // Only check if autoUpdate is enabled in settings
+  if (config.autoUpdate === false) return;
+  addLog('Checking for launcher updates...', 'info');
+  try {
+    const info = await window.radium?.checkForUpdate();
+    if (!info) return;
+    if (info.error) {
+      addLog(`Update check failed: ${info.error}`, 'info');
+      return;
+    }
+    if (info.hasUpdate) {
+      addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok');
+      toast(`Update available: ${info.latestVersion}!`, 'ok', 5000);
+      showUpdateModal(info);
+    } else {
+      addLog(`Launcher is up to date (v${info.currentVersion}).`, 'info');
+    }
+  } catch (e) {
+    addLog(`Update check error: ${e.message}`, 'info');
+  }
+}
+
 // Launcher entrypoint initialization
 async function init() {
   addLog('Radium Launcher started.', 'ok');
@@ -474,7 +545,12 @@ async function init() {
 
   // Check server on startup (show results in log), then silently every 60s
   await checkServerStatus(false);
-  setInterval(() => checkServerStatus(true), 60_000);
+  const serverPollInterval = setInterval(() => checkServerStatus(true), 60_000);
+  // Clear the poll if the window is closed
+  window.addEventListener('beforeunload', () => clearInterval(serverPollInterval));
+
+  // Check for launcher updates on startup (after UI is ready)
+  setTimeout(() => checkForLauncherUpdate(), 2000);
 }
 
 init().catch(err => {
