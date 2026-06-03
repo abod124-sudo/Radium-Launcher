@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;" />
+  <title>Radium Launcher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Custom Title Bar -->
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-drag">
+      <span class="titlebar-app-name">RADIUM LAUNCHER</span>
+    </div>
+    <div class="titlebar-controls">
+      <button id="btnMinimize" class="tb-ctrl min" title="Minimize">─</button>
+      <button id="btnClose"    class="tb-ctrl cls" title="Close">✕</button>
+    </div>
+  </div>
+
+  <!-- App Layout -->
+  <div class="app-layout">
+
+    <!-- ── Sidebar ─────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-combo" id="logoCombo">
+          <img src="../logo.png" alt="Radium Icon" id="sidebarLogo" />
+          <div class="logo-wordmark">
+            <div class="wordmark-text">RADIUM</div>
+          </div>
+        </div>
+        <div class="sidebar-logo-fallback" id="logoFallback" style="display:none">
+          <div class="fallback-icon">R</div>
+          <div class="fallback-text">RADIUM</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-tab="home" id="nav-home">
+          HOME
+        </button>
+        <button class="nav-btn" data-tab="status" id="nav-status">
+          SERVER STATUS
+        </button>
+        <button class="nav-btn" data-tab="settings" id="nav-settings">
+          SETTINGS
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="version-tag" id="versionTag">v1.0.0</div>
+      </div>
+    </aside>
+
+    <!-- ── Main Content ─────────────────────────────────────── -->
+    <main class="main-content">
+
+      <!-- ───────── HOME TAB ─────────────────────────────── -->
+      <section class="tab-panel active" id="tab-home">
+
+        <!-- Hero Banner -->
+        <div class="hero">
+          <div class="hero-bg-grid"></div>
+          <div class="hero-content">
+            <h1 class="hero-title">WELCOME TO <span class="neon">RADIUM</span></h1>
+            <p class="hero-sub">The community-run revival of Rec Room.</p>
+
+          </div>
+        </div>
+
+        <!-- Download Section (shown when not installed) -->
+        <div class="download-section" id="downloadSection">
+          <div class="ds-header">
+            <div class="ds-icon"></div>
+            <div class="ds-text">
+              <div class="ds-title">DOWNLOAD RADIUM CLIENT</div>
+              <div class="ds-sub">Download the game client to start playing — Windows 64-bit</div>
+            </div>
+            <button class="btn-download-big" id="btnDownload">
+              DOWNLOAD
+            </button>
+          </div>
+
+          <!-- Progress (hidden until downloading) -->
+          <div class="dl-progress-block" id="dlProgressBlock" style="display:none">
+            <div class="dlp-top">
+              <span class="dlp-phase" id="dlPhaseLabel">Downloading...</span>
+              <span class="dlp-pct" id="dlPctLabel">0%</span>
+            </div>
+            <div class="dlp-bar-wrap">
+              <div class="dlp-bar-fill" id="dlBarFill"></div>
+            </div>
+            <div class="dlp-bottom">
+              <span id="dlSpeedLabel">—</span>
+              <span id="dlSizeLabel">—</span>
+              <span id="dlEtaLabel">—</span>
+              <button class="btn-cancel-dl" id="btnCancelDl">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Launch Panel (shown when installed) -->
+        <div class="launch-panel" id="launchPanel" style="display:none">
+          <div class="launch-left">
+            <div class="launch-label">GAME CLIENT</div>
+            <div class="launch-path" id="launchPathDisplay">Installed</div>
+
+            <!-- VR / Screen mode toggle -->
+            <div class="mode-row">
+              <span class="mode-label">PLAY MODE</span>
+              <div class="mode-toggle-wrap">
+                <button class="mode-btn active" id="modeScreen" data-mode="screen">
+                  SCREEN
+                </button>
+                <button class="mode-btn" id="modeVR" data-mode="vr">
+                  VR
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="launch-right">
+            <button class="btn-play" id="btnPlay">
+              <div class="play-inner">
+                <span class="play-triangle">▶</span>
+                <span class="play-text" id="playText">PLAY</span>
+              </div>
+            </button>
+
+            <div class="play-status" id="playStatus" style="display:none">
+              <div class="running-dot"></div>
+              <span>GAME RUNNING</span>
+              <button class="btn-kill" id="btnKill">STOP</button>
+            </div>
+
+            <div class="launch-actions" style="display: flex; gap: 6px; margin-top: 6px;">
+              <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
+              <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Stats Row -->
+        <div class="quick-stats">
+          <div class="qs-card" id="qsc-status">
+            <div class="qs-header-row">
+              <span class="qs-label">Server Status</span>
+              <span class="qs-icon-indicator"></span>
+            </div>
+            <div class="qs-value" id="qsStatus">—</div>
+          </div>
+          <div class="qs-card" id="qsc-client">
+            <div class="qs-header-row">
+              <span class="qs-label">Client Status</span>
+              <span class="qs-icon-indicator"></span>
+            </div>
+            <div class="qs-value" id="qsInstalled">—</div>
+          </div>
+          <div class="qs-card" id="qsc-mode">
+            <div class="qs-header-row">
+              <span class="qs-label">Play Mode</span>
+              <span class="qs-icon-indicator"></span>
+            </div>
+            <div class="qs-value" id="qsMode">SCREEN</div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ───────── SERVER STATUS TAB ──────────────────────── -->
+      <section class="tab-panel" id="tab-status">
+        <div class="panel-header">
+          <h2>SERVER STATUS</h2>
+          <button class="btn-refresh" id="btnRefreshStatus">Refresh</button>
+        </div>
+
+        <div class="status-grid">
+          <div class="status-card" id="sc-api">
+            <div class="sc-header">
+              <span class="sc-dot"></span>
+              <span class="sc-name">API Gateway</span>
+            </div>
+            <div class="sc-state" id="sc-api-state">—</div>
+            <div class="sc-label">REST API · ns.radie.app</div>
+          </div>
+          <div class="status-card" id="sc-ws">
+            <div class="sc-header">
+              <span class="sc-dot"></span>
+              <span class="sc-name">Game Server</span>
+            </div>
+            <div class="sc-state" id="sc-ws-state">—</div>
+            <div class="sc-label">Realtime Gateway · ns.radie.app</div>
+          </div>
+          <div class="status-card" id="sc-assets">
+            <div class="sc-header">
+              <span class="sc-dot"></span>
+              <span class="sc-name">CDN</span>
+            </div>
+            <div class="sc-state" id="sc-assets-state">—</div>
+            <div class="sc-label">CDN · cdn.recroomarchive.org</div>
+          </div>
+        </div>
+
+        <div class="log-section">
+          <div class="ls-header">CONNECTION LOG</div>
+          <div class="log-output" id="logOutput"></div>
+        </div>
+      </section>
+
+      <!-- ───────── SETTINGS TAB ─────────────────────────── -->
+      <section class="tab-panel" id="tab-settings">
+        <div class="panel-header">
+          <h2>SETTINGS</h2>
+          <button class="btn-save" id="btnSaveSettings">SAVE</button>
+        </div>
+
+        <div class="settings-body">
+
+          <!-- Server Config -->
+          <div class="settings-group">
+            <div class="sg-title">SERVER</div>
+            <div class="sg-row">
+              <label for="cfgApiUrl">API Server URL</label>
+              <input type="text" id="cfgApiUrl" class="cfg-input" placeholder="https://ns.radie.app" />
+            </div>
+            <div class="sg-row">
+              <button class="btn-test-server" id="btnTestServer">TEST CONNECTION</button>
+              <div class="test-result" id="testResult"></div>
+            </div>
+          </div>
+
+          <!-- Client -->
+          <div class="settings-group">
+            <div class="sg-title">CLIENT</div>
+            <div class="sg-row">
+              <label for="cfgExePath">Launch Script</label>
+              <input type="text" id="cfgExePath" class="cfg-input" placeholder="Auto-detected after install" readonly />
+            </div>
+            <div class="sg-row">
+              <label>Install Location</label>
+              <span class="cfg-path-display" id="cfgInstallDir">%APPDATA%\radium-launcher\client</span>
+            </div>
+          </div>
+
+          <!-- Theme -->
+          <div class="settings-group">
+            <div class="sg-title">THEME</div>
+            <div class="sg-row">
+              <label for="cfgTheme">Active Skin</label>
+              <select id="cfgTheme" class="cfg-input">
+                <option value="steam-green">Steam 2003 Green</option>
+                <option value="win98">Windows 98 Gray</option>
+                <option value="winxp">Windows XP Blue</option>
+                <option value="winvista">Windows Vista Aero</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Options -->
+          <div class="settings-group">
+            <div class="sg-title">OPTIONS</div>
+            <div class="sg-toggle-row">
+              <span>Minimize launcher when game starts</span>
+              <div class="toggle-wrap" id="tgl-minimizeOnLaunch">
+                <div class="tgl-knob"></div>
+              </div>
+            </div>
+            <div class="sg-toggle-row">
+              <span>Auto-update launcher on startup</span>
+              <div class="toggle-wrap" id="tgl-autoUpdate">
+                <div class="tgl-knob"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
