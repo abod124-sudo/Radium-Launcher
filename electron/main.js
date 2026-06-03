@@ -75,7 +75,8 @@ function doDownload(url, destPath, onProgress) {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         downloadReq = null;
         res.resume();
-        return doDownload(res.headers.location, destPath, onProgress)
+        const resolvedUrl = new URL(res.headers.location, url).toString();
+        return doDownload(resolvedUrl, destPath, onProgress)
           .then(resolve).catch(reject);
       }
 
@@ -116,6 +117,14 @@ function doDownload(url, destPath, onProgress) {
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
     downloadReq = req;
+  });
+}
+
+function checkGameRunning() {
+  return new Promise((res) => {
+    exec('tasklist /NH /FI "IMAGENAME eq RecRoom.exe"', (err, stdout) => {
+      res(!!(stdout && stdout.toLowerCase().includes('recroom.exe')));
+    });
   });
 }
 
@@ -228,6 +237,9 @@ ipcMain.handle('check-install', () => {
 
 // Download + extract client
 ipcMain.handle('download-client', async (event) => {
+  const isRunning = await checkGameRunning();
+  if (isRunning) return { success: false, error: 'Cannot download or install while the game is running.' };
+
   downloadAborted = false;
 
   // Ensure dirs exist
@@ -256,7 +268,9 @@ ipcMain.handle('download-client', async (event) => {
     fs.mkdirSync(CLIENT_DIR, { recursive: true });
 
     await new Promise((resolve, reject) => {
-      const cmd = `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${CLIENT_ZIP}' -DestinationPath '${CLIENT_DIR}' -Force"`;
+      const zipEscaped = CLIENT_ZIP.replace(/'/g, "''");
+      const dirEscaped = CLIENT_DIR.replace(/'/g, "''");
+      const cmd = `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${zipEscaped}' -DestinationPath '${dirEscaped}' -Force"`;
       exec(cmd, { timeout: 120000 }, (err) => {
         if (err) reject(err); else resolve();
       });
@@ -286,6 +300,9 @@ ipcMain.handle('download-client', async (event) => {
 
 // Uninstall client (removes files & resets config path)
 ipcMain.handle('uninstall-client', async () => {
+  const isRunning = await checkGameRunning();
+  if (isRunning) return { success: false, error: 'Cannot uninstall while the game is running.' };
+
   try {
     if (fs.existsSync(CLIENT_DIR)) {
       fs.rmSync(CLIENT_DIR, { recursive: true, force: true });
@@ -310,11 +327,7 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
   console.log('[launch-game] called, cfg:', JSON.stringify(cfg));
 
   // Check if RecRoom.exe is already running
-  const isRunning = await new Promise((res) => {
-    exec('tasklist /NH /FI "IMAGENAME eq RecRoom.exe"', (err, stdout) => {
-      res(stdout && stdout.toLowerCase().includes('recroom.exe'));
-    });
-  });
+  const isRunning = await checkGameRunning();
   if (isRunning) return { success: false, error: 'Game already running.' };
 
   const batName = cfg.playMode === 'vr' ? 'RecRoom_VR.bat' : 'RecRoom_ScreenMode.bat';
@@ -358,13 +371,7 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
       }
     });
 
-    child.on('error', (err) => {
-      console.error('[launch-game] child error:', err.message);
-      resolve({ success: false, error: err.message });
-    });
-
-    // Give the bat a moment to fire off RecRoom.exe, then report success
-    setTimeout(() => {
+    let launchTimeout = setTimeout(() => {
       console.log('[launch-game] bat launched, reporting success');
       gameProcess = { pid: child.pid };
       startGameMonitor();
@@ -372,6 +379,12 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
       if (cfg.minimizeOnLaunch) mainWindow?.minimize();
       resolve({ success: true, pid: child.pid });
     }, 800);
+
+    child.on('error', (err) => {
+      clearTimeout(launchTimeout);
+      console.error('[launch-game] child error:', err.message);
+      resolve({ success: false, error: err.message });
+    });
   });
 });
 
@@ -436,6 +449,11 @@ ipcMain.handle('check-for-update', () => {
       headers: { 'User-Agent': 'Radium-Launcher-Updater' }
     };
     const req = https.get(options, (res) => {
+      if (res.statusCode !== 200) {
+        resolve({ hasUpdate: false, error: `GitHub API returned HTTP ${res.statusCode}` });
+        res.resume();
+        return;
+      }
       let body = '';
       res.on('data', (c) => body += c);
       res.on('end', () => {
