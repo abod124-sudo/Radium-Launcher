@@ -1,11 +1,11 @@
 # Radium Launcher
 
-An unofficial custom launcher for playing on the Radium public Rec Room server. Styled to look like classic desktop apps from the early 2000s.
+An unofficial custom launcher for playing on the Radium public Rec Room server.
 ---
 
 ## Features
 
-- **Retro UI Skins** — Toggle between four authentic themes: Steam 2003 Green, Windows 98 Gray, Windows XP Luna, and Windows Vista Aero — each with accurate borders, titlebars, and button styles.
+- **UI Skins** — Toggle between four authentic themes: Steam 2003 Green, Windows 98 Gray, Windows XP Luna, and Windows Vista Aero — each with accurate borders, titlebars, and button styles.
 - **In-App Client Download** — Downloads the game zip directly inside the launcher with live speed & ETA progress, then auto-extracts it to `%APPDATA%\radium-launcher\client`.
 - **Play Modes** — Supports both Screen and VR modes, executing the correct `.bat` script from the client folder.
 - **Server Status** — Checks the game API gateway and CDN on startup and every 60 seconds, with an instant refresh button.
