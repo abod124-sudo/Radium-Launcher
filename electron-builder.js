@@ -21,6 +21,25 @@ const config = {
   ]
 };
 
+const fs = require('fs');
+const path = require('path');
+
+// Load environment variables from .env if it exists
+const envPath = path.join(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  for (const line of envContent.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const parts = trimmed.split('=');
+    if (parts.length >= 2) {
+      const key = parts[0].trim();
+      const val = parts.slice(1).join('=').trim().replace(/(^["']|["']$)/g, '');
+      process.env[key] = val;
+    }
+  }
+}
+
 // Azure Trusted Signing configuration
 // Only enable if endpoint, account name, and profile name are provided in the environment
 if (process.env.AZURE_SIGNING_ENDPOINT && process.env.AZURE_SIGNING_ACCOUNT && process.env.AZURE_SIGNING_PROFILE) {
