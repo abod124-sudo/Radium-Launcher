@@ -318,7 +318,7 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
 
   try {
     const batDir = path.dirname(batPath);
-    const spawned = spawn(batPath, [], { detached: true, shell: true, cwd: batDir, stdio: 'ignore' });
+    const spawned = spawn('cmd.exe', ['/c', batPath], { detached: true, shell: false, cwd: batDir, stdio: 'ignore' });
     spawned.unref();
 
     gameProcess = { pid: spawned.pid };
