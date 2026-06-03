@@ -1,29 +1,80 @@
-# Radium Launcher (Unofficial)
+# Radium Launcher
 
-an unofficial custom launcher for playing on the Radium Rec Room server. it's styled to look like old desktop apps from the early 2000s. 
+An unofficial custom launcher for playing on the Radium private Rec Room server. Styled to look like classic desktop apps from the early 2000s.
+
+> **Latest release:** [v1.2.0](https://github.com/abod124-sudo/Radium-Launcher/releases/latest)
+
+---
 
 ## Features
-- **skins**: you can toggle between Steam 2003 Green, Windows 98 Gray, Windows XP Luna, and Windows Vista Aero. they have authentic borders, rounded titlebars, custom close/minimize buttons, and glassy gradients.
-- **in-app downloads**: downloads the game zip directly inside the launcher, shows you speed & ETA, and extracts it to `%APPDATA%/radium-launcher/client` automatically.
-- **play modes**: support for both SCREEN and VR modes (executes the corresponding bat script inside the client folder).
-- **clean status telemetry**: simple online/offline check for the game gateway and CDN server.
 
-## Setup
-make sure you have Node.js installed on your Windows machine, then run:
+- **Retro UI Skins** — Toggle between four authentic themes: Steam 2003 Green, Windows 98 Gray, Windows XP Luna, and Windows Vista Aero — each with accurate borders, titlebars, and button styles.
+- **In-App Client Download** — Downloads the game zip directly inside the launcher with live speed & ETA progress, then auto-extracts it to `%APPDATA%\radium-launcher\client`.
+- **Play Modes** — Supports both Screen and VR modes, executing the correct `.bat` script from the client folder.
+- **Server Status** — Checks the game API gateway and CDN on startup and every 60 seconds, with an instant refresh button.
+- **Auto-Update** — On startup the launcher checks GitHub for a newer version. If one is found, a popup shows the release notes and lets you download & install it in one click.
+- **Settings** — Configure the API server URL, play mode, theme, minimize-on-launch, and auto-update toggle. All saved locally.
+
+---
+
+## Download
+
+Grab the latest build from the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
+
+| File | Description |
+|------|-------------|
+| `Radium.Launcher.Setup.x.x.x.exe` | NSIS installer (recommended) |
+| `Radium.Launcher.x.x.x.exe` | Portable single executable |
+
+---
+
+## Development Setup
+
+Requires **Node.js** on Windows.
 
 ```bash
-# install dependencies
+# Install dependencies
 npm install
 
-# run locally
-npm start
+# Run in dev mode (opens the app)
+npm run dev
 
-# package into an installer / portable exe
+# Package into installer + portable exe
 npm run build
 ```
 
-## Config location
-all client data and settings are stored locally in the electron user directory under `%APPDATA%/radium-launcher/`.
+---
 
-## Note on Code
-btw, parts of this launcher's codebase were written/co-authored with the help of AI coding assistants.
+## File Locations
+
+All client data and settings are stored locally under:
+
+```
+%APPDATA%\radium-launcher\
+  ├── config.json       ← saved settings
+  └── client\           ← downloaded game files
+```
+
+---
+
+## Changelog
+
+### v1.2.0
+- Redesigned home tab — removed hero banner, cleaner download/launch panels
+- Added auto-update system with styled popup and one-click install
+- Fixed 9 bugs (crash on close, VR launch saving wrong path, poll interval leak, and more)
+
+### v1.1.0
+- Fixed game launch failing when username contains spaces
+- Fixed server status stuck on `—` at startup
+- Added 60-second server status auto-refresh
+- Fixed Reinstall/Uninstall button appearance
+
+### v1.0.0
+- Initial release
+
+---
+
+## Note
+
+Parts of this launcher's codebase were written/co-authored with the help of AI coding assistants.
