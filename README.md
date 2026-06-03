@@ -24,3 +24,6 @@ npm run build
 
 ## Config location
 all client data and settings are stored locally in the electron user directory under `%APPDATA%/radium-launcher/`.
+
+## Note on Code
+btw, parts of this launcher's codebase were written/co-authored with the help of AI coding assistants.
