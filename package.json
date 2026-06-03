@@ -1,30 +1,12 @@
 {
   "name": "radium-launcher",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Radium — Custom Rec Room Private Server Launcher",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
     "build": "electron-builder --win --x64 --arm64"
-  },
-  "build": {
-    "appId": "com.radium.launcher",
-    "productName": "Radium Launcher",
-    "win": {
-      "target": ["nsis", "portable"],
-      "icon": "logo.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    },
-    "files": [
-      "electron/**/*",
-      "src/**/*",
-      "logo.png",
-      "package.json"
-    ]
   },
   "devDependencies": {
     "electron": "^36.3.1",

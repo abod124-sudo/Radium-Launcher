@@ -103,6 +103,7 @@ body.theme-winxp .btn-save,
 body.theme-winxp .btn-test-server, 
 body.theme-winxp .btn-cancel-dl, 
 body.theme-winxp .btn-kill, 
+body.theme-winxp .btn-open-folder,
 body.theme-winxp .btn-reinstall, 
 body.theme-winxp .btn-uninstall,
 body.theme-winxp .nav-btn {
@@ -119,6 +120,7 @@ body.theme-winxp .btn-save:hover,
 body.theme-winxp .btn-test-server:hover, 
 body.theme-winxp .btn-cancel-dl:hover, 
 body.theme-winxp .btn-kill:hover, 
+body.theme-winxp .btn-open-folder:hover,
 body.theme-winxp .btn-reinstall:hover, 
 body.theme-winxp .btn-uninstall:hover,
 body.theme-winxp .nav-btn:hover {
@@ -132,6 +134,7 @@ body.theme-winxp .btn-save:active,
 body.theme-winxp .btn-test-server:active, 
 body.theme-winxp .btn-cancel-dl:active, 
 body.theme-winxp .btn-kill:active, 
+body.theme-winxp .btn-open-folder:active,
 body.theme-winxp .btn-reinstall:active, 
 body.theme-winxp .btn-uninstall:active,
 body.theme-winxp .nav-btn.active {
@@ -233,6 +236,7 @@ body.theme-winvista .btn-save,
 body.theme-winvista .btn-test-server, 
 body.theme-winvista .btn-cancel-dl, 
 body.theme-winvista .btn-kill, 
+body.theme-winvista .btn-open-folder,
 body.theme-winvista .btn-reinstall, 
 body.theme-winvista .btn-uninstall,
 body.theme-winvista .nav-btn {
@@ -250,6 +254,7 @@ body.theme-winvista .btn-save:hover,
 body.theme-winvista .btn-test-server:hover, 
 body.theme-winvista .btn-cancel-dl:hover, 
 body.theme-winvista .btn-kill:hover, 
+body.theme-winvista .btn-open-folder:hover,
 body.theme-winvista .btn-reinstall:hover, 
 body.theme-winvista .btn-uninstall:hover,
 body.theme-winvista .nav-btn:hover {
@@ -266,6 +271,7 @@ body.theme-winvista .btn-save:active,
 body.theme-winvista .btn-test-server:active, 
 body.theme-winvista .btn-cancel-dl:active, 
 body.theme-winvista .btn-kill:active, 
+body.theme-winvista .btn-open-folder:active,
 body.theme-winvista .btn-reinstall:active, 
 body.theme-winvista .btn-uninstall:active,
 body.theme-winvista .nav-btn.active {
@@ -282,6 +288,610 @@ body.theme-winvista .nav-btn {
 body.theme-winvista .nav-btn.active {
   padding: 6px 10px;
 }
+
+/* Windows 95 Teal Theme overrides */
+body.theme-win95 {
+  --bg-dark:      #008080; /* Nostalgic Teal background */
+  --bg-main:      #c0c0c0; /* Solid 95 grey */
+  --bg-panel:     #c0c0c0;
+  --bg-btn:       #c0c0c0;
+  --border-light: #ffffff;
+  --border-dark:  #808080;
+  --green:        #000080; /* Navy Accent */
+  --green-dim:    #000000;
+  --text:         #000000;
+  --text-muted:   #808080;
+  --status-online:#008000;
+}
+body.theme-win95 .titlebar {
+  background: #000080; /* Pure non-gradient dark blue */
+  border-bottom: 2px solid #808080;
+}
+body.theme-win95 .titlebar-app-name {
+  color: #ffffff;
+  font-weight: bold;
+}
+
+/* Windows XP Royale Noir Theme overrides */
+body.theme-royalenoir {
+  --bg-dark:      #1c1c1c; /* Dark theme */
+  --bg-main:      #2b2b2b; /* Black Luna/Royale slate frame */
+  --bg-panel:     #3a3a3a;
+  --bg-btn:       #4c4c4c;
+  --border-light: #606060;
+  --border-dark:  #141414;
+  --green:        #3b93ff; /* Glossy Electric Blue */
+  --green-dim:    #1f57b3;
+  --text:         #ffffff;
+  --text-muted:   #8a8a8a;
+  --status-online:#00d000;
+  border: 3px solid #141414;
+  border-radius: 8px 8px 0 0;
+}
+body.theme-royalenoir .titlebar {
+  height: 32px;
+  background: linear-gradient(180deg, #444444 0%, #1e1e1e 50%, #0c0c0c 100%);
+  border-bottom: 1px solid #141414;
+  border-radius: 6px 6px 0 0;
+}
+body.theme-royalenoir .titlebar-app-name {
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+body.theme-royalenoir .tb-ctrl {
+  width: 21px;
+  height: 21px;
+  border-radius: 3px;
+  border: 1px solid #141414;
+  font-size: 11px;
+  font-weight: bold;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  margin-top: -2px;
+}
+body.theme-royalenoir .tb-ctrl.min {
+  background: linear-gradient(180deg, #444444 0%, #222222 100%);
+  color: #ffffff;
+}
+body.theme-royalenoir .tb-ctrl.min:hover {
+  background: linear-gradient(180deg, #555555 0%, #333333 100%);
+}
+body.theme-royalenoir .tb-ctrl.cls {
+  background: linear-gradient(180deg, #ff7247 0%, #d8340d 100%);
+  color: #ffffff;
+  border-color: #551100;
+}
+body.theme-royalenoir .tb-ctrl.cls:hover {
+  background: linear-gradient(180deg, #d8340d 0%, #ff7247 100%);
+}
+body.theme-royalenoir .btn-download-big, 
+body.theme-royalenoir .btn-play, 
+body.theme-royalenoir .btn-refresh, 
+body.theme-royalenoir .btn-save, 
+body.theme-royalenoir .btn-test-server, 
+body.theme-royalenoir .btn-cancel-dl, 
+body.theme-royalenoir .btn-kill, 
+body.theme-royalenoir .btn-open-folder,
+body.theme-royalenoir .btn-reinstall, 
+body.theme-royalenoir .btn-uninstall,
+body.theme-royalenoir .nav-btn {
+  border-radius: 4px;
+  border: 1px solid #141414;
+  background: linear-gradient(180deg, #444444 0%, #282828 100%);
+  box-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+  color: #f0f0f0;
+}
+body.theme-royalenoir .btn-download-big:hover, 
+body.theme-royalenoir .btn-play:hover, 
+body.theme-royalenoir .btn-refresh:hover, 
+body.theme-royalenoir .btn-save:hover, 
+body.theme-royalenoir .btn-test-server:hover, 
+body.theme-royalenoir .btn-cancel-dl:hover, 
+body.theme-royalenoir .btn-kill:hover, 
+body.theme-royalenoir .btn-open-folder:hover,
+body.theme-royalenoir .btn-reinstall:hover, 
+body.theme-royalenoir .btn-uninstall:hover,
+body.theme-royalenoir .nav-btn:hover {
+  background: linear-gradient(180deg, #555555 0%, #363636 100%);
+  border-color: #3b93ff;
+  color: #ffffff;
+}
+body.theme-royalenoir .btn-download-big:active, 
+body.theme-royalenoir .btn-play:active, 
+body.theme-royalenoir .btn-refresh:active, 
+body.theme-royalenoir .btn-save:active, 
+body.theme-royalenoir .btn-test-server:active, 
+body.theme-royalenoir .btn-cancel-dl:active, 
+body.theme-royalenoir .btn-kill:active, 
+body.theme-royalenoir .btn-open-folder:active,
+body.theme-royalenoir .btn-reinstall:active, 
+body.theme-royalenoir .btn-uninstall:active,
+body.theme-royalenoir .nav-btn.active {
+  background: linear-gradient(180deg, #181818 0%, #3a3a3a 100%);
+  border-color: #3b93ff;
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.5);
+  color: #3b93ff;
+}
+body.theme-royalenoir .nav-btn {
+  text-align: left;
+  padding: 6px 10px;
+}
+body.theme-royalenoir .nav-btn.active {
+  padding: 6px 10px;
+}
+
+/* Mac OS Classic Theme overrides */
+body.theme-macosclassic {
+  --bg-dark:      #dddddd;
+  --bg-main:      #cccccc; /* Platinum Grey */
+  --bg-panel:     #cccccc;
+  --bg-btn:       #e2e2e2;
+  --border-light: #ffffff;
+  --border-dark:  #949494;
+  --green:        #000000;
+  --green-dim:    #4c4c4c;
+  --text:         #000000;
+  --text-muted:   #767676;
+  --status-online:#007a00;
+  font-family: "Geneva", "Charcoal", sans-serif;
+}
+body.theme-macosclassic .titlebar {
+  background: repeating-linear-gradient(180deg, #999999, #999999 1px, #ffffff 1px, #ffffff 2px);
+  border-bottom: 2px solid #000000;
+  text-align: center;
+  justify-content: center;
+}
+body.theme-macosclassic .titlebar-drag {
+  background: #cccccc;
+  padding: 0 12px;
+  border-left: 2px solid #000000;
+  border-right: 2px solid #000000;
+}
+body.theme-macosclassic .titlebar-app-name {
+  color: #000000;
+  font-weight: bold;
+}
+body.theme-macosclassic .btn-download-big, 
+body.theme-macosclassic .btn-play, 
+body.theme-macosclassic .btn-refresh, 
+body.theme-macosclassic .btn-save, 
+body.theme-macosclassic .btn-test-server, 
+body.theme-macosclassic .btn-cancel-dl, 
+body.theme-macosclassic .btn-kill, 
+body.theme-macosclassic .btn-open-folder,
+body.theme-macosclassic .btn-reinstall, 
+body.theme-macosclassic .btn-uninstall,
+body.theme-macosclassic .nav-btn {
+  border-radius: 0;
+  border: 1px solid #000000;
+  box-shadow: 1px 1px 0 #000000;
+  background: #ffffff;
+}
+body.theme-macosclassic .btn-download-big:hover, 
+body.theme-macosclassic .btn-play:hover, 
+body.theme-macosclassic .btn-refresh:hover, 
+body.theme-macosclassic .btn-save:hover, 
+body.theme-macosclassic .btn-test-server:hover, 
+body.theme-macosclassic .btn-cancel-dl:hover, 
+body.theme-macosclassic .btn-kill:hover, 
+body.theme-macosclassic .btn-open-folder:hover,
+body.theme-macosclassic .btn-reinstall:hover, 
+body.theme-macosclassic .btn-uninstall:hover,
+body.theme-macosclassic .nav-btn:hover {
+  background: #f0f0f0;
+}
+body.theme-macosclassic .btn-download-big:active, 
+body.theme-macosclassic .btn-play:active, 
+body.theme-macosclassic .btn-refresh:active, 
+body.theme-macosclassic .btn-save:active, 
+body.theme-macosclassic .btn-test-server:active, 
+body.theme-macosclassic .btn-cancel-dl:active, 
+body.theme-macosclassic .btn-kill:active, 
+body.theme-macosclassic .btn-open-folder:active,
+body.theme-macosclassic .btn-reinstall:active, 
+body.theme-macosclassic .btn-uninstall:active,
+body.theme-macosclassic .nav-btn.active {
+  background: #000000;
+  color: #ffffff;
+  box-shadow: none;
+}
+body.theme-macosclassic .nav-btn {
+  text-align: left;
+  padding: 6px 10px;
+}
+body.theme-macosclassic .nav-btn.active {
+  padding: 6px 10px;
+}
+
+/* Modern Neon Dark Theme overrides */
+body.theme-moderndark {
+  --bg-dark:      #0d0e12;
+  --bg-main:      #16181f;
+  --bg-panel:     #1f212a;
+  --bg-btn:       #7c3aed;
+  --border-light: rgba(255, 255, 255, 0.08);
+  --border-dark:  rgba(0, 0, 0, 0.4);
+  --green:        #ff007f; /* Neon Hot Pink */
+  --green-dim:    #c084fc;
+  --text:         #f8fafc;
+  --text-muted:   #64748b;
+  --status-online:#10b981;
+}
+
+/* Modern Forest Green Theme overrides */
+body.theme-moderngreen {
+  --bg-dark:      #070b07;
+  --bg-main:      #0d140d;
+  --bg-panel:     #131e13;
+  --bg-btn:       #10b981; /* Emerald base */
+  --border-light: rgba(255, 255, 255, 0.06);
+  --border-dark:  rgba(0, 0, 0, 0.5);
+  --green:        #10b981; /* Emerald green highlight */
+  --green-dim:    #34d399;
+  --text:         #f0fdf4;
+  --text-muted:   #4ade80;
+  --status-online:#10b981;
+}
+
+/* Modern Glass Light Theme overrides */
+body.theme-modernlight {
+  --bg-dark:      #f8fafc;
+  --bg-main:      #cbd5e1;
+  --bg-panel:     rgba(255, 255, 255, 0.85);
+  --bg-btn:       #3b82f6;
+  --border-light: rgba(255, 255, 255, 0.4);
+  --border-dark:  rgba(15, 23, 42, 0.06);
+  --green:        #4f46e5; /* Indigo */
+  --green-dim:    #2563eb;
+  --text:         #0f172a;
+  --text-muted:   #64748b;
+  --status-online:#16a34a;
+}
+
+/* Shared Modern Layout Styles (Overrides retro bevels & dashed borders) */
+body.theme-moderndark,
+body.theme-moderngreen,
+body.theme-modernlight {
+  font-family: 'Rajdhani', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid var(--border-dark) !important;
+  border-radius: 12px 12px 0 0 !important;
+}
+
+/* Scrollbars */
+body.theme-moderndark ::-webkit-scrollbar,
+body.theme-moderngreen ::-webkit-scrollbar {
+  width: 8px !important;
+  background: var(--bg-dark) !important;
+  border-left: none !important;
+}
+body.theme-moderndark ::-webkit-scrollbar-thumb,
+body.theme-moderngreen ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-radius: 4px !important;
+  border: none !important;
+}
+body.theme-modernlight ::-webkit-scrollbar {
+  width: 8px !important;
+  background: var(--bg-dark) !important;
+  border-left: none !important;
+}
+body.theme-modernlight ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1) !important;
+  border-radius: 4px !important;
+  border: none !important;
+}
+
+/* Titlebar & Controls */
+body.theme-moderndark .titlebar,
+body.theme-moderngreen .titlebar,
+body.theme-modernlight .titlebar {
+  height: 38px !important;
+  border-bottom: 1px solid var(--border-light) !important;
+  border-radius: 12px 12px 0 0 !important;
+  padding: 0 12px !important;
+}
+body.theme-moderndark .titlebar { background: #16181f !important; }
+body.theme-moderngreen .titlebar { background: #0d140d !important; }
+body.theme-modernlight .titlebar { background: #ffffff !important; }
+
+body.theme-moderndark .titlebar-app-name,
+body.theme-moderngreen .titlebar-app-name {
+  color: var(--green) !important;
+  font-weight: 700 !important;
+  letter-spacing: 2px !important;
+  text-shadow: 0 0 8px var(--green) !important;
+}
+body.theme-modernlight .titlebar-app-name {
+  color: var(--text) !important;
+  font-weight: 700 !important;
+  letter-spacing: 2px !important;
+}
+
+body.theme-moderndark .tb-ctrl,
+body.theme-moderngreen .tb-ctrl,
+body.theme-modernlight .tb-ctrl {
+  background: transparent !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 50% !important;
+  width: 14px !important;
+  height: 14px !important;
+  color: transparent !important;
+  font-size: 0 !important;
+  padding: 0 !important;
+  margin-top: 2px !important;
+  transition: all 0.2s !important;
+  box-shadow: none !important;
+}
+body.theme-moderndark .tb-ctrl.min,
+body.theme-moderngreen .tb-ctrl.min,
+body.theme-modernlight .tb-ctrl.min { background: #fbbf24 !important; border-color: #d97706 !important; }
+body.theme-moderndark .tb-ctrl.cls,
+body.theme-moderngreen .tb-ctrl.cls,
+body.theme-modernlight .tb-ctrl.cls { background: #f87171 !important; border-color: #dc2626 !important; }
+body.theme-moderndark .tb-ctrl:hover,
+body.theme-moderngreen .tb-ctrl:hover,
+body.theme-modernlight .tb-ctrl:hover { color: #000000 !important; font-size: 8px !important; }
+
+/* Sidebar */
+body.theme-moderndark .sidebar,
+body.theme-moderngreen .sidebar,
+body.theme-modernlight .sidebar {
+  border-right: 1px solid var(--border-light) !important;
+  box-shadow: none !important;
+  padding: 12px 8px !important;
+}
+body.theme-moderndark .sidebar-logo,
+body.theme-moderngreen .sidebar-logo {
+  border-bottom: 1px solid var(--border-light) !important;
+}
+body.theme-modernlight .sidebar-logo {
+  border-bottom: 1px solid rgba(0,0,0,0.06) !important;
+}
+body.theme-moderndark .sidebar-footer,
+body.theme-moderngreen .sidebar-footer {
+  border-top: 1px solid var(--border-light) !important;
+}
+body.theme-modernlight .sidebar-footer {
+  border-top: 1px solid rgba(0,0,0,0.06) !important;
+}
+
+/* Nav Tab Buttons */
+body.theme-moderndark .nav-btn,
+body.theme-moderngreen .nav-btn,
+body.theme-modernlight .nav-btn {
+  border-radius: 8px !important;
+  border: 1px solid var(--border-light) !important;
+  background: var(--bg-panel) !important;
+  color: var(--text) !important;
+  padding: 8px 12px !important;
+  box-shadow: none !important;
+  transition: all 0.2s !important;
+  text-align: left !important;
+}
+body.theme-moderndark .nav-btn:hover { background: rgba(255, 255, 255, 0.05) !important; border-color: var(--green) !important; }
+body.theme-moderngreen .nav-btn:hover { background: rgba(255, 255, 255, 0.05) !important; border-color: var(--green) !important; }
+body.theme-modernlight .nav-btn:hover { background: rgba(0, 0, 0, 0.03) !important; border-color: var(--green) !important; }
+
+body.theme-moderndark .nav-btn.active {
+  background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%) !important;
+  color: #ffffff !important;
+  border-color: #a78bfa !important;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3) !important;
+  padding: 8px 12px !important;
+}
+body.theme-moderngreen .nav-btn.active {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+  border-color: #34d399 !important;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
+  padding: 8px 12px !important;
+}
+body.theme-modernlight .nav-btn.active {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+  border-color: #60a5fa !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2) !important;
+  padding: 8px 12px !important;
+}
+
+/* Panels, Cards & Input Elements */
+body.theme-moderndark .bevel-outset,
+body.theme-moderndark .launch-panel,
+body.theme-moderndark .download-section,
+body.theme-moderndark .qs-card,
+body.theme-moderndark .log-output,
+body.theme-moderndark .settings-group,
+body.theme-moderndark .modal-box,
+body.theme-moderngreen .bevel-outset,
+body.theme-moderngreen .launch-panel,
+body.theme-moderngreen .download-section,
+body.theme-moderngreen .qs-card,
+body.theme-moderngreen .log-output,
+body.theme-moderngreen .settings-group,
+body.theme-moderngreen .modal-box,
+body.theme-modernlight .bevel-outset,
+body.theme-modernlight .launch-panel,
+body.theme-modernlight .download-section,
+body.theme-modernlight .qs-card,
+body.theme-modernlight .log-output,
+body.theme-modernlight .settings-group,
+body.theme-modernlight .modal-box {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 10px !important;
+  background: var(--bg-panel) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
+}
+
+body.theme-moderndark .download-section::before,
+body.theme-moderndark .launch-panel::before,
+body.theme-moderngreen .download-section::before,
+body.theme-moderngreen .launch-panel::before,
+body.theme-modernlight .download-section::before,
+body.theme-modernlight .launch-panel::before {
+  display: none !important; /* Remove diagonal scanlines completely */
+}
+
+/* Modern Styled Buttons */
+body.theme-moderndark .btn-download-big, 
+body.theme-moderndark .btn-play, 
+body.theme-moderndark .btn-refresh, 
+body.theme-moderndark .btn-save, 
+body.theme-moderndark .btn-test-server, 
+body.theme-moderndark .btn-cancel-dl, 
+body.theme-moderndark .btn-kill, 
+body.theme-moderndark .btn-open-folder,
+body.theme-moderndark .btn-reinstall, 
+body.theme-moderndark .btn-uninstall,
+body.theme-moderndark .modal-btn,
+body.theme-moderngreen .btn-download-big, 
+body.theme-moderngreen .btn-play, 
+body.theme-moderngreen .btn-refresh, 
+body.theme-moderngreen .btn-save, 
+body.theme-moderngreen .btn-test-server, 
+body.theme-moderngreen .btn-cancel-dl, 
+body.theme-moderngreen .btn-kill, 
+body.theme-moderngreen .btn-open-folder,
+body.theme-moderngreen .btn-reinstall, 
+body.theme-moderngreen .btn-uninstall,
+body.theme-moderngreen .modal-btn,
+body.theme-modernlight .btn-download-big, 
+body.theme-modernlight .btn-play, 
+body.theme-modernlight .btn-refresh, 
+body.theme-modernlight .btn-save, 
+body.theme-modernlight .btn-test-server, 
+body.theme-modernlight .btn-cancel-dl, 
+body.theme-modernlight .btn-kill, 
+body.theme-modernlight .btn-open-folder,
+body.theme-modernlight .btn-reinstall, 
+body.theme-modernlight .btn-uninstall,
+body.theme-modernlight .modal-btn {
+  border-radius: 8px !important;
+  border: 1px solid var(--border-light) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.2s ease !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  padding: 6px 16px !important;
+}
+
+/* Neon Purple Theme Button Accents */
+body.theme-moderndark .btn-download-big,
+body.theme-moderndark .btn-refresh,
+body.theme-moderndark .btn-save,
+body.theme-moderndark .btn-test-server,
+body.theme-moderndark .btn-cancel-dl,
+body.theme-moderndark .btn-open-folder,
+body.theme-moderndark .btn-reinstall,
+body.theme-moderndark .btn-uninstall,
+body.theme-moderndark .modal-btn {
+  background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%) !important;
+  color: #ffffff !important;
+}
+body.theme-moderndark .btn-download-big:hover,
+body.theme-moderndark .modal-btn:hover {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Forest Green Theme Button Accents */
+body.theme-moderngreen .btn-download-big,
+body.theme-moderngreen .btn-refresh,
+body.theme-moderngreen .btn-save,
+body.theme-moderngreen .btn-test-server,
+body.theme-moderngreen .btn-cancel-dl,
+body.theme-moderngreen .btn-open-folder,
+body.theme-moderngreen .btn-reinstall,
+body.theme-moderngreen .btn-uninstall,
+body.theme-moderngreen .modal-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+}
+body.theme-moderngreen .btn-download-big:hover,
+body.theme-moderngreen .modal-btn:hover {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Glass Light Theme Button Accents */
+body.theme-modernlight .btn-download-big,
+body.theme-modernlight .btn-refresh,
+body.theme-modernlight .btn-save,
+body.theme-modernlight .btn-test-server,
+body.theme-modernlight .btn-cancel-dl,
+body.theme-modernlight .btn-open-folder,
+body.theme-modernlight .btn-reinstall,
+body.theme-modernlight .btn-uninstall,
+body.theme-modernlight .modal-btn {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+}
+body.theme-modernlight .btn-download-big:hover,
+body.theme-modernlight .modal-btn:hover {
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Play Buttons */
+body.theme-moderndark .btn-play,
+body.theme-moderngreen .btn-play,
+body.theme-modernlight .btn-play {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
+}
+body.theme-moderndark .btn-play:hover,
+body.theme-moderngreen .btn-play:hover,
+body.theme-modernlight .btn-play:hover {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Mode toggles */
+body.theme-moderndark .mode-toggle-wrap,
+body.theme-moderngreen .mode-toggle-wrap,
+body.theme-modernlight .mode-toggle-wrap {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+}
+body.theme-moderndark .mode-btn,
+body.theme-moderngreen .mode-btn,
+body.theme-modernlight .mode-btn {
+  background: var(--bg-panel) !important;
+  color: var(--text-muted) !important;
+  border: none !important;
+  padding: 6px 16px !important;
+}
+body.theme-moderndark .mode-btn.active { background: #7c3aed !important; color: #ffffff !important; }
+body.theme-moderngreen .mode-btn.active { background: #10b981 !important; color: #ffffff !important; }
+body.theme-modernlight .mode-btn.active { background: #3b82f6 !important; color: #ffffff !important; }
+
+/* Text Inputs & Display boxes */
+body.theme-moderndark .cfg-input,
+body.theme-moderndark .cfg-path-display,
+body.theme-moderngreen .cfg-input,
+body.theme-moderngreen .cfg-path-display {
+  background: var(--bg-dark) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 6px !important;
+  color: var(--text) !important;
+  padding: 6px 8px !important;
+  box-shadow: none !important;
+}
+body.theme-modernlight .cfg-input,
+body.theme-modernlight .cfg-path-display {
+  background: #ffffff !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 6px !important;
+  color: var(--text) !important;
+  padding: 6px 8px !important;
+  box-shadow: none !important;
+}
+
+/* Logs view background */
+body.theme-moderndark .log-output { background: #07080a !important; }
+body.theme-moderngreen .log-output { background: #040804 !important; }
+body.theme-modernlight .log-output { background: #f8fafc !important; }
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -534,7 +1144,7 @@ body {
 .dlp-bottom span { flex: 1; }
 
 /* Buttons Outset Win2000 style */
-.btn-download-big, .btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill, .btn-reinstall, .btn-uninstall {
+.btn-download-big, .btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill, .btn-open-folder, .btn-reinstall, .btn-uninstall {
   background: var(--bg-btn);
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
@@ -548,15 +1158,15 @@ body {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 7px 15px 5px 17px;
 }
-.btn-reinstall, .btn-uninstall {
+.btn-open-folder, .btn-reinstall, .btn-uninstall {
   background: var(--bg-btn);
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
   color: var(--text); font-family: var(--font-ui); font-size: 10px; font-weight: bold;
   padding: 3px 10px; cursor: pointer;
 }
-.btn-reinstall:hover, .btn-uninstall:hover { color: var(--text); background: #6a7c61; }
-.btn-reinstall:active, .btn-uninstall:active {
+.btn-open-folder:hover, .btn-reinstall:hover, .btn-uninstall:hover { color: var(--text); background: #6a7c61; }
+.btn-open-folder:active, .btn-reinstall:active, .btn-uninstall:active {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 4px 9px 2px 11px;
 }

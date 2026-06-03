@@ -54,6 +54,34 @@ All client data and settings are stored locally under:
 
 ---
 
+## Changelog
+
+### v1.2.2
+- Integrated Microsoft Trusted Signing configuration to fix Windows Smart App Control blocks
+- Overhauled and added new Retro themes (Windows 95 Teal, Mac OS Classic, XP Royale Noir)
+- Added new Modern layout themes (Modern Glass Light, Modern Neon Dark, Modern Forest Green)
+- Added "Open Folder" button on the Home and Settings tabs to open the local client directory
+- Simplified the Logs tab (renamed from Server Status, removed the server status grid, expanded log terminal view)
+
+### v1.2.1
+- Removed Play Mode telemetry card
+- Fixed 5 bugs in `main.js`
+
+### v1.2.0
+- Redesigned home tab — removed hero banner, cleaner download/launch panels
+- Added auto-update system with styled popup and one-click install
+- Fixed 9 bugs (crash on close, VR launch saving wrong path, poll interval leak, and more)
+
+### v1.1.0
+- Fixed game launch failing when username contains spaces
+- Fixed server status stuck on `—` at startup
+- Added 60-second server status auto-refresh
+- Fixed Reinstall/Uninstall button appearance
+
+### v1.0.0
+- Initial release
+
+---
 ## Note
 
 Parts of this launcher's codebase were written/co-authored with the help of AI coding assistants.

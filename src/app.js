@@ -303,6 +303,27 @@ $('btnUninstall')?.addEventListener('click', async () => {
   }
 });
 
+// Open client folder button
+$('btnOpenFolder')?.addEventListener('click', async () => {
+  addLog('Opening client folder...', 'info');
+  const ok = await window.radium?.openClientFolder();
+  if (ok) {
+    toast('Client folder opened!', 'ok');
+  } else {
+    toast('Failed to open client folder (does it exist?).', 'error');
+  }
+});
+
+$('btnOpenFolderSettings')?.addEventListener('click', async () => {
+  addLog('Opening client folder from settings...', 'info');
+  const ok = await window.radium?.openClientFolder();
+  if (ok) {
+    toast('Client folder opened!', 'ok');
+  } else {
+    toast('Failed to open client folder (does it exist?).', 'error');
+  }
+});
+
 // Play mode configuration
 function setModeUI(mode) {
   $('modeScreen')?.classList.toggle('active', mode === 'screen');
@@ -369,38 +390,11 @@ async function checkServerStatus(silent = false) {
     qscS.classList.toggle('offline', !apiOnline);
   }
 
-  // Status tab cards
-  updateCard('sc-api',    apiOnline);
-  updateCard('sc-ws',     apiOnline);
-  updateCard('sc-assets', cdnOnline);
-
-  // Dynamically update host text on status cards based on current settings
-  try {
-    const apiHost = new URL(apiUrl).hostname;
-    const scApiLabel = document.querySelector('#sc-api .sc-label');
-    if (scApiLabel) scApiLabel.textContent = `REST API · ${apiHost}`;
-    const scWsLabel = document.querySelector('#sc-ws .sc-label');
-    if (scWsLabel) scWsLabel.textContent = `Realtime Gateway · ${apiHost}`;
-  } catch (e) {}
-
   if (!silent) {
     addLog(`API Gateway (${apiUrl}): ${apiOnline ? 'ONLINE' : 'OFFLINE'}`, apiOnline ? 'ok' : 'error');
     addLog(`CDN Server (${cdnUrl}): ${cdnOnline ? 'ONLINE' : 'OFFLINE'}`, cdnOnline ? 'ok' : 'error');
   }
 }
-
-function updateCard(id, online) {
-  const card = $(id); if (!card) return;
-  card.className = 'status-card ' + (online ? 'online' : 'offline');
-  // Update the state label inside the card
-  const ids = { 'sc-api': 'sc-api-state', 'sc-ws': 'sc-ws-state', 'sc-assets': 'sc-assets-state' };
-  const stateEl = $(ids[id]); if (stateEl) stateEl.textContent = online ? 'ONLINE' : 'OFFLINE';
-}
-
-$('btnRefreshStatus')?.addEventListener('click', () => {
-  checkServerStatus(false);
-  toast('Refreshing...', 'info', 1200);
-});
 
 // Game execution and process monitoring
 function setGameRunning(running) {

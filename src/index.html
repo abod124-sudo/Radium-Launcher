@@ -45,7 +45,7 @@
           HOME
         </button>
         <button class="nav-btn" data-tab="status" id="nav-status">
-          SERVER STATUS
+          LOGS
         </button>
         <button class="nav-btn" data-tab="settings" id="nav-settings">
           SETTINGS
@@ -108,6 +108,7 @@
                 </div>
               </div>
               <div class="launch-secondary-actions">
+                <button class="btn-open-folder" id="btnOpenFolder" title="Open client folder">Open Folder</button>
                 <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
                 <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
               </div>
@@ -152,42 +153,13 @@
 
       </section>
 
-      <!-- ───────── SERVER STATUS TAB ──────────────────────── -->
+      <!-- ───────── LOGS TAB ──────────────────────── -->
       <section class="tab-panel" id="tab-status">
         <div class="panel-header">
-          <h2>SERVER STATUS</h2>
-          <button class="btn-refresh" id="btnRefreshStatus">Refresh</button>
-        </div>
-
-        <div class="status-grid">
-          <div class="status-card" id="sc-api">
-            <div class="sc-header">
-              <span class="sc-dot"></span>
-              <span class="sc-name">API Gateway</span>
-            </div>
-            <div class="sc-state" id="sc-api-state">—</div>
-            <div class="sc-label">REST API · ns.radie.app</div>
-          </div>
-          <div class="status-card" id="sc-ws">
-            <div class="sc-header">
-              <span class="sc-dot"></span>
-              <span class="sc-name">Game Server</span>
-            </div>
-            <div class="sc-state" id="sc-ws-state">—</div>
-            <div class="sc-label">Realtime Gateway · ns.radie.app</div>
-          </div>
-          <div class="status-card" id="sc-assets">
-            <div class="sc-header">
-              <span class="sc-dot"></span>
-              <span class="sc-name">CDN</span>
-            </div>
-            <div class="sc-state" id="sc-assets-state">—</div>
-            <div class="sc-label">CDN · cdn.recroomarchive.org</div>
-          </div>
+          <h2>LOGS</h2>
         </div>
 
         <div class="log-section">
-          <div class="ls-header">CONNECTION LOG</div>
           <div class="log-output" id="logOutput"></div>
         </div>
       </section>
@@ -224,6 +196,7 @@
             <div class="sg-row">
               <label>Install Location</label>
               <span class="cfg-path-display" id="cfgInstallDir">%APPDATA%\radium-launcher\client</span>
+              <button class="btn-open-folder" id="btnOpenFolderSettings" title="Open client folder">Open</button>
             </div>
           </div>
 
@@ -235,8 +208,14 @@
               <select id="cfgTheme" class="cfg-input">
                 <option value="steam-green">Steam 2003 Green</option>
                 <option value="win98">Windows 98 Gray</option>
+                <option value="win95">Windows 95 Teal</option>
                 <option value="winxp">Windows XP Blue</option>
+                <option value="royalenoir">Windows XP Royale Noir</option>
                 <option value="winvista">Windows Vista Aero</option>
+                <option value="macosclassic">Mac OS Classic</option>
+                <option value="moderndark">Modern Neon Dark</option>
+                <option value="modernlight">Modern Glass Light</option>
+                <option value="moderngreen">Modern Forest Green</option>
               </select>
             </div>
           </div>

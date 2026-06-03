@@ -395,6 +395,15 @@ ipcMain.handle('kill-game', () => {
   return true;
 });
 
+// Open client folder
+ipcMain.handle('open-client-folder', () => {
+  if (fs.existsSync(CLIENT_DIR)) {
+    shell.openPath(CLIENT_DIR);
+    return true;
+  }
+  return false;
+});
+
 // Debug: directly exec a bat file — call from DevTools: window.radium.debugExec('screen')
 ipcMain.handle('debug-exec', (_e, mode) => {
   const batName = mode === 'vr' ? 'RecRoom_VR.bat' : 'RecRoom_ScreenMode.bat';

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('radium', {
   downloadClient: () => ipcRenderer.invoke('download-client'),
   cancelDownload: () => ipcRenderer.send('cancel-download'),
   uninstallClient: () => ipcRenderer.invoke('uninstall-client'),
+  openClientFolder: () => ipcRenderer.invoke('open-client-folder'),
   onDownloadProgress: (cb) => {
     ipcRenderer.on('download-progress', (_e, data) => cb(data));
   },
