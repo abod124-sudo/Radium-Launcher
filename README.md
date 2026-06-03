@@ -1,6 +1,6 @@
-# Radium Launcher
+# Radium Launcher (Unofficial)
 
-just a simple custom launcher for playing on the Radium Rec Room server. it's styled to look like old desktop apps from the early 2000s. 
+an unofficial custom launcher for playing on the Radium Rec Room server. it's styled to look like old desktop apps from the early 2000s. 
 
 ## Features
 - **operating system skins**: you can toggle between Steam 2003 Green, Windows 98 Gray, Windows XP Luna, and Windows Vista Aero. they have authentic borders, rounded titlebars, custom close/minimize buttons, and glassy gradients.
