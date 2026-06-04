@@ -217,8 +217,6 @@ ipcMain.on('win-minimize', () => mainWindow?.minimize());
 ipcMain.on('win-close', () => {
   downloadAborted = true;
   if (downloadReq) { try { downloadReq.destroy(); } catch {} }
-  // Kill the game if running before quitting
-  exec('taskkill /F /IM RecRoom.exe', () => {});
   app.quit();
 });
 
@@ -228,11 +226,15 @@ ipcMain.handle('ping-server', (_e, u) => pingServer(u));
 ipcMain.handle('get-version', ()      => app.getVersion());
 
 // Check if client is installed
-ipcMain.handle('check-install', () => {
+ipcMain.handle('check-install', async () => {
   const cfg = ensureConfig();
   const exePath = cfg.gameExePath || findBatIn(CLIENT_DIR, 'RecRoom_ScreenMode.bat') || '';
   const installed = exePath !== '' && fs.existsSync(exePath);
-  return { installed, exePath, clientDir: CLIENT_DIR };
+  const isRunning = await checkGameRunning();
+  if (isRunning) {
+    startGameMonitor();
+  }
+  return { installed, exePath, clientDir: CLIENT_DIR, isRunning };
 });
 
 // Download + extract client
@@ -362,28 +364,43 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
   updatedCfg.gameExePath = batPath;
   saveConfig(updatedCfg);
 
-  return new Promise((resolve) => {
-    // exec runs the bat and waits for it to finish (bat exits immediately after `start`)
-    const child = exec(`"${batPath}"`, { cwd: batDir }, (err) => {
-      if (err) {
-        console.error('[launch-game] exec error:', err.message);
-        // Don't treat this as failure — the bat exits fast after `start`
-      }
-    });
+  const exePath = path.join(batDir, 'RecRoom.exe');
+  const playModeArg = cfg.playMode === 'vr' ? '+mode:vr' : '+mode:screen';
+  const hasExe = fs.existsSync(exePath);
 
-    let launchTimeout = setTimeout(() => {
-      console.log('[launch-game] bat launched, reporting success');
-      gameProcess = { pid: child.pid };
+  const escapedExePath = exePath.replace(/'/g, "''").replace(/"/g, '\\"');
+  const escapedBatDir = batDir.replace(/'/g, "''");
+  const escapedBatPath = batPath.replace(/'/g, "''").replace(/"/g, '\\"');
+
+  const commandLineStr = hasExe
+    ? `\\"${escapedExePath}\\" ${playModeArg}`
+    : `cmd.exe /c \\"${escapedBatPath}\\"`;
+
+  const psCommand = `powershell -NoProfile -Command "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${commandLineStr}'; CurrentDirectory = '${escapedBatDir}' }).ProcessId"`;
+
+  console.log('[launch-game] launching via WMI:', psCommand);
+
+  return new Promise((resolve) => {
+    exec(psCommand, (err, stdout, stderr) => {
+      if (err) {
+        console.error('[launch-game] WMI launch error:', err.message, stderr);
+        resolve({ success: false, error: err.message });
+        return;
+      }
+
+      const pid = parseInt(stdout.trim(), 10);
+      if (isNaN(pid) || pid <= 0) {
+        console.error('[launch-game] WMI invalid PID output:', stdout);
+        resolve({ success: false, error: 'Failed to start game process.' });
+        return;
+      }
+
+      console.log('[launch-game] launched successfully, PID:', pid);
+      gameProcess = { pid };
       startGameMonitor();
       mainWindow?.webContents.send('game-state', { running: true });
       if (cfg.minimizeOnLaunch) mainWindow?.minimize();
-      resolve({ success: true, pid: child.pid });
-    }, 800);
-
-    child.on('error', (err) => {
-      clearTimeout(launchTimeout);
-      console.error('[launch-game] child error:', err.message);
-      resolve({ success: false, error: err.message });
+      resolve({ success: true, pid });
     });
   });
 });

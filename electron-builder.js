@@ -6,7 +6,7 @@ const config = {
   appId: "com.radium.launcher",
   productName: "Radium Launcher",
   win: {
-    target: ["nsis", "portable"],
+    target: ["nsis", "portable", "zip"],
     icon: "logo.png"
   },
   nsis: {

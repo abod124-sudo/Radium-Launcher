@@ -181,6 +181,12 @@ async function checkInstall() {
       qscC.classList.remove('not-installed');
     }
     addLog('Game client found: ' + (result.exePath || 'client dir'), 'ok');
+    
+    // Check if the game is already running on startup
+    if (result?.isRunning) {
+      setGameRunning(true);
+      addLog('Game is already running.', 'ok');
+    }
   } else {
     // Show download section, hide launch panel
     $('downloadSection').style.display = 'flex';
