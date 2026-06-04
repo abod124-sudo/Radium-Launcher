@@ -6,6 +6,14 @@ const http   = require('http');
 const { spawn, exec } = require('child_process');
 const os     = require('os');
 
+function getPowershellPath() {
+  if (process.platform !== 'win32') return 'powershell';
+  const systemRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+  const psPath = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return fs.existsSync(psPath) ? psPath : 'powershell';
+}
+
+
 const GITHUB_OWNER = 'abod124-sudo';
 const GITHUB_REPO  = 'Radium-Launcher';
 
@@ -68,19 +76,19 @@ function findBatIn(dir, name, depth = 0) {
 }
 
 // Helper to download files (handles HTTP redirects and tracks download speed/ETA)
-let downloadReq  = null;
-let downloadAborted = false;
+const clientDownloadState = { req: null, aborted: false };
+const updateDownloadState = { req: null, aborted: false };
 
-function doDownload(url, destPath, onProgress) {
+function doDownload(url, destPath, onProgress, cancelState) {
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('https') ? https : http;
     const req = lib.get(url, { timeout: 15000 }, (res) => {
       // Follow redirects
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
-        downloadReq = null;
+        if (cancelState) cancelState.req = null;
         res.resume();
         const resolvedUrl = new URL(res.headers.location, url).toString();
-        return doDownload(resolvedUrl, destPath, onProgress)
+        return doDownload(resolvedUrl, destPath, onProgress, cancelState)
           .then(resolve).catch(reject);
       }
 
@@ -96,7 +104,7 @@ function doDownload(url, destPath, onProgress) {
       const stream    = fs.createWriteStream(destPath);
 
       res.on('data', (chunk) => {
-        if (downloadAborted) { req.destroy(); stream.destroy(); return; }
+        if (cancelState && cancelState.aborted) { req.destroy(); stream.destroy(); return; }
         downloaded += chunk.length;
         stream.write(chunk);
 
@@ -109,7 +117,7 @@ function doDownload(url, destPath, onProgress) {
 
       res.on('end', () => {
         stream.end(() => {
-          if (downloadAborted) { reject(new Error('Cancelled')); return; }
+          if (cancelState && cancelState.aborted) { reject(new Error('Cancelled')); return; }
           resolve();
         });
       });
@@ -120,7 +128,15 @@ function doDownload(url, destPath, onProgress) {
 
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-    downloadReq = req;
+
+    if (cancelState) {
+      if (cancelState.aborted) {
+        req.destroy();
+        reject(new Error('Cancelled'));
+        return;
+      }
+      cancelState.req = req;
+    }
   });
 }
 
@@ -229,10 +245,11 @@ function addDefenderExclusion() {
   }
   return new Promise((resolve) => {
     const targetDllPath = path.join(CLIENT_DIR, 'BepInEx', 'plugins', 'Radeon.Core.BasePatch.dll');
-    const escapedPath = targetDllPath.replace(/'/g, "''");
-    const psCommand = `Start-Process powershell -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Add-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
+    const escapedPath = targetDllPath.replace(/'/g, "''").replace(/\$/g, '`$');
+    const psPath = getPowershellPath();
+    const psCommand = `Start-Process '${psPath}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Add-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
     
-    exec(`powershell -NoProfile -Command "${psCommand}"`, (err, stdout, stderr) => {
+    exec(`"${psPath}" -NoProfile -Command "${psCommand}"`, (err, stdout, stderr) => {
       if (err) {
         resolve({ success: false, error: err.message });
       } else {
@@ -249,10 +266,11 @@ function removeDefenderExclusion() {
   }
   return new Promise((resolve) => {
     const targetDllPath = path.join(CLIENT_DIR, 'BepInEx', 'plugins', 'Radeon.Core.BasePatch.dll');
-    const escapedPath = targetDllPath.replace(/'/g, "''");
-    const psCommand = `Start-Process powershell -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Remove-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
+    const escapedPath = targetDllPath.replace(/'/g, "''").replace(/\$/g, '`$');
+    const psPath = getPowershellPath();
+    const psCommand = `Start-Process '${psPath}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Remove-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
     
-    exec(`powershell -NoProfile -Command "${psCommand}"`, (err, stdout, stderr) => {
+    exec(`"${psPath}" -NoProfile -Command "${psCommand}"`, (err, stdout, stderr) => {
       if (err) {
         resolve({ success: false, error: err.message });
       } else {
@@ -329,7 +347,8 @@ ipcMain.handle('download-client', async (event) => {
   const isRunning = await checkGameRunning();
   if (isRunning) return { success: false, error: 'Cannot download or install while the game is running.' };
 
-  downloadAborted = false;
+  clientDownloadState.aborted = false;
+  clientDownloadState.req = null;
 
   // Ensure dirs exist
   if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
@@ -345,9 +364,9 @@ ipcMain.handle('download-client', async (event) => {
     progress({ phase: 'download', pct: 0, downloaded: 0, total: 0, speed: 0, eta: -1 });
     await doDownload(DOWNLOAD_URL, CLIENT_ZIP, (p) => {
       progress({ phase: 'download', ...p });
-    });
+    }, clientDownloadState);
 
-    if (downloadAborted) return { success: false, error: 'Cancelled' };
+    if (clientDownloadState.aborted) return { success: false, error: 'Cancelled' };
 
     // Phase 2: Extract
     progress({ phase: 'extract', pct: 100, status: 'Extracting...' });
@@ -359,7 +378,8 @@ ipcMain.handle('download-client', async (event) => {
     await new Promise((resolve, reject) => {
       const zipEscaped = CLIENT_ZIP.replace(/'/g, "''");
       const dirEscaped = CLIENT_DIR.replace(/'/g, "''");
-      const cmd = `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${zipEscaped}' -DestinationPath '${dirEscaped}' -Force"`;
+      const psPath = getPowershellPath();
+      const cmd = `"${psPath}" -NoProfile -Command "Expand-Archive -LiteralPath '${zipEscaped}' -DestinationPath '${dirEscaped}' -Force"`;
       exec(cmd, { timeout: 120000 }, (err) => {
         if (err) reject(err); else resolve();
       });
@@ -408,8 +428,11 @@ ipcMain.handle('uninstall-client', async () => {
 
 // Cancel download
 ipcMain.on('cancel-download', () => {
-  downloadAborted = true;
-  if (downloadReq) { try { downloadReq.destroy(); } catch {} downloadReq = null; }
+  clientDownloadState.aborted = true;
+  if (clientDownloadState.req) {
+    try { clientDownloadState.req.destroy(); } catch {}
+    clientDownloadState.req = null;
+  }
 });
 
 // Launch game
@@ -464,7 +487,8 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
     ? `\\"${escapedExePath}\\" ${playModeArg}`
     : `cmd.exe /c \\"${escapedBatPath}\\"`;
 
-  const psCommand = `powershell -NoProfile -Command "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${commandLineStr}'; CurrentDirectory = '${escapedBatDir}' }).ProcessId"`;
+  const psPath = getPowershellPath();
+  const psCommand = `"${psPath}" -NoProfile -Command "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${commandLineStr}'; CurrentDirectory = '${escapedBatDir}' }).ProcessId"`;
 
   console.log('[launch-game] launching via WMI:', psCommand);
 
@@ -603,16 +627,16 @@ ipcMain.handle('download-update', async (_e, downloadUrl) => {
   if (!downloadUrl) return { success: false, error: 'No download URL' };
   const tmpPath = path.join(os.tmpdir(), 'RadiumLauncherSetup_update.exe');
   try {
-    // Reset abort flag and decouple from game-client download tracking
-    downloadAborted = false;
-    const savedReq = downloadReq;
-    downloadReq = null;
-    await doDownload(downloadUrl, tmpPath, () => {});
-    downloadReq = savedReq; // restore in case game client DL was ongoing
+    updateDownloadState.aborted = false;
+    updateDownloadState.req = null;
+    await doDownload(downloadUrl, tmpPath, () => {}, updateDownloadState);
     // Spawn the installer detached so it outlives this process
     const child = spawn(tmpPath, [], {
       detached: true,
       stdio:    'ignore'
+    });
+    child.on('error', (err) => {
+      console.error('Failed to start update installer:', err);
     });
     child.unref();
     // Give the installer a moment to start, then quit the launcher
