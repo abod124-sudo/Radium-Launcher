@@ -82,7 +82,7 @@ async function loadConfig() {
   config = (await window.radium?.getConfig()) || {};
 
   // Defaults
-  if (!config.apiUrl)   config.apiUrl   = 'https://ns.radie.app';
+  if (!config.apiUrl)   config.apiUrl   = 'https://api.radie.app/';
   if (!config.playMode) config.playMode = 'screen';
 
   setValue('cfgApiUrl', config.apiUrl);
@@ -95,11 +95,18 @@ async function loadConfig() {
   playMode = config.playMode || 'screen';
   setModeUI(playMode);
   updateQsMode();
+  updateSettingsLaunchScript();
 
   // Theme
   const activeTheme = config.theme || 'steam-green';
   setValue('cfgTheme', activeTheme);
   applyTheme(activeTheme);
+
+  // Defender Exclusion State
+  const btnExcludeAv = $('btnExcludeAv');
+  if (btnExcludeAv) {
+    btnExcludeAv.textContent = config.defenderExcluded ? 'UNExclude AV' : 'Exclude AV';
+  }
 }
 
 function applyTheme(theme) {
@@ -130,7 +137,7 @@ $('btnSaveSettings')?.addEventListener('click', async () => {
   const selectedTheme = $('cfgTheme')?.value || 'steam-green';
   const updated = {
     ...config,
-    apiUrl:           $('cfgApiUrl')?.value.trim() || 'https://ns.radie.app',
+    apiUrl:           $('cfgApiUrl')?.value.trim() || 'https://api.radie.app/',
     minimizeOnLaunch: getToggle('tgl-minimizeOnLaunch'),
     autoUpdate:       getToggle('tgl-autoUpdate'),
     playMode,
@@ -301,6 +308,7 @@ $('btnUninstall')?.addEventListener('click', async () => {
   if (result?.success) {
     addLog('Client uninstalled successfully.', 'ok');
     toast('Radium client uninstalled.', 'ok');
+    await loadConfig();
     await checkInstall();
   } else {
     const err = result?.error || 'Unknown error';
@@ -330,6 +338,45 @@ $('btnOpenFolderSettings')?.addEventListener('click', async () => {
   }
 });
 
+$('btnExcludeAv')?.addEventListener('click', async () => {
+  const btn = $('btnExcludeAv');
+  if (!btn) return;
+
+  const isCurrentlyExcluded = config.defenderExcluded === true;
+
+  if (isCurrentlyExcluded) {
+    addLog('Requesting Windows Defender exclusion removal for BasePatch.dll...', 'info');
+    toast('Please approve the Administrator prompt...', 'info');
+    const result = await window.radium?.removeDefenderExclusion();
+    if (result && result.success) {
+      config.defenderExcluded = false;
+      await window.radium?.saveConfig(config);
+      btn.textContent = 'Exclude AV';
+      toast('Defender exclusion removed!', 'ok');
+      addLog('Exclusion successfully removed from Windows Defender.', 'ok');
+    } else {
+      const err = result?.error || 'UAC elevation cancelled or failed';
+      toast('Failed to remove exclusion.', 'error');
+      addLog(`Exclusion removal failed: ${err}`, 'error');
+    }
+  } else {
+    addLog('Requesting Windows Defender exclusion for BasePatch.dll...', 'info');
+    toast('Please approve the Administrator prompt...', 'info');
+    const result = await window.radium?.addDefenderExclusion();
+    if (result && result.success) {
+      config.defenderExcluded = true;
+      await window.radium?.saveConfig(config);
+      btn.textContent = 'UNExclude AV';
+      toast('Defender exclusion added!', 'ok');
+      addLog('Exclusion successfully added to Windows Defender.', 'ok');
+    } else {
+      const err = result?.error || 'UAC elevation cancelled or failed';
+      toast('Failed to add exclusion.', 'error');
+      addLog(`Exclusion failed: ${err}`, 'error');
+    }
+  }
+});
+
 // Play mode configuration
 function setModeUI(mode) {
   $('modeScreen')?.classList.toggle('active', mode === 'screen');
@@ -351,12 +398,30 @@ function updateQsMode() {
   }
 }
 
+function updateSettingsLaunchScript() {
+  const exePathInput = $('cfgExePath');
+  if (!exePathInput) return;
+  const currentPath = exePathInput.value;
+  if (!currentPath) return;
+
+  const isVr = playMode === 'vr';
+  const targetFilename = isVr ? 'RecRoom_VR.bat' : 'RecRoom_ScreenMode.bat';
+  
+  const lastSlashIndex = Math.max(currentPath.lastIndexOf('\\'), currentPath.lastIndexOf('/'));
+  if (lastSlashIndex !== -1) {
+    const dir = currentPath.substring(0, lastSlashIndex);
+    const slash = currentPath.includes('\\') ? '\\' : '/';
+    exePathInput.value = `${dir}${slash}${targetFilename}`;
+  }
+}
+
 document.querySelectorAll('.mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     playMode = btn.dataset.mode;
     config.playMode = playMode;
     setModeUI(playMode);
     updateQsMode();
+    updateSettingsLaunchScript();
     window.radium?.saveConfig(config);
     toast(`Mode: ${playMode.toUpperCase()}`, 'info', 1500);
     addLog(`Play mode set to ${playMode}.`, 'info');
@@ -365,7 +430,7 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
 
 // Periodically ping server and update status labels
 async function checkServerStatus(silent = false) {
-  const apiUrl = config.apiUrl || 'https://ns.radie.app';
+  const apiUrl = config.apiUrl || 'https://api.radie.app/';
   const cdnUrl = 'https://cdn.recroomarchive.org';
 
   // Immediately show CHECKING... in quick stats while pings are in-flight
@@ -399,6 +464,43 @@ async function checkServerStatus(silent = false) {
   if (!silent) {
     addLog(`API Gateway (${apiUrl}): ${apiOnline ? 'ONLINE' : 'OFFLINE'}`, apiOnline ? 'ok' : 'error');
     addLog(`CDN Server (${cdnUrl}): ${cdnOnline ? 'ONLINE' : 'OFFLINE'}`, cdnOnline ? 'ok' : 'error');
+  }
+}
+
+// Periodically fetch player count and update stats card
+async function updatePlayerCount(silent = false) {
+  const qsPlayers = $('qsPlayers');
+  const qscPlayers = $('qsc-players');
+  if (!qsPlayers) return;
+  if (!silent) {
+    qsPlayers.textContent = 'LOADING...';
+    addLog('Fetching online player count...', 'info');
+  }
+
+  try {
+    const result = await window.radium?.getPlayerCount();
+    if (result && result.success) {
+      qsPlayers.textContent = result.count;
+      if (qscPlayers) {
+        qscPlayers.classList.add('online');
+        qscPlayers.classList.remove('offline');
+      }
+      if (!silent) addLog(`Players online: ${result.count}`, 'ok');
+    } else {
+      qsPlayers.textContent = 'OFFLINE';
+      if (qscPlayers) {
+        qscPlayers.classList.add('offline');
+        qscPlayers.classList.remove('online');
+      }
+      if (!silent) addLog(`Failed to fetch player count: ${result?.error || 'Unknown error'}`, 'error');
+    }
+  } catch (err) {
+    qsPlayers.textContent = 'OFFLINE';
+    if (qscPlayers) {
+      qscPlayers.classList.add('offline');
+      qscPlayers.classList.remove('online');
+    }
+    if (!silent) addLog(`Failed to fetch player count: ${err.message}`, 'error');
   }
 }
 
@@ -546,8 +648,16 @@ async function init() {
   // Check server on startup (show results in log), then silently every 60s
   await checkServerStatus(false);
   const serverPollInterval = setInterval(() => checkServerStatus(true), 60_000);
-  // Clear the poll if the window is closed
-  window.addEventListener('beforeunload', () => clearInterval(serverPollInterval));
+
+  // Check player count on startup (show results in log), then silently every 60s
+  await updatePlayerCount(false);
+  const playerPollInterval = setInterval(() => updatePlayerCount(true), 60_000);
+
+  // Clear the polls if the window is closed
+  window.addEventListener('beforeunload', () => {
+    clearInterval(serverPollInterval);
+    clearInterval(playerPollInterval);
+  });
 
   // Check for launcher updates on startup (after UI is ready)
   setTimeout(() => checkForLauncherUpdate(), 2000);

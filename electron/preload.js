@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('radium', {
 
   // Server
   pingServer: (url)  => ipcRenderer.invoke('ping-server', url),
+  getPlayerCount: () => ipcRenderer.invoke('get-player-count'),
+  addDefenderExclusion: () => ipcRenderer.invoke('add-defender-exclusion'),
+  removeDefenderExclusion: () => ipcRenderer.invoke('remove-defender-exclusion'),
 
   // Install check
   checkInstall: ()   => ipcRenderer.invoke('check-install'),

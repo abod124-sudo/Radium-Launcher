@@ -18,7 +18,7 @@ const CLIENT_ZIP  = path.join(USER_DATA, 'client.zip');
 const DOWNLOAD_URL = 'https://cdn.recroomarchive.org/radium/game-client/production/toukeh24kq6w2v4lndyc4z0pblvfyj75/windows/client.zip';
 
 const DEFAULT_CONFIG = {
-  apiUrl:           'https://ns.radie.app',
+  apiUrl:           'https://api.radie.app/',
   gameExePath:      '',          // auto-set after install
   playMode:         'screen',    // 'screen' | 'vr'
   minimizeOnLaunch: true,
@@ -34,6 +34,10 @@ function ensureConfig() {
   }
   try {
     const saved = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    if (saved && (saved.apiUrl === 'https://ns.radie.app' || saved.apiUrl === 'https://ns.radie.app/')) {
+      saved.apiUrl = 'https://api.radie.app/';
+      saveConfig(saved);
+    }
     return { ...DEFAULT_CONFIG, ...saved };
   } catch { return { ...DEFAULT_CONFIG }; }
 }
@@ -181,6 +185,77 @@ function pingServer(url) {
   });
 }
 
+// Fetch player count from the API
+async function getPlayerCount() {
+  let timeoutId;
+  try {
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
+
+    const res = await fetch('https://api.radie.app/api/players/v1/online', {
+      headers: { 'User-Agent': 'Radium-Launcher' },
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      return { success: false, error: `HTTP ${res.status}` };
+    }
+
+    const data = await res.json();
+    if (data && typeof data.count === 'number') {
+      return { success: true, count: data.count };
+    } else {
+      return { success: false, error: 'Invalid response format' };
+    }
+  } catch (err) {
+    return { success: false, error: err.name === 'AbortError' ? 'Timeout' : err.message };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+// Add Windows Defender exclusion for BepInEx dll
+function addDefenderExclusion() {
+  if (process.platform !== 'win32') {
+    return Promise.resolve({ success: false, error: 'Only supported on Windows.' });
+  }
+  return new Promise((resolve) => {
+    const targetDllPath = path.join(CLIENT_DIR, 'BepInEx', 'plugins', 'Radeon.Core.BasePatch.dll');
+    const escapedPath = targetDllPath.replace(/'/g, "''");
+    const psCommand = `Start-Process powershell -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Add-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
+    
+    exec(`powershell -NoProfile -Command "${psCommand}"`, (err, stdout, stderr) => {
+      if (err) {
+        resolve({ success: false, error: err.message });
+      } else {
+        resolve({ success: true });
+      }
+    });
+  });
+}
+
+// Remove Windows Defender exclusion for BepInEx dll
+function removeDefenderExclusion() {
+  if (process.platform !== 'win32') {
+    return Promise.resolve({ success: false, error: 'Only supported on Windows.' });
+  }
+  return new Promise((resolve) => {
+    const targetDllPath = path.join(CLIENT_DIR, 'BepInEx', 'plugins', 'Radeon.Core.BasePatch.dll');
+    const escapedPath = targetDllPath.replace(/'/g, "''");
+    const psCommand = `Start-Process powershell -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Remove-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
+    
+    exec(`powershell -NoProfile -Command "${psCommand}"`, (err, stdout, stderr) => {
+      if (err) {
+        resolve({ success: false, error: err.message });
+      } else {
+        resolve({ success: true });
+      }
+    });
+  });
+}
+
+
+
 // Main app window setup
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -223,6 +298,9 @@ ipcMain.on('win-close', () => {
 ipcMain.handle('get-config',  ()      => ensureConfig());
 ipcMain.handle('save-config', (_e, c) => { saveConfig(c); return true; });
 ipcMain.handle('ping-server', (_e, u) => pingServer(u));
+ipcMain.handle('get-player-count', () => getPlayerCount());
+ipcMain.handle('add-defender-exclusion', () => addDefenderExclusion());
+ipcMain.handle('remove-defender-exclusion', () => removeDefenderExclusion());
 ipcMain.handle('get-version', ()      => app.getVersion());
 
 // Check if client is installed
@@ -311,6 +389,7 @@ ipcMain.handle('uninstall-client', async () => {
     }
     const cfg = ensureConfig();
     cfg.gameExePath = '';
+    cfg.defenderExcluded = false;
     saveConfig(cfg);
     return { success: true };
   } catch (err) {

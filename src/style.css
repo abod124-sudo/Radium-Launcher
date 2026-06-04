@@ -1254,7 +1254,7 @@ body {
 /* Quick Status telemetry slots */
 .quick-stats {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   padding-top: 10px;
 }
@@ -1459,3 +1459,57 @@ body {
 .toast.ok { border-left: 4px solid var(--green); }
 .toast.error { border-left: 4px solid #ff4444; }
 .toast.info { border-left: 4px solid #4488ff; }
+
+/* Exclusion button style rules */
+.btn-exclude-av {
+  background: var(--bg-btn);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  color: var(--text); font-family: var(--font-ui); font-size: 10px; font-weight: bold;
+  padding: 3px 10px; cursor: pointer;
+}
+.btn-exclude-av:hover { color: var(--text); background: #6a7c61; }
+.btn-exclude-av:active {
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  padding: 4px 9px 2px 11px;
+}
+
+/* Modern Theme overrides */
+body.theme-moderndark .btn-exclude-av,
+body.theme-moderngreen .btn-exclude-av,
+body.theme-modernlight .btn-exclude-av {
+  border-radius: 8px !important;
+  border: 1px solid var(--border-light) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.2s ease !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  padding: 6px 16px !important;
+}
+
+body.theme-moderndark .btn-exclude-av {
+  background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%) !important;
+  color: #ffffff !important;
+}
+body.theme-moderndark .btn-exclude-av:hover {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%) !important;
+  transform: translateY(-1px) !important;
+}
+
+body.theme-moderngreen .btn-exclude-av {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+}
+body.theme-moderngreen .btn-exclude-av:hover {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%) !important;
+  transform: translateY(-1px) !important;
+}
+
+body.theme-modernlight .btn-exclude-av {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+  color: #ffffff !important;
+}
+body.theme-modernlight .btn-exclude-av:hover {
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%) !important;
+  transform: translateY(-1px) !important;
+}

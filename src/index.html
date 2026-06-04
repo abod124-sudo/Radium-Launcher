@@ -111,6 +111,7 @@
                 <button class="btn-open-folder" id="btnOpenFolder" title="Open client folder">Open Folder</button>
                 <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
                 <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
+                <button class="btn-exclude-av" id="btnExcludeAv" title="Add Windows Defender exclusion for BasePatch.dll">Exclude AV</button>
               </div>
             </div>
 
@@ -141,6 +142,13 @@
             </div>
             <div class="qs-value" id="qsStatus">—</div>
           </div>
+          <div class="qs-card" id="qsc-players">
+            <div class="qs-header-row">
+              <span class="qs-label">Players Online</span>
+              <span class="qs-icon-indicator"></span>
+            </div>
+            <div class="qs-value" id="qsPlayers">—</div>
+          </div>
           <div class="qs-card" id="qsc-client">
             <div class="qs-header-row">
               <span class="qs-label">Client Status</span>
@@ -148,7 +156,6 @@
             </div>
             <div class="qs-value" id="qsInstalled">—</div>
           </div>
-
         </div>
 
       </section>
@@ -178,7 +185,7 @@
             <div class="sg-title">SERVER</div>
             <div class="sg-row">
               <label for="cfgApiUrl">API Server URL</label>
-              <input type="text" id="cfgApiUrl" class="cfg-input" placeholder="https://ns.radie.app" />
+              <input type="text" id="cfgApiUrl" class="cfg-input" placeholder="https://api.radie.app/" />
             </div>
             <div class="sg-row">
               <button class="btn-test-server" id="btnTestServer">TEST CONNECTION</button>
