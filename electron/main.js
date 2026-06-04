@@ -310,16 +310,20 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  downloadAborted = true;
-  if (downloadReq) try { downloadReq.destroy(); } catch {}
+  clientDownloadState.aborted = true;
+  if (clientDownloadState.req) try { clientDownloadState.req.destroy(); } catch {}
+  updateDownloadState.aborted = true;
+  if (updateDownloadState.req) try { updateDownloadState.req.destroy(); } catch {}
   if (process.platform !== 'darwin') app.quit();
 });
 
 // IPC actions called from renderer script
 ipcMain.on('win-minimize', () => mainWindow?.minimize());
 ipcMain.on('win-close', () => {
-  downloadAborted = true;
-  if (downloadReq) { try { downloadReq.destroy(); } catch {} }
+  clientDownloadState.aborted = true;
+  if (clientDownloadState.req) { try { clientDownloadState.req.destroy(); } catch {} }
+  updateDownloadState.aborted = true;
+  if (updateDownloadState.req) { try { updateDownloadState.req.destroy(); } catch {} }
   app.quit();
 });
 
