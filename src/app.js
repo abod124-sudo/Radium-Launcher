@@ -713,7 +713,6 @@ $('updateNowBtn')?.addEventListener('click', async () => {
     toast(`Update failed: ${err}`, 'error', 5000);
   }
 });
-
 async function checkForLauncherUpdate() {
   // Only check if autoUpdate is enabled in settings
   if (config.autoUpdate === false) return;
@@ -737,11 +736,69 @@ async function checkForLauncherUpdate() {
   }
 }
 
+$('btnCheckUpdates')?.addEventListener('click', async () => {
+  const resultEl = $('updateCheckResult');
+  if (resultEl) {
+    resultEl.textContent = 'Checking...';
+    resultEl.className = 'test-result';
+  }
+  addLog('Manual launcher update check initiated.', 'info');
+  toast('Checking for updates...', 'info', 2000);
+  
+  try {
+    const info = await window.radium?.checkForUpdate();
+    if (!info) {
+      if (resultEl) {
+        resultEl.textContent = '✕ No response';
+        resultEl.className = 'test-result error';
+      }
+      toast('Update check failed.', 'error');
+      return;
+    }
+    if (info.error) {
+      if (resultEl) {
+        resultEl.textContent = '✕ Error';
+        resultEl.className = 'test-result error';
+      }
+      addLog(`Update check failed: ${info.error}`, 'info');
+      toast('Update check failed.', 'error');
+      return;
+    }
+    if (info.hasUpdate) {
+      if (resultEl) {
+        resultEl.textContent = '✓ Update available!';
+        resultEl.className = 'test-result ok';
+      }
+      addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok');
+      toast(`Update available: ${info.latestVersion}!`, 'ok', 5000);
+      showUpdateModal(info);
+    } else {
+      if (resultEl) {
+        resultEl.textContent = '✓ Up to date';
+        resultEl.className = 'test-result ok';
+      }
+      addLog(`Launcher is up to date (v${info.currentVersion}).`, 'info');
+      toast('Launcher is up to date.', 'ok');
+    }
+  } catch (e) {
+    if (resultEl) {
+      resultEl.textContent = '✕ Error';
+      resultEl.className = 'test-result error';
+    }
+    addLog(`Update check error: ${e.message}`, 'info');
+    toast('Update check error.', 'error');
+  }
+});
+
 // Launcher entrypoint initialization
 async function init() {
   addLog('Radium Launcher started.', 'ok');
   await loadVersion();
   await loadConfig();
+
+  // Check for launcher updates first on startup
+  await checkForLauncherUpdate();
+
   addLog(`API: ${config.apiUrl}`, 'info');
   addLog(`Install dir: %APPDATA%\\radium-launcher\\client`, 'info');
 
@@ -761,9 +818,6 @@ async function init() {
     clearInterval(serverPollInterval);
     clearInterval(playerPollInterval);
   });
-
-  // Check for launcher updates on startup (after UI is ready)
-  setTimeout(() => checkForLauncherUpdate(), 2000);
 }
 
 init().catch(err => {
