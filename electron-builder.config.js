@@ -7,7 +7,7 @@ const config = {
   productName: "Radium Launcher",
   win: {
     target: ["nsis", "portable", "zip"],
-    icon: "logo.png"
+    icon: "icon.ico"
   },
   nsis: {
     oneClick: false,
@@ -17,6 +17,7 @@ const config = {
     "electron/**/*",
     "src/**/*",
     "logo.png",
+    "icon.ico",
     "package.json"
   ]
 };

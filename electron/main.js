@@ -291,7 +291,9 @@ function createWindow() {
     transparent: false,
     backgroundColor: '#0D0D0C',
     title: 'Radium Launcher',
-    icon: path.join(__dirname, '..', 'logo.png'),
+    icon: process.platform === 'win32'
+      ? path.join(__dirname, '..', 'icon.ico')
+      : path.join(__dirname, '..', 'logo.png'),
     webPreferences: {
       preload:          path.join(__dirname, 'preload.js'),
       contextIsolation: true,
