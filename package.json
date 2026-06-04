@@ -1,6 +1,6 @@
 {
   "name": "radium-launcher",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "Radium — Custom Rec Room Private Server Launcher",
   "main": "electron/main.js",
   "repository": {
@@ -17,6 +17,6 @@
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
-    "electron-store": "^10.0.1"
+    "extract-zip": "^2.0.1"
   }
 }

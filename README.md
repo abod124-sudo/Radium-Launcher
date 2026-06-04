@@ -16,12 +16,11 @@ An unofficial custom launcher for playing on the Radium public Rec Room server.
 
 ## Download
 
-Grab the latest build from the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
+Grab the latest build (**v1.5.5**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
 
 | File | Description |
 |------|-------------|
-| `Radium.Launcher.Setup.x.x.x.exe` | NSIS installer (recommended) |
-| `Radium.Launcher.x.x.x.exe` | Portable single executable |
+| 📥 [radium-launcher-Setup-1.5.5.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v1.5.5/radium-launcher-Setup-1.5.5.exe) | NSIS installer (recommended) |
 
 ---
 

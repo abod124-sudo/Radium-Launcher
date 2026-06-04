@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('radium', {
   uninstallClient: () => ipcRenderer.invoke('uninstall-client'),
   openClientFolder: () => ipcRenderer.invoke('open-client-folder'),
   onDownloadProgress: (cb) => {
+    ipcRenderer.removeAllListeners('download-progress');
     ipcRenderer.on('download-progress', (_e, data) => cb(data));
   },
 
@@ -31,6 +32,7 @@ contextBridge.exposeInMainWorld('radium', {
   launchGame: (cfg)  => ipcRenderer.invoke('launch-game', cfg),
   killGame:   ()     => ipcRenderer.invoke('kill-game'),
   onGameState:(cb)   => {
+    ipcRenderer.removeAllListeners('game-state');
     ipcRenderer.on('game-state', (_e, data) => cb(data));
   },
 

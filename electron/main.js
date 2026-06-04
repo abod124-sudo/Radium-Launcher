@@ -3,8 +3,9 @@ const path   = require('path');
 const fs     = require('fs');
 const https  = require('https');
 const http   = require('http');
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execFile } = require('child_process');
 const os     = require('os');
+const extract = require('extract-zip');
 
 function getPowershellPath() {
   if (process.platform !== 'win32') return 'powershell';
@@ -47,7 +48,10 @@ function ensureConfig() {
       saveConfig(saved);
     }
     return { ...DEFAULT_CONFIG, ...saved };
-  } catch { return { ...DEFAULT_CONFIG }; }
+  } catch {
+    try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2)); } catch {}
+    return { ...DEFAULT_CONFIG };
+  }
 }
 
 function saveConfig(cfg) {
@@ -110,7 +114,7 @@ function doDownload(url, destPath, onProgress, cancelState) {
 
         const elapsed = (Date.now() - startTime) / 1000 || 0.001;
         const speed   = downloaded / elapsed;                 // bytes/s
-        const pct     = total > 0 ? Math.min(99, Math.round((downloaded / total) * 100)) : 0;
+        const pct     = total > 0 ? Math.min(99, Math.round((downloaded / total) * 100)) : -1;
         const eta     = total > 0 && speed > 0 ? Math.round((total - downloaded) / speed) : -1;
         onProgress({ downloaded, total, pct, speed, eta });
       });
@@ -158,32 +162,43 @@ function checkSteamRunning() {
 
 // Monitor running game process in background
 let gameProcess = null;
-let gameMonitor = null;
+let isGameRunningState = false;
+let launchGraceTicks = 0;
 let mainWindow  = null;
-let gameStartChecks = 0;
-const MAX_START_CHECKS = 8; // 16 seconds max startup grace period
+let gameMonitorInterval = null;
 
 function startGameMonitor() {
-  if (gameMonitor) return;
-  gameStartChecks = 0;
-  gameMonitor = setInterval(() => {
-    exec('tasklist /NH /FI "IMAGENAME eq RecRoom.exe"', (err, stdout) => {
-      const running = stdout && stdout.toLowerCase().includes('recroom.exe');
-      if (gameStartChecks < MAX_START_CHECKS) {
-        gameStartChecks++;
+  if (gameMonitorInterval) return;
+  gameMonitorInterval = setInterval(async () => {
+    try {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      const running = await checkGameRunning();
+      
+      if (launchGraceTicks > 0) {
+        launchGraceTicks--;
         if (running) {
-          gameStartChecks = MAX_START_CHECKS; // Locked in, process found
+          launchGraceTicks = 0;
+          if (!isGameRunningState) {
+            isGameRunningState = true;
+            mainWindow?.webContents.send('game-state', { running: true });
+          }
         }
         return;
       }
-      if (!running) {
-        gameProcess = null;
-        mainWindow?.webContents.send('game-state', { running: false });
-        clearInterval(gameMonitor);
-        gameMonitor = null;
+      
+      if (running !== isGameRunningState) {
+        isGameRunningState = running;
+        mainWindow?.webContents.send('game-state', { running });
       }
-    });
+    } catch {}
   }, 2000);
+}
+
+function stopGameMonitor() {
+  if (gameMonitorInterval) {
+    clearInterval(gameMonitorInterval);
+    gameMonitorInterval = null;
+  }
 }
 
 // Simple server ping check (runs on HTTP GET /health or /)
@@ -238,18 +253,17 @@ async function getPlayerCount() {
   }
 }
 
-// Add Windows Defender exclusion for BepInEx dll
+// Add Windows Defender exclusion for client folder
 function addDefenderExclusion() {
   if (process.platform !== 'win32') {
     return Promise.resolve({ success: false, error: 'Only supported on Windows.' });
   }
   return new Promise((resolve) => {
-    const targetDllPath = path.join(CLIENT_DIR, 'BepInEx', 'plugins', 'Radeon.Core.BasePatch.dll');
-    const escapedPath = targetDllPath.replace(/'/g, "''").replace(/\$/g, '`$');
+    const escapedPath = CLIENT_DIR.replace(/'/g, "''").replace(/\$/g, '`$');
     const psPath = getPowershellPath();
     const psCommand = `Start-Process '${psPath}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Add-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
     
-    exec(`"${psPath}" -NoProfile -Command "${psCommand}"`, (err, stdout, stderr) => {
+    execFile(psPath, ['-NoProfile', '-Command', psCommand], (err) => {
       if (err) {
         resolve({ success: false, error: err.message });
       } else {
@@ -259,18 +273,17 @@ function addDefenderExclusion() {
   });
 }
 
-// Remove Windows Defender exclusion for BepInEx dll
+// Remove Windows Defender exclusion for client folder
 function removeDefenderExclusion() {
   if (process.platform !== 'win32') {
     return Promise.resolve({ success: false, error: 'Only supported on Windows.' });
   }
   return new Promise((resolve) => {
-    const targetDllPath = path.join(CLIENT_DIR, 'BepInEx', 'plugins', 'Radeon.Core.BasePatch.dll');
-    const escapedPath = targetDllPath.replace(/'/g, "''").replace(/\$/g, '`$');
+    const escapedPath = CLIENT_DIR.replace(/'/g, "''").replace(/\$/g, '`$');
     const psPath = getPowershellPath();
     const psCommand = `Start-Process '${psPath}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Remove-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
     
-    exec(`"${psPath}" -NoProfile -Command "${psCommand}"`, (err, stdout, stderr) => {
+    execFile(psPath, ['-NoProfile', '-Command', psCommand], (err) => {
       if (err) {
         resolve({ success: false, error: err.message });
       } else {
@@ -306,10 +319,12 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+  startGameMonitor();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
 app.on('window-all-closed', () => {
+  stopGameMonitor();
   clientDownloadState.aborted = true;
   if (clientDownloadState.req) try { clientDownloadState.req.destroy(); } catch {}
   updateDownloadState.aborted = true;
@@ -320,6 +335,7 @@ app.on('window-all-closed', () => {
 // IPC actions called from renderer script
 ipcMain.on('win-minimize', () => mainWindow?.minimize());
 ipcMain.on('win-close', () => {
+  stopGameMonitor();
   clientDownloadState.aborted = true;
   if (clientDownloadState.req) { try { clientDownloadState.req.destroy(); } catch {} }
   updateDownloadState.aborted = true;
@@ -341,10 +357,7 @@ ipcMain.handle('check-install', async () => {
   const cfg = ensureConfig();
   const exePath = cfg.gameExePath || findBatIn(CLIENT_DIR, 'RecRoom_ScreenMode.bat') || '';
   const installed = exePath !== '' && fs.existsSync(exePath);
-  const isRunning = await checkGameRunning();
-  if (isRunning) {
-    startGameMonitor();
-  }
+  const isRunning = isGameRunningState;
   return { installed, exePath, clientDir: CLIENT_DIR, isRunning };
 });
 
@@ -375,20 +388,28 @@ ipcMain.handle('download-client', async (event) => {
     if (clientDownloadState.aborted) return { success: false, error: 'Cancelled' };
 
     // Phase 2: Extract
-    progress({ phase: 'extract', pct: 100, status: 'Extracting...' });
+    progress({ phase: 'extract', pct: 0, status: 'Preparing extraction...' });
     if (fs.existsSync(CLIENT_DIR)) {
       try { fs.rmSync(CLIENT_DIR, { recursive: true, force: true }); } catch {}
     }
     fs.mkdirSync(CLIENT_DIR, { recursive: true });
 
-    await new Promise((resolve, reject) => {
-      const zipEscaped = CLIENT_ZIP.replace(/'/g, "''");
-      const dirEscaped = CLIENT_DIR.replace(/'/g, "''");
-      const psPath = getPowershellPath();
-      const cmd = `"${psPath}" -NoProfile -Command "Expand-Archive -LiteralPath '${zipEscaped}' -DestinationPath '${dirEscaped}' -Force"`;
-      exec(cmd, { timeout: 120000 }, (err) => {
-        if (err) reject(err); else resolve();
-      });
+    let extractedCount = 0;
+    let lastPercent = -1;
+    let lastProgressTime = 0;
+
+    await extract(CLIENT_ZIP, {
+      dir: CLIENT_DIR,
+      onEntry: (entry, zipfile) => {
+        extractedCount++;
+        const pct = Math.round((extractedCount / zipfile.entryCount) * 100);
+        const now = Date.now();
+        if (pct !== lastPercent || now - lastProgressTime > 150) {
+          lastPercent = pct;
+          lastProgressTime = now;
+          progress({ phase: 'extract', pct, status: `Extracting: ${entry.fileName} (${extractedCount}/${zipfile.entryCount})` });
+        }
+      }
     });
 
     // Cleanup zip
@@ -409,6 +430,7 @@ ipcMain.handle('download-client', async (event) => {
 
   } catch (err) {
     try { if (fs.existsSync(CLIENT_ZIP)) fs.unlinkSync(CLIENT_ZIP); } catch {}
+    try { if (fs.existsSync(CLIENT_DIR)) fs.rmSync(CLIENT_DIR, { recursive: true, force: true }); } catch {}
     return { success: false, error: err.message };
   }
 });
@@ -485,41 +507,47 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
   const playModeArg = cfg.playMode === 'vr' ? '+mode:vr' : '+mode:screen';
   const hasExe = fs.existsSync(exePath);
 
-  const escapedExePath = exePath.replace(/'/g, "''").replace(/"/g, '\\"');
-  const escapedBatDir = batDir.replace(/'/g, "''");
-  const escapedBatPath = batPath.replace(/'/g, "''").replace(/"/g, '\\"');
-
-  const commandLineStr = hasExe
-    ? `\\"${escapedExePath}\\" ${playModeArg}`
-    : `cmd.exe /c \\"${escapedBatPath}\\"`;
-
-  const psPath = getPowershellPath();
-  const psCommand = `"${psPath}" -NoProfile -Command "(Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${commandLineStr}'; CurrentDirectory = '${escapedBatDir}' }).ProcessId"`;
-
-  console.log('[launch-game] launching via WMI:', psCommand);
+  console.log('[launch-game] launching natively: hasExe =', hasExe);
 
   return new Promise((resolve) => {
-    exec(psCommand, (err, stdout, stderr) => {
-      if (err) {
-        console.error('[launch-game] WMI launch error:', err.message, stderr);
-        resolve({ success: false, error: err.message });
-        return;
+    let child;
+    try {
+      if (hasExe) {
+        child = spawn('cmd.exe', ['/c', 'start', '""', exePath, playModeArg], {
+          cwd: batDir,
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true
+        });
+      } else {
+        child = spawn('cmd.exe', ['/c', 'start', '""', batPath], {
+          cwd: batDir,
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true
+        });
       }
+    } catch (spawnErr) {
+      console.error('[launch-game] Spawn error:', spawnErr);
+      resolve({ success: false, error: spawnErr.message });
+      return;
+    }
 
-      const pid = parseInt(stdout.trim(), 10);
-      if (isNaN(pid) || pid <= 0) {
-        console.error('[launch-game] WMI invalid PID output:', stdout);
-        resolve({ success: false, error: 'Failed to start game process.' });
-        return;
-      }
+    if (!child || !child.pid) {
+      console.error('[launch-game] Spawned child has invalid PID:', child);
+      resolve({ success: false, error: 'Failed to start game process.' });
+      return;
+    }
 
-      console.log('[launch-game] launched successfully, PID:', pid);
-      gameProcess = { pid };
-      startGameMonitor();
-      mainWindow?.webContents.send('game-state', { running: true });
-      if (cfg.minimizeOnLaunch) mainWindow?.minimize();
-      resolve({ success: true, pid });
-    });
+    child.unref();
+
+    console.log('[launch-game] launched successfully, PID:', child.pid);
+    gameProcess = { pid: child.pid };
+    launchGraceTicks = 8;
+    isGameRunningState = true;
+    mainWindow?.webContents.send('game-state', { running: true });
+    if (cfg.minimizeOnLaunch) mainWindow?.minimize();
+    resolve({ success: true, pid: child.pid });
   });
 });
 
@@ -527,6 +555,7 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
 ipcMain.handle('kill-game', () => {
   exec('taskkill /F /IM RecRoom.exe', () => {});
   gameProcess = null;
+  isGameRunningState = false;
   return true;
 });
 

@@ -230,8 +230,8 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
   const sizeEl   = $('dlSizeLabel');
   const etaEl    = $('dlEtaLabel');
 
-  if (fill)    fill.style.width = `${pct}%`;
-  if (pctEl)   pctEl.textContent = `${pct}%`;
+  if (fill)    fill.style.width = pct >= 0 ? `${pct}%` : '100%';
+  if (pctEl)   pctEl.textContent = pct >= 0 ? `${pct}%` : '—';
 
   if (phase === 'extract') {
     if (phase_el) phase_el.textContent = 'Extracting...';
@@ -285,6 +285,14 @@ $('btnCancelDl')?.addEventListener('click', () => {
 
 // Reinstall button
 $('btnReinstall')?.addEventListener('click', () => {
+  if (isDownloading) {
+    toast('Download already in progress.', 'error');
+    return;
+  }
+  if (isGameRunning) {
+    toast('Cannot reinstall while the game is running.', 'error');
+    return;
+  }
   $('downloadSection').style.display = 'flex';
   $('launchPanel').style.display     = 'none';
   isInstalled = false;
@@ -353,6 +361,12 @@ function hideExcludeAvModal() {
 
 $('excludeAvModalClose')?.addEventListener('click', hideExcludeAvModal);
 $('btnExcludeAvCancel')?.addEventListener('click', hideExcludeAvModal);
+$('btnExcludeAvAnyway')?.addEventListener('click', async () => {
+  const m = $('excludeAvModal');
+  if (m) m.style.display = 'none';
+  launchAfterExclusion = false; // Reset since we are launching now anyway
+  await checkSteamAndLaunch();
+});
 $('excludeAvModal')?.addEventListener('click', (e) => {
   if (e.target === $('excludeAvModal')) {
     hideExcludeAvModal();
@@ -362,7 +376,7 @@ $('excludeAvModal')?.addEventListener('click', (e) => {
 async function executeExcludeAv() {
   const btn = $('btnExcludeAv');
   if (!btn) return;
-  addLog('Requesting Windows Defender exclusion for BasePatch.dll...', 'info');
+  addLog('Requesting Windows Defender exclusion for client folder...', 'info');
   toast('Please approve the Administrator prompt...', 'info');
   const result = await window.radium?.addDefenderExclusion();
   if (result && result.success) {
@@ -399,7 +413,7 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
   const isCurrentlyExcluded = config.defenderExcluded === true;
 
   if (isCurrentlyExcluded) {
-    addLog('Requesting Windows Defender exclusion removal for BasePatch.dll...', 'info');
+    addLog('Requesting Windows Defender exclusion removal for client folder...', 'info');
     toast('Please approve the Administrator prompt...', 'info');
     const result = await window.radium?.removeDefenderExclusion();
     if (result && result.success) {
@@ -425,18 +439,7 @@ function setModeUI(mode) {
 }
 
 function updateQsMode() {
-  const el = $('qsMode');
-  if (el) el.textContent = playMode === 'vr' ? 'VR MODE' : 'SCREEN MODE';
-  const qscM = $('qsc-mode');
-  if (qscM) {
-    if (playMode === 'vr') {
-      qscM.classList.add('mode-vr');
-      qscM.classList.remove('mode-screen');
-    } else {
-      qscM.classList.add('mode-screen');
-      qscM.classList.remove('mode-vr');
-    }
-  }
+  // Mode display placeholder for future quick stats card
 }
 
 function updateSettingsLaunchScript() {
