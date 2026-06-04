@@ -1,9 +1,10 @@
 // App state variables
-let config         = {};
-let isGameRunning  = false;
-let isDownloading  = false;
-let isInstalled    = false;
-let playMode       = 'screen';
+let config                = {};
+let isGameRunning         = false;
+let isDownloading         = false;
+let isInstalled           = false;
+let playMode              = 'screen';
+let launchAfterExclusion  = false;
 
 // DOM shortcuts
 const $ = id => document.getElementById(id);
@@ -338,6 +339,59 @@ $('btnOpenFolderSettings')?.addEventListener('click', async () => {
   }
 });
 
+// Exclude AV Modal Actions
+function showExcludeAvModal() {
+  const m = $('excludeAvModal');
+  if (m) m.style.display = 'flex';
+}
+
+function hideExcludeAvModal() {
+  const m = $('excludeAvModal');
+  if (m) m.style.display = 'none';
+  launchAfterExclusion = false; // Reset whenever the modal is hidden
+}
+
+$('excludeAvModalClose')?.addEventListener('click', hideExcludeAvModal);
+$('btnExcludeAvCancel')?.addEventListener('click', hideExcludeAvModal);
+$('excludeAvModal')?.addEventListener('click', (e) => {
+  if (e.target === $('excludeAvModal')) {
+    hideExcludeAvModal();
+  }
+});
+
+async function executeExcludeAv() {
+  const btn = $('btnExcludeAv');
+  if (!btn) return;
+  addLog('Requesting Windows Defender exclusion for BasePatch.dll...', 'info');
+  toast('Please approve the Administrator prompt...', 'info');
+  const result = await window.radium?.addDefenderExclusion();
+  if (result && result.success) {
+    config.defenderExcluded = true;
+    await window.radium?.saveConfig(config);
+    btn.textContent = 'UNExclude AV';
+    toast('Defender exclusion added!', 'ok');
+    addLog('Exclusion successfully added to Windows Defender.', 'ok');
+    
+    // Check if we need to proceed to Steam check and launch
+    if (launchAfterExclusion) {
+      launchAfterExclusion = false;
+      await checkSteamAndLaunch();
+    }
+  } else {
+    const err = result?.error || 'UAC elevation cancelled or failed';
+    toast('Failed to add exclusion.', 'error');
+    addLog(`Exclusion failed: ${err}`, 'error');
+    launchAfterExclusion = false;
+  }
+}
+
+$('btnExcludeAvConfirm')?.addEventListener('click', () => {
+  // Set display directly to avoid resetting launchAfterExclusion inside hideExcludeAvModal
+  const m = $('excludeAvModal');
+  if (m) m.style.display = 'none';
+  executeExcludeAv();
+});
+
 $('btnExcludeAv')?.addEventListener('click', async () => {
   const btn = $('btnExcludeAv');
   if (!btn) return;
@@ -360,20 +414,7 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
       addLog(`Exclusion removal failed: ${err}`, 'error');
     }
   } else {
-    addLog('Requesting Windows Defender exclusion for BasePatch.dll...', 'info');
-    toast('Please approve the Administrator prompt...', 'info');
-    const result = await window.radium?.addDefenderExclusion();
-    if (result && result.success) {
-      config.defenderExcluded = true;
-      await window.radium?.saveConfig(config);
-      btn.textContent = 'UNExclude AV';
-      toast('Defender exclusion added!', 'ok');
-      addLog('Exclusion successfully added to Windows Defender.', 'ok');
-    } else {
-      const err = result?.error || 'UAC elevation cancelled or failed';
-      toast('Failed to add exclusion.', 'error');
-      addLog(`Exclusion failed: ${err}`, 'error');
-    }
+    showExcludeAvModal();
   }
 });
 
@@ -519,8 +560,25 @@ function setGameRunning(running) {
   }
 }
 
-$('btnPlay')?.addEventListener('click', async () => {
-  if (isGameRunning || !isInstalled) return;
+// Steam Modal actions
+function showSteamModal() {
+  const m = $('steamModal');
+  if (m) m.style.display = 'flex';
+}
+
+function hideSteamModal() {
+  const m = $('steamModal');
+  if (m) m.style.display = 'none';
+}
+
+$('steamModalClose')?.addEventListener('click', hideSteamModal);
+$('steamModal')?.addEventListener('click', (e) => {
+  if (e.target === $('steamModal')) {
+    hideSteamModal();
+  }
+});
+
+async function executeLaunch() {
   setGameRunning(true);
   addLog('Launching game...', 'info');
   toast('Launching Radium...', 'info', 2000);
@@ -535,6 +593,51 @@ $('btnPlay')?.addEventListener('click', async () => {
   } else {
     addLog(`Game running (PID ${result.pid}) — mode: ${playMode}`, 'ok');
     toast(`Radium launched in ${playMode.toUpperCase()} mode!`, 'ok');
+  }
+}
+
+$('steamAnywayBtn')?.addEventListener('click', () => {
+  hideSteamModal();
+  executeLaunch();
+});
+
+$('steamLaunchBtn')?.addEventListener('click', async () => {
+  hideSteamModal();
+  addLog('Launching Steam...', 'info');
+  toast('Launching Steam...', 'info', 2000);
+  window.radium?.openUrl('steam://');
+  
+  // Wait 3 seconds to let Steam start initializing before starting the game
+  addLog('Waiting for Steam to start (3s)...', 'info');
+  setTimeout(() => {
+    executeLaunch();
+  }, 3000);
+});
+
+async function checkSteamAndLaunch() {
+  addLog('Checking if Steam is running...', 'info');
+  const steamRunning = await window.radium?.checkSteam();
+
+  if (steamRunning) {
+    addLog('Steam is running.', 'ok');
+    executeLaunch();
+  } else {
+    addLog('Steam is not running. Prompting user...', 'info');
+    showSteamModal();
+  }
+}
+
+$('btnPlay')?.addEventListener('click', async () => {
+  if (isGameRunning || !isInstalled) return;
+
+  const isCurrentlyExcluded = config.defenderExcluded === true;
+
+  if (!isCurrentlyExcluded) {
+    addLog('Antivirus exclusion not set. Prompting user...', 'info');
+    launchAfterExclusion = true;
+    showExcludeAvModal();
+  } else {
+    await checkSteamAndLaunch();
   }
 });
 

@@ -933,11 +933,7 @@ body {
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
 }
 ::-webkit-scrollbar-button {
-  display: block;
-  height: 18px;
-  background: var(--bg-panel);
-  border: 2px solid;
-  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  display: none !important;
 }
 
 /* Title bar */
@@ -1513,3 +1509,363 @@ body.theme-modernlight .btn-exclude-av:hover {
   background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%) !important;
   transform: translateY(-1px) !important;
 }
+
+/* ==========================================
+   MODAL THEMING OVERRIDES
+   ========================================== */
+
+/* Windows 98 Modal Overrides */
+body.theme-win98 .modal-titlebar {
+  background: linear-gradient(90deg, #000080, #1084d0) !important;
+  border-bottom: 2px solid #808080 !important;
+}
+body.theme-win98 .modal-title {
+  color: #ffffff !important;
+}
+
+/* Windows 95 Modal Overrides */
+body.theme-win95 .modal-titlebar {
+  background: #000080 !important;
+  border-bottom: 2px solid #808080 !important;
+}
+body.theme-win95 .modal-title {
+  color: #ffffff !important;
+  font-weight: bold !important;
+}
+
+/* Windows XP Modal Overrides */
+body.theme-winxp .modal-titlebar {
+  background: linear-gradient(180deg, #0058e6 0%, #3a93ff 8%, #0058e6 45%, #002f9e 100%) !important;
+  border-bottom: none !important;
+}
+body.theme-winxp .modal-title {
+  color: #ffffff !important;
+}
+body.theme-winxp .modal-close-btn {
+  border-radius: 3px !important;
+  border: 1px solid #7a1500 !important;
+  background: linear-gradient(180deg, #f07353 0%, #d83c18 100%) !important;
+  color: #ffffff !important;
+}
+body.theme-winxp .modal-btn {
+  border-radius: 4px !important;
+  border: 1px solid #7f9db9 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #ece9d8 100%) !important;
+  box-shadow: 1px 1px 2px rgba(0,0,0,0.1) !important;
+  color: #000000 !important;
+}
+body.theme-winxp .modal-btn:hover {
+  background: linear-gradient(180deg, #fbfbf7 0%, #e5e2d0 100%) !important;
+  border-color: #aca899 !important;
+}
+body.theme-winxp .modal-btn:active {
+  background: linear-gradient(180deg, #e5e2d0 0%, #ffffff 100%) !important;
+  border-color: #7f9db9 !important;
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.15) !important;
+  padding: 5px 18px !important;
+}
+
+/* Windows XP Royale Noir Modal Overrides */
+body.theme-royalenoir .modal-titlebar {
+  background: linear-gradient(180deg, #444444 0%, #1e1e1e 50%, #0c0c0c 100%) !important;
+  border-bottom: 1px solid #141414 !important;
+}
+body.theme-royalenoir .modal-title {
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7) !important;
+}
+body.theme-royalenoir .modal-close-btn {
+  border-radius: 3px !important;
+  border: 1px solid #551100 !important;
+  background: linear-gradient(180deg, #ff7247 0%, #d8340d 100%) !important;
+  color: #ffffff !important;
+}
+body.theme-royalenoir .modal-btn {
+  border-radius: 4px !important;
+  border: 1px solid #141414 !important;
+  background: linear-gradient(180deg, #444444 0%, #282828 100%) !important;
+  box-shadow: 1px 1px 2px rgba(0,0,0,0.3) !important;
+  color: #f0f0f0 !important;
+}
+body.theme-royalenoir .modal-btn:hover {
+  background: linear-gradient(180deg, #555555 0%, #333333 100%) !important;
+  border-color: #1c1c1c !important;
+}
+body.theme-royalenoir .modal-btn:active {
+  background: linear-gradient(180deg, #282828 0%, #444444 100%) !important;
+  border-color: #141414 !important;
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.3) !important;
+  padding: 5px 18px !important;
+}
+
+/* Windows Vista Aero Modal Overrides */
+body.theme-winvista .modal-overlay {
+  background: rgba(0, 0, 0, 0.45) !important;
+}
+body.theme-winvista .modal-box {
+  background: linear-gradient(180deg, #eef5fc 0%, #dbe9f6 100%) !important; /* Soft Vista Aero blue client background */
+  background-clip: padding-box !important;
+  border: 12px solid rgba(0, 100, 220, 0.5) !important; /* Thick vibrant blue glass Aero frame */
+  border-radius: 10px !important;
+  box-shadow: 
+    0 8px 30px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35) !important;
+  overflow: hidden !important;
+}
+body.theme-winvista .modal-titlebar {
+  background: linear-gradient(180deg, rgba(30, 120, 240, 0.8) 0%, rgba(10, 60, 150, 0.9) 100%) !important; /* Vista Aero Blue glossy titlebar */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25) !important;
+  padding: 6px 10px !important;
+}
+body.theme-winvista .modal-title {
+  color: #ffffff !important;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.7) !important;
+  font-weight: bold !important;
+}
+body.theme-winvista .modal-close-btn {
+  border: 1px solid #551111 !important;
+  background: 
+    linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.25) 51%, rgba(255,255,255,0.05) 100%),
+    #d35252 !important;
+  color: #ffffff !important;
+  border-radius: 2px !important;
+}
+body.theme-winvista .modal-btn {
+  border-radius: 4px !important;
+  border: 1px solid #707070 !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.25) 50%, rgba(0,0,0,0.03) 51%, rgba(255,255,255,0.25) 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 1px 1px 2px rgba(0,0,0,0.15) !important;
+  color: #1a2a3a !important;
+  transition: all 0.2s !important;
+}
+body.theme-winvista .modal-btn:hover {
+  background: 
+    linear-gradient(180deg, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0.15) 51%, rgba(255,255,255,0.35) 100%),
+    linear-gradient(90deg, #cce4f7, #cce4f7) !important;
+  border-color: #3c7fb1 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 0 5px rgba(60, 127, 177, 0.4) !important;
+}
+body.theme-winvista .modal-btn:active {
+  background: linear-gradient(180deg, #d2d2d2 0%, #c5c5c5 50%, #b8b8b8 51%, #ababab 100%) !important;
+  border-color: #555555 !important;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.2) !important;
+  padding: 5px 18px !important;
+}
+
+/* Mac OS Classic Modal Overrides */
+body.theme-macosclassic .modal-titlebar {
+  background: repeating-linear-gradient(180deg, #999999, #999999 1px, #ffffff 1px, #ffffff 2px) !important;
+  border-bottom: 2px solid #000000 !important;
+}
+body.theme-macosclassic .modal-title {
+  color: #000000 !important;
+  font-weight: bold !important;
+}
+body.theme-macosclassic .modal-close-btn {
+  border: 2px solid #000000 !important;
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+
+/* Modern Neon Dark Modal Overrides */
+body.theme-moderndark .modal-titlebar {
+  background: #16181f !important;
+  border-bottom: 1px solid var(--border-light) !important;
+  padding: 10px 14px !important;
+}
+body.theme-moderndark .modal-title {
+  color: var(--green) !important;
+  font-weight: 700 !important;
+  text-shadow: 0 0 8px var(--green) !important;
+}
+body.theme-moderndark .modal-close-btn {
+  background: #f87171 !important;
+  border: 1px solid #dc2626 !important;
+  border-radius: 50% !important;
+  width: 12px !important;
+  height: 12px !important;
+  color: transparent !important;
+  font-size: 0 !important;
+  padding: 0 !important;
+}
+
+/* Modern Forest Green Modal Overrides */
+body.theme-moderngreen .modal-titlebar {
+  background: #0d140d !important;
+  border-bottom: 1px solid var(--border-light) !important;
+  padding: 10px 14px !important;
+}
+body.theme-moderngreen .modal-title {
+  color: var(--green) !important;
+  font-weight: 700 !important;
+  text-shadow: 0 0 8px var(--green) !important;
+}
+body.theme-moderngreen .modal-close-btn {
+  background: #f87171 !important;
+  border: 1px solid #dc2626 !important;
+  border-radius: 50% !important;
+  width: 12px !important;
+  height: 12px !important;
+  color: transparent !important;
+  font-size: 0 !important;
+  padding: 0 !important;
+}
+
+/* Modern Glass Light Modal Overrides */
+body.theme-modernlight .modal-titlebar {
+  background: #ffffff !important;
+  border-bottom: 1px solid var(--border-light) !important;
+  padding: 10px 14px !important;
+}
+body.theme-modernlight .modal-title {
+  color: var(--text) !important;
+  font-weight: 700 !important;
+}
+body.theme-modernlight .modal-close-btn {
+  background: #f87171 !important;
+  border: 1px solid #dc2626 !important;
+  border-radius: 50% !important;
+  width: 12px !important;
+  height: 12px !important;
+  color: transparent !important;
+  font-size: 0 !important;
+  padding: 0 !important;
+}
+
+/* Custom btn-exclude-av Theme Hover Overrides */
+
+/* Windows XP Exclude AV overrides */
+body.theme-winxp .btn-exclude-av {
+  border-radius: 4px !important;
+  border: 1px solid #7f9db9 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #ece9d8 100%) !important;
+  color: #000000 !important;
+  box-shadow: 1px 1px 2px rgba(0,0,0,0.1) !important;
+}
+body.theme-winxp .btn-exclude-av:hover {
+  background: linear-gradient(180deg, #fbfbf7 0%, #e5e2d0 100%) !important;
+  border-color: #aca899 !important;
+  color: #000000 !important;
+}
+body.theme-winxp .btn-exclude-av:active {
+  background: linear-gradient(180deg, #e5e2d0 0%, #ffffff 100%) !important;
+  border-color: #7f9db9 !important;
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.15) !important;
+}
+
+/* Windows XP Royale Noir Exclude AV overrides */
+body.theme-royalenoir .btn-exclude-av {
+  border-radius: 4px !important;
+  border: 1px solid #141414 !important;
+  background: linear-gradient(180deg, #444444 0%, #282828 100%) !important;
+  color: #f0f0f0 !important;
+  box-shadow: 1px 1px 2px rgba(0,0,0,0.3) !important;
+}
+body.theme-royalenoir .btn-exclude-av:hover {
+  background: linear-gradient(180deg, #555555 0%, #333333 100%) !important;
+  border-color: #1c1c1c !important;
+  color: #ffffff !important;
+}
+body.theme-royalenoir .btn-exclude-av:active {
+  background: linear-gradient(180deg, #282828 0%, #444444 100%) !important;
+  border-color: #141414 !important;
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.3) !important;
+}
+
+/* Windows Vista Aero Exclude AV overrides */
+body.theme-winvista .btn-exclude-av {
+  border-radius: 4px !important;
+  border: 1px solid #707070 !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.25) 50%, rgba(0,0,0,0.03) 51%, rgba(255,255,255,0.25) 100%) !important;
+  color: #1a2a3a !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 1px 1px 2px rgba(0,0,0,0.15) !important;
+}
+body.theme-winvista .btn-exclude-av:hover {
+  background: 
+    linear-gradient(180deg, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0.15) 51%, rgba(255,255,255,0.35) 100%),
+    linear-gradient(90deg, #cce4f7, #cce4f7) !important;
+  border-color: #3c7fb1 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 0 5px rgba(60, 127, 177, 0.4) !important;
+  color: #1a2a3a !important;
+}
+body.theme-winvista .btn-exclude-av:active {
+  background: linear-gradient(180deg, #d2d2d2 0%, #c5c5c5 50%, #b8b8b8 51%, #ababab 100%) !important;
+  border-color: #555555 !important;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.2) !important;
+}
+
+/* Mac OS Classic Exclude AV overrides */
+body.theme-macosclassic .btn-exclude-av {
+  border: 1px solid #000000 !important;
+  background: #ffffff !important;
+  color: #000000 !important;
+  box-shadow: 1px 1px 0 #000000 !important;
+  border-radius: 0 !important;
+}
+body.theme-macosclassic .btn-exclude-av:hover {
+  background: #000000 !important;
+  color: #ffffff !important;
+}
+body.theme-macosclassic .btn-exclude-av:active {
+  box-shadow: none !important;
+  transform: translate(1px, 1px) !important;
+}
+
+/* Theme Scrollbar Overrides */
+
+/* Windows Vista Aero Scrollbar Overrides */
+body.theme-winvista ::-webkit-scrollbar {
+  width: 12px !important;
+  background: #f1f5f9 !important;
+  border-left: 1px solid #cbd5e1 !important;
+}
+body.theme-winvista ::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #d8e1e8 0%, #b8c4d0 100%) !important;
+  border: 1px solid #708090 !important;
+  border-radius: 6px !important;
+}
+body.theme-winvista ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #e5edf5 0%, #c8d5e5 100%) !important;
+  border-color: #3c7fb1 !important;
+}
+body.theme-winvista ::-webkit-scrollbar-button {
+  display: none !important;
+}
+
+/* Windows XP Scrollbar Overrides */
+body.theme-winxp ::-webkit-scrollbar {
+  width: 16px !important;
+  background: #fdfdfd !important;
+  border-left: 1px solid #aca899 !important;
+}
+body.theme-winxp ::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #c3d9ff 0%, #7faeff 50%, #448aff 100%) !important;
+  border: 1px solid #5a7f9b !important;
+  border-radius: 4px !important;
+}
+body.theme-winxp ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #dce8ff 0%, #9cbfff 50%, #60a0ff 100%) !important;
+}
+body.theme-winxp ::-webkit-scrollbar-button {
+  display: none !important;
+}
+
+/* Windows XP Royale Noir Scrollbar Overrides */
+body.theme-royalenoir ::-webkit-scrollbar {
+  width: 16px !important;
+  background: #2a2a2a !important;
+  border-left: 1px solid #141414 !important;
+}
+body.theme-royalenoir ::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #666666 0%, #333333 100%) !important;
+  border: 1px solid #141414 !important;
+  border-radius: 4px !important;
+}
+body.theme-royalenoir ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #888888 0%, #444444 100%) !important;
+}
+body.theme-royalenoir ::-webkit-scrollbar-button {
+  display: none !important;
+}
+
+

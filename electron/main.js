@@ -132,6 +132,14 @@ function checkGameRunning() {
   });
 }
 
+function checkSteamRunning() {
+  return new Promise((res) => {
+    exec('tasklist /NH /FI "IMAGENAME eq steam.exe"', (err, stdout) => {
+      res(!!(stdout && stdout.toLowerCase().includes('steam.exe')));
+    });
+  });
+}
+
 // Monitor running game process in background
 let gameProcess = null;
 let gameMonitor = null;
@@ -302,6 +310,7 @@ ipcMain.handle('get-player-count', () => getPlayerCount());
 ipcMain.handle('add-defender-exclusion', () => addDefenderExclusion());
 ipcMain.handle('remove-defender-exclusion', () => removeDefenderExclusion());
 ipcMain.handle('get-version', ()      => app.getVersion());
+ipcMain.handle('check-steam', ()      => checkSteamRunning());
 
 // Check if client is installed
 ipcMain.handle('check-install', async () => {

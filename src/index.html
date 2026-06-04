@@ -280,6 +280,50 @@
     </div>
   </div>
 
+  <!-- Steam Required Modal -->
+  <div class="modal-overlay" id="steamModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⚠ STEAM NOT RUNNING</span>
+        <button class="modal-close-btn" id="steamModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
+          Steam is not currently running. Steam must be running to play Radium.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="steamAnywayBtn">Launch Anyway</button>
+        <button class="modal-btn modal-btn-primary" id="steamLaunchBtn">Launch Steam & Play</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Exclude AV Warning Modal -->
+  <div class="modal-overlay" id="excludeAvModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⚠ ANTIVIRUS EXCLUSION</span>
+        <button class="modal-close-btn" id="excludeAvModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
+          Exclude Radium from Antivirus scanning?
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
+          Radium requires an exclusion in Windows Defender to load its custom patches correctly. Without this, files may be blocked or deleted, and Radium will not work.
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 6px;">
+          Please accept the upcoming Windows Administrator prompt to apply this exclusion.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="btnExcludeAvCancel">Cancel</button>
+        <button class="modal-btn modal-btn-primary" id="btnExcludeAvConfirm">Exclude AV</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast-container" id="toastContainer"></div>
 

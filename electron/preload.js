@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('radium', {
   // Misc
   openUrl:    (url)  => ipcRenderer.send('open-url', url),
   getVersion: ()     => ipcRenderer.invoke('get-version'),
+  checkSteam: ()     => ipcRenderer.invoke('check-steam'),
 
   // Auto-update
   checkForUpdate:  ()            => ipcRenderer.invoke('check-for-update'),
