@@ -737,6 +737,9 @@ async function checkForLauncherUpdate() {
 }
 
 $('btnCheckUpdates')?.addEventListener('click', async () => {
+  const btn = $('btnCheckUpdates');
+  if (btn.disabled) return;
+  btn.disabled = true;
   const resultEl = $('updateCheckResult');
   if (resultEl) {
     resultEl.textContent = 'Checking...';
@@ -770,7 +773,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
         resultEl.className = 'test-result ok';
       }
       addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok');
-      toast(`Update available: ${info.latestVersion}!`, 'ok', 5000);
+      toast('Update available!', 'ok', 5000);
       showUpdateModal(info);
     } else {
       if (resultEl) {
@@ -787,6 +790,8 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     }
     addLog(`Update check error: ${e.message}`, 'info');
     toast('Update check error.', 'error');
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -796,8 +801,8 @@ async function init() {
   await loadVersion();
   await loadConfig();
 
-  // Check for launcher updates first on startup
-  await checkForLauncherUpdate();
+  // Check for launcher updates first on startup (run in background, do not block initialization)
+  checkForLauncherUpdate();
 
   addLog(`API: ${config.apiUrl}`, 'info');
   addLog(`Install dir: %APPDATA%\\radium-launcher\\client`, 'info');
