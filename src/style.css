@@ -81,11 +81,13 @@ body.theme-winxp .tb-ctrl {
   box-shadow: inset 1px 1px 1px rgba(255, 255, 255, 0.4);
   margin-top: -2px;
 }
-body.theme-winxp .tb-ctrl.min {
+body.theme-winxp .tb-ctrl.min,
+body.theme-winxp .tb-ctrl.max {
   background: linear-gradient(180deg, #0055e5 0%, #3b93ff 100%);
   color: #ffffff;
 }
-body.theme-winxp .tb-ctrl.min:hover {
+body.theme-winxp .tb-ctrl.min:hover,
+body.theme-winxp .tb-ctrl.max:hover {
   background: linear-gradient(180deg, #3b93ff 0%, #0055e5 100%);
 }
 body.theme-winxp .tb-ctrl.cls {
@@ -289,22 +291,242 @@ body.theme-winvista .nav-btn.active {
   padding: 6px 10px;
 }
 
+/* Windows 7 Aero Theme overrides */
+body.theme-win7 {
+  /* Content area — standard Win7 light gray */
+  --bg-dark:      #f0f3f7;
+  /* Sidebar — Win7 Explorer nav pane light gray-blue */
+  --bg-main:      #edf2f8;
+  /* Panel/dialog background — pure white like Win7 dialogs */
+  --bg-panel:     #ffffff;
+  --bg-btn:       #f2f6fa;
+  /* Borders — thin Win7 Aero style */
+  --border-light: #dbe4f0;
+  --border-dark:  #a3b8cc;
+  /* Accent — Win7 Sky Blue */
+  --green:        #1068c8;
+  --green-dim:    #0a4b96;
+  /* Text */
+  --text:         #000000;
+  --text-muted:   #555555;
+  --status-online:#0a8a0a;
+  
+  /* Window chrome: thick translucent Aero glass border, rounded top */
+  border: 6px solid rgba(135, 195, 240, 0.7);
+  border-radius: 8px 8px 0 0;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.45),
+    0 12px 35px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(255,255,255,0.2);
+}
+/* Win7 sidebar — light Explorer nav pane */
+body.theme-win7 .sidebar {
+  background: #edf2f8 !important;
+  border-right: 1px solid #d9e1e8 !important;
+  box-shadow: none !important;
+}
+body.theme-win7 .sidebar-logo {
+  border-bottom: 1px solid #d9e1e8 !important;
+}
+body.theme-win7 .sidebar-footer {
+  border-top: 1px solid #d9e1e8 !important;
+}
+body.theme-win7 .nav-btn {
+  text-align: left;
+  padding: 6px 10px;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px !important;
+  color: #1e395b !important;
+  transition: all 0.15s;
+}
+body.theme-win7 .nav-btn:hover {
+  background: linear-gradient(180deg, #f2f7fc 0%, #e3effc 100%) !important;
+  border-color: #b8d6f7 !important;
+  color: #000000 !important;
+}
+body.theme-win7 .nav-btn.active {
+  background: linear-gradient(180deg, #e5f1fb 0%, #d2e5f5 100%) !important;
+  border-color: #a5cded !important;
+  color: #000000 !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.6) !important;
+  padding: 6px 10px !important;
+}
+body.theme-win7 .player-count-badge {
+  color: #1a4b86;
+  font-weight: bold;
+}
+body.theme-win7 .titlebar {
+  height: 38px;
+  /* Signature Win7 Aero Glass: translucent sky blue with white shine top half */
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.70) 0%,
+      rgba(255, 255, 255, 0.25) 48%,
+      rgba(0,   160, 255, 0.05) 49%,
+      rgba(135, 206, 250, 0.35) 75%,
+      rgba(90,  160, 230, 0.50) 100%),
+    linear-gradient(90deg,
+      #7db3e8 0%, #b3d4f7 30%, #cce4fc 50%, #b3d4f7 70%, #7db3e8 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.3);
+  border-radius: 3px 3px 0 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(0,0,0,0.15);
+}
+body.theme-win7 .titlebar-app-name {
+  color: #0c2a52;
+  text-shadow:
+    0 0 10px rgba(255, 255, 255, 0.95),
+    0 0 10px rgba(255, 255, 255, 0.95),
+    0 0 5px rgba(255, 255, 255, 0.8);
+  font-weight: bold;
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+  letter-spacing: 0.3px;
+}
+body.theme-win7 .hero-title {
+  color: #1068c8;
+}
+body.theme-win7 .titlebar-controls {
+  gap: 1px;
+  margin-top: -3px;
+}
+body.theme-win7 .tb-ctrl {
+  width: 30px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  font-size: 10px;
+  font-weight: bold;
+  color: #0c2a52;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.40) 0%,
+    rgba(255,255,255,0.15) 48%,
+    rgba(0,0,0,0.08) 49%,
+    rgba(255,255,255,0.10) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+  margin-top: 0;
+  transition: all 0.12s;
+}
+body.theme-win7 .tb-ctrl:hover {
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.60) 0%,
+    rgba(255,255,255,0.30) 48%,
+    rgba(0,0,0,0.02) 49%,
+    rgba(255,255,255,0.25) 100%);
+  border-color: rgba(60,140,220,0.5);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 0 5px rgba(135,206,250,0.5);
+}
+body.theme-win7 .tb-ctrl.cls {
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.30) 0%,
+    rgba(255,255,255,0.08) 48%,
+    rgba(0,0,0,0.15) 49%,
+    rgba(255,255,255,0.05) 100%),
+    rgba(224, 64, 64, 0.85);
+  border-color: #9c2a2a;
+}
+body.theme-win7 .tb-ctrl.cls:hover {
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.45) 0%,
+    rgba(255,255,255,0.15) 48%,
+    rgba(0,0,0,0.10) 49%,
+    rgba(255,255,255,0.10) 100%),
+    #e81123;
+  box-shadow: 0 0 10px rgba(232,17,35,0.65), inset 0 1px 0 rgba(255,255,255,0.4);
+  border-color: #8c0a15;
+  color: #ffffff !important;
+  text-shadow: none !important;
+}
+
+/* Action buttons — Win7 Aero */
+body.theme-win7 .btn-download-big,
+body.theme-win7 .btn-play,
+body.theme-win7 .btn-refresh,
+body.theme-win7 .btn-save,
+body.theme-win7 .btn-test-server,
+body.theme-win7 .btn-cancel-dl,
+body.theme-win7 .btn-kill,
+body.theme-win7 .btn-open-folder,
+body.theme-win7 .btn-reinstall,
+body.theme-win7 .btn-uninstall {
+  border-radius: 3px;
+  border: 1px solid #707070;
+  background: linear-gradient(180deg,
+    #fcfcfc 0%,
+    #f3f3f3 48%,
+    #e5e5e5 49%,
+    #f1f1f1 100%);
+  box-shadow: inset 0 1px 0 #ffffff, 0 1px 2px rgba(0,0,0,0.1);
+  color: #000000;
+  transition: all 0.12s;
+}
+body.theme-win7 .btn-download-big:hover,
+body.theme-win7 .btn-play:hover,
+body.theme-win7 .btn-refresh:hover,
+body.theme-win7 .btn-save:hover,
+body.theme-win7 .btn-test-server:hover,
+body.theme-win7 .btn-cancel-dl:hover,
+body.theme-win7 .btn-kill:hover,
+body.theme-win7 .btn-open-folder:hover,
+body.theme-win7 .btn-reinstall:hover,
+body.theme-win7 .btn-uninstall:hover {
+  background: linear-gradient(180deg,
+    #f6fbff 0%,
+    #edf6fd 48%,
+    #ddf0fc 49%,
+    #f2f9ff 100%);
+  border-color: #3c7fb1;
+  box-shadow: inset 0 1px 0 #ffffff, 0 0 5px rgba(60, 160, 240, 0.5);
+}
+body.theme-win7 .btn-download-big:active,
+body.theme-win7 .btn-play:active,
+body.theme-win7 .btn-refresh:active,
+body.theme-win7 .btn-save:active,
+body.theme-win7 .btn-test-server:active,
+body.theme-win7 .btn-cancel-dl:active,
+body.theme-win7 .btn-kill:active,
+body.theme-win7 .btn-open-folder:active,
+body.theme-win7 .btn-reinstall:active,
+body.theme-win7 .btn-uninstall:active {
+  background: linear-gradient(180deg, #e5f1fb 0%, #e5f1fb 100%);
+  border-color: #2c628b;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.15);
+  color: #000000;
+}
+
+/* Win7 scrollbar — Aero style */
+body.theme-win7 ::-webkit-scrollbar {
+  width: 10px !important;
+  height: 10px !important;
+  background: #f0f3f7 !important;
+  border-left: 1px solid #d9e1e8 !important;
+}
+body.theme-win7 ::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #eaeef4 0%, #ccd8e8 50%, #eaeef4 100%) !important;
+  border: 1px solid #a8b8cc !important;
+  border-radius: 4px !important;
+}
+body.theme-win7 ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #dce4f0 0%, #adc6e5 50%, #dce4f0 100%) !important;
+  border-color: #7a9cbe !important;
+}
+
 /* Windows 95 Teal Theme overrides */
 body.theme-win95 {
-  --bg-dark:      #008080; /* Nostalgic Teal background */
-  --bg-main:      #c0c0c0; /* Solid 95 grey */
+  --bg-dark:      #008080;
+  --bg-main:      #c0c0c0;
   --bg-panel:     #c0c0c0;
   --bg-btn:       #c0c0c0;
   --border-light: #ffffff;
   --border-dark:  #808080;
-  --green:        #000080; /* Navy Accent */
+  --green:        #000080;
   --green-dim:    #000000;
   --text:         #000000;
   --text-muted:   #808080;
   --status-online:#008000;
 }
 body.theme-win95 .titlebar {
-  background: #000080; /* Pure non-gradient dark blue */
+  background: #000080;
   border-bottom: 2px solid #808080;
 }
 body.theme-win95 .titlebar-app-name {
@@ -314,13 +536,13 @@ body.theme-win95 .titlebar-app-name {
 
 /* Windows XP Royale Noir Theme overrides */
 body.theme-royalenoir {
-  --bg-dark:      #1c1c1c; /* Dark theme */
-  --bg-main:      #2b2b2b; /* Black Luna/Royale slate frame */
+  --bg-dark:      #1c1c1c;
+  --bg-main:      #2b2b2b;
   --bg-panel:     #3a3a3a;
   --bg-btn:       #4c4c4c;
   --border-light: #606060;
   --border-dark:  #141414;
-  --green:        #3b93ff; /* Glossy Electric Blue */
+  --green:        #3b93ff;
   --green-dim:    #1f57b3;
   --text:         #ffffff;
   --text-muted:   #8a8a8a;
@@ -335,6 +557,7 @@ body.theme-royalenoir .titlebar {
   border-radius: 6px 6px 0 0;
 }
 body.theme-royalenoir .titlebar-app-name {
+
   color: #ffffff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
@@ -348,11 +571,13 @@ body.theme-royalenoir .tb-ctrl {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
   margin-top: -2px;
 }
-body.theme-royalenoir .tb-ctrl.min {
+body.theme-royalenoir .tb-ctrl.min,
+body.theme-royalenoir .tb-ctrl.max {
   background: linear-gradient(180deg, #444444 0%, #222222 100%);
   color: #ffffff;
 }
-body.theme-royalenoir .tb-ctrl.min:hover {
+body.theme-royalenoir .tb-ctrl.min:hover,
+body.theme-royalenoir .tb-ctrl.max:hover {
   background: linear-gradient(180deg, #555555 0%, #333333 100%);
 }
 body.theme-royalenoir .tb-ctrl.cls {
@@ -625,6 +850,9 @@ body.theme-modernlight .tb-ctrl {
 body.theme-moderndark .tb-ctrl.min,
 body.theme-moderngreen .tb-ctrl.min,
 body.theme-modernlight .tb-ctrl.min { background: #fbbf24 !important; border-color: #d97706 !important; }
+body.theme-moderndark .tb-ctrl.max,
+body.theme-moderngreen .tb-ctrl.max,
+body.theme-modernlight .tb-ctrl.max { background: #10b981 !important; border-color: #059669 !important; }
 body.theme-moderndark .tb-ctrl.cls,
 body.theme-moderngreen .tb-ctrl.cls,
 body.theme-modernlight .tb-ctrl.cls { background: #f87171 !important; border-color: #dc2626 !important; }
@@ -896,7 +1124,7 @@ body.theme-modernlight .log-output { background: #f8fafc !important; }
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  width: 900px; height: 550px;
+  width: 100vw; height: 100vh;
   overflow: hidden;
   background: var(--bg-main);
   color: var(--text);
@@ -923,13 +1151,14 @@ body {
 
 /* Scrollbars - Retro skinnable thick style */
 ::-webkit-scrollbar {
-  width: 18px;
+  width: 10px;
+  height: 10px;
   background: var(--bg-dark);
-  border-left: 2px solid var(--border-dark);
+  border-left: 1px solid var(--border-dark);
 }
 ::-webkit-scrollbar-thumb {
   background: var(--bg-panel);
-  border: 2px solid;
+  border: 1px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
 }
 ::-webkit-scrollbar-button {
@@ -967,7 +1196,7 @@ body {
 /* App Layout */
 .app-layout {
   display: flex;
-  height: calc(550px - var(--titlebar-h) - 6px);
+  height: calc(100vh - var(--titlebar-h) - 6px);
 }
 
 /* Sidebar */
@@ -1053,15 +1282,19 @@ body {
 /* Main Content */
 .main-content {
   flex: 1;
+  min-width: 0;
   background: var(--bg-dark);
   padding: 12px;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Tab Panels */
-.tab-panel { display: none; width: 100%; height: 100%; overflow-y: auto; }
+.tab-panel { display: none; width: 100%; flex: 1; min-height: 0; overflow-y: auto; }
 .tab-panel.active { display: flex; flex-direction: column; gap: 12px; }
+#tab-rooms, #tab-people, #tab-photo-detail { overflow: hidden; gap: 0; }
 
 
 /* Download Section — clean minimal single row */
@@ -1815,7 +2048,8 @@ body.theme-macosclassic .btn-exclude-av:active {
 
 /* Windows Vista Aero Scrollbar Overrides */
 body.theme-winvista ::-webkit-scrollbar {
-  width: 12px !important;
+  width: 10px !important;
+  height: 10px !important;
   background: #f1f5f9 !important;
   border-left: 1px solid #cbd5e1 !important;
 }
@@ -1834,7 +2068,8 @@ body.theme-winvista ::-webkit-scrollbar-button {
 
 /* Windows XP Scrollbar Overrides */
 body.theme-winxp ::-webkit-scrollbar {
-  width: 16px !important;
+  width: 12px !important;
+  height: 12px !important;
   background: #fdfdfd !important;
   border-left: 1px solid #aca899 !important;
 }
@@ -1852,7 +2087,8 @@ body.theme-winxp ::-webkit-scrollbar-button {
 
 /* Windows XP Royale Noir Scrollbar Overrides */
 body.theme-royalenoir ::-webkit-scrollbar {
-  width: 16px !important;
+  width: 12px !important;
+  height: 12px !important;
   background: #2a2a2a !important;
   border-left: 1px solid #141414 !important;
 }
@@ -1868,4 +2104,897 @@ body.theme-royalenoir ::-webkit-scrollbar-button {
   display: none !important;
 }
 
+/* Native Rooms & People Panels Formatting */
+.native-panel {
+  background: var(--bg-main);
+  padding: 8px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 
+.native-search-bar {
+  display: flex;
+}
+
+.native-table-container {
+  background: var(--bg-panel);
+  flex: 1;
+  min-height: 0;
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  overflow-y: auto;
+}
+
+.native-table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+}
+
+.native-table th {
+  background: var(--bg-main);
+  border: 1px solid var(--border-dark);
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.native-table td {
+  border: 1px solid var(--border-dark);
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg-panel);
+  vertical-align: middle;
+}
+
+.native-table tbody tr {
+  cursor: pointer;
+}
+
+.native-table tr:hover td {
+  background: var(--bg-btn);
+}
+
+.people-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid var(--border-dark);
+  background: var(--bg-dark);
+  display: block;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-dot.online {
+  background-color: var(--status-online);
+}
+
+.status-dot.offline {
+  background-color: var(--text-muted);
+}
+
+.native-pagination {
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-dark);
+}
+
+/* Rooms layout */
+.filter-btn, .sort-btn {
+  text-align: left;
+  padding: 4px 6px;
+  font-size: 10px;
+  background: var(--bg-panel);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  color: var(--text);
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-ui);
+}
+
+.filter-btn.active, .sort-btn.active {
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark) !important;
+  background: var(--bg-dark) !important;
+  color: var(--text) !important;
+  text-decoration: none !important;
+}
+
+.native-grid-container {
+  background: var(--bg-dark);
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  overflow-y: auto;
+}
+
+.room-card {
+  background: var(--bg-panel);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.room-card-image {
+  width: 100%;
+  aspect-ratio: 16/9;
+  object-fit: cover;
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  background: var(--bg-dark);
+}
+
+.room-card-name {
+  font-weight: bold;
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-card-creator {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.room-card-creator:hover {
+  color: var(--text);
+}
+
+.room-card-stats {
+  font-size: 9px;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Layout utility styles to support native Rooms/People layouts */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.flex-1 { flex: 1; }
+.flex-shrink-0 { flex-shrink: 0; }
+.overflow-hidden { overflow: hidden; }
+.overflow-auto { overflow: auto; }
+.overflow-y-auto { overflow-y: auto; }
+.gap-1 { gap: 4px; }
+.gap-2 { gap: 8px; }
+.gap-2\.5 { gap: 10px; }
+.gap-3\.75 { gap: 15px; }
+.w-50 { width: 140px; } /* Set rooms sidebar filter/sort panel width */
+.w-full { width: 100%; }
+.p-2 { padding: 8px; }
+.p-4 { padding: 16px; }
+.mb-1\.5 { margin-bottom: 6px; }
+.mb-2 { margin-bottom: 8px; }
+.mt-2 { margin-top: 8px; }
+.font-bold { font-weight: bold; }
+.text-\[10px\] { font-size: 10px; }
+.text-sm { font-size: 12px; }
+.text-center { text-align: center; }
+.hidden { display: none !important; }
+.grid { display: grid; }
+.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 768px) {
+  .md\:flex-row { flex-direction: row !important; }
+}
+@media (min-width: 1024px) {
+  .lg\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.justify-between { justify-content: space-between; }
+.items-center { align-items: center; }
+.gap-4 { gap: 16px; }
+
+/* Photo Grid and Cards Styles */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+.photo-card {
+  position: relative;
+  background: var(--bg-panel);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  overflow: hidden;
+  cursor: pointer;
+  aspect-ratio: 16/9;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.photo-card:hover {
+  transform: scale(1.03);
+  border-color: var(--green);
+}
+.photo-card:active {
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+}
+.photo-card-image {
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.native-table td {
+  border: 1px solid var(--border-dark);
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg-panel);
+  vertical-align: middle;
+}
+
+.native-table tbody tr {
+  cursor: pointer;
+}
+
+.native-table tr:hover td {
+  background: var(--bg-btn);
+}
+
+.people-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid var(--border-dark);
+  background: var(--bg-dark);
+  display: block;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-dot.online {
+  background-color: var(--status-online);
+}
+
+.status-dot.offline {
+  background-color: var(--text-muted);
+}
+
+.native-pagination {
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-dark);
+}
+
+/* Rooms layout */
+.filter-btn, .sort-btn {
+  text-align: left;
+  padding: 4px 6px;
+  font-size: 10px;
+  background: var(--bg-panel);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  color: var(--text);
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-ui);
+}
+
+.filter-btn.active, .sort-btn.active {
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark) !important;
+  background: var(--bg-dark) !important;
+  color: var(--text) !important;
+  text-decoration: none !important;
+}
+
+.native-grid-container {
+  background: var(--bg-dark);
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  overflow-y: auto;
+}
+
+.room-card {
+  background: var(--bg-panel);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.room-card-image {
+  width: 100%;
+  aspect-ratio: 16/9;
+  object-fit: cover;
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  background: var(--bg-dark);
+}
+
+.room-card-name {
+  font-weight: bold;
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-card-creator {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.room-card-creator:hover {
+  color: var(--text);
+}
+
+.room-card-stats {
+  font-size: 9px;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Layout utility styles to support native Rooms/People layouts */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.flex-1 { flex: 1; }
+.flex-shrink-0 { flex-shrink: 0; }
+.overflow-hidden { overflow: hidden; }
+.overflow-auto { overflow: auto; }
+.overflow-y-auto { overflow-y: auto; }
+.gap-1 { gap: 4px; }
+.gap-2 { gap: 8px; }
+.gap-2\.5 { gap: 10px; }
+.gap-3\.75 { gap: 15px; }
+.w-50 { width: 140px; } /* Set rooms sidebar filter/sort panel width */
+.w-full { width: 100%; }
+.p-2 { padding: 8px; }
+.p-4 { padding: 16px; }
+.mb-1\.5 { margin-bottom: 6px; }
+.mb-2 { margin-bottom: 8px; }
+.mt-2 { margin-top: 8px; }
+.font-bold { font-weight: bold; }
+.text-\[10px\] { font-size: 10px; }
+.text-sm { font-size: 12px; }
+.text-center { text-align: center; }
+.hidden { display: none !important; }
+.grid { display: grid; }
+.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 768px) {
+  .md\:flex-row { flex-direction: row !important; }
+}
+@media (min-width: 1024px) {
+  .lg\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.justify-between { justify-content: space-between; }
+.items-center { align-items: center; }
+.gap-4 { gap: 16px; }
+
+/* Photo Grid and Cards Styles */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+.photo-card {
+  position: relative;
+  background: var(--bg-panel);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  overflow: hidden;
+  cursor: pointer;
+  aspect-ratio: 16/9;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.photo-card:hover {
+  transform: scale(1.03);
+  border-color: var(--green);
+}
+.photo-card:active {
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+}
+.photo-card-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bg-dark);
+}
+.photo-empty-msg {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 20px;
+  font-family: var(--font-ui);
+}
+
+/* Modern Themes Override for Bevels, Containers, and Borders to prevent retro boxes */
+body.theme-moderndark .bevel-inset,
+body.theme-moderndark .border,
+body.theme-moderndark .native-grid-container,
+body.theme-moderndark .native-table-container,
+body.theme-moderndark .photo-card,
+body.theme-moderndark .photo-detail-img-wrap,
+body.theme-moderndark #roomsDetailImage,
+body.theme-moderndark #photoDetailImage,
+body.theme-moderndark #roomsDetailCreatorLink img,
+body.theme-moderndark #roomsDetailCreatorAvatar,
+body.theme-moderndark #peopleDetailAvatar,
+body.theme-moderndark #photoDetailCreatorAvatar,
+body.theme-moderngreen .bevel-inset,
+body.theme-moderngreen .border,
+body.theme-moderngreen .native-grid-container,
+body.theme-moderngreen .native-table-container,
+body.theme-moderngreen .photo-card,
+body.theme-moderngreen .photo-detail-img-wrap,
+body.theme-moderngreen #roomsDetailImage,
+body.theme-moderngreen #photoDetailImage,
+body.theme-moderngreen #roomsDetailCreatorLink img,
+body.theme-moderngreen #roomsDetailCreatorAvatar,
+body.theme-moderngreen #peopleDetailAvatar,
+body.theme-moderngreen #photoDetailCreatorAvatar,
+body.theme-modernlight .bevel-inset,
+body.theme-modernlight .border,
+body.theme-modernlight .native-grid-container,
+body.theme-modernlight .native-table-container,
+body.theme-modernlight .photo-card,
+body.theme-modernlight .photo-detail-img-wrap,
+body.theme-modernlight #roomsDetailImage,
+body.theme-modernlight #photoDetailImage,
+body.theme-modernlight #roomsDetailCreatorLink img,
+body.theme-modernlight #roomsDetailCreatorAvatar,
+body.theme-modernlight #peopleDetailAvatar,
+body.theme-modernlight #photoDetailCreatorAvatar {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+/* Windows XP Blue — Override retro bevels & borders in all tabs/panels */
+body.theme-winxp .bevel-inset,
+body.theme-winxp .bevel-outset,
+body.theme-winxp .border,
+body.theme-winxp .native-grid-container,
+body.theme-winxp .native-table-container {
+  border: 1px solid #7f9db9 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: #ffffff !important;
+}
+body.theme-winxp #roomsDetailView .bevel-inset,
+body.theme-winxp #peopleDetailView .bevel-inset,
+body.theme-winxp #tab-photo-detail .bevel-inset {
+  background: #ece9d8 !important; /* Luna dialog background */
+}
+body.theme-winxp .launch-panel,
+body.theme-winxp .download-section,
+body.theme-winxp .hero-section,
+body.theme-winxp .qs-card {
+  background: #ece9d8 !important;
+  border: 1px solid #aca899 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+body.theme-winxp .download-section::before,
+body.theme-winxp .launch-panel::before {
+  display: none !important;
+}
+body.theme-winxp .launch-header-band {
+  background: #ece9d8 !important;
+  border-bottom: 1px solid #aca899 !important;
+}
+body.theme-winxp .launch-label {
+  color: #225ad7 !important;
+}
+body.theme-winxp .mode-toggle-wrap {
+  border: 1px solid #7f9db9 !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+}
+body.theme-winxp .mode-btn {
+  background: #ece9d8 !important;
+  border-right: 1px solid #7f9db9 !important;
+  color: #7f7f7f !important;
+}
+body.theme-winxp .mode-btn.active {
+  background: #ffffff !important;
+  color: #225ad7 !important;
+}
+body.theme-winxp .photo-card {
+  border: 1px solid #d8e4f8 !important;
+  background: #ffffff !important;
+  border-radius: 0 !important;
+  box-shadow: 1px 1px 2px rgba(0,0,0,0.05) !important;
+}
+body.theme-winxp .photo-card:hover {
+  border-color: #316ac5 !important;
+  box-shadow: 0 0 4px rgba(49,106,197,0.4) !important;
+}
+body.theme-winxp .photo-detail-img-wrap {
+  border: 1px solid #7f9db9 !important;
+  border-radius: 0 !important;
+}
+body.theme-winxp #roomsDetailImage,
+body.theme-winxp #photoDetailImage {
+  border: 1px solid #7f9db9 !important;
+  border-radius: 0 !important;
+}
+body.theme-winxp #roomsDetailCreatorAvatar,
+body.theme-winxp #peopleDetailAvatar,
+body.theme-winxp #photoDetailCreatorAvatar {
+  border: 1px solid #7f9db9 !important;
+  border-radius: 0 !important;
+}
+body.theme-winxp .modal-box {
+  background: #ece9d8 !important;
+  border: 4px solid #0054e3 !important;
+  border-radius: 8px 8px 0 0 !important;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.3) !important;
+  overflow: hidden !important;
+}
+body.theme-winxp .modal-titlebar {
+  background: linear-gradient(180deg, #0058e6 0%, #3a93ff 8%, #0058e6 45%, #002f9e 100%) !important;
+  padding: 6px 10px !important;
+  border-bottom: none !important;
+}
+body.theme-winxp .modal-title {
+  color: #ffffff !important;
+  font-weight: bold !important;
+  font-family: 'Segoe UI', Tahoma, sans-serif !important;
+}
+body.theme-winxp .modal-close-btn {
+  background: linear-gradient(180deg, #f07353 0%, #d83c18 100%) !important;
+  border: 1px solid #7a1500 !important;
+  color: #ffffff !important;
+  border-radius: 3px !important;
+  width: 21px !important;
+  height: 21px !important;
+}
+
+/* Windows XP Royale Noir — Override retro bevels & borders in all tabs/panels */
+body.theme-royalenoir .bevel-inset,
+body.theme-royalenoir .bevel-outset,
+body.theme-royalenoir .border,
+body.theme-royalenoir .native-grid-container,
+body.theme-royalenoir .native-table-container {
+  border: 1px solid #606060 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: #2b2b2b !important;
+}
+body.theme-royalenoir #roomsDetailView .bevel-inset,
+body.theme-royalenoir #peopleDetailView .bevel-inset,
+body.theme-royalenoir #tab-photo-detail .bevel-inset {
+  background: #3a3a3a !important; /* Dark Royale Noir background */
+}
+body.theme-royalenoir .launch-panel,
+body.theme-royalenoir .download-section,
+body.theme-royalenoir .hero-section,
+body.theme-royalenoir .qs-card {
+  background: #3a3a3a !important;
+  border: 1px solid #141414 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+body.theme-royalenoir .download-section::before,
+body.theme-royalenoir .launch-panel::before {
+  display: none !important;
+}
+body.theme-royalenoir .launch-header-band {
+  background: #3a3a3a !important;
+  border-bottom: 1px solid #141414 !important;
+}
+body.theme-royalenoir .launch-label {
+  color: #3b93ff !important;
+}
+body.theme-royalenoir .mode-toggle-wrap {
+  border: 1px solid #606060 !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+}
+body.theme-royalenoir .mode-btn {
+  background: #3a3a3a !important;
+  border-right: 1px solid #606060 !important;
+  color: #8a8a8a !important;
+}
+body.theme-royalenoir .mode-btn.active {
+  background: #2b2b2b !important;
+  color: #3b93ff !important;
+}
+body.theme-royalenoir .photo-card {
+  border: 1px solid #141414 !important;
+  background: #2b2b2b !important;
+  border-radius: 0 !important;
+}
+body.theme-royalenoir .photo-card:hover {
+  border-color: #3b93ff !important;
+}
+body.theme-royalenoir .photo-detail-img-wrap {
+  border: 1px solid #141414 !important;
+  border-radius: 0 !important;
+}
+body.theme-royalenoir #roomsDetailImage,
+body.theme-royalenoir #photoDetailImage {
+  border: 1px solid #141414 !important;
+  border-radius: 0 !important;
+}
+body.theme-royalenoir #roomsDetailCreatorAvatar,
+body.theme-royalenoir #peopleDetailAvatar,
+body.theme-royalenoir #photoDetailCreatorAvatar {
+  border: 1px solid #141414 !important;
+  border-radius: 0 !important;
+}
+body.theme-royalenoir .modal-box {
+  background: #3a3a3a !important;
+  border: 4px solid #141414 !important;
+  border-radius: 8px 8px 0 0 !important;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.5) !important;
+  overflow: hidden !important;
+}
+body.theme-royalenoir .modal-titlebar {
+  background: linear-gradient(180deg, #444444 0%, #1e1e1e 50%, #0c0c0c 100%) !important;
+  padding: 6px 10px !important;
+  border-bottom: none !important;
+}
+body.theme-royalenoir .modal-title {
+  color: #ffffff !important;
+  font-weight: bold !important;
+}
+body.theme-royalenoir .modal-close-btn {
+  background: linear-gradient(180deg, #ff7247 0%, #d8340d 100%) !important;
+  border: 1px solid #551100 !important;
+  color: #ffffff !important;
+  border-radius: 3px !important;
+  width: 21px !important;
+  height: 21px !important;
+}
+
+/* Windows Vista Aero — Override retro bevels & borders in all tabs/panels */
+body.theme-winvista .bevel-inset,
+body.theme-winvista .bevel-outset,
+body.theme-winvista .border,
+body.theme-winvista .native-grid-container,
+body.theme-winvista .native-table-container {
+  border: 1px solid #708090 !important;
+  border-radius: 4px !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.08) !important;
+  background: #ffffff !important;
+}
+body.theme-winvista #roomsDetailView .bevel-inset,
+body.theme-winvista #peopleDetailView .bevel-inset,
+body.theme-winvista #tab-photo-detail .bevel-inset {
+  background: rgba(226, 232, 240, 0.85) !important;
+}
+body.theme-winvista .launch-panel,
+body.theme-winvista .download-section,
+body.theme-winvista .hero-section,
+body.theme-winvista .qs-card {
+  background: rgba(226, 232, 240, 0.85) !important;
+  border: 1px solid #708090 !important;
+  border-radius: 4px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1) !important;
+}
+body.theme-winvista .download-section::before,
+body.theme-winvista .launch-panel::before {
+  display: none !important;
+}
+body.theme-winvista .launch-header-band {
+  background: linear-gradient(180deg, #edf3fb 0%, #dbe9f6 100%) !important;
+  border-bottom: 1px solid #708090 !important;
+}
+body.theme-winvista .launch-label {
+  color: #1a2a3a !important;
+}
+body.theme-winvista .mode-toggle-wrap {
+  border: 1px solid #708090 !important;
+  border-radius: 4px !important;
+  overflow: hidden !important;
+}
+body.theme-winvista .mode-btn {
+  background: #e2e8f0 !important;
+  border-right: 1px solid #708090 !important;
+  color: #607080 !important;
+}
+body.theme-winvista .mode-btn.active {
+  background: rgba(255,255,255,0.6) !important;
+  color: #0088ff !important;
+}
+body.theme-winvista .photo-card {
+  border: 1px solid #a0b0c0 !important;
+  background: #ffffff !important;
+  border-radius: 4px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+}
+body.theme-winvista .photo-card:hover {
+  border-color: #0088ff !important;
+}
+body.theme-winvista .photo-detail-img-wrap {
+  border: 1px solid #a0b0c0 !important;
+  border-radius: 3px !important;
+}
+body.theme-winvista #roomsDetailImage,
+body.theme-winvista #photoDetailImage {
+  border: 1px solid #a0b0c0 !important;
+  border-radius: 3px !important;
+}
+body.theme-winvista #roomsDetailCreatorAvatar,
+body.theme-winvista #peopleDetailAvatar,
+body.theme-winvista #photoDetailCreatorAvatar {
+  border: 1px solid #a0b0c0 !important;
+  border-radius: 3px !important;
+}
+body.theme-winvista .panel-header {
+  background: linear-gradient(180deg, #edf3fb 0%, #dbe9f6 100%) !important;
+  border-bottom: 1px solid #708090 !important;
+}
+body.theme-winvista .panel-header h2 {
+  color: #1a2a3a !important;
+  text-shadow: none !important;
+  font-family: 'Segoe UI', Tahoma, sans-serif !important;
+}
+
+/* Windows 7 Aero — Override retro bevels & borders in all tabs/panels */
+body.theme-win7 .bevel-inset,
+body.theme-win7 .bevel-outset,
+body.theme-win7 .border,
+body.theme-win7 .native-grid-container,
+body.theme-win7 .native-table-container {
+  border: 1px solid #b8c7d9 !important;
+  border-radius: 3px !important;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.05) !important;
+  background: #ffffff !important;
+}
+body.theme-win7 #roomsDetailView .bevel-inset,
+body.theme-win7 #peopleDetailView .bevel-inset,
+body.theme-win7 #tab-photo-detail .bevel-inset {
+  background: #ffffff !important;
+}
+body.theme-win7 .launch-panel,
+body.theme-win7 .download-section,
+body.theme-win7 .hero-section,
+body.theme-win7 .qs-card {
+  background: #ffffff !important;
+  border: 1px solid #b8c7d9 !important;
+  border-radius: 3px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
+}
+body.theme-win7 .download-section::before,
+body.theme-win7 .launch-panel::before {
+  display: none !important;
+}
+body.theme-win7 .launch-header-band {
+  background: linear-gradient(180deg, #fbfbfb 0%, #edf2f9 100%) !important;
+  border-bottom: 1px solid #b8c7d9 !important;
+}
+body.theme-win7 .launch-label {
+  color: #1e395b !important;
+}
+body.theme-win7 .mode-toggle-wrap {
+  border: 1px solid #b8c7d9 !important;
+  border-radius: 3px !important;
+  overflow: hidden !important;
+}
+body.theme-win7 .mode-btn {
+  background: #f2f6fa !important;
+  border-right: 1px solid #b8c7d9 !important;
+  color: #555555 !important;
+}
+body.theme-win7 .mode-btn.active {
+  background: linear-gradient(180deg, #e5f1fb 0%, #d2e5f5 100%) !important;
+  color: #1068c8 !important;
+}
+body.theme-win7 .photo-card {
+  border: 1px solid #b8c7d9 !important;
+  background: #ffffff !important;
+  border-radius: 3px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+  overflow: hidden !important;
+}
+body.theme-win7 .photo-card:hover {
+  border-color: #3c80c8 !important;
+  box-shadow: 0 0 0 2px rgba(60,128,200,0.2), 0 2px 5px rgba(0,0,0,0.1) !important;
+}
+body.theme-win7 .photo-detail-img-wrap {
+  border: 1px solid #b8c7d9 !important;
+  border-radius: 3px !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08) !important;
+}
+body.theme-win7 #roomsDetailImage,
+body.theme-win7 #photoDetailImage {
+  border: 1px solid #b8c7d9 !important;
+  border-radius: 3px !important;
+}
+body.theme-win7 #roomsDetailCreatorAvatar,
+body.theme-win7 #peopleDetailAvatar,
+body.theme-win7 #photoDetailCreatorAvatar {
+  border: 1px solid #b8c7d9 !important;
+  border-radius: 3px !important;
+}
+body.theme-win7 .panel-header {
+  background: linear-gradient(180deg, #f4f8fe 0%, #e2ecf7 100%) !important;
+  border-bottom: 1px solid #b8c7d9 !important;
+}
+body.theme-win7 .panel-header h2 {
+  color: #1e395b !important;
+  text-shadow: none !important;
+  font-family: 'Segoe UI', Tahoma, sans-serif !important;
+}
+body.theme-win7 .modal-box {
+  background: #ffffff !important;
+  border: 8px solid rgba(135, 195, 240, 0.7) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.45) !important;
+  overflow: hidden !important;
+}
+body.theme-win7 .modal-titlebar {
+  background: linear-gradient(180deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.2) 48%, rgba(0,160,255,0.05) 49%, rgba(135,206,250,0.3) 100%), linear-gradient(90deg, #7db3e8, #b3d4f7) !important;
+  padding: 6px 10px !important;
+  border-bottom: 1px solid rgba(0,0,0,0.2) !important;
+}
+body.theme-win7 .modal-title {
+  color: #0c2a52 !important;
+  font-weight: bold !important;
+  text-shadow: 0 0 8px #ffffff, 0 0 8px #ffffff !important;
+  font-family: 'Segoe UI', Tahoma, sans-serif !important;
+}
+body.theme-win7 .modal-close-btn {
+  background: rgba(0,0,0,0.08) !important;
+  border: 1px solid rgba(0,0,0,0.2) !important;
+  border-radius: 2px !important;
+  width: 22px !important;
+  height: 18px !important;
+  color: #333333 !important;
+}
+
+/* Photo List Vertical (Social feed layout) */
+.photo-list-vertical {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+.photo-list-vertical .photo-card {
+  width: 100%;
+  max-width: 500px;
+  aspect-ratio: 16/9;
+}

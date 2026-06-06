@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.radie.app https://radie.app https://img.radie.app https://www.radie.app; frame-src 'self' https://*.radie.app https://radie.app;" />
   <title>Radium Launcher</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -18,6 +18,7 @@
     </div>
     <div class="titlebar-controls">
       <button id="btnMinimize" class="tb-ctrl min" title="Minimize">─</button>
+      <button id="btnMaximize" class="tb-ctrl max" title="Maximize">▢</button>
       <button id="btnClose"    class="tb-ctrl cls" title="Close">✕</button>
     </div>
   </div>
@@ -43,6 +44,12 @@
       <nav class="sidebar-nav">
         <button class="nav-btn active" data-tab="home" id="nav-home">
           HOME
+        </button>
+        <button class="nav-btn" data-tab="rooms" id="nav-rooms">
+          ROOMS
+        </button>
+        <button class="nav-btn" data-tab="people" id="nav-people">
+          PEOPLE
         </button>
         <button class="nav-btn" data-tab="status" id="nav-status">
           LOGS
@@ -160,6 +167,219 @@
 
       </section>
 
+      <!-- ───────── ROOMS TAB ────────────────────────── -->
+      <section class="tab-panel" id="tab-rooms">
+        <div class="panel-header">
+          <h2>ROOMS</h2>
+        </div>
+        <div class="native-panel flex-1 flex flex-col">
+          <!-- Rooms List View -->
+          <div id="roomsListView" class="flex gap-3.75 flex-1 overflow-hidden" style="min-height: 0;">
+            <!-- Sidebar Filters & Sorting -->
+            <div class="w-50 flex flex-col gap-2.5 overflow-auto flex-shrink-0">
+              <!-- Filters Card -->
+              <div class="border p-2 flex-1 overflow-auto flex flex-col" style="height: 150px;">
+                <div class="sg-title font-bold text-[10px] mb-1.5" style="border-bottom: 1px dashed var(--border-dark); padding-bottom: 2px;">Filters</div>
+                <div id="roomsFiltersList" class="flex flex-col gap-1">
+                  <!-- Dynamically populated tags -->
+                </div>
+              </div>
+              <!-- Sort By Card -->
+              <div class="border p-2 flex-shrink-0 flex flex-col">
+                <div class="sg-title font-bold text-[10px] mb-1.5" style="border-bottom: 1px dashed var(--border-dark); padding-bottom: 2px;">Sort By</div>
+                <div id="roomsSortList" class="flex flex-col gap-1">
+                  <button class="sort-btn active" data-sort="0">Hot</button>
+                  <button class="sort-btn" data-sort="1">Newest</button>
+                  <button class="sort-btn" data-sort="2">Most Visited</button>
+                  <button class="sort-btn" data-sort="3">Most Cheered</button>
+                  <button class="sort-btn" data-sort="4">Most Favorited</button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Main Content Area -->
+            <div class="flex-1 flex flex-col overflow-hidden">
+              <!-- Search Bar -->
+              <div class="native-search-bar mb-2">
+                <input type="text" id="roomsSearch" class="cfg-input w-full" placeholder="Search rooms..." style="font-size: 11px;" />
+              </div>
+              <!-- Rooms Grid Container -->
+              <div class="native-grid-container flex-1 overflow-auto bevel-inset p-2">
+                <div id="roomsGrid" class="grid gap-2 grid-cols-2 lg:grid-cols-3">
+                  <!-- Dynamically populated cards -->
+                </div>
+                <div id="roomsEmptyMsg" class="hidden text-center p-4 text-sm" style="color: var(--text-muted);">No rooms matched your search.</div>
+              </div>
+              <!-- Pagination -->
+              <div class="native-pagination flex justify-between items-center mt-2 flex-shrink-0">
+                <button id="btnRoomsPrev" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">Previous</button>
+                <span id="txtRoomsPage" class="font-mono" style="font-size: 10px; color: var(--text-muted);">Page 1 of 1</span>
+                <button id="btnRoomsNext" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">Next</button>
+              </div>
+            </div>
+          </div>
+          <!-- Rooms Detail View (native) -->
+          <div id="roomsDetailView" class="hidden flex-1 flex flex-col" style="min-height: 0; flex: 1; overflow: hidden;">
+            <div class="flex justify-between items-center mb-2 flex-shrink-0">
+              <button id="btnRoomsBack" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">← Back to List</button>
+            </div>
+            <div class="bevel-inset flex-1 p-4 overflow-y-auto" style="background: var(--bg-dark); min-height: 0;">
+              <div style="max-width: 900px; margin: 0 auto; width: 100%;">
+                <div class="flex flex-col md:flex-row gap-4 items-start w-full">
+                <!-- Left: Room Image -->
+                <div style="width: 100%; max-width: 320px; flex-shrink: 0;">
+                  <img id="roomsDetailImage" src="" alt="Room Thumbnail" style="width: 100%; aspect-ratio: 16/9; object-fit: cover; border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark); background: var(--bg-panel);" />
+                </div>
+                <!-- Right: Details Info Block -->
+                <div class="flex-1 flex flex-col gap-2.5 text-left w-full">
+                  <h3 id="roomsDetailName" style="font-size: 20px; font-weight: bold; color: var(--text); margin: 0;">Room Name</h3>
+                  <!-- Creator Block -->
+                  <div id="roomsDetailCreatorLink" class="flex gap-2 items-center cursor-pointer" style="text-decoration: none; width: fit-content;">
+                    <img id="roomsDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" style="width: 34px; height: 34px; border-radius: 5px; object-fit: cover; border: 1px solid var(--border-dark);" />
+                    <div class="flex flex-col leading-tight">
+                      <span id="roomsDetailCreatorName" style="font-weight: bold; font-size: 12px; color: var(--text);">Coach</span>
+                      <span id="roomsDetailCreatorHandle" style="font-size: 11px; color: var(--text-muted);">@Coach</span>
+                    </div>
+                  </div>
+                  <p id="roomsDetailDescription" style="font-size: 11.5px; color: var(--text); line-height: 1.4; margin: 4px 0 8px 0; max-width: 500px;">Room description goes here...</p>
+                  <!-- Stats Row (Cheers, Favorites, Visits) -->
+                  <div class="flex border-t" style="border-color: var(--border-dark); padding-top: 8px;">
+                    <div class="pr-5" style="border-right: 1px dashed var(--border-dark); padding-right: 20px; min-width: 80px;">
+                      <div id="roomsDetailCheers" style="font-weight: bold; font-size: 14px; color: var(--text);">0</div>
+                      <div style="font-size: 9px; color: var(--text-muted); font-weight: bold; margin-top: 2px;">CHEERS</div>
+                    </div>
+                    <div class="px-5" style="border-right: 1px dashed var(--border-dark); padding-left: 20px; padding-right: 20px; min-width: 80px;">
+                      <div id="roomsDetailFavorites" style="font-weight: bold; font-size: 14px; color: var(--text);">0</div>
+                      <div style="font-size: 9px; color: var(--text-muted); font-weight: bold; margin-top: 2px;">FAVORITES</div>
+                    </div>
+                    <div class="pl-5" style="padding-left: 20px; min-width: 80px;">
+                      <div id="roomsDetailVisits" style="font-weight: bold; font-size: 14px; color: var(--text);">0</div>
+                      <div style="font-size: 9px; color: var(--text-muted); font-weight: bold; margin-top: 2px;">VISITS</div>
+                    </div>
+                  </div>
+                  <!-- Created date -->
+                  <div style="border-top: 1px dashed var(--border-dark); margin-top: 10px; padding-top: 8px; font-size: 10px; color: var(--text-muted);">
+                    Created: <span id="roomsDetailCreatedAt" style="color: var(--text);">—</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Room Photos Section -->
+              <div id="roomsDetailPhotosSection" class="mt-6 border-t pt-4" style="border-color: var(--border-dark); width: 100%;">
+                <h4 style="font-size: 13px; font-weight: bold; color: var(--text); margin: 0 0 10px 0; font-family: var(--font-mono); border-bottom: 1px dashed var(--border-dark); padding-bottom: 4px;">RECENT PHOTOS</h4>
+                <div id="roomsDetailPhotosGrid" class="photo-list-vertical">
+                  <!-- Room photos loaded here -->
+                </div>
+                <div id="roomsDetailPhotosEmpty" class="photo-empty-msg" style="display: none;">No recent photos taken in this room.</div>
+                <div id="roomsDetailPhotosSentinel" style="height: 1px; width: 100%;"></div>
+              </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───────── PEOPLE TAB ───────────────────────── -->
+      <section class="tab-panel" id="tab-people">
+        <div class="panel-header">
+          <h2>PEOPLE</h2>
+        </div>
+        <div class="native-panel flex-1 flex flex-col">
+          <!-- People List View -->
+          <div id="peopleListView" class="flex-1 flex flex-col overflow-hidden" style="min-height: 0;">
+            <!-- Search Bar -->
+            <div class="native-search-bar mb-2">
+              <input type="text" id="peopleSearch" class="cfg-input w-full" placeholder="Search people..." style="font-size: 11px;" />
+            </div>
+            <!-- Table Container -->
+            <div class="native-table-container flex-1 overflow-auto bevel-inset" style="background: var(--bg-panel);">
+              <table class="native-table">
+                <thead>
+                  <tr>
+                    <th style="width: 38px;"></th>
+                    <th style="width: 140px;">Display Name</th>
+                    <th style="width: 140px;">Username</th>
+                    <th>Bio</th>
+                  </tr>
+                </thead>
+                <tbody id="peopleListBody">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+            <!-- Pagination -->
+            <div class="native-pagination flex justify-between items-center mt-2 flex-shrink-0">
+              <button id="btnPeoplePrev" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">Previous</button>
+              <span id="txtPeoplePage" class="font-mono" style="font-size: 10px; color: var(--text-muted);">Page 1 of 1</span>
+              <button id="btnPeopleNext" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">Next</button>
+            </div>
+          </div>
+          <!-- People Detail View (native) -->
+          <div id="peopleDetailView" class="hidden flex-1 flex flex-col" style="min-height: 0; flex: 1; overflow: hidden;">
+            <div class="flex justify-between items-center mb-2 flex-shrink-0">
+              <button id="btnPeopleBack" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">← Back to List</button>
+            </div>
+            <div class="bevel-inset flex-1 p-4 overflow-y-auto" style="background: var(--bg-dark); min-height: 0;">
+              <div style="max-width: 900px; margin: 0 auto; width: 100%;">
+                <div class="flex flex-col md:flex-row gap-4 items-start w-full">
+                <!-- Left: Profile Banner Card -->
+                <div class="border flex flex-col overflow-hidden" style="width: 100%; max-width: 320px; flex-shrink: 0; background: var(--bg-panel); border-radius: 5px; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);">
+                  <div id="peopleDetailBanner" style="height: 110px; background: linear-gradient(135deg, var(--green-dim), var(--green)); position: relative; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 8px; background-size: cover; background-position: center;">
+                    <img id="peopleDetailAvatar" src="" alt="Player Avatar" style="width: 64px; height: 64px; border-radius: 6px; object-fit: cover; border: 3px solid #fff; background: var(--bg-panel); box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+                    <div style="margin-top: 6px; text-align: center; line-height: 1.2; z-index: 2;">
+                      <div id="peopleDetailDisplayName" style="font-weight: bold; font-size: 14px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8), 0 2px 8px rgba(0,0,0,0.8);">Display Name</div>
+                      <div id="peopleDetailUsername" style="font-size: 11px; color: rgba(255,255,255,0.9); font-family: var(--font-mono); text-shadow: 0 1px 2px rgba(0,0,0,0.8);">@username</div>
+                    </div>
+                  </div>
+                  <div style="padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Status tag -->
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 10px; font-weight: bold; color: var(--text-muted);">
+                      <span id="peopleDetailStatusDot" class="status-dot online" style="margin-right: 0;"></span>
+                      <span id="peopleDetailStatusLabel">ONLINE</span>
+                    </div>
+                    <!-- Stats Grid -->
+                    <div class="flex border-t" style="border-color: var(--border-dark); padding-top: 8px; text-align: center; justify-content: space-around;">
+                      <div class="flex-1" style="border-right: 1px dashed var(--border-dark);">
+                        <div id="peopleDetailFriends" style="font-weight: bold; font-size: 13px; color: var(--text);">0</div>
+                        <div style="font-size: 8px; color: var(--text-muted); font-weight: bold;">FRIENDS</div>
+                      </div>
+                      <div class="flex-1" style="border-right: 1px dashed var(--border-dark);">
+                        <div id="peopleDetailSubscribers" style="font-weight: bold; font-size: 13px; color: var(--text);">0</div>
+                        <div style="font-size: 8px; color: var(--text-muted); font-weight: bold;">SUBSCRIBERS</div>
+                      </div>
+                      <div class="flex-1">
+                        <div id="peopleDetailVisits" style="font-weight: bold; font-size: 13px; color: var(--text);">0</div>
+                        <div style="font-size: 8px; color: var(--text-muted); font-weight: bold;">VISITS</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Right: About Box (Bio) -->
+                <div class="flex-1 flex flex-col gap-2.5 w-full">
+                  <div class="border p-3" style="background: var(--bg-panel); border-radius: 5px; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark); width: 100%;">
+                    <p class="font-bold text-[13px]" style="margin: 0 0 6px 0; border-bottom: 1px dashed var(--border-dark); padding-bottom: 4px;" id="peopleDetailAboutLabel">About Player</p>
+                    <p id="peopleDetailBio" class="whitespace-pre-wrap" style="font-size: 11.5px; line-height: 1.4; color: var(--text); margin: 0; min-height: 120px; font-family: var(--font-ui);">
+                      Player bio text goes here...
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Player Photos Section -->
+              <div id="peopleDetailPhotosSection" class="mt-6 border-t pt-4" style="border-color: var(--border-dark); width: 100%;">
+                <h4 style="font-size: 13px; font-weight: bold; color: var(--text); margin: 0 0 10px 0; font-family: var(--font-mono); border-bottom: 1px dashed var(--border-dark); padding-bottom: 4px;">PHOTOS</h4>
+                <div id="peopleDetailPhotosGrid" class="photo-list-vertical">
+                  <!-- Player photos loaded here -->
+                </div>
+                <div id="peopleDetailPhotosEmpty" class="photo-empty-msg" style="display: none;">No photos found for this player.</div>
+                <div id="peopleDetailPhotosSentinel" style="height: 1px; width: 100%;"></div>
+              </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- ───────── LOGS TAB ──────────────────────── -->
       <section class="tab-panel" id="tab-status">
         <div class="panel-header">
@@ -180,18 +400,7 @@
 
         <div class="settings-body">
 
-          <!-- Server Config -->
-          <div class="settings-group">
-            <div class="sg-title">SERVER</div>
-            <div class="sg-row">
-              <label for="cfgApiUrl">API Server URL</label>
-              <input type="text" id="cfgApiUrl" class="cfg-input" placeholder="https://api.radie.app/" />
-            </div>
-            <div class="sg-row">
-              <button class="btn-test-server" id="btnTestServer">TEST CONNECTION</button>
-              <div class="test-result" id="testResult"></div>
-            </div>
-          </div>
+
 
           <!-- Client -->
           <div class="settings-group">
@@ -203,6 +412,8 @@
             <div class="sg-row">
               <label>Install Location</label>
               <span class="cfg-path-display" id="cfgInstallDir">%APPDATA%\radium-launcher\client</span>
+              <button class="btn-open-folder" id="btnChangeFolder" title="Change install directory">Change</button>
+              <button class="btn-open-folder" id="btnResetFolder" title="Reset to default directory">Reset</button>
               <button class="btn-open-folder" id="btnOpenFolderSettings" title="Open client folder">Open</button>
             </div>
           </div>
@@ -219,6 +430,7 @@
                 <option value="winxp">Windows XP Blue</option>
                 <option value="royalenoir">Windows XP Royale Noir</option>
                 <option value="winvista">Windows Vista Aero</option>
+                <option value="win7">Windows 7 Aero</option>
                 <option value="macosclassic">Mac OS Classic</option>
                 <option value="moderndark">Modern Neon Dark</option>
                 <option value="modernlight">Modern Glass Light</option>
@@ -248,10 +460,74 @@
             </div>
           </div>
 
+          </div>
+        </section>
+
+      <!-- ───────── PHOTO DETAIL TAB (NATIVE) ────────── -->
+      <section class="tab-panel" id="tab-photo-detail">
+        <div class="panel-header">
+          <h2>PHOTO DETAILS</h2>
+          <button id="btnPhotoDetailBack" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">← Back</button>
+        </div>
+        <div class="bevel-inset flex-1 p-4 overflow-y-auto" style="background: var(--bg-dark); min-height: 0;">
+          <div class="flex flex-col gap-4 items-center w-full">
+            
+            <!-- Large Image Container -->
+            <div class="photo-detail-img-wrap" style="width: 100%; border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark); background: var(--bg-panel); overflow: hidden;">
+              <img id="photoDetailImage" src="" alt="Photo" style="width: 100%; height: auto; display: block; object-fit: contain; max-height: 400px;" />
+            </div>
+
+            <!-- Details Block -->
+            <div class="border flex flex-col gap-2.5 w-full text-left" style="background: var(--bg-panel); padding: 15px; border-radius: 5px; border: 1px solid var(--border-dark);">
+              <div class="flex justify-between items-center" style="border-bottom: 1px dashed var(--border-dark); padding-bottom: 6px;">
+                <!-- Creator Link -->
+                <div id="photoDetailCreatorLink" class="flex gap-2 items-center cursor-pointer">
+                  <img id="photoDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" style="width: 34px; height: 34px; border-radius: 5px; object-fit: cover; border: 1px solid var(--border-dark);" />
+                  <div class="flex flex-col leading-tight">
+                    <span id="photoDetailCreatorName" style="font-weight: bold; font-size: 12px; color: var(--text);">Loading...</span>
+                    <span id="photoDetailCreatorHandle" style="font-size: 11px; color: var(--text-muted);">@...</span>
+                  </div>
+                </div>
+                <!-- Room Link -->
+                <div id="photoDetailRoomLink" class="cursor-pointer font-mono" style="font-size: 11px; color: var(--green); text-decoration: underline; display: none;">
+                  Room: <span id="photoDetailRoomName">—</span>
+                </div>
+              </div>
+
+              <!-- Caption -->
+              <p id="photoDetailCaption" style="font-size: 12px; color: var(--text); line-height: 1.4; margin: 8px 0; min-height: 20px; font-style: italic;">
+                Loading photo caption...
+              </p>
+
+              <!-- Stats & Date Row -->
+              <div class="flex justify-between items-center border-t" style="border-color: var(--border-dark); padding-top: 8px; font-size: 11px; color: var(--text-muted);">
+                <div class="flex gap-4">
+                  <div>
+                    Cheers: <span id="photoDetailCheers" style="font-weight: bold; color: var(--text);">0</span>
+                  </div>
+                  <div>
+                    Comments: <span id="photoDetailComments" style="font-weight: bold; color: var(--text);">0</span>
+                  </div>
+                </div>
+                <div id="photoDetailCreatedAt">
+                  —
+                </div>
+              </div>
+            </div>
+
+            <!-- Comments Section -->
+            <div class="w-full text-left">
+              <div style="font-size: 13px; font-weight: bold; color: var(--text); margin: 0 0 8px 0; font-family: var(--font-mono); border-bottom: 1px dashed var(--border-dark); padding-bottom: 4px;">COMMENTS</div>
+              <div id="photoDetailCommentsList" style="display: flex; flex-direction: column; gap: 8px;">
+                <div id="photoDetailCommentsLoading" style="font-size: 11px; color: var(--text-muted); font-style: italic;">Loading comments...</div>
+              </div>
+            </div>
+
+          </div>
         </div>
       </section>
 
-    </main>
+      </main>
   </div>
 
   <!-- Update Available Modal -->
@@ -328,6 +604,33 @@
       </div>
     </div>
   </div>
+
+  <!-- Smart App Control Warning Modal -->
+  <div class="modal-overlay" id="sacModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⚠ SMART APP CONTROL WARNING</span>
+        <button class="modal-close-btn" id="sacModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
+          Smart App Control is active.
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
+          Windows Smart App Control blocks unsigned applications and modifications. Since Radium uses custom game patches, Smart App Control may prevent the game from starting or silently block game files.
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 6px;">
+          If the game fails to open, you will need to add exclusions or turn off Smart App Control manually in your Windows Security settings.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="sacAnywayBtn">Launch Anyway</button>
+        <button class="modal-btn modal-btn-primary" id="sacSettingsBtn">Windows Security</button>
+      </div>
+    </div>
+  </div>
+
+
 
   <!-- Toast -->
   <div class="toast-container" id="toastContainer"></div>

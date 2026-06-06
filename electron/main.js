@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path   = require('path');
 const fs     = require('fs');
 const https  = require('https');
@@ -21,7 +21,6 @@ const GITHUB_REPO  = 'Radium-Launcher';
 // Client folders and paths under local AppData
 const USER_DATA  = app.getPath('userData');
 const CONFIG_FILE = path.join(USER_DATA, 'config.json');
-const CLIENT_DIR  = path.join(USER_DATA, 'client');
 const CLIENT_ZIP  = path.join(USER_DATA, 'client.zip');
 
 const DOWNLOAD_URL = 'https://cdn.recroomarchive.org/radium/game-client/production/toukeh24kq6w2v4lndyc4z0pblvfyj75/windows/client.zip';
@@ -32,7 +31,13 @@ const DEFAULT_CONFIG = {
   playMode:         'screen',    // 'screen' | 'vr'
   minimizeOnLaunch: true,
   autoUpdate:       true,
+  installDir:       '',          // Custom install dir (empty = default)
 };
+
+function getClientDir(cfg) {
+  const c = cfg || ensureConfig();
+  return c.installDir || path.join(USER_DATA, 'client');
+}
 
 // Config management helper functions
 function ensureConfig() {
@@ -79,11 +84,20 @@ function findBatIn(dir, name, depth = 0) {
   return null;
 }
 
+// Helper to log HTTP Requests to renderer process
+function logUrlToRenderer(url) {
+  console.log(`[HTTP Request] ${url}`);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('log-url', url);
+  }
+}
+
 // Helper to download files (handles HTTP redirects and tracks download speed/ETA)
 const clientDownloadState = { req: null, aborted: false };
 const updateDownloadState = { req: null, aborted: false };
 
 function doDownload(url, destPath, onProgress, cancelState) {
+  logUrlToRenderer(url);
   return new Promise((resolve, reject) => {
     const lib = url.startsWith('https') ? https : http;
     const req = lib.get(url, { timeout: 15000 }, (res) => {
@@ -228,6 +242,7 @@ function pingServer(url) {
 async function getPlayerCount() {
   let timeoutId;
   try {
+    logUrlToRenderer('https://api.radie.app/api/players/v1/online');
     const controller = new AbortController();
     timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
 
@@ -259,7 +274,8 @@ function addDefenderExclusion() {
     return Promise.resolve({ success: false, error: 'Only supported on Windows.' });
   }
   return new Promise((resolve) => {
-    const escapedPath = CLIENT_DIR.replace(/'/g, "''").replace(/\$/g, '`$');
+    const clientDir = getClientDir();
+    const escapedPath = clientDir.replace(/'/g, "''").replace(/\$/g, '`$');
     const psPath = getPowershellPath();
     const psCommand = `Start-Process '${psPath}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Add-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
     
@@ -279,7 +295,8 @@ function removeDefenderExclusion() {
     return Promise.resolve({ success: false, error: 'Only supported on Windows.' });
   }
   return new Promise((resolve) => {
-    const escapedPath = CLIENT_DIR.replace(/'/g, "''").replace(/\$/g, '`$');
+    const clientDir = getClientDir();
+    const escapedPath = clientDir.replace(/'/g, "''").replace(/\$/g, '`$');
     const psPath = getPowershellPath();
     const psCommand = `Start-Process '${psPath}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command "Remove-MpPreference -ExclusionPath ''${escapedPath}''"' -Verb RunAs`;
     
@@ -298,8 +315,9 @@ function removeDefenderExclusion() {
 // Main app window setup
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 900, height: 550,
-    resizable: false,
+    width: 1000, height: 650,
+    minWidth: 900, minHeight: 550,
+    resizable: true,
     frame: false,
     transparent: false,
     backgroundColor: '#0D0D0C',
@@ -312,9 +330,17 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration:  false,
       sandbox:          false,
+      webviewTag:       true,
     }
   });
   mainWindow.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
+  
+  mainWindow.on('maximize', () => {
+    mainWindow.webContents.send('window-maximized-state', true);
+  });
+  mainWindow.on('unmaximize', () => {
+    mainWindow.webContents.send('window-maximized-state', false);
+  });
 }
 
 app.whenReady().then(() => {
@@ -334,6 +360,15 @@ app.on('window-all-closed', () => {
 
 // IPC actions called from renderer script
 ipcMain.on('win-minimize', () => mainWindow?.minimize());
+ipcMain.on('win-maximize', () => {
+  if (mainWindow) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  }
+});
 ipcMain.on('win-close', () => {
   stopGameMonitor();
   clientDownloadState.aborted = true;
@@ -351,14 +386,270 @@ ipcMain.handle('add-defender-exclusion', () => addDefenderExclusion());
 ipcMain.handle('remove-defender-exclusion', () => removeDefenderExclusion());
 ipcMain.handle('get-version', ()      => app.getVersion());
 ipcMain.handle('check-steam', ()      => checkSteamRunning());
+ipcMain.handle('check-smart-app-control', () => {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve({ enabled: false, state: -1 });
+    exec('reg query HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy /v VerifiedAndReputablePolicyState', (err, stdout) => {
+      if (err) return resolve({ enabled: false, error: err.message });
+      const match = stdout.match(/VerifiedAndReputablePolicyState\s+REG_DWORD\s+(0x[0-9a-fA-F]+|[0-9]+)/);
+      if (match) {
+        const val = parseInt(match[1]);
+        resolve({ enabled: val === 1 || val === 2, state: val });
+      } else {
+        resolve({ enabled: false, state: -1 });
+      }
+    });
+  });
+});
+
+function httpsGetText(urlStr) {
+  logUrlToRenderer(urlStr);
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(urlStr);
+    const options = {
+      hostname: parsed.hostname,
+      port: 443,
+      path: parsed.pathname + parsed.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Radium-Launcher',
+        'Accept': 'text/html,application/xhtml+xml,application/json'
+      },
+      timeout: 10000
+    };
+    const req = https.get(options, (res) => {
+      // Follow redirects
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        const resolvedUrl = new URL(res.headers.location, urlStr).toString();
+        return httpsGetText(resolvedUrl).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode} from ${parsed.hostname}`));
+      }
+      let body = '';
+      res.on('data', (chunk) => body += chunk);
+      res.on('end', () => resolve(body));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+  });
+}
+
+async function httpsGetJson(urlStr) {
+  const text = await httpsGetText(urlStr);
+  return JSON.parse(text);
+}
+
+function unescapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, '/')
+    .replace(/&nbsp;/g, ' ');
+}
+
+function resolveUrl(urlStr, baseUrl = 'https://www.radie.app') {
+  if (!urlStr) return '';
+  if (urlStr.startsWith('http://') || urlStr.startsWith('https://')) {
+    return urlStr;
+  }
+  if (urlStr.startsWith('//')) {
+    return 'https:' + urlStr;
+  }
+  try {
+    return new URL(urlStr, baseUrl).toString();
+  } catch (e) {
+    return urlStr;
+  }
+}
+
+ipcMain.handle('fetch-room-web-details', async (_event, name) => {
+  const url = `https://www.radie.app/room/${encodeURIComponent(name)}`;
+  try {
+    const html = await httpsGetText(url);
+    const cheersMatch = html.match(/<p class="font-bold text-\[14px\]!"[^>]*>([\d,]+)<\/p>\s*<p class="text-\[10px\]">CHEERS<\/p>/i);
+    const favsMatch = html.match(/<p class="font-bold text-\[14px\]!"[^>]*>([\d,]+)<\/p>\s*<p class="text-\[10px\]">FAVORITES<\/p>/i);
+    const visitsMatch = html.match(/<p class="font-bold text-\[14px\]!"[^>]*>([\d,]+)<\/p>\s*<p class="text-\[10px\]">VISITS<\/p>/i);
+    const descMatch = html.match(/<\/a>\s*<p>([\s\S]*?)<\/p>\s*<div class="flex border-\[#ccc\] border-t/i);
+    const creatorAvatarMatch = html.match(/href="\/user\/[^"]+"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"/i);
+    
+    return {
+      success: true,
+      cheers: cheersMatch ? cheersMatch[1] : '0',
+      favorites: favsMatch ? favsMatch[1] : '0',
+      visits: visitsMatch ? visitsMatch[1] : '0',
+      description: descMatch ? unescapeHtml(descMatch[1].trim()) : '',
+      creatorAvatar: creatorAvatarMatch ? resolveUrl(unescapeHtml(creatorAvatarMatch[1])) : ''
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fetch-user-web-details', async (_event, name) => {
+  const url = `https://www.radie.app/user/${encodeURIComponent(name)}`;
+  try {
+    const html = await httpsGetText(url);
+    const friendsMatch = html.match(/<p class="font-bold text-\[14px\]!"[^>]*>([\d,]+)<\/p>\s*<p class="text-\[10px\]">FRIENDS<\/p>/i);
+    const subsMatch = html.match(/<p class="font-bold text-\[14px\]!"[^>]*>([\d,]+)<\/p>\s*<p class="text-\[10px\]">SUBSCRIBERS<\/p>/i);
+    const visitsMatch = html.match(/<p class="font-bold text-\[14px\]!"[^>]*>([\d,]+)<\/p>\s*<p class="text-\[10px\]">VISITS<\/p>/i);
+    const statusMatch = html.match(/\[(ONLINE|OFFLINE)\]/i);
+    const bioMatch = html.match(/<p class="whitespace-pre-wrap text-\[12px\]">([\s\S]*?)<\/p>/i);
+    const bannerMatch = html.match(/background-image:\s*url\(['"]?([^'")]+)['"]?\)/i);
+    const avatarMatch = html.match(/w-18\.75[\s\S]*?<img[^>]*src="([^"]+)"/i);
+    
+    return {
+      success: true,
+      friends: friendsMatch ? friendsMatch[1] : '0',
+      subscribers: subsMatch ? subsMatch[1] : '0',
+      visits: visitsMatch ? visitsMatch[1] : '0',
+      status: statusMatch ? statusMatch[1].toUpperCase() : 'OFFLINE',
+      bio: bioMatch ? unescapeHtml(bioMatch[1].trim()) : '',
+      banner: bannerMatch ? resolveUrl(unescapeHtml(bannerMatch[1])) : '',
+      avatar: avatarMatch ? resolveUrl(unescapeHtml(avatarMatch[1])) : ''
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fetch-user-photos', async (_event, args) => {
+  let userId = '';
+  let skip = 0;
+  let take = 40;
+  if (typeof args === 'string') {
+    userId = args;
+  } else if (args && typeof args === 'object') {
+    userId = args.userId || '';
+    skip = args.skip || 0;
+    take = args.take || 40;
+  }
+  const url = `https://launcher.radie.app/api/user/v1/${encodeURIComponent(userId)}/photos?skip=${skip}&take=${take}`;
+  try {
+    const data = await httpsGetJson(url);
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fetch-recent-photos', async (_event, args) => {
+  let skip = 0;
+  let take = 100;
+  if (args && typeof args === 'object') {
+    skip = args.skip || 0;
+    take = args.take || 100;
+  }
+  const url = `https://launcher.radie.app/api/photos/v1/feed?skip=${skip}&take=${take}`;
+  try {
+    const data = await httpsGetJson(url);
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fetch-photo-web-details', async (_event, photoId) => {
+  const url = `https://www.radie.app/photo/${encodeURIComponent(photoId)}`;
+  try {
+    const html = await httpsGetText(url);
+    const userMatch = html.match(/href="\/user\/([^"\s?]+)"/i);
+    const roomMatch = html.match(/href="\/room\/([^"\s?]+)"/i);
+    
+    return {
+      success: true,
+      creatorUsername: userMatch ? userMatch[1] : '',
+      roomName: roomMatch ? roomMatch[1] : ''
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fetch-photo-comments', async (_event, photoId) => {
+  // Try the most likely API patterns for comments
+  const urlsToTry = [
+    `https://launcher.radie.app/api/photos/v1/${encodeURIComponent(photoId)}/comments?skip=0&take=20`,
+    `https://launcher.radie.app/api/comments/v1?photoId=${encodeURIComponent(photoId)}&skip=0&take=20`,
+    `https://api.radie.app/api/photos/v1/${encodeURIComponent(photoId)}/comments?skip=0&take=20`,
+  ];
+  for (const url of urlsToTry) {
+    try {
+      const data = await httpsGetJson(url);
+      // Accepts both array result and {Results:[...]} shape
+      const comments = Array.isArray(data) ? data : (data.Results || data.comments || []);
+      return { success: true, comments };
+    } catch (err) {
+      if (err.message && err.message.includes('404')) continue;
+      return { success: false, error: err.message, comments: [] };
+    }
+  }
+  return { success: false, error: 'Comments not available', comments: [] };
+});
+
+
+
+ipcMain.handle('fetch-rooms', async (_event, args) => {
+  const { skip = 0, take = 20, sortBy = 0, query = '', tag = '' } = args || {};
+  let url = `https://launcher.radie.app/api/rooms/v1/?skip=${skip}&take=${take}&sortBy=${sortBy}`;
+  if (query) url += `&query=${encodeURIComponent(query)}`;
+  if (tag) url += `&tag=${encodeURIComponent(tag)}`;
+  try {
+    const data = await httpsGetJson(url);
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fetch-people', async (_event, args) => {
+  const { skip = 0, take = 15, query = '' } = args || {};
+  let url = `https://launcher.radie.app/api/user/v1?skip=${skip}&take=${take}`;
+  if (query) url += `&query=${encodeURIComponent(query)}`;
+  try {
+    const data = await httpsGetJson(url);
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('fetch-filters', async () => {
+  const url = 'https://api.radie.app/api/rooms/v1/filters';
+  try {
+    const data = await httpsGetJson(url);
+    return { success: true, data };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
 
 // Check if client is installed
 ipcMain.handle('check-install', async () => {
   const cfg = ensureConfig();
-  const exePath = cfg.gameExePath || findBatIn(CLIENT_DIR, 'RecRoom_ScreenMode.bat') || '';
+  const clientDir = getClientDir(cfg);
+  let exePath = cfg.gameExePath || '';
+  if (exePath) {
+    const relative = path.relative(clientDir, exePath);
+    const isInside = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+    if (!isInside || !fs.existsSync(exePath)) {
+      exePath = '';
+    }
+  }
+  if (!exePath) {
+    exePath = findBatIn(clientDir, 'RecRoom_ScreenMode.bat') || '';
+  }
   const installed = exePath !== '' && fs.existsSync(exePath);
   const isRunning = isGameRunningState;
-  return { installed, exePath, clientDir: CLIENT_DIR, isRunning };
+  return { installed, exePath, clientDir, isRunning };
 });
 
 // Download + extract client
@@ -369,8 +660,11 @@ ipcMain.handle('download-client', async (event) => {
   clientDownloadState.aborted = false;
   clientDownloadState.req = null;
 
+  const clientDir = getClientDir();
+
   // Ensure dirs exist
   if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
+  if (!fs.existsSync(clientDir)) fs.mkdirSync(clientDir, { recursive: true });
   if (fs.existsSync(CLIENT_ZIP)) { try { fs.unlinkSync(CLIENT_ZIP); } catch {} }
 
   // Send progress helper
@@ -389,17 +683,17 @@ ipcMain.handle('download-client', async (event) => {
 
     // Phase 2: Extract
     progress({ phase: 'extract', pct: 0, status: 'Preparing extraction...' });
-    if (fs.existsSync(CLIENT_DIR)) {
-      try { fs.rmSync(CLIENT_DIR, { recursive: true, force: true }); } catch {}
+    if (fs.existsSync(clientDir)) {
+      try { fs.rmSync(clientDir, { recursive: true, force: true }); } catch {}
     }
-    fs.mkdirSync(CLIENT_DIR, { recursive: true });
+    fs.mkdirSync(clientDir, { recursive: true });
 
     let extractedCount = 0;
     let lastPercent = -1;
     let lastProgressTime = 0;
 
     await extract(CLIENT_ZIP, {
-      dir: CLIENT_DIR,
+      dir: clientDir,
       onEntry: (entry, zipfile) => {
         extractedCount++;
         const pct = Math.round((extractedCount / zipfile.entryCount) * 100);
@@ -416,7 +710,7 @@ ipcMain.handle('download-client', async (event) => {
     try { fs.unlinkSync(CLIENT_ZIP); } catch {}
 
     // Find bat
-    const batPath = findBatIn(CLIENT_DIR, 'RecRoom_ScreenMode.bat') || '';
+    const batPath = findBatIn(clientDir, 'RecRoom_ScreenMode.bat') || '';
 
     // Save bat path to config
     if (batPath) {
@@ -430,7 +724,7 @@ ipcMain.handle('download-client', async (event) => {
 
   } catch (err) {
     try { if (fs.existsSync(CLIENT_ZIP)) fs.unlinkSync(CLIENT_ZIP); } catch {}
-    try { if (fs.existsSync(CLIENT_DIR)) fs.rmSync(CLIENT_DIR, { recursive: true, force: true }); } catch {}
+    try { if (fs.existsSync(clientDir)) fs.rmSync(clientDir, { recursive: true, force: true }); } catch {}
     return { success: false, error: err.message };
   }
 });
@@ -441,8 +735,9 @@ ipcMain.handle('uninstall-client', async () => {
   if (isRunning) return { success: false, error: 'Cannot uninstall while the game is running.' };
 
   try {
-    if (fs.existsSync(CLIENT_DIR)) {
-      fs.rmSync(CLIENT_DIR, { recursive: true, force: true });
+    const clientDir = getClientDir();
+    if (fs.existsSync(clientDir)) {
+      fs.rmSync(clientDir, { recursive: true, force: true });
     }
     const cfg = ensureConfig();
     cfg.gameExePath = '';
@@ -474,23 +769,25 @@ ipcMain.handle('launch-game', async (_e, cfg) => {
   const batName = cfg.playMode === 'vr' ? 'RecRoom_VR.bat' : 'RecRoom_ScreenMode.bat';
   console.log('[launch-game] batName:', batName);
 
-  // Build the direct bat path from CLIENT_DIR — always use the known location
-  const directBatPath = path.join(CLIENT_DIR, batName);
+  const clientDir = getClientDir(cfg);
+
+  // Build the direct bat path from clientDir
+  const directBatPath = path.join(clientDir, batName);
   let batPath = '';
 
   if (fs.existsSync(directBatPath)) {
     batPath = directBatPath;
-    console.log('[launch-game] found bat directly in CLIENT_DIR:', batPath);
+    console.log('[launch-game] found bat directly in clientDir:', batPath);
   } else if (cfg.gameExePath && fs.existsSync(path.join(path.dirname(cfg.gameExePath), batName))) {
     batPath = path.join(path.dirname(cfg.gameExePath), batName);
     console.log('[launch-game] found bat via gameExePath sibling:', batPath);
   } else {
-    batPath = findBatIn(CLIENT_DIR, batName) || '';
+    batPath = findBatIn(clientDir, batName) || '';
     console.log('[launch-game] findBatIn result:', batPath);
   }
 
   if (!batPath) {
-    const msg = `Launch file not found: ${batName}\nLooked in: ${CLIENT_DIR}\n\nPlease download the client first.`;
+    const msg = `Launch file not found: ${batName}\nLooked in: ${clientDir}\n\nPlease download the client first.`;
     console.error('[launch-game]', msg);
     return { success: false, error: msg };
   }
@@ -561,8 +858,9 @@ ipcMain.handle('kill-game', () => {
 
 // Open client folder
 ipcMain.handle('open-client-folder', () => {
-  if (fs.existsSync(CLIENT_DIR)) {
-    shell.openPath(CLIENT_DIR);
+  const clientDir = getClientDir();
+  if (fs.existsSync(clientDir)) {
+    shell.openPath(clientDir);
     return true;
   }
   return false;
@@ -571,13 +869,14 @@ ipcMain.handle('open-client-folder', () => {
 // Debug: directly exec a bat file — call from DevTools: window.radium.debugExec('screen')
 ipcMain.handle('debug-exec', (_e, mode) => {
   const batName = mode === 'vr' ? 'RecRoom_VR.bat' : 'RecRoom_ScreenMode.bat';
-  const batPath = path.join(CLIENT_DIR, batName);
+  const clientDir = getClientDir();
+  const batPath = path.join(clientDir, batName);
   const exists = fs.existsSync(batPath);
   console.log('[debug-exec] batPath:', batPath, '  exists:', exists);
-  console.log('[debug-exec] CLIENT_DIR:', CLIENT_DIR);
+  console.log('[debug-exec] clientDir:', clientDir);
   if (!exists) return { ok: false, msg: `Not found: ${batPath}` };
   return new Promise((resolve) => {
-    exec(`"${batPath}"`, { cwd: CLIENT_DIR }, (err, stdout, stderr) => {
+    exec(`"${batPath}"`, { cwd: clientDir }, (err, stdout, stderr) => {
       console.log('[debug-exec] done. err:', err?.message, 'stdout:', stdout, 'stderr:', stderr);
       resolve({ ok: !err, err: err?.message, stdout, stderr });
     });
@@ -586,16 +885,34 @@ ipcMain.handle('debug-exec', (_e, mode) => {
 
 // Debug: check all paths
 ipcMain.handle('debug-paths', () => {
-  const screenBat = path.join(CLIENT_DIR, 'RecRoom_ScreenMode.bat');
-  const vrBat     = path.join(CLIENT_DIR, 'RecRoom_VR.bat');
-  const exe       = path.join(CLIENT_DIR, 'RecRoom.exe');
+  const clientDir = getClientDir();
+  const screenBat = path.join(clientDir, 'RecRoom_ScreenMode.bat');
+  const vrBat     = path.join(clientDir, 'RecRoom_VR.bat');
+  const exe       = path.join(clientDir, 'RecRoom.exe');
   return {
-    CLIENT_DIR,
+    CLIENT_DIR: clientDir,
     USER_DATA,
     screenBat,  screenBatExists: fs.existsSync(screenBat),
     vrBat,      vrBatExists:     fs.existsSync(vrBat),
     exe,        exeExists:       fs.existsSync(exe),
   };
+});
+
+// Select install folder dialog
+ipcMain.handle('select-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select Radium Client Install Folder',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled) {
+    return null;
+  }
+  return result.filePaths[0];
+});
+
+// Get default client directory
+ipcMain.handle('get-default-client-dir', () => {
+  return path.join(app.getPath('userData'), 'client');
 });
 
 ipcMain.on('open-url', (_e, url) => shell.openExternal(url));
@@ -614,6 +931,7 @@ function semverGt(a, b) {
 }
 
 ipcMain.handle('check-for-update', () => {
+  logUrlToRenderer(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`);
   return new Promise((resolve) => {
     const options = {
       hostname: 'api.github.com',

@@ -5,6 +5,7 @@ let isDownloading         = false;
 let isInstalled           = false;
 let playMode              = 'screen';
 let launchAfterExclusion  = false;
+let sacWarnedThisSession  = false;
 
 // DOM shortcuts
 const $ = id => document.getElementById(id);
@@ -53,14 +54,32 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
-    const p = $('tab-' + btn.dataset.tab);
+    const tabName = btn.dataset.tab;
+    const p = $('tab-' + tabName);
     if (p) p.classList.add('active');
+
+    // Lazy load data when switching tabs
+    if (tabName === 'rooms') {
+      loadFilters();
+      loadRooms();
+    } else if (tabName === 'people') {
+      loadPeople();
+    }
   });
 });
 
 // Titlebar actions
 $('btnMinimize')?.addEventListener('click', () => window.radium?.minimize());
+$('btnMaximize')?.addEventListener('click', () => window.radium?.maximize());
 $('btnClose')?.addEventListener('click',    () => window.radium?.close());
+
+window.radium?.onWindowMaximizedState((isMaximized) => {
+  const btn = $('btnMaximize');
+  if (btn) {
+    btn.innerHTML = isMaximized ? '❐' : '▢';
+    btn.title = isMaximized ? 'Restore' : 'Maximize';
+  }
+});
 
 // Sidebar logo image load failure fallback
 const logoImg = $('sidebarLogo');
@@ -130,17 +149,20 @@ function getToggle(id) { return $(id)?.classList.contains('on') ?? false; }
 );
 
 $('cfgTheme')?.addEventListener('change', () => {
-  applyTheme($('cfgTheme').value);
+  const selectedTheme = $('cfgTheme').value;
+  applyTheme(selectedTheme);
 });
 
 // Save
 $('btnSaveSettings')?.addEventListener('click', async () => {
   const selectedTheme = $('cfgTheme')?.value || 'steam-green';
+  const customDir = $('cfgInstallDir')?.textContent.trim() || '';
   const updated = {
     ...config,
-    apiUrl:           $('cfgApiUrl')?.value.trim() || 'https://api.radie.app/',
+    apiUrl:           config.apiUrl || 'https://api.radie.app/',
     minimizeOnLaunch: getToggle('tgl-minimizeOnLaunch'),
     autoUpdate:       getToggle('tgl-autoUpdate'),
+    installDir:       customDir,
     playMode,
     theme:            selectedTheme,
   };
@@ -150,26 +172,9 @@ $('btnSaveSettings')?.addEventListener('click', async () => {
     config = updated;
     toast('Settings saved!', 'ok');
     addLog('Configuration saved.', 'ok');
+    await checkInstall();
   } else {
     toast('Failed to save.', 'error');
-  }
-});
-
-// Test server
-$('btnTestServer')?.addEventListener('click', async () => {
-  const url = $('cfgApiUrl')?.value.trim() || config.apiUrl;
-  if (!url) { toast('Enter an API URL first.', 'error'); return; }
-  const tr = $('testResult');
-  tr.textContent = 'Testing...'; tr.className = 'test-result';
-  const result = await window.radium?.pingServer(url);
-  if (result?.online) {
-    tr.textContent = '✓ Online';
-    tr.className = 'test-result ok';
-    toast('Online!', 'ok');
-  } else {
-    tr.textContent = '✕ Offline or unreachable';
-    tr.className = 'test-result error';
-    toast('Server unreachable.', 'error');
   }
 });
 
@@ -178,6 +183,11 @@ async function checkInstall() {
   const result = await window.radium?.checkInstall();
   isInstalled = result?.installed ?? false;
   const qscC = $('qsc-client');
+  const installDirSpan = $('cfgInstallDir');
+
+  if (installDirSpan && result?.clientDir) {
+    installDirSpan.textContent = result.clientDir;
+  }
 
   if (isInstalled) {
     // Show launch panel, hide download section
@@ -347,7 +357,35 @@ $('btnOpenFolderSettings')?.addEventListener('click', async () => {
   }
 });
 
-// Exclude AV Modal Actions
+$('btnChangeFolder')?.addEventListener('click', async () => {
+  addLog('Selecting install directory...', 'info');
+  const newDir = await window.radium?.selectFolder();
+  if (newDir) {
+    const span = $('cfgInstallDir');
+    if (span) {
+      span.textContent = newDir;
+      toast('Install location updated in settings. Click SAVE to apply.', 'info');
+      addLog(`Selected install directory: ${newDir}`, 'info');
+    }
+  } else {
+    addLog('Install directory selection cancelled.', 'info');
+  }
+});
+
+$('btnResetFolder')?.addEventListener('click', async () => {
+  addLog('Resetting install directory...', 'info');
+  const defaultDir = await window.radium?.getDefaultClientDir();
+  if (defaultDir) {
+    const span = $('cfgInstallDir');
+    if (span) {
+      span.textContent = defaultDir;
+      toast('Install location reset. Click SAVE to apply.', 'info');
+      addLog(`Reset install directory to default: ${defaultDir}`, 'info');
+    }
+  }
+});
+
+// Exclude AV Warning Modal Actions
 function showExcludeAvModal() {
   const m = $('excludeAvModal');
   if (m) m.style.display = 'flex';
@@ -365,7 +403,7 @@ $('btnExcludeAvAnyway')?.addEventListener('click', async () => {
   const m = $('excludeAvModal');
   if (m) m.style.display = 'none';
   launchAfterExclusion = false; // Reset since we are launching now anyway
-  await checkSteamAndLaunch();
+  await checkSacAndLaunch();
 });
 $('excludeAvModal')?.addEventListener('click', (e) => {
   if (e.target === $('excludeAvModal')) {
@@ -386,10 +424,10 @@ async function executeExcludeAv() {
     toast('Defender exclusion added!', 'ok');
     addLog('Exclusion successfully added to Windows Defender.', 'ok');
     
-    // Check if we need to proceed to Steam check and launch
+    // Check if we need to proceed to Smart App Control and Steam check and launch
     if (launchAfterExclusion) {
       launchAfterExclusion = false;
-      await checkSteamAndLaunch();
+      await checkSacAndLaunch();
     }
   } else {
     const err = result?.error || 'UAC elevation cancelled or failed';
@@ -640,9 +678,53 @@ $('btnPlay')?.addEventListener('click', async () => {
     launchAfterExclusion = true;
     showExcludeAvModal();
   } else {
-    await checkSteamAndLaunch();
+    await checkSacAndLaunch();
   }
 });
+
+function showSacModal() {
+  const m = $('sacModal');
+  if (m) m.style.display = 'flex';
+}
+
+function hideSacModal() {
+  const m = $('sacModal');
+  if (m) m.style.display = 'none';
+}
+
+$('sacModalClose')?.addEventListener('click', hideSacModal);
+$('sacAnywayBtn')?.addEventListener('click', async () => {
+  hideSacModal();
+  sacWarnedThisSession = true;
+  await checkSteamAndLaunch();
+});
+$('sacSettingsBtn')?.addEventListener('click', async () => {
+  hideSacModal();
+  sacWarnedThisSession = true;
+  window.radium?.openUrl('windowsdefender://appbrowser');
+  await checkSteamAndLaunch();
+});
+$('sacModal')?.addEventListener('click', (e) => {
+  if (e.target === $('sacModal')) {
+    hideSacModal();
+  }
+});
+
+async function checkSacAndLaunch() {
+  addLog('Checking Smart App Control status...', 'info');
+  const sac = await window.radium?.checkSmartAppControl();
+  if (sac && sac.enabled && !sacWarnedThisSession) {
+    addLog('Smart App Control is active. Prompting user...', 'info');
+    showSacModal();
+  } else {
+    if (sac && sac.enabled) {
+      addLog('Smart App Control is active (previously acknowledged this session).', 'info');
+    } else {
+      addLog('Smart App Control is not active.', 'ok');
+    }
+    await checkSteamAndLaunch();
+  }
+}
 
 $('btnKill')?.addEventListener('click', async () => {
   await window.radium?.killGame();
@@ -729,7 +811,7 @@ async function checkForLauncherUpdate() {
     }
     if (info.hasUpdate) {
       addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok');
-      toast(`Update available: ${info.latestVersion}!`, 'ok', 5000);
+      toast('Update available!', 'ok', 5000);
       showUpdateModal(info);
     } else {
       addLog(`Launcher is up to date (v${info.currentVersion}).`, 'info');
@@ -826,9 +908,882 @@ async function init() {
     clearInterval(serverPollInterval);
     clearInterval(playerPollInterval);
   });
+
+  // Bind IPC log url notifications
+  window.radium?.onLogUrl((url) => {
+    addLog(`HTTP Request: ${url}`, 'info');
+  });
 }
 
 init().catch(err => {
   addLog(`Init error: ${err.message}`, 'error');
   console.error(err);
 });
+
+// Native Rooms & People Loading Controller
+let roomsSkip = 0;
+const roomsTake = 12;
+let activeRoomsTag = '';
+let activeRoomsSort = 0;
+let roomsSearchQuery = '';
+
+let peopleSkip = 0;
+const peopleTake = 15;
+let peopleSearchQuery = '';
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function loadFilters() {
+  const listEl = $('roomsFiltersList');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="font-size: 10px; color: var(--text-muted); padding: 4px;">Loading filters...</div>';
+  
+  const res = await window.radium?.fetchFilters();
+  if (res && res.success && res.data) {
+    const pinned = res.data.PinnedFilters || [];
+    const popular = res.data.PopularFilters || [];
+    
+    // De-duplicate tags
+    const allTags = Array.from(new Set(['all', ...pinned, ...popular]));
+    
+    listEl.innerHTML = '';
+    allTags.forEach(tag => {
+      const btn = document.createElement('button');
+      btn.className = 'filter-btn';
+      if (tag === 'all') {
+        btn.textContent = 'All Rooms';
+        if (!activeRoomsTag) btn.classList.add('active');
+      } else {
+        btn.textContent = tag;
+        if (activeRoomsTag === tag) btn.classList.add('active');
+      }
+      
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#roomsFiltersList .filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeRoomsTag = (tag === 'all') ? '' : tag;
+        roomsSkip = 0;
+        loadRooms();
+      });
+      listEl.appendChild(btn);
+    });
+  } else {
+    listEl.innerHTML = '<div style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px;">Error loading filters</div>';
+  }
+}
+
+async function loadRooms() {
+  const gridEl = $('roomsGrid');
+  const emptyEl = $('roomsEmptyMsg');
+  if (!gridEl) return;
+  
+  gridEl.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading rooms...</div>';
+  emptyEl?.classList.add('hidden');
+  
+  const res = await window.radium?.fetchRooms({
+    skip: roomsSkip,
+    take: roomsTake,
+    sortBy: activeRoomsSort,
+    query: roomsSearchQuery,
+    tag: activeRoomsTag
+  });
+  
+  if (res && res.success && res.data) {
+    const rooms = res.data.Results || [];
+    const total = res.data.TotalResults || 0;
+    
+    gridEl.innerHTML = '';
+    if (rooms.length === 0) {
+      emptyEl?.classList.remove('hidden');
+    } else {
+      rooms.forEach(room => {
+        const imgName = room.ImageName || '';
+        const thumbUrl = imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png';
+        
+        const card = document.createElement('div');
+        card.className = 'room-card';
+        card.onclick = () => {
+          showRoomDetails(room);
+        };
+        card.innerHTML = `
+          <img class="room-card-image" src="${thumbUrl}" onerror="this.src='./images.png'; this.onerror=null;" alt="${escapeHtml(room.Name)}" />
+          <div class="room-card-name" title="${escapeHtml(room.Name)}">${escapeHtml(room.Name)}</div>
+          <div class="room-card-creator" onclick="event.stopPropagation(); showCreatorProfile('${escapeHtml(room.CreatorUsername)}')" title="View creator's profile">by ${escapeHtml(room.CreatorUsername)}</div>
+        `;
+        gridEl.appendChild(card);
+      });
+    }
+    
+    // Pagination text & buttons state
+    const totalPages = Math.ceil(total / roomsTake);
+    const currentPage = Math.floor(roomsSkip / roomsTake) + 1;
+    const txtPage = $('txtRoomsPage');
+    if (txtPage) {
+      txtPage.textContent = `Page ${currentPage} of ${Math.max(1, totalPages)}`;
+    }
+    
+    const btnPrev = $('btnRoomsPrev');
+    const btnNext = $('btnRoomsNext');
+    if (btnPrev) btnPrev.disabled = (roomsSkip === 0);
+    if (btnNext) btnNext.disabled = (roomsSkip + roomsTake >= total);
+  } else {
+    gridEl.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${res?.error || 'Failed to fetch rooms'}</div>`;
+    const btnPrev = $('btnRoomsPrev');
+    const btnNext = $('btnRoomsNext');
+    if (btnPrev) btnPrev.disabled = true;
+    if (btnNext) btnNext.disabled = true;
+  }
+}
+
+window.filterByCreator = function(username) {
+  const searchInput = $('roomsSearch');
+  if (searchInput) {
+    searchInput.value = username;
+    roomsSearchQuery = username;
+    roomsSkip = 0;
+    loadRooms();
+  }
+};
+
+async function loadPeople() {
+  const bodyEl = $('peopleListBody');
+  if (!bodyEl) return;
+  
+  bodyEl.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading players...</td></tr>';
+  
+  const res = await window.radium?.fetchPeople({
+    skip: peopleSkip,
+    take: peopleTake,
+    query: peopleSearchQuery
+  });
+  
+  if (res && res.success && res.data) {
+    const people = res.data.Results || [];
+    const total = res.data.TotalResults || 0;
+    
+    bodyEl.innerHTML = '';
+    if (people.length === 0) {
+      bodyEl.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">No players found.</td></tr>';
+    } else {
+      people.forEach(person => {
+        const profileImg = person.profileImage || '';
+        const isDefault = !profileImg || profileImg === 'DefaultProfileImage';
+        const avatarUrl = isDefault ? 'https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1' : `https://img.radie.app/${profileImg}?width=50&cropSquare=1`;
+        
+        const row = document.createElement('tr');
+        row.onclick = () => {
+          showPlayerDetails(person);
+        };
+        row.innerHTML = `
+          <td>
+            <img class="people-avatar" src="${avatarUrl}" onerror="this.src='https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1'; this.onerror=null;" alt="${escapeHtml(person.userName)}" />
+          </td>
+          <td>
+            <span class="status-dot ${person.isOnline ? 'online' : 'offline'}" title="${person.isOnline ? 'Online' : 'Offline'}"></span>
+            ${escapeHtml(person.displayName || person.userName)}
+          </td>
+          <td>
+            <a href="#" class="text-link" onclick="return false;">
+              @${escapeHtml(person.userName)}
+            </a>
+          </td>
+          <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(person.bio || '')}">
+            ${escapeHtml(person.bio || '')}
+          </td>
+        `;
+        bodyEl.appendChild(row);
+      });
+    }
+    
+    // Pagination text & buttons state
+    const totalPages = Math.ceil(total / peopleTake);
+    const currentPage = Math.floor(peopleSkip / peopleTake) + 1;
+    const txtPage = $('txtPeoplePage');
+    if (txtPage) {
+      txtPage.textContent = `Page ${currentPage} of ${Math.max(1, totalPages)}`;
+    }
+    
+    const btnPrev = $('btnPeoplePrev');
+    const btnNext = $('btnPeopleNext');
+    if (btnPrev) btnPrev.disabled = (peopleSkip === 0);
+    if (btnNext) btnNext.disabled = (peopleSkip + peopleTake >= total);
+  } else {
+    bodyEl.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${res?.error || 'Failed to fetch players'}</td></tr>`;
+    const btnPrev = $('btnPeoplePrev');
+    const btnNext = $('btnPeopleNext');
+    if (btnPrev) btnPrev.disabled = true;
+    if (btnNext) btnNext.disabled = true;
+  }
+}
+
+// Event listeners for Rooms search / sort / pagination
+let roomsSearchTimeout;
+$('roomsSearch')?.addEventListener('input', (e) => {
+  clearTimeout(roomsSearchTimeout);
+  roomsSearchTimeout = setTimeout(() => {
+    roomsSearchQuery = e.target.value.trim();
+    roomsSkip = 0;
+    loadRooms();
+  }, 300);
+});
+
+$('btnRoomsPrev')?.addEventListener('click', () => {
+  if (roomsSkip >= roomsTake) {
+    roomsSkip -= roomsTake;
+    loadRooms();
+  }
+});
+$('btnRoomsNext')?.addEventListener('click', () => {
+  roomsSkip += roomsTake;
+  loadRooms();
+});
+
+document.querySelectorAll('#roomsSortList .sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#roomsSortList .sort-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeRoomsSort = parseInt(btn.dataset.sort) || 0;
+    roomsSkip = 0;
+    loadRooms();
+  });
+});
+
+// Event listeners for People search / pagination
+let peopleSearchTimeout;
+$('peopleSearch')?.addEventListener('input', (e) => {
+  clearTimeout(peopleSearchTimeout);
+  peopleSearchTimeout = setTimeout(() => {
+    peopleSearchQuery = e.target.value.trim();
+    peopleSkip = 0;
+    loadPeople();
+  }, 300);
+});
+
+$('btnPeoplePrev')?.addEventListener('click', () => {
+  if (peopleSkip >= peopleTake) {
+    peopleSkip -= peopleTake;
+    loadPeople();
+  }
+});
+$('btnPeopleNext')?.addEventListener('click', () => {
+  peopleSkip += peopleTake;
+  loadPeople();
+});
+
+// Native Detail View Helpers
+function switchTab(tabName) {
+  const btn = $('nav-' + tabName);
+  if (btn) {
+    btn.click();
+  }
+}
+
+async function showCreatorProfile(username) {
+  if (!username) return;
+  const res = await window.radium?.fetchPeople({ query: username });
+  let person = null;
+  if (res && res.success && res.data && res.data.Results) {
+    person = res.data.Results.find(p => p.userName.toLowerCase() === username.toLowerCase());
+    if (!person && res.data.Results.length > 0) {
+      person = res.data.Results[0];
+    }
+  }
+  if (!person) {
+    person = {
+      id: null,
+      userName: username,
+      displayName: username,
+      profileImage: 'DefaultProfileImage',
+      isOnline: false,
+      bio: ''
+    };
+  }
+  switchTab('people');
+  showPlayerDetails(person);
+}
+
+// Photos pagination state
+let roomPhotosFeedSkip = 0;
+const roomPhotosFeedTake = 100;
+let currentRoomId = null;
+let currentRoomPhotosCount = 0;
+let roomPhotosHasMore = false;
+let roomPhotosLoading = false;
+let roomPhotosTotalPagesSearched = 0;
+
+let playerPhotosSkip = 0;
+const playerPhotosTake = 20;
+let currentPlayerId = null;
+let playerPhotosHasMore = false;
+let playerPhotosLoading = false;
+
+let currentBackToView = null;
+
+// IntersectionObserver instances
+let roomPhotoObserver = null;
+let playerPhotoObserver = null;
+
+function setupRoomPhotoObserver() {
+  if (roomPhotoObserver) roomPhotoObserver.disconnect();
+  const sentinel = $('roomsDetailPhotosSentinel');
+  if (!sentinel) return;
+  roomPhotoObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && roomPhotosHasMore && !roomPhotosLoading && currentRoomId) {
+      roomPhotosFeedSkip += roomPhotosFeedTake;
+      loadRoomPhotos(currentRoomId, true);
+    }
+  }, { threshold: 0.1 });
+  roomPhotoObserver.observe(sentinel);
+}
+
+function setupPlayerPhotoObserver() {
+  if (playerPhotoObserver) playerPhotoObserver.disconnect();
+  const sentinel = $('peopleDetailPhotosSentinel');
+  if (!sentinel) return;
+  playerPhotoObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && playerPhotosHasMore && !playerPhotosLoading && currentPlayerId) {
+      playerPhotosSkip += playerPhotosTake;
+      loadPlayerPhotos(currentPlayerId, true);
+    }
+  }, { threshold: 0.1 });
+  playerPhotoObserver.observe(sentinel);
+}
+
+async function loadRoomPhotos(roomId, append = false) {
+  const photosGrid = $('roomsDetailPhotosGrid');
+  const photosEmpty = $('roomsDetailPhotosEmpty');
+  if (!photosGrid) return;
+  if (roomPhotosLoading) return;
+  
+  if (!append) {
+    roomPhotosFeedSkip = 0;
+    currentRoomPhotosCount = 0;
+    roomPhotosHasMore = false;
+    roomPhotosTotalPagesSearched = 0;
+    photosGrid.innerHTML = '<div id="roomPhotosLoading" style="text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);">Loading photos...</div>';
+    if (photosEmpty) photosEmpty.style.display = 'none';
+  } else {
+    const loadingEl = document.createElement('div');
+    loadingEl.id = 'roomPhotosLoading';
+    loadingEl.style.cssText = 'text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);';
+    loadingEl.textContent = 'Loading more...';
+    photosGrid.appendChild(loadingEl);
+  }
+  
+  currentRoomId = roomId;
+  roomPhotosLoading = true;
+  
+  let resultsLength = 0;
+  let hasFailed = false;
+  let pagesSearched = 0;
+  let matchedInBatch = 0;
+  
+  while (true) {
+    pagesSearched++;
+    roomPhotosTotalPagesSearched++;
+    const res = await window.radium?.fetchRecentPhotos({ skip: roomPhotosFeedSkip, take: roomPhotosFeedTake });
+    if (res && res.success && res.data && res.data.Results) {
+      const results = res.data.Results || [];
+      resultsLength = results.length;
+      
+      const matched = results.filter(p => p.RoomId === roomId);
+      if (matched.length > 0) {
+        if (!append && currentRoomPhotosCount === 0) {
+          photosGrid.innerHTML = '';
+        }
+        const loadEl = $('roomPhotosLoading');
+        if (loadEl) loadEl.remove();
+        matched.forEach(photo => {
+          currentRoomPhotosCount++;
+          matchedInBatch++;
+          const card = document.createElement('div');
+          card.className = 'photo-card';
+          card.onclick = () => { showPhotoDetails(photo, 'rooms-detail'); };
+          const img = document.createElement('img');
+          img.className = 'photo-card-image';
+          img.src = `https://img.radie.app/${photo.ImageName}?width=600`;
+          img.onerror = () => { img.src = './images.png'; img.onerror = null; };
+          img.alt = 'Photo in room';
+          card.appendChild(img);
+          photosGrid.appendChild(card);
+        });
+      }
+      
+      if (resultsLength < roomPhotosFeedTake) {
+        roomPhotosHasMore = false;
+        break;
+      }
+      if (matched.length > 0) {
+        roomPhotosFeedSkip += roomPhotosFeedTake;
+        roomPhotosHasMore = (roomPhotosTotalPagesSearched < 3);
+        break;
+      }
+      if (roomPhotosTotalPagesSearched >= 3) {
+        roomPhotosHasMore = false;
+        break;
+      }
+      roomPhotosFeedSkip += roomPhotosFeedTake;
+    } else {
+      hasFailed = true;
+      break;
+    }
+  }
+  
+  roomPhotosLoading = false;
+  
+  const loadingEl = $('roomPhotosLoading');
+  if (loadingEl) loadingEl.remove();
+  
+  if (hasFailed) {
+    if (!append) {
+      photosGrid.innerHTML = '';
+      if (photosEmpty) { photosEmpty.textContent = 'Error loading photos.'; photosEmpty.style.display = 'block'; }
+    }
+    return;
+  }
+  
+  if (!append && currentRoomPhotosCount === 0) {
+    if (photosEmpty) photosEmpty.style.display = 'block';
+  } else {
+    if (photosEmpty) photosEmpty.style.display = 'none';
+  }
+
+  // Re-observe sentinel for next scroll trigger
+  setupRoomPhotoObserver();
+}
+
+
+async function loadPlayerPhotos(userId, append = false) {
+  const photosGrid = $('peopleDetailPhotosGrid');
+  const photosEmpty = $('peopleDetailPhotosEmpty');
+  if (!photosGrid) return;
+  if (playerPhotosLoading) return;
+  
+  if (!userId) {
+    photosGrid.innerHTML = '';
+    if (photosEmpty) photosEmpty.style.display = 'block';
+    playerPhotosHasMore = false;
+    return;
+  }
+  
+  if (!append) {
+    playerPhotosSkip = 0;
+    playerPhotosHasMore = false;
+    photosGrid.innerHTML = '<div id="playerPhotosLoading" style="text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);">Loading photos...</div>';
+    if (photosEmpty) photosEmpty.style.display = 'none';
+  } else {
+    const loadingEl = document.createElement('div');
+    loadingEl.id = 'playerPhotosLoading';
+    loadingEl.style.cssText = 'text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);';
+    loadingEl.textContent = 'Loading more...';
+    photosGrid.appendChild(loadingEl);
+  }
+  
+  currentPlayerId = userId;
+  playerPhotosLoading = true;
+  
+  const res = await window.radium?.fetchUserPhotos({ userId, skip: playerPhotosSkip, take: playerPhotosTake });
+  const loadingEl = $('playerPhotosLoading');
+  if (loadingEl) loadingEl.remove();
+  playerPhotosLoading = false;
+  
+  if (res && res.success && res.data && res.data.Results) {
+    const photos = res.data.Results || [];
+    
+    if (!append) photosGrid.innerHTML = '';
+    
+    photos.forEach(photo => {
+      const card = document.createElement('div');
+      card.className = 'photo-card';
+      card.onclick = () => { showPhotoDetails(photo, 'people-detail'); };
+      const img = document.createElement('img');
+      img.className = 'photo-card-image';
+      img.src = `https://img.radie.app/${photo.ImageName}?width=600`;
+      img.onerror = () => { img.src = './images.png'; img.onerror = null; };
+      img.alt = 'Photo taken by player';
+      card.appendChild(img);
+      photosGrid.appendChild(card);
+    });
+    
+    const totalInGrid = photosGrid.querySelectorAll('.photo-card').length;
+    if (totalInGrid === 0) {
+      if (photosEmpty) photosEmpty.style.display = 'block';
+    } else {
+      if (photosEmpty) photosEmpty.style.display = 'none';
+    }
+    
+    const totalCount = res.data.TotalResults;
+    if (totalCount !== undefined) {
+      playerPhotosHasMore = totalInGrid < totalCount;
+    } else {
+      playerPhotosHasMore = photos.length === playerPhotosTake;
+    }
+
+    // Re-observe sentinel for next scroll trigger
+    setupPlayerPhotoObserver();
+  } else {
+    if (!append) {
+      photosGrid.innerHTML = '';
+      if (photosEmpty) { photosEmpty.textContent = 'Error loading photos.'; photosEmpty.style.display = 'block'; }
+    }
+    playerPhotosHasMore = false;
+  }
+}
+
+
+async function showRoomByName(roomName) {
+  if (!roomName) return;
+  addLog(`Looking up room "${roomName}"...`, 'info');
+  const res = await window.radium?.fetchRooms({ query: roomName, take: 1 });
+  if (res && res.success && res.data && res.data.Results && res.data.Results.length > 0) {
+    const room = res.data.Results[0];
+    switchTab('rooms');
+    showRoomDetails(room);
+  } else {
+    toast(`Could not find room "${roomName}"`, 'error');
+  }
+}
+
+async function showPhotoDetails(photo, backToView) {
+  currentBackToView = backToView;
+  
+  // Switch to photo detail panel
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  $('tab-photo-detail').classList.add('active');
+  
+  // Render initial photo fields we have
+  const imgEl = $('photoDetailImage');
+  if (imgEl) {
+    imgEl.src = `https://img.radie.app/${photo.ImageName}?width=720`;
+    imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.onerror = null; };
+  }
+  
+  const captionEl = $('photoDetailCaption');
+  if (captionEl) {
+    captionEl.textContent = photo.Description || 'No description.';
+  }
+  
+  const cheersEl = $('photoDetailCheers');
+  if (cheersEl) cheersEl.textContent = photo.CheerCount || '0';
+  
+  const commentsEl = $('photoDetailComments');
+  if (commentsEl) commentsEl.textContent = photo.CommentCount || '0';
+  
+  const createdEl = $('photoDetailCreatedAt');
+  if (createdEl && photo.CreatedAt) {
+    try {
+      createdEl.textContent = new Date(photo.CreatedAt).toLocaleString();
+    } catch (e) {
+      createdEl.textContent = photo.CreatedAt;
+    }
+  }
+  
+  // Reset scraped elements
+  const creatorNameEl = $('photoDetailCreatorName');
+  if (creatorNameEl) creatorNameEl.textContent = 'Loading...';
+  const creatorHandleEl = $('photoDetailCreatorHandle');
+  if (creatorHandleEl) creatorHandleEl.textContent = '@...';
+  const creatorAvatarEl = $('photoDetailCreatorAvatar');
+  if (creatorAvatarEl) creatorAvatarEl.src = 'https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1';
+  const roomLinkEl = $('photoDetailRoomLink');
+  if (roomLinkEl) roomLinkEl.style.display = 'none';
+  const creatorLinkEl = $('photoDetailCreatorLink');
+  if (creatorLinkEl) creatorLinkEl.onclick = null;
+  
+  // Fetch scraped details from photo webpage
+  const res = await window.radium?.fetchPhotoWebDetails(photo.Id);
+  if (res && res.success) {
+    const creatorUsername = res.creatorUsername || '';
+    const roomName = res.roomName || '';
+    
+    if (creatorUsername) {
+      if (creatorNameEl) creatorNameEl.textContent = creatorUsername;
+      if (creatorHandleEl) creatorHandleEl.textContent = `@${creatorUsername}`;
+      if (creatorLinkEl) {
+        creatorLinkEl.onclick = (e) => {
+          e.stopPropagation();
+          showCreatorProfile(creatorUsername);
+        };
+      }
+      // fetch avatar of user in background
+      const userWeb = await window.radium?.fetchUserWebDetails(creatorUsername);
+      if (userWeb && userWeb.success && userWeb.avatar && creatorAvatarEl) {
+        creatorAvatarEl.src = userWeb.avatar;
+      }
+    } else {
+      if (creatorNameEl) creatorNameEl.textContent = 'Unknown Creator';
+    }
+    
+    if (roomName && roomName.toLowerCase() !== 'none') {
+      const roomNameEl = $('photoDetailRoomName');
+      if (roomNameEl) roomNameEl.textContent = roomName;
+      if (roomLinkEl) {
+        roomLinkEl.style.display = 'block';
+        roomLinkEl.onclick = (e) => {
+          e.stopPropagation();
+          showRoomByName(roomName);
+        };
+      }
+    }
+  } else {
+    if (creatorNameEl) creatorNameEl.textContent = 'Unknown';
+  }
+
+  // Fetch and render comments
+  const commentsList = $('photoDetailCommentsList');
+  const commentsLoading = $('photoDetailCommentsLoading');
+  if (commentsList) {
+    // Reset
+    commentsList.innerHTML = '<div id="photoDetailCommentsLoading" style="font-size: 11px; color: var(--text-muted); font-style: italic;">Loading comments...</div>';
+    
+    const cRes = await window.radium?.fetchPhotoComments(photo.Id);
+    const comments = cRes?.comments || [];
+    
+    if (comments.length === 0) {
+      commentsList.innerHTML = '<div style="font-size: 11px; color: var(--text-muted); font-style: italic;">No comments yet.</div>';
+    } else {
+      commentsList.innerHTML = comments.map(c => {
+        const author = escapeHtml(c.AuthorUsername || c.PlayerUsername || c.Username || 'Unknown');
+        const text = escapeHtml(c.Text || c.Content || c.Message || '');
+        const date = escapeHtml(c.CreatedAt ? new Date(c.CreatedAt).toLocaleString() : '');
+        return `
+          <div style="background: var(--bg-panel); border: 1px solid var(--border-dark); padding: 8px 10px; display: flex; flex-direction: column; gap: 3px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: bold; font-size: 11px; color: var(--text);">${author}</span>
+              <span style="font-size: 10px; color: var(--text-muted);">${date}</span>
+            </div>
+            <p style="font-size: 11px; color: var(--text); line-height: 1.4; margin: 0;">${text}</p>
+          </div>`;
+      }).join('');
+    }
+  }
+}
+
+$('btnPhotoDetailBack')?.addEventListener('click', () => {
+  $('tab-photo-detail').classList.remove('active');
+  
+  if (currentBackToView === 'rooms-detail') {
+    switchTab('rooms');
+    const list = $('roomsListView');
+    const detail = $('roomsDetailView');
+    if (list && detail) {
+      list.classList.add('hidden');
+      detail.classList.remove('hidden');
+    }
+  } else if (currentBackToView === 'people-detail') {
+    switchTab('people');
+    const list = $('peopleListView');
+    const detail = $('peopleDetailView');
+    if (list && detail) {
+      list.classList.add('hidden');
+      detail.classList.remove('hidden');
+    }
+  } else {
+    switchTab('home');
+  }
+});
+
+
+
+async function showRoomDetails(room) {
+  const list = $('roomsListView');
+  const detail = $('roomsDetailView');
+  if (!list || !detail) return;
+  
+  const imgName = room.ImageName || '';
+  const thumbUrl = imgName ? `https://img.radie.app/${imgName}?width=1280` : './images.png';
+  
+  const imgEl = $('roomsDetailImage');
+  if (imgEl) {
+    imgEl.src = thumbUrl;
+    imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.onerror = null; };
+  }
+  
+  const nameEl = $('roomsDetailName');
+  if (nameEl) nameEl.textContent = room.Name || 'Unknown Room';
+  
+  const creatorNameEl = $('roomsDetailCreatorName');
+  if (creatorNameEl) creatorNameEl.textContent = room.CreatorUsername || 'Coach';
+  
+  const creatorHandleEl = $('roomsDetailCreatorHandle');
+  if (creatorHandleEl) creatorHandleEl.textContent = `@${room.CreatorUsername || 'Coach'}`;
+  
+  const creatorLinkEl = $('roomsDetailCreatorLink');
+  if (creatorLinkEl) {
+    creatorLinkEl.onclick = (e) => {
+      e.stopPropagation();
+      showCreatorProfile(room.CreatorUsername || 'Coach');
+      hideRoomDetails();
+    };
+  }
+
+  const creatorAvatarEl = $('roomsDetailCreatorAvatar');
+  if (creatorAvatarEl) {
+    creatorAvatarEl.src = 'https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1';
+  }
+  
+  const idEl = $('roomsDetailId');
+  if (idEl) idEl.textContent = room.RoomId || '—';
+  
+  const createdEl = $('roomsDetailCreatedAt');
+  if (createdEl) {
+    if (room.CreatedAt) {
+      try {
+        createdEl.textContent = new Date(room.CreatedAt).toLocaleString();
+      } catch (e) {
+        createdEl.textContent = room.CreatedAt;
+      }
+    } else {
+      createdEl.textContent = '—';
+    }
+  }
+
+  const cheersEl = $('roomsDetailCheers');
+  if (cheersEl) cheersEl.textContent = '...';
+  const favsEl = $('roomsDetailFavorites');
+  if (favsEl) favsEl.textContent = '...';
+  const visitsEl = $('roomsDetailVisits');
+  if (visitsEl) visitsEl.textContent = '...';
+  const descEl = $('roomsDetailDescription');
+  if (descEl) descEl.textContent = 'Loading details from web...';
+  
+  const roomsPhotosGrid = $('roomsDetailPhotosGrid');
+  const roomsPhotosEmpty = $('roomsDetailPhotosEmpty');
+  if (roomsPhotosGrid) roomsPhotosGrid.innerHTML = '';
+  if (roomsPhotosEmpty) roomsPhotosEmpty.style.display = 'none';
+
+  list.classList.add('hidden');
+  detail.classList.remove('hidden');
+
+  // Load scraped web details asynchronously
+  const webDetails = await window.radium?.fetchRoomWebDetails(room.Name);
+  if (webDetails && webDetails.success) {
+    if (cheersEl) cheersEl.textContent = webDetails.cheers;
+    if (favsEl) favsEl.textContent = webDetails.favorites;
+    if (visitsEl) visitsEl.textContent = webDetails.visits;
+    if (descEl) descEl.textContent = webDetails.description || 'No description available.';
+    if (webDetails.creatorAvatar && creatorAvatarEl) {
+      creatorAvatarEl.src = webDetails.creatorAvatar;
+    }
+  } else {
+    if (cheersEl) cheersEl.textContent = '—';
+    if (favsEl) favsEl.textContent = '—';
+    if (visitsEl) visitsEl.textContent = '—';
+    if (descEl) descEl.textContent = 'A Radium community room.';
+  }
+
+  // Load room photos
+  loadRoomPhotos(room.RoomId);
+}
+
+function hideRoomDetails() {
+  const list = $('roomsListView');
+  const detail = $('roomsDetailView');
+  if (list && detail) {
+    detail.classList.add('hidden');
+    list.classList.remove('hidden');
+  }
+}
+
+async function showPlayerDetails(person) {
+  const list = $('peopleListView');
+  const detail = $('peopleDetailView');
+  if (!list || !detail) return;
+  
+  const profileImg = person.profileImage || '';
+  const isDefault = !profileImg || profileImg === 'DefaultProfileImage';
+  const avatarUrl = isDefault ? 'https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1' : `https://img.radie.app/${profileImg}?width=96&cropSquare=1`;
+  
+  const avatarEl = $('peopleDetailAvatar');
+  if (avatarEl) {
+    avatarEl.src = avatarUrl;
+    avatarEl.onerror = () => { avatarEl.src = 'https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1'; avatarEl.onerror = null; };
+  }
+  
+  const nameEl = $('peopleDetailDisplayName');
+  if (nameEl) nameEl.textContent = person.displayName || person.userName || 'Unknown Player';
+  
+  const userEl = $('peopleDetailUsername');
+  if (userEl) userEl.textContent = `@${person.userName || ''}`;
+
+  const aboutLabelEl = $('peopleDetailAboutLabel');
+  if (aboutLabelEl) aboutLabelEl.textContent = `About ${person.displayName || person.userName || 'Player'}`;
+  
+  const friendsEl = $('peopleDetailFriends');
+  if (friendsEl) friendsEl.textContent = '...';
+  const subsEl = $('peopleDetailSubscribers');
+  if (subsEl) subsEl.textContent = '...';
+  const visitsEl = $('peopleDetailVisits');
+  if (visitsEl) visitsEl.textContent = '...';
+  const bioEl = $('peopleDetailBio');
+  if (bioEl) bioEl.textContent = 'Loading bio from web...';
+  
+  const dotEl = $('peopleDetailStatusDot');
+  const labelEl = $('peopleDetailStatusLabel');
+  
+  const isOnline = person.isOnline;
+  if (dotEl) {
+    dotEl.className = `status-dot ${isOnline ? 'online' : 'offline'}`;
+  }
+  if (labelEl) {
+    labelEl.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
+  }
+  
+  const bannerEl = $('peopleDetailBanner');
+  if (bannerEl) {
+    bannerEl.style.backgroundImage = 'linear-gradient(135deg, var(--green-dim), var(--green))';
+  }
+
+  const peoplePhotosGrid = $('peopleDetailPhotosGrid');
+  const peoplePhotosEmpty = $('peopleDetailPhotosEmpty');
+  if (peoplePhotosGrid) peoplePhotosGrid.innerHTML = '';
+  if (peoplePhotosEmpty) peoplePhotosEmpty.style.display = 'none';
+
+  list.classList.add('hidden');
+  detail.classList.remove('hidden');
+
+  // Load scraped web details asynchronously
+  const webDetails = await window.radium?.fetchUserWebDetails(person.userName);
+  if (webDetails && webDetails.success) {
+    if (friendsEl) friendsEl.textContent = webDetails.friends;
+    if (subsEl) subsEl.textContent = webDetails.subscribers;
+    if (visitsEl) visitsEl.textContent = webDetails.visits;
+    if (bioEl) bioEl.textContent = webDetails.bio || 'This user has not setup a bio yet.';
+    if (webDetails.banner && bannerEl) {
+      bannerEl.style.backgroundImage = `url("${webDetails.banner}")`;
+    }
+    
+    // Live update status if scrape has it
+    const webOnline = webDetails.status === 'ONLINE';
+    if (dotEl) dotEl.className = `status-dot ${webOnline ? 'online' : 'offline'}`;
+    if (labelEl) labelEl.textContent = webDetails.status;
+  } else {
+    if (friendsEl) friendsEl.textContent = '—';
+    if (subsEl) subsEl.textContent = '—';
+    if (visitsEl) visitsEl.textContent = '—';
+    if (bioEl) bioEl.textContent = person.bio || 'This user has not setup a bio yet.';
+  }
+
+  // Load player photos
+  loadPlayerPhotos(person.id);
+}
+
+function hidePlayerDetails() {
+  const list = $('peopleListView');
+  const detail = $('peopleDetailView');
+  if (list && detail) {
+    detail.classList.add('hidden');
+    list.classList.remove('hidden');
+  }
+}
+
+$('btnRoomsBack')?.addEventListener('click', hideRoomDetails);
+$('btnPeopleBack')?.addEventListener('click', hidePlayerDetails);
