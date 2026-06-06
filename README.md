@@ -5,14 +5,14 @@ An unofficial custom launcher for playing on the Radium public Rec Room server.
 ## Showcase
 
 ### Steam 2003 Green Theme
-| Rooms Tab | People Tab | Photo Details |
+| Home Tab | Rooms Tab | People Tab |
 | :---: | :---: | :---: |
-| ![Rooms Tab (Steam Green)](https://i.imgur.com/6rAgFPd.png) | ![People Tab (Steam Green)](https://i.imgur.com/4wjGRxC.png) | ![Photo Details (Steam Green)](https://i.imgur.com/scr44Ma.png) |
+| ![Home Tab (Steam Green)](https://i.imgur.com/6rAgFPd.png) | ![Rooms Tab (Steam Green)](https://i.imgur.com/UX5nNZT.png) | ![People Tab (Steam Green)](https://i.imgur.com/4wjGRxC.png) |
 
 ### Windows 7 Aero Theme
-| Rooms Tab | People Tab | Photo Details |
+| Home Tab | Rooms Tab | People Tab |
 | :---: | :---: | :---: |
-| ![Rooms Tab (Windows 7)](https://i.imgur.com/UX5nNZT.png) | ![People Tab (Windows 7)](https://i.imgur.com/rgGrBw4.png) | ![Photo Details (Windows 7)](https://i.imgur.com/eae8aEU.png) |
+| ![Home Tab (Windows 7)](https://i.imgur.com/rgGrBw4.png) | ![Rooms Tab (Windows 7)](https://i.imgur.com/scr44Ma.png) | ![People Tab (Windows 7)](https://i.imgur.com/eae8aEU.png) |
 
 ---
 
