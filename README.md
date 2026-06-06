@@ -2,7 +2,19 @@
 
 An unofficial custom launcher for playing on the Radium public Rec Room server.
 
-![Radium Launcher Showcase](radium_launcher_showcase.png)
+## Showcase
+
+| Steam 2003 Green | Windows 98 Gray |
+| :---: | :---: |
+| ![Steam 2003 Green Theme](https://i.imgur.com/6rAgFPd.png) | ![Windows 98 Gray Theme](https://i.imgur.com/UX5nNZT.png) |
+
+| Windows XP Luna | Windows Vista Aero |
+| :---: | :---: |
+| ![Windows XP Luna Theme](https://i.imgur.com/4wjGRxC.png) | ![Windows Vista Aero Theme](https://i.imgur.com/rgGrBw4.png) |
+
+| Rooms Tab | People Tab |
+| :---: | :---: |
+| ![Rooms Tab](https://i.imgur.com/scr44Ma.png) | ![People Tab](https://i.imgur.com/eae8aEU.png) |
 
 ---
 
