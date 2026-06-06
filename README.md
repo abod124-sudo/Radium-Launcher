@@ -8,6 +8,9 @@ An unofficial custom launcher for playing on the Radium public Rec Room server.
 
 ## Features
 
+- **Rooms Tab** — Browse, search, and sort custom rooms, with infinite scrolling/pagination to explore in-game content.
+- **People Tab** — Search and view detailed player profiles, bios, and statistics.
+- **Photo Comments** — View photos along with user comments left on them.
 - **UI Skins** — Toggle between four authentic themes: Steam 2003 Green, Windows 98 Gray, Windows XP Luna, and Windows Vista Aero — each with accurate borders, titlebars, and button styles.
 - **In-App Client Download** — Downloads the game zip directly inside the launcher with live speed & ETA progress, then auto-extracts it to `%APPDATA%\radium-launcher\client`.
 - **Play Modes** — Supports both Screen and VR modes, executing the correct `.bat` script from the client folder.
@@ -19,11 +22,11 @@ An unofficial custom launcher for playing on the Radium public Rec Room server.
 
 ## Download
 
-Grab the latest build (**v1.5.5**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
+Grab the latest build (**v2.0.0**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
 
 | File | Description |
 |------|-------------|
-| 📥 [radium-launcher-Setup-1.5.5.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v1.5.5/radium-launcher-Setup-1.5.5.exe) | NSIS installer (recommended) |
+| 📥 [radium-launcher-Setup-2.0.0.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v2.0.0/radium-launcher-Setup-2.0.0.exe) | NSIS installer (recommended) |
 
 ---
 
