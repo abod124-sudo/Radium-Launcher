@@ -56,14 +56,25 @@ fn migrate_legacy_data(app_handle: &tauri::AppHandle) {
     if let Ok(data_dir) = app_handle.path().data_dir() {
         let legacy_dir = data_dir.join("radium-launcher");
         if let Ok(new_dir) = app_handle.path().app_data_dir() {
-            // Check if legacy config exists and new config doesn't
-            if legacy_dir.join("config.json").exists() && !new_dir.join("config.json").exists() {
-                // If Tauri created an empty directory, remove it so rename succeeds
-                if new_dir.exists() {
-                    let _ = std::fs::remove_dir(&new_dir);
+            // Check if legacy config exists to identify if migration is needed
+            if legacy_dir.join("config.json").exists() {
+                if !new_dir.exists() {
+                    let _ = std::fs::create_dir_all(&new_dir);
                 }
-                // Instantly move the directory (works seamlessly on the same drive)
-                let _ = std::fs::rename(&legacy_dir, &new_dir);
+                
+                // Move everything (including the 'client' directory) individually
+                if let Ok(entries) = std::fs::read_dir(&legacy_dir) {
+                    for entry in entries.flatten() {
+                        let target_path = new_dir.join(entry.file_name());
+                        // Only move if target doesn't exist to avoid overwriting new data
+                        if !target_path.exists() {
+                            let _ = std::fs::rename(entry.path(), target_path);
+                        }
+                    }
+                }
+                
+                // Try to clean up legacy directory after moving its contents
+                let _ = std::fs::remove_dir_all(&legacy_dir);
             }
         }
     }

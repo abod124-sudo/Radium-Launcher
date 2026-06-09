@@ -631,6 +631,14 @@ Section Install
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
+  ; Detect and uninstall legacy Electron-builder version
+  ReadRegStr $R0 HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\5f3d1d92-0efd-5de0-8d08-6ed57216c90a" "UninstallString"
+  ${If} $R0 != ""
+    DetailPrint "Uninstalling legacy Radium Launcher..."
+    ; Provide /S argument for silent uninstallation
+    ExecWait '$R0 /S' $0
+  ${EndIf}
+
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
 
