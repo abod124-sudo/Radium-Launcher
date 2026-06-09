@@ -46,7 +46,9 @@
       "nsis": {
         "installMode": "currentUser",
         "displayLanguageSelector": false,
-        "template": "./installer.nsi"
+        "template": "./installer.nsi",
+        "sidebarImage": "icons/nsis-sidebar.bmp",
+        "headerImage": "icons/nsis-header.bmp"
       }
     }
   }
