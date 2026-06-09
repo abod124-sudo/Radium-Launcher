@@ -498,7 +498,7 @@ Function .onInit
         StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
-      StrCpy $INSTDIR "$APPDATA\com.radium.launcher"
+      StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"
     !endif
 
     Call RestorePreviousInstallLocation
