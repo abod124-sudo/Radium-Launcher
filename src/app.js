@@ -573,7 +573,7 @@ $('btnExcludeAvAnyway')?.addEventListener('click', async () => {
   const m = $('excludeAvModal');
   if (m) m.style.display = 'none';
   launchAfterExclusion = false; // Reset since we are launching now anyway
-  await checkSacAndLaunch();
+  await proceedAfterAvCheck();
 });
 $('excludeAvModal')?.addEventListener('click', (e) => {
   if (e.target === $('excludeAvModal')) {
@@ -597,7 +597,7 @@ async function executeExcludeAv() {
     // Check if we need to proceed to Smart App Control and Steam check and launch
     if (launchAfterExclusion) {
       launchAfterExclusion = false;
-      await checkSacAndLaunch();
+      await proceedAfterAvCheck();
     }
   } else {
     const err = result?.error || 'UAC elevation cancelled or failed';
@@ -831,21 +831,13 @@ async function checkSteamAndLaunch() {
   }
 }
 
-$('btnPlay')?.addEventListener('click', async () => {
-  if (isGameRunning || !isInstalled) return;
-
+async function proceedAfterAvCheck() {
   // Verify DLL first
   const status = await window.radium?.checkInstall();
   if (status && status.dllMissing) {
     if (config.disableWarnings === true) {
       addLog('Radeon.Core.BasePatch.dll is missing. Warning skipped (disabled by user).', 'info');
-      const isCurrentlyExcluded = config.defenderExcluded === true;
-      if (!isCurrentlyExcluded) {
-        addLog('Antivirus exclusion not set. Warning skipped (disabled by user).', 'info');
-        await checkSacAndLaunch();
-      } else {
-        await checkSacAndLaunch();
-      }
+      await checkSacAndLaunch();
     } else {
       addLog('Radeon.Core.BasePatch.dll is missing. Prompting user...', 'info');
       showDllMissingModal();
@@ -853,19 +845,25 @@ $('btnPlay')?.addEventListener('click', async () => {
     return;
   }
 
+  await checkSacAndLaunch();
+}
+
+$('btnPlay')?.addEventListener('click', async () => {
+  if (isGameRunning || !isInstalled) return;
+
   const isCurrentlyExcluded = config.defenderExcluded === true;
 
   if (!isCurrentlyExcluded) {
     if (config.disableWarnings === true) {
       addLog('Antivirus exclusion not set. Warning skipped (disabled by user).', 'info');
-      await checkSacAndLaunch();
+      await proceedAfterAvCheck();
     } else {
       addLog('Antivirus exclusion not set. Prompting user...', 'info');
       launchAfterExclusion = true;
       showExcludeAvModal();
     }
   } else {
-    await checkSacAndLaunch();
+    await proceedAfterAvCheck();
   }
 });
 
@@ -898,19 +896,7 @@ $('dllMissingModal')?.addEventListener('click', (e) => {
 
 $('dllLaunchAnywayBtn')?.addEventListener('click', async () => {
   hideDllMissingModal();
-  const isCurrentlyExcluded = config.defenderExcluded === true;
-  if (!isCurrentlyExcluded) {
-    if (config.disableWarnings === true) {
-      addLog('Antivirus exclusion not set. Warning skipped (disabled by user).', 'info');
-      await checkSacAndLaunch();
-    } else {
-      addLog('Antivirus exclusion not set. Prompting user...', 'info');
-      launchAfterExclusion = true;
-      showExcludeAvModal();
-    }
-  } else {
-    await checkSacAndLaunch();
-  }
+  await checkSacAndLaunch();
 });
 
 $('dllRestoreBtn')?.addEventListener('click', async () => {
@@ -929,19 +915,7 @@ $('dllRestoreBtn')?.addEventListener('click', async () => {
       toast('DLL restored successfully!', 'ok');
       addLog('Patch file Radeon.Core.BasePatch.dll successfully restored.', 'ok');
       
-      const isCurrentlyExcluded = config.defenderExcluded === true;
-      if (!isCurrentlyExcluded) {
-        if (config.disableWarnings === true) {
-          addLog('Antivirus exclusion not set. Warning skipped (disabled by user).', 'info');
-          await checkSacAndLaunch();
-        } else {
-          addLog('Antivirus exclusion not set. Prompting user...', 'info');
-          launchAfterExclusion = true;
-          showExcludeAvModal();
-        }
-      } else {
-        await checkSacAndLaunch();
-      }
+      await checkSacAndLaunch();
     } else {
       toast('Failed to restore DLL.', 'error');
       addLog('Failed to restore patch DLL.', 'error');

@@ -28,6 +28,11 @@
       "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com"
     }
   },
+  "plugins": {
+    "shell": {
+      "open": "^((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)|(windowsdefender://\\w+)|(steam://)).+"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi"],
