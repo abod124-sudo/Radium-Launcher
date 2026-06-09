@@ -1,3 +1,94 @@
+// ─── Tauri v2 Compatibility Shim ───────────────────────────────────────────────
+// Recreates the window.radium API from the Electron preload bridge using Tauri APIs.
+// This allows the rest of app.js to remain unchanged.
+(function setupTauriShim() {
+  const { invoke } = window.__TAURI__.core;
+  const { listen } = window.__TAURI__.event;
+  const { getCurrentWindow } = window.__TAURI__.window;
+  const { open } = window.__TAURI__.shell;
+
+  const appWindow = getCurrentWindow();
+
+  window.radium = {
+    // Window controls
+    minimize: () => appWindow.minimize(),
+    maximize: () => appWindow.toggleMaximize(),
+    close:    () => appWindow.close(),
+
+    // Config
+    getConfig:  ()    => invoke('cmd_get_config'),
+    saveConfig: (cfg) => invoke('cmd_save_config', { config: cfg }),
+
+    // Server
+    pingServer:     (url) => invoke('ping_server', { url }),
+    getPlayerCount: ()    => invoke('get_player_count'),
+    addDefenderExclusion:    () => invoke('add_defender_exclusion'),
+    removeDefenderExclusion: () => invoke('remove_defender_exclusion'),
+
+    // Install
+    checkInstall: () => invoke('check_install'),
+
+    // Download
+    downloadClient:  () => invoke('download_client'),
+    cancelDownload:  () => invoke('cancel_download'),
+    uninstallClient: () => invoke('uninstall_client'),
+    openClientFolder: () => invoke('open_client_folder'),
+    selectFolder:     () => invoke('select_folder'),
+    getDefaultClientDir: () => invoke('get_default_client_dir'),
+    restoreDll:          () => invoke('restore_dll'),
+    onDownloadProgress: (cb) => {
+      listen('download-progress', (event) => cb(event.payload));
+    },
+
+    // Game
+    launchGame: (cfg) => invoke('launch_game', { config: cfg }),
+    killGame:   ()    => invoke('kill_game'),
+    onGameState: (cb) => {
+      listen('game-state', (event) => cb(event.payload));
+    },
+
+    // Misc
+    openUrl:    (url)  => open(url),
+    getVersion: ()     => invoke('get_version'),
+    checkSteam: ()     => invoke('check_steam'),
+    checkSmartAppControl: () => invoke('check_smart_app_control'),
+
+    // Auto-update
+    checkForUpdate:  ()            => invoke('check_for_update'),
+    downloadUpdate:  (downloadUrl) => invoke('download_update', { url: downloadUrl }),
+
+    // Data Fetching
+    fetchRooms:           (args) => invoke('fetch_rooms', { args }),
+    fetchPeople:          (args) => invoke('fetch_people', { args }),
+    fetchFilters:         ()     => invoke('fetch_filters'),
+    fetchRoomWebDetails:  (name) => invoke('fetch_room_web_details', { name: String(name) }),
+    fetchUserWebDetails:  (name) => invoke('fetch_user_web_details', { name: String(name) }),
+    fetchUserPhotos:      (args) => invoke('fetch_user_photos', { args }),
+    fetchUserRooms:       (args) => invoke('fetch_user_rooms', { args }),
+    fetchUserFeed:        (args) => invoke('fetch_user_feed', { args }),
+    fetchRecentPhotos:    (args) => invoke('fetch_recent_photos', { args }),
+    fetchPhotoWebDetails: (photoId) => invoke('fetch_photo_web_details', { photoId: String(photoId) }),
+    fetchPhotoComments:   (photoId) => invoke('fetch_photo_comments', { photoId: String(photoId) }),
+
+    // Log URL events
+    onLogUrl: (cb) => {
+      listen('log-url', (event) => cb(event.payload));
+    },
+
+    // Window state events
+    onWindowMaximizedState: (cb) => {
+      listen('window-maximized-state', (event) => cb(event.payload));
+    },
+
+    // Debug
+    debugExec:  (mode) => invoke('cmd_debug_exec', { mode }),
+    debugPaths: ()     => invoke('cmd_debug_paths'),
+
+    // Bug Reporter
+    submitBugReport: (description, logs) => invoke('submit_bug_report', { description, logs }),
+  };
+})();
+
 // App state variables
 let config                = {};
 let isGameRunning         = false;
@@ -6,6 +97,10 @@ let isInstalled           = false;
 let playMode              = 'screen';
 let launchAfterExclusion  = false;
 let sacWarnedThisSession  = false;
+
+// Unbounded log buffer — captures every log entry for bug reports.
+// The DOM viewer is capped at 120 for performance; this buffer has no cap.
+const fullLogBuffer = [];
 
 // DOM shortcuts
 const $ = id => document.getElementById(id);
@@ -37,12 +132,18 @@ function toast(msg, type = 'info', ms = 3200) {
 
 // Append log entry to list
 function addLog(msg, type = 'info') {
+  const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const line = `[${ts}] ${msg}`;
+
+  // Always push to the full unbounded buffer (used by bug reports)
+  fullLogBuffer.push(line);
+
+  // Also render in the DOM viewer (capped at 120 entries for performance)
   const out = $('logOutput');
   if (!out) return;
-  const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
   const el = document.createElement('div');
   el.className = `log-entry ${type}`;
-  el.textContent = `[${ts}] ${msg}`;
+  el.textContent = line;
   out.appendChild(el);
   out.scrollTop = out.scrollHeight;
   while (out.children.length > 120) out.removeChild(out.firstChild);
@@ -106,16 +207,18 @@ async function loadConfig() {
   if (!config.playMode) config.playMode = 'screen';
 
   setValue('cfgApiUrl', config.apiUrl);
-  setValue('cfgExePath', config.gameExePath || '');
+  setValue('cfgLaunchOptions', config.launchOptions || '');
 
   setToggle('tgl-minimizeOnLaunch', config.minimizeOnLaunch !== false);
+  setToggle('tgl-closeOnLaunch',    config.closeOnLaunch    === true);
   setToggle('tgl-autoUpdate',       config.autoUpdate       !== false);
+  setToggle('tgl-enableAnimations', config.enableAnimations !== false);
+  setToggle('tgl-disableWarnings',   config.disableWarnings   === true);
 
   // Play mode
   playMode = config.playMode || 'screen';
   setModeUI(playMode);
   updateQsMode();
-  updateSettingsLaunchScript();
 
   // Theme
   const activeTheme = config.theme || 'steam-green';
@@ -134,6 +237,14 @@ function applyTheme(theme) {
   if (theme && theme !== 'steam-green') {
     document.body.classList.add('theme-' + theme);
   }
+  const anims = getToggle('tgl-enableAnimations');
+  if (anims) {
+    document.body.classList.add('animations-enabled');
+  }
+  try {
+    localStorage.setItem('radium-theme', theme || 'steam-green');
+    localStorage.setItem('radium-animations', anims ? 'true' : 'false');
+  } catch (e) {}
 }
 
 function setValue(id, val) { const el = $(id); if (el) el.value = val; }
@@ -144,8 +255,21 @@ function setToggle(id, val) {
 }
 function getToggle(id) { return $(id)?.classList.contains('on') ?? false; }
 
-['tgl-minimizeOnLaunch', 'tgl-autoUpdate'].forEach(id =>
-  $(id)?.addEventListener('click', () => $(id).classList.toggle('on'))
+['tgl-minimizeOnLaunch', 'tgl-closeOnLaunch', 'tgl-autoUpdate', 'tgl-enableAnimations', 'tgl-disableWarnings'].forEach(id =>
+  $(id)?.addEventListener('click', () => {
+    $(id).classList.toggle('on');
+    if (id === 'tgl-enableAnimations') {
+      const enabled = $(id).classList.contains('on');
+      if (enabled) {
+        document.body.classList.add('animations-enabled');
+      } else {
+        document.body.classList.remove('animations-enabled');
+      }
+      try {
+        localStorage.setItem('radium-animations', enabled ? 'true' : 'false');
+      } catch (e) {}
+    }
+  })
 );
 
 $('cfgTheme')?.addEventListener('change', () => {
@@ -161,10 +285,14 @@ $('btnSaveSettings')?.addEventListener('click', async () => {
     ...config,
     apiUrl:           config.apiUrl || 'https://api.radie.app/',
     minimizeOnLaunch: getToggle('tgl-minimizeOnLaunch'),
+    closeOnLaunch:    getToggle('tgl-closeOnLaunch'),
     autoUpdate:       getToggle('tgl-autoUpdate'),
+    enableAnimations: getToggle('tgl-enableAnimations'),
+    disableWarnings:  getToggle('tgl-disableWarnings'),
     installDir:       customDir,
     playMode,
     theme:            selectedTheme,
+    launchOptions:    $('cfgLaunchOptions')?.value.trim() || '',
   };
   applyTheme(selectedTheme);
   const ok = await window.radium?.saveConfig(updated);
@@ -293,7 +421,17 @@ $('btnCancelDl')?.addEventListener('click', () => {
   toast('Download cancelled.', 'info');
 });
 
-// Reinstall button
+// Reinstall logic with Modal
+const reinstallModal = $('reinstallModal');
+const closeReinstallModal = () => { if (reinstallModal) reinstallModal.style.display = 'none'; };
+$('reinstallCancelBtn')?.addEventListener('click', closeReinstallModal);
+$('reinstallModalClose')?.addEventListener('click', closeReinstallModal);
+$('reinstallModal')?.addEventListener('click', (e) => {
+  if (e.target === reinstallModal) {
+    closeReinstallModal();
+  }
+});
+
 $('btnReinstall')?.addEventListener('click', () => {
   if (isDownloading) {
     toast('Download already in progress.', 'error');
@@ -303,6 +441,17 @@ $('btnReinstall')?.addEventListener('click', () => {
     toast('Cannot reinstall while the game is running.', 'error');
     return;
   }
+  // Show the current install directory in the modal so the user can confirm
+  const dirSpan = $('reinstallModalInstallDir');
+  if (dirSpan) {
+    const currentDir = $('cfgInstallDir')?.textContent.trim() || config.installDir || '%APPDATA%\\com.radium.launcher\\client';
+    dirSpan.textContent = currentDir;
+  }
+  if (reinstallModal) reinstallModal.style.display = 'flex';
+});
+
+$('reinstallConfirmBtn')?.addEventListener('click', () => {
+  closeReinstallModal();
   $('downloadSection').style.display = 'flex';
   $('launchPanel').style.display     = 'none';
   isInstalled = false;
@@ -311,15 +460,22 @@ $('btnReinstall')?.addEventListener('click', () => {
   $('btnDownload')?.click();
 });
 
-// Uninstall button
-$('btnUninstall')?.addEventListener('click', async () => {
+// Uninstall logic with Modal
+const uninstallModal = $('uninstallModal');
+const closeUninstallModal = () => { if(uninstallModal) uninstallModal.style.display = 'none'; };
+$('uninstallCancelBtn')?.addEventListener('click', closeUninstallModal);
+$('uninstallModalClose')?.addEventListener('click', closeUninstallModal);
+
+$('btnUninstall')?.addEventListener('click', () => {
   if (isGameRunning) {
     toast('Cannot uninstall while the game is running.', 'error');
     return;
   }
-  const confirmed = confirm('Are you sure you want to uninstall the Radium client? This will delete all downloaded game files.');
-  if (!confirmed) return;
+  if (uninstallModal) uninstallModal.style.display = 'flex';
+});
 
+$('uninstallConfirmBtn')?.addEventListener('click', async () => {
+  closeUninstallModal();
   addLog('Uninstalling client...', 'info');
   toast('Uninstalling...', 'info');
 
@@ -364,8 +520,15 @@ $('btnChangeFolder')?.addEventListener('click', async () => {
     const span = $('cfgInstallDir');
     if (span) {
       span.textContent = newDir;
-      toast('Install location updated in settings. Click SAVE to apply.', 'info');
-      addLog(`Selected install directory: ${newDir}`, 'info');
+      config.installDir = newDir;
+      const ok = await window.radium?.saveConfig(config);
+      if (ok) {
+        toast('Install location updated and saved!', 'ok');
+        addLog(`Selected and saved install directory: ${newDir}`, 'info');
+      } else {
+        toast('Failed to save install location.', 'error');
+      }
+      await checkInstall();
     }
   } else {
     addLog('Install directory selection cancelled.', 'info');
@@ -379,8 +542,15 @@ $('btnResetFolder')?.addEventListener('click', async () => {
     const span = $('cfgInstallDir');
     if (span) {
       span.textContent = defaultDir;
-      toast('Install location reset. Click SAVE to apply.', 'info');
-      addLog(`Reset install directory to default: ${defaultDir}`, 'info');
+      config.installDir = defaultDir;
+      const ok = await window.radium?.saveConfig(config);
+      if (ok) {
+        toast('Install location reset and saved!', 'ok');
+        addLog(`Reset and saved install directory: ${defaultDir}`, 'info');
+      } else {
+        toast('Failed to save reset location.', 'error');
+      }
+      await checkInstall();
     }
   }
 });
@@ -480,30 +650,12 @@ function updateQsMode() {
   // Mode display placeholder for future quick stats card
 }
 
-function updateSettingsLaunchScript() {
-  const exePathInput = $('cfgExePath');
-  if (!exePathInput) return;
-  const currentPath = exePathInput.value;
-  if (!currentPath) return;
-
-  const isVr = playMode === 'vr';
-  const targetFilename = isVr ? 'RecRoom_VR.bat' : 'RecRoom_ScreenMode.bat';
-  
-  const lastSlashIndex = Math.max(currentPath.lastIndexOf('\\'), currentPath.lastIndexOf('/'));
-  if (lastSlashIndex !== -1) {
-    const dir = currentPath.substring(0, lastSlashIndex);
-    const slash = currentPath.includes('\\') ? '\\' : '/';
-    exePathInput.value = `${dir}${slash}${targetFilename}`;
-  }
-}
-
 document.querySelectorAll('.mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     playMode = btn.dataset.mode;
     config.playMode = playMode;
     setModeUI(playMode);
     updateQsMode();
-    updateSettingsLaunchScript();
     window.radium?.saveConfig(config);
     toast(`Mode: ${playMode.toUpperCase()}`, 'info', 1500);
     addLog(`Play mode set to ${playMode}.`, 'info');
@@ -634,6 +786,12 @@ async function executeLaunch() {
   } else {
     addLog(`Game running (PID ${result.pid}) — mode: ${playMode}`, 'ok');
     toast(`Radium launched in ${playMode.toUpperCase()} mode!`, 'ok');
+    if (config.closeOnLaunch === true) {
+      addLog('Launcher configured to exit on game start. Exiting...', 'info');
+      setTimeout(() => {
+        window.radium?.close();
+      }, 1000);
+    }
   }
 }
 
@@ -663,20 +821,49 @@ async function checkSteamAndLaunch() {
     addLog('Steam is running.', 'ok');
     executeLaunch();
   } else {
-    addLog('Steam is not running. Prompting user...', 'info');
-    showSteamModal();
+    if (config.disableWarnings === true) {
+      addLog('Steam is not running. Warning skipped (disabled by user).', 'info');
+      executeLaunch();
+    } else {
+      addLog('Steam is not running. Prompting user...', 'info');
+      showSteamModal();
+    }
   }
 }
 
 $('btnPlay')?.addEventListener('click', async () => {
   if (isGameRunning || !isInstalled) return;
 
+  // Verify DLL first
+  const status = await window.radium?.checkInstall();
+  if (status && status.dllMissing) {
+    if (config.disableWarnings === true) {
+      addLog('Radeon.Core.BasePatch.dll is missing. Warning skipped (disabled by user).', 'info');
+      const isCurrentlyExcluded = config.defenderExcluded === true;
+      if (!isCurrentlyExcluded) {
+        addLog('Antivirus exclusion not set. Warning skipped (disabled by user).', 'info');
+        await checkSacAndLaunch();
+      } else {
+        await checkSacAndLaunch();
+      }
+    } else {
+      addLog('Radeon.Core.BasePatch.dll is missing. Prompting user...', 'info');
+      showDllMissingModal();
+    }
+    return;
+  }
+
   const isCurrentlyExcluded = config.defenderExcluded === true;
 
   if (!isCurrentlyExcluded) {
-    addLog('Antivirus exclusion not set. Prompting user...', 'info');
-    launchAfterExclusion = true;
-    showExcludeAvModal();
+    if (config.disableWarnings === true) {
+      addLog('Antivirus exclusion not set. Warning skipped (disabled by user).', 'info');
+      await checkSacAndLaunch();
+    } else {
+      addLog('Antivirus exclusion not set. Prompting user...', 'info');
+      launchAfterExclusion = true;
+      showExcludeAvModal();
+    }
   } else {
     await checkSacAndLaunch();
   }
@@ -691,6 +878,80 @@ function hideSacModal() {
   const m = $('sacModal');
   if (m) m.style.display = 'none';
 }
+
+function showDllMissingModal() {
+  const m = $('dllMissingModal');
+  if (m) m.style.display = 'flex';
+}
+
+function hideDllMissingModal() {
+  const m = $('dllMissingModal');
+  if (m) m.style.display = 'none';
+}
+
+$('dllMissingModalClose')?.addEventListener('click', hideDllMissingModal);
+$('dllMissingModal')?.addEventListener('click', (e) => {
+  if (e.target === $('dllMissingModal')) {
+    hideDllMissingModal();
+  }
+});
+
+$('dllLaunchAnywayBtn')?.addEventListener('click', async () => {
+  hideDllMissingModal();
+  const isCurrentlyExcluded = config.defenderExcluded === true;
+  if (!isCurrentlyExcluded) {
+    if (config.disableWarnings === true) {
+      addLog('Antivirus exclusion not set. Warning skipped (disabled by user).', 'info');
+      await checkSacAndLaunch();
+    } else {
+      addLog('Antivirus exclusion not set. Prompting user...', 'info');
+      launchAfterExclusion = true;
+      showExcludeAvModal();
+    }
+  } else {
+    await checkSacAndLaunch();
+  }
+});
+
+$('dllRestoreBtn')?.addEventListener('click', async () => {
+  hideDllMissingModal();
+  addLog('Restoring Radeon.Core.BasePatch.dll...', 'info');
+  toast('Restoring patch file...', 'info', 3000);
+  
+  const restoreBtn = $('dllRestoreBtn');
+  if (restoreBtn) restoreBtn.disabled = true;
+
+  try {
+    const res = await window.radium?.restoreDll();
+    if (restoreBtn) restoreBtn.disabled = false;
+
+    if (res?.success) {
+      toast('DLL restored successfully!', 'ok');
+      addLog('Patch file Radeon.Core.BasePatch.dll successfully restored.', 'ok');
+      
+      const isCurrentlyExcluded = config.defenderExcluded === true;
+      if (!isCurrentlyExcluded) {
+        if (config.disableWarnings === true) {
+          addLog('Antivirus exclusion not set. Warning skipped (disabled by user).', 'info');
+          await checkSacAndLaunch();
+        } else {
+          addLog('Antivirus exclusion not set. Prompting user...', 'info');
+          launchAfterExclusion = true;
+          showExcludeAvModal();
+        }
+      } else {
+        await checkSacAndLaunch();
+      }
+    } else {
+      toast('Failed to restore DLL.', 'error');
+      addLog('Failed to restore patch DLL.', 'error');
+    }
+  } catch (err) {
+    if (restoreBtn) restoreBtn.disabled = false;
+    toast(`Error: ${err}`, 'error');
+    addLog(`Error restoring DLL: ${err}`, 'error');
+  }
+});
 
 $('sacModalClose')?.addEventListener('click', hideSacModal);
 $('sacAnywayBtn')?.addEventListener('click', async () => {
@@ -714,8 +975,13 @@ async function checkSacAndLaunch() {
   addLog('Checking Smart App Control status...', 'info');
   const sac = await window.radium?.checkSmartAppControl();
   if (sac && sac.enabled && !sacWarnedThisSession) {
-    addLog('Smart App Control is active. Prompting user...', 'info');
-    showSacModal();
+    if (config.disableWarnings === true) {
+      addLog('Smart App Control is active. Warning skipped (disabled by user).', 'info');
+      await checkSteamAndLaunch();
+    } else {
+      addLog('Smart App Control is active. Prompting user...', 'info');
+      showSacModal();
+    }
   } else {
     if (sac && sac.enabled) {
       addLog('Smart App Control is active (previously acknowledged this session).', 'info');
@@ -890,7 +1156,7 @@ async function init() {
   checkForLauncherUpdate();
 
   addLog(`API: ${config.apiUrl}`, 'info');
-  addLog(`Install dir: %APPDATA%\\radium-launcher\\client`, 'info');
+  addLog(`Install dir: %APPDATA%\\com.radium.launcher\\client`, 'info');
 
   // Check install first (determines which panel to show)
   await checkInstall();
@@ -909,10 +1175,45 @@ async function init() {
     clearInterval(playerPollInterval);
   });
 
+  // Disable default context menu
+  document.addEventListener('contextmenu', e => e.preventDefault());
+
   // Bind IPC log url notifications
   window.radium?.onLogUrl((url) => {
     addLog(`HTTP Request: ${url}`, 'info');
   });
+
+  // Global fix for Chromium/WebView2 scroll-trapping over overflow:hidden/auto elements
+  document.addEventListener('wheel', (e) => {
+    let target = e.target;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+      return;
+    }
+    let scrollContainer = null;
+    let hasTrappingElement = false;
+    let current = target;
+    while (current && current !== document.body && current !== document.documentElement) {
+      const style = window.getComputedStyle(current);
+      const overflowY = style.overflowY;
+      const isScrollable = (overflowY === 'auto' || overflowY === 'scroll') && current.scrollHeight > current.clientHeight;
+      if (isScrollable) {
+        scrollContainer = current;
+        break;
+      }
+      const overflow = style.overflow;
+      const overflowX = style.overflowX;
+      const isOverflowHidden = overflow === 'hidden' || overflowX === 'hidden' || overflowY === 'hidden';
+      const isOverflowScrollOrAuto = overflowY === 'auto' || overflowY === 'scroll' || overflowX === 'auto' || overflowX === 'scroll';
+      if (isOverflowHidden || (isOverflowScrollOrAuto && !isScrollable)) {
+        hasTrappingElement = true;
+      }
+      current = current.parentElement;
+    }
+    if (scrollContainer && hasTrappingElement) {
+      scrollContainer.scrollTop += e.deltaY;
+      e.preventDefault();
+    }
+  }, { passive: false });
 }
 
 init().catch(err => {
@@ -1005,7 +1306,7 @@ async function loadRooms() {
       emptyEl?.classList.remove('hidden');
     } else {
       rooms.forEach(room => {
-        const imgName = room.ImageName || '';
+        const imgName = room.ImageName || room.imageName || '';
         const thumbUrl = imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png';
         
         const card = document.createElement('div');
@@ -1013,10 +1314,12 @@ async function loadRooms() {
         card.onclick = () => {
           showRoomDetails(room);
         };
+        const roomName = room.Name || room.name || 'Unknown Room';
+        const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
         card.innerHTML = `
-          <img class="room-card-image" src="${thumbUrl}" onerror="this.src='./images.png'; this.onerror=null;" alt="${escapeHtml(room.Name)}" />
-          <div class="room-card-name" title="${escapeHtml(room.Name)}">${escapeHtml(room.Name)}</div>
-          <div class="room-card-creator" onclick="event.stopPropagation(); showCreatorProfile('${escapeHtml(room.CreatorUsername)}')" title="View creator's profile">by ${escapeHtml(room.CreatorUsername)}</div>
+          <img class="room-card-image image-loading-placeholder" src="${thumbUrl}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" alt="${escapeHtml(roomName)}" />
+          <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
+          <div class="room-card-creator" onclick="event.stopPropagation(); showCreatorProfile('${escapeHtml(creatorUsername)}')" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         `;
         gridEl.appendChild(card);
       });
@@ -1084,7 +1387,7 @@ async function loadPeople() {
         };
         row.innerHTML = `
           <td>
-            <img class="people-avatar" src="${avatarUrl}" onerror="this.src='https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1'; this.onerror=null;" alt="${escapeHtml(person.userName)}" />
+            <img class="people-avatar image-loading-placeholder" src="${avatarUrl}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" alt="${escapeHtml(person.userName)}" />
           </td>
           <td>
             <span class="status-dot ${person.isOnline ? 'online' : 'offline'}" title="${person.isOnline ? 'Online' : 'Offline'}"></span>
@@ -1188,13 +1491,17 @@ function switchTab(tabName) {
 
 async function showCreatorProfile(username) {
   if (!username) return;
-  const res = await window.radium?.fetchPeople({ query: username });
   let person = null;
-  if (res && res.success && res.data && res.data.Results) {
-    person = res.data.Results.find(p => p.userName.toLowerCase() === username.toLowerCase());
-    if (!person && res.data.Results.length > 0) {
-      person = res.data.Results[0];
+  try {
+    const res = await window.radium?.fetchPeople({ query: username });
+    if (res && res.success && res.data && res.data.Results) {
+      person = res.data.Results.find(p => p.userName.toLowerCase() === username.toLowerCase());
+      if (!person && res.data.Results.length > 0) {
+        person = res.data.Results[0];
+      }
     }
+  } catch (err) {
+    console.error("Error fetching creator profile:", err);
   }
   if (!person) {
     person = {
@@ -1210,9 +1517,37 @@ async function showCreatorProfile(username) {
   showPlayerDetails(person);
 }
 
+// Scraped Web Details Cache
+const photoWebDetailsCache = new Map();
+const userWebDetailsCache = new Map();
+
+async function getPhotoWebDetails(photoId) {
+  if (photoWebDetailsCache.has(photoId)) {
+    return photoWebDetailsCache.get(photoId);
+  }
+  const res = await window.radium?.fetchPhotoWebDetails(photoId);
+  if (res && res.success) {
+    photoWebDetailsCache.set(photoId, res);
+  }
+  return res;
+}
+
+async function getUserWebDetails(username) {
+  if (!username) return null;
+  const key = username.toLowerCase();
+  if (userWebDetailsCache.has(key)) {
+    return userWebDetailsCache.get(key);
+  }
+  const res = await window.radium?.fetchUserWebDetails(username);
+  if (res && res.success) {
+    userWebDetailsCache.set(key, res);
+  }
+  return res;
+}
+
 // Photos pagination state
 let roomPhotosFeedSkip = 0;
-const roomPhotosFeedTake = 100;
+const roomPhotosFeedTake = 30;
 let currentRoomId = null;
 let currentRoomPhotosCount = 0;
 let roomPhotosHasMore = false;
@@ -1220,16 +1555,32 @@ let roomPhotosLoading = false;
 let roomPhotosTotalPagesSearched = 0;
 
 let playerPhotosSkip = 0;
-const playerPhotosTake = 20;
+const playerPhotosTake = 10;
 let currentPlayerId = null;
 let playerPhotosHasMore = false;
 let playerPhotosLoading = false;
+
+// Feeds pagination state
+let playerFeedsSkip = 0;
+const playerFeedsTake = 10;
+let currentPlayerFeedsId = null;
+let playerFeedsHasMore = false;
+let playerFeedsLoading = false;
+
+// Rooms pagination state
+let playerRoomsSkip = 0;
+const playerRoomsTake = 20;
+let currentPlayerRoomsUserId = null;
+let playerRoomsHasMore = false;
+let playerRoomsLoading = false;
 
 let currentBackToView = null;
 
 // IntersectionObserver instances
 let roomPhotoObserver = null;
 let playerPhotoObserver = null;
+let playerFeedsObserver = null;
+let playerRoomsObserver = null;
 
 function setupRoomPhotoObserver() {
   if (roomPhotoObserver) roomPhotoObserver.disconnect();
@@ -1255,6 +1606,32 @@ function setupPlayerPhotoObserver() {
     }
   }, { threshold: 0.1 });
   playerPhotoObserver.observe(sentinel);
+}
+
+function setupPlayerFeedsObserver() {
+  if (playerFeedsObserver) playerFeedsObserver.disconnect();
+  const sentinel = $('peopleDetailFeedsSentinel');
+  if (!sentinel) return;
+  playerFeedsObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && playerFeedsHasMore && !playerFeedsLoading && currentPlayerFeedsId) {
+      playerFeedsSkip += playerFeedsTake;
+      loadPlayerFeeds(currentPlayerFeedsId, true);
+    }
+  }, { threshold: 0.1 });
+  playerFeedsObserver.observe(sentinel);
+}
+
+function setupPlayerRoomsObserver() {
+  if (playerRoomsObserver) playerRoomsObserver.disconnect();
+  const sentinel = $('peopleDetailRoomsSentinel');
+  if (!sentinel) return;
+  playerRoomsObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && playerRoomsHasMore && !playerRoomsLoading && currentPlayerRoomsUserId) {
+      playerRoomsSkip += playerRoomsTake;
+      loadPlayerRooms(currentPlayerRoomsUserId, true);
+    }
+  }, { threshold: 0.1 });
+  playerRoomsObserver.observe(sentinel);
 }
 
 async function loadRoomPhotos(roomId, append = false) {
@@ -1294,7 +1671,7 @@ async function loadRoomPhotos(roomId, append = false) {
       const results = res.data.Results || [];
       resultsLength = results.length;
       
-      const matched = results.filter(p => p.RoomId === roomId);
+      const matched = results.filter(p => (p.RoomId || p.roomId) === roomId);
       if (matched.length > 0) {
         if (!append && currentRoomPhotosCount === 0) {
           photosGrid.innerHTML = '';
@@ -1304,16 +1681,110 @@ async function loadRoomPhotos(roomId, append = false) {
         matched.forEach(photo => {
           currentRoomPhotosCount++;
           matchedInBatch++;
+          
+          // Create Feed Post Card
           const card = document.createElement('div');
-          card.className = 'photo-card';
-          card.onclick = () => { showPhotoDetails(photo, 'rooms-detail'); };
-          const img = document.createElement('img');
-          img.className = 'photo-card-image';
-          img.src = `https://img.radie.app/${photo.ImageName}?width=600`;
-          img.onerror = () => { img.src = './images.png'; img.onerror = null; };
-          img.alt = 'Photo in room';
-          card.appendChild(img);
+          card.className = 'feed-post-card';
+          
+          const photoId = photo.Id || photo.id;
+          const cheers = photo.CheerCount || photo.cheerCount || 0;
+          const comments = photo.CommentCount || photo.commentCount || 0;
+          const captionText = photo.Description || photo.description || '';
+          
+          let dateStr = '';
+          const createdAt = photo.CreatedAt || photo.createdAt;
+          if (createdAt) {
+            try {
+              dateStr = new Date(createdAt).toLocaleString();
+            } catch (e) {
+              dateStr = createdAt;
+            }
+          }
+          
+          const imgName = photo.ImageName || photo.imageName || '';
+          
+          card.innerHTML = `
+            <div class="feed-post-header">
+              <img class="feed-post-avatar creator-avatar image-loading-placeholder" src="https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./logo.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+              <div class="feed-post-header-text">
+                <div class="feed-post-creator creator-name">Loading...</div>
+                <div class="feed-post-meta">
+                  <span>in</span>
+                  <span class="feed-post-room room-link">Loading...</span>
+                  <span class="feed-post-dot">•</span>
+                  <span class="feed-post-time">${dateStr}</span>
+                </div>
+              </div>
+            </div>
+            ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
+            <div class="feed-post-image-wrap image-wrap">
+              <img class="feed-post-image image-loading-placeholder" src="${imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+            </div>
+            <div class="feed-post-footer">
+              <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
+              <span class="feed-post-stat"><span class="comments-count">${comments}</span> Comments</span>
+            </div>
+          `;
+          
+          // Hook up clicks
+          const imgWrap = card.querySelector('.image-wrap');
+          if (imgWrap) {
+            imgWrap.onclick = () => showPhotoDetails(photo, 'rooms-detail');
+          }
+          
           photosGrid.appendChild(card);
+          
+          // Asynchronously fetch photo web details in background
+          (async () => {
+            const details = await getPhotoWebDetails(photoId);
+            if (details && details.success) {
+              const creatorName = details.creatorUsername || 'Unknown';
+              const roomName = details.roomName || '';
+              
+              const creatorEl = card.querySelector('.creator-name');
+              if (creatorEl) {
+                creatorEl.textContent = creatorName;
+                creatorEl.onclick = (e) => {
+                  e.stopPropagation();
+                  showCreatorProfile(creatorName);
+                };
+              }
+              
+              const roomEl = card.querySelector('.room-link');
+              if (roomEl) {
+                if (roomName && roomName.toLowerCase() !== 'none') {
+                  roomEl.textContent = roomName;
+                  roomEl.onclick = (e) => {
+                    e.stopPropagation();
+                    showRoomByName(roomName);
+                  };
+                } else {
+                  roomEl.previousElementSibling?.remove(); // remove 'in'
+                  roomEl.remove();
+                }
+              }
+              
+              // Asynchronously fetch creator avatar in background
+              if (creatorName && creatorName !== 'Unknown') {
+                const userDetails = await getUserWebDetails(creatorName);
+                if (userDetails && userDetails.success && userDetails.avatar) {
+                  const avatarEl = card.querySelector('.creator-avatar');
+                  if (avatarEl) {
+                    avatarEl.classList.add('image-loading-placeholder');
+                    avatarEl.src = userDetails.avatar;
+                  }
+                }
+              }
+            } else {
+              const creatorEl = card.querySelector('.creator-name');
+              if (creatorEl) creatorEl.textContent = 'Unknown Creator';
+              const roomEl = card.querySelector('.room-link');
+              if (roomEl) {
+                roomEl.previousElementSibling?.remove();
+                roomEl.remove();
+              }
+            }
+          })();
         });
       }
       
@@ -1323,10 +1794,10 @@ async function loadRoomPhotos(roomId, append = false) {
       }
       if (matched.length > 0) {
         roomPhotosFeedSkip += roomPhotosFeedTake;
-        roomPhotosHasMore = (roomPhotosTotalPagesSearched < 3);
+        roomPhotosHasMore = (roomPhotosTotalPagesSearched < 6);
         break;
       }
-      if (roomPhotosTotalPagesSearched >= 3) {
+      if (roomPhotosTotalPagesSearched >= 6) {
         roomPhotosHasMore = false;
         break;
       }
@@ -1360,7 +1831,6 @@ async function loadRoomPhotos(roomId, append = false) {
   setupRoomPhotoObserver();
 }
 
-
 async function loadPlayerPhotos(userId, append = false) {
   const photosGrid = $('peopleDetailPhotosGrid');
   const photosEmpty = $('peopleDetailPhotosEmpty');
@@ -1382,7 +1852,7 @@ async function loadPlayerPhotos(userId, append = false) {
   } else {
     const loadingEl = document.createElement('div');
     loadingEl.id = 'playerPhotosLoading';
-    loadingEl.style.cssText = 'text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);';
+    loadingEl.style.cssText = 'text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted); width: 100%;';
     loadingEl.textContent = 'Loading more...';
     photosGrid.appendChild(loadingEl);
   }
@@ -1401,20 +1871,113 @@ async function loadPlayerPhotos(userId, append = false) {
     if (!append) photosGrid.innerHTML = '';
     
     photos.forEach(photo => {
+      // Create Feed Post Card
       const card = document.createElement('div');
-      card.className = 'photo-card';
-      card.onclick = () => { showPhotoDetails(photo, 'people-detail'); };
-      const img = document.createElement('img');
-      img.className = 'photo-card-image';
-      img.src = `https://img.radie.app/${photo.ImageName}?width=600`;
-      img.onerror = () => { img.src = './images.png'; img.onerror = null; };
-      img.alt = 'Photo taken by player';
-      card.appendChild(img);
+      card.className = 'feed-post-card';
+      
+      const photoId = photo.Id || photo.id;
+      const cheers = photo.CheerCount || photo.cheerCount || 0;
+      const comments = photo.CommentCount || photo.commentCount || 0;
+      const captionText = photo.Description || photo.description || '';
+      
+      let dateStr = '';
+      const createdAt = photo.CreatedAt || photo.createdAt;
+      if (createdAt) {
+        try {
+          dateStr = new Date(createdAt).toLocaleString();
+        } catch (e) {
+          dateStr = createdAt;
+        }
+      }
+      
+      const imgName = photo.ImageName || photo.imageName || '';
+      
+      card.innerHTML = `
+        <div class="feed-post-header">
+          <img class="feed-post-avatar creator-avatar image-loading-placeholder" src="https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./logo.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+          <div class="feed-post-header-text">
+            <div class="feed-post-creator creator-name">Loading...</div>
+            <div class="feed-post-meta">
+              <span>in</span>
+              <span class="feed-post-room room-link">Loading...</span>
+              <span class="feed-post-dot">•</span>
+              <span class="feed-post-time">${dateStr}</span>
+            </div>
+          </div>
+        </div>
+        ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
+        <div class="feed-post-image-wrap image-wrap">
+          <img class="feed-post-image image-loading-placeholder" src="${imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+        </div>
+        <div class="feed-post-footer">
+          <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
+          <span class="feed-post-stat"><span class="comments-count">${comments}</span> Comments</span>
+        </div>
+      `;
+      
+      // Hook up clicks
+      const imgWrap = card.querySelector('.image-wrap');
+      if (imgWrap) {
+        imgWrap.onclick = () => showPhotoDetails(photo, 'people-detail');
+      }
+      
       photosGrid.appendChild(card);
+      
+      // Asynchronously fetch photo web details in background
+      (async () => {
+        const details = await getPhotoWebDetails(photoId);
+        if (details && details.success) {
+          const creatorName = details.creatorUsername || 'Unknown';
+          const roomName = details.roomName || '';
+          
+          const creatorEl = card.querySelector('.creator-name');
+          if (creatorEl) {
+            creatorEl.textContent = creatorName;
+            creatorEl.onclick = (e) => {
+              e.stopPropagation();
+              showCreatorProfile(creatorName);
+            };
+          }
+          
+          const roomEl = card.querySelector('.room-link');
+          if (roomEl) {
+            if (roomName && roomName.toLowerCase() !== 'none') {
+              roomEl.textContent = roomName;
+              roomEl.onclick = (e) => {
+                e.stopPropagation();
+                showRoomByName(roomName);
+              };
+            } else {
+              roomEl.previousElementSibling?.remove(); // remove 'in'
+              roomEl.remove();
+            }
+          }
+          
+          // Asynchronously fetch creator avatar in background
+          if (creatorName && creatorName !== 'Unknown') {
+            const userDetails = await getUserWebDetails(creatorName);
+            if (userDetails && userDetails.success && userDetails.avatar) {
+              const avatarEl = card.querySelector('.creator-avatar');
+              if (avatarEl) {
+                avatarEl.classList.add('image-loading-placeholder');
+                avatarEl.src = userDetails.avatar;
+              }
+            }
+          }
+        } else {
+          const creatorEl = card.querySelector('.creator-name');
+          if (creatorEl) creatorEl.textContent = 'Unknown Creator';
+          const roomEl = card.querySelector('.room-link');
+          if (roomEl) {
+            roomEl.previousElementSibling?.remove();
+            roomEl.remove();
+          }
+        }
+      })();
     });
     
-    const totalInGrid = photosGrid.querySelectorAll('.photo-card').length;
-    if (totalInGrid === 0) {
+    const totalInGrid = photosGrid.querySelectorAll('.feed-post-card').length;
+    if (totalInGrid === 0 && !append) {
       if (photosEmpty) photosEmpty.style.display = 'block';
     } else {
       if (photosEmpty) photosEmpty.style.display = 'none';
@@ -1426,7 +1989,7 @@ async function loadPlayerPhotos(userId, append = false) {
     } else {
       playerPhotosHasMore = photos.length === playerPhotosTake;
     }
-
+ 
     // Re-observe sentinel for next scroll trigger
     setupPlayerPhotoObserver();
   } else {
@@ -1453,6 +2016,10 @@ async function showRoomByName(roomName) {
 }
 
 async function showPhotoDetails(photo, backToView) {
+  if (!photo) return;
+  const photoId = photo.Id || photo.id;
+  if (!photoId) return;
+
   currentBackToView = backToView;
   
   // Switch to photo detail panel
@@ -1462,27 +2029,30 @@ async function showPhotoDetails(photo, backToView) {
   // Render initial photo fields we have
   const imgEl = $('photoDetailImage');
   if (imgEl) {
-    imgEl.src = `https://img.radie.app/${photo.ImageName}?width=720`;
-    imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.onerror = null; };
+    imgEl.classList.add('image-loading-placeholder');
+    const imgName = photo.ImageName || photo.imageName || '';
+    imgEl.src = imgName ? `https://img.radie.app/${imgName}?width=720` : './images.png';
+    imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.classList.remove('image-loading-placeholder'); imgEl.onerror = null; };
   }
   
   const captionEl = $('photoDetailCaption');
   if (captionEl) {
-    captionEl.textContent = photo.Description || 'No description.';
+    captionEl.textContent = photo.Description || photo.description || 'No description.';
   }
   
   const cheersEl = $('photoDetailCheers');
-  if (cheersEl) cheersEl.textContent = photo.CheerCount || '0';
-  
-  const commentsEl = $('photoDetailComments');
-  if (commentsEl) commentsEl.textContent = photo.CommentCount || '0';
+  if (cheersEl) cheersEl.textContent = photo.CheerCount || photo.cheerCount || '0';
   
   const createdEl = $('photoDetailCreatedAt');
-  if (createdEl && photo.CreatedAt) {
-    try {
-      createdEl.textContent = new Date(photo.CreatedAt).toLocaleString();
-    } catch (e) {
-      createdEl.textContent = photo.CreatedAt;
+  if (createdEl) {
+    createdEl.textContent = '—';
+    const createdAt = photo.CreatedAt || photo.createdAt;
+    if (createdAt) {
+      try {
+        createdEl.textContent = new Date(createdAt).toLocaleString();
+      } catch (e) {
+        createdEl.textContent = createdAt;
+      }
     }
   }
   
@@ -1492,14 +2062,19 @@ async function showPhotoDetails(photo, backToView) {
   const creatorHandleEl = $('photoDetailCreatorHandle');
   if (creatorHandleEl) creatorHandleEl.textContent = '@...';
   const creatorAvatarEl = $('photoDetailCreatorAvatar');
-  if (creatorAvatarEl) creatorAvatarEl.src = 'https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1';
+  if (creatorAvatarEl) {
+    creatorAvatarEl.classList.add('image-loading-placeholder');
+    creatorAvatarEl.src = 'https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1';
+  }
   const roomLinkEl = $('photoDetailRoomLink');
   if (roomLinkEl) roomLinkEl.style.display = 'none';
+  const noRoomEl = $('photoDetailNoRoom');
+  if (noRoomEl) noRoomEl.style.display = 'block';
   const creatorLinkEl = $('photoDetailCreatorLink');
   if (creatorLinkEl) creatorLinkEl.onclick = null;
   
   // Fetch scraped details from photo webpage
-  const res = await window.radium?.fetchPhotoWebDetails(photo.Id);
+  const res = await getPhotoWebDetails(photoId);
   if (res && res.success) {
     const creatorUsername = res.creatorUsername || '';
     const roomName = res.roomName || '';
@@ -1514,12 +2089,16 @@ async function showPhotoDetails(photo, backToView) {
         };
       }
       // fetch avatar of user in background
-      const userWeb = await window.radium?.fetchUserWebDetails(creatorUsername);
+      const userWeb = await getUserWebDetails(creatorUsername);
       if (userWeb && userWeb.success && userWeb.avatar && creatorAvatarEl) {
+        creatorAvatarEl.classList.add('image-loading-placeholder');
         creatorAvatarEl.src = userWeb.avatar;
+      } else if (creatorAvatarEl) {
+        creatorAvatarEl.classList.remove('image-loading-placeholder');
       }
     } else {
       if (creatorNameEl) creatorNameEl.textContent = 'Unknown Creator';
+      if (creatorAvatarEl) creatorAvatarEl.classList.remove('image-loading-placeholder');
     }
     
     if (roomName && roomName.toLowerCase() !== 'none') {
@@ -1532,38 +2111,11 @@ async function showPhotoDetails(photo, backToView) {
           showRoomByName(roomName);
         };
       }
+      if (noRoomEl) noRoomEl.style.display = 'none';
     }
   } else {
     if (creatorNameEl) creatorNameEl.textContent = 'Unknown';
-  }
-
-  // Fetch and render comments
-  const commentsList = $('photoDetailCommentsList');
-  const commentsLoading = $('photoDetailCommentsLoading');
-  if (commentsList) {
-    // Reset
-    commentsList.innerHTML = '<div id="photoDetailCommentsLoading" style="font-size: 11px; color: var(--text-muted); font-style: italic;">Loading comments...</div>';
-    
-    const cRes = await window.radium?.fetchPhotoComments(photo.Id);
-    const comments = cRes?.comments || [];
-    
-    if (comments.length === 0) {
-      commentsList.innerHTML = '<div style="font-size: 11px; color: var(--text-muted); font-style: italic;">No comments yet.</div>';
-    } else {
-      commentsList.innerHTML = comments.map(c => {
-        const author = escapeHtml(c.AuthorUsername || c.PlayerUsername || c.Username || 'Unknown');
-        const text = escapeHtml(c.Text || c.Content || c.Message || '');
-        const date = escapeHtml(c.CreatedAt ? new Date(c.CreatedAt).toLocaleString() : '');
-        return `
-          <div style="background: var(--bg-panel); border: 1px solid var(--border-dark); padding: 8px 10px; display: flex; flex-direction: column; gap: 3px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <span style="font-weight: bold; font-size: 11px; color: var(--text);">${author}</span>
-              <span style="font-size: 10px; color: var(--text-muted);">${date}</span>
-            </div>
-            <p style="font-size: 11px; color: var(--text); line-height: 1.4; margin: 0;">${text}</p>
-          </div>`;
-      }).join('');
-    }
+    if (creatorAvatarEl) creatorAvatarEl.classList.remove('image-loading-placeholder');
   }
 }
 
@@ -1598,48 +2150,54 @@ async function showRoomDetails(room) {
   const detail = $('roomsDetailView');
   if (!list || !detail) return;
   
-  const imgName = room.ImageName || '';
-  const thumbUrl = imgName ? `https://img.radie.app/${imgName}?width=1280` : './images.png';
+  const imgName = room.ImageName || room.imageName || '';
+  const thumbUrl = imgName ? `https://img.radie.app/${imgName}?width=720` : './images.png';
   
   const imgEl = $('roomsDetailImage');
   if (imgEl) {
+    imgEl.classList.add('image-loading-placeholder');
     imgEl.src = thumbUrl;
-    imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.onerror = null; };
+    imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.classList.remove('image-loading-placeholder'); imgEl.onerror = null; };
   }
   
+  const roomName = room.Name || room.name || 'Unknown Room';
   const nameEl = $('roomsDetailName');
-  if (nameEl) nameEl.textContent = room.Name || 'Unknown Room';
+  if (nameEl) nameEl.textContent = roomName;
   
+  const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Coach';
   const creatorNameEl = $('roomsDetailCreatorName');
-  if (creatorNameEl) creatorNameEl.textContent = room.CreatorUsername || 'Coach';
+  if (creatorNameEl) creatorNameEl.textContent = creatorUsername;
   
   const creatorHandleEl = $('roomsDetailCreatorHandle');
-  if (creatorHandleEl) creatorHandleEl.textContent = `@${room.CreatorUsername || 'Coach'}`;
+  if (creatorHandleEl) creatorHandleEl.textContent = `@${creatorUsername}`;
   
   const creatorLinkEl = $('roomsDetailCreatorLink');
   if (creatorLinkEl) {
-    creatorLinkEl.onclick = (e) => {
+    creatorLinkEl.onclick = async (e) => {
       e.stopPropagation();
-      showCreatorProfile(room.CreatorUsername || 'Coach');
+      await showCreatorProfile(creatorUsername);
       hideRoomDetails();
     };
   }
 
   const creatorAvatarEl = $('roomsDetailCreatorAvatar');
   if (creatorAvatarEl) {
+    creatorAvatarEl.classList.add('image-loading-placeholder');
     creatorAvatarEl.src = 'https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1';
   }
   
+  const roomId = room.RoomId || room.roomId || '—';
   const idEl = $('roomsDetailId');
-  if (idEl) idEl.textContent = room.RoomId || '—';
+  if (idEl) idEl.textContent = roomId;
   
+  const createdAt = room.CreatedAt || room.createdAt;
   const createdEl = $('roomsDetailCreatedAt');
   if (createdEl) {
-    if (room.CreatedAt) {
+    if (createdAt) {
       try {
-        createdEl.textContent = new Date(room.CreatedAt).toLocaleString();
+        createdEl.textContent = new Date(createdAt).toLocaleString();
       } catch (e) {
-        createdEl.textContent = room.CreatedAt;
+        createdEl.textContent = createdAt;
       }
     } else {
       createdEl.textContent = '—';
@@ -1671,13 +2229,17 @@ async function showRoomDetails(room) {
     if (visitsEl) visitsEl.textContent = webDetails.visits;
     if (descEl) descEl.textContent = webDetails.description || 'No description available.';
     if (webDetails.creatorAvatar && creatorAvatarEl) {
+      creatorAvatarEl.classList.add('image-loading-placeholder');
       creatorAvatarEl.src = webDetails.creatorAvatar;
+    } else if (creatorAvatarEl) {
+      creatorAvatarEl.classList.remove('image-loading-placeholder');
     }
   } else {
     if (cheersEl) cheersEl.textContent = '—';
     if (favsEl) favsEl.textContent = '—';
     if (visitsEl) visitsEl.textContent = '—';
     if (descEl) descEl.textContent = 'A Radium community room.';
+    if (creatorAvatarEl) creatorAvatarEl.classList.remove('image-loading-placeholder');
   }
 
   // Load room photos
@@ -1704,8 +2266,16 @@ async function showPlayerDetails(person) {
   
   const avatarEl = $('peopleDetailAvatar');
   if (avatarEl) {
+    avatarEl.classList.add('image-loading-placeholder');
+    avatarEl.onload = () => { avatarEl.classList.remove('image-loading-placeholder'); avatarEl.onload = null; };
     avatarEl.src = avatarUrl;
-    avatarEl.onerror = () => { avatarEl.src = 'https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1'; avatarEl.onerror = null; };
+    avatarEl.onerror = () => { avatarEl.src = './logo.png'; avatarEl.classList.remove('image-loading-placeholder'); avatarEl.onerror = null; };
+    avatarEl.style.cursor = 'pointer';
+    avatarEl.title = 'Click to view full size';
+    avatarEl.onclick = () => {
+      const fullUrl = isDefault ? 'https://img.radie.app/DefaultProfileImage' : `https://img.radie.app/${profileImg}`;
+      showLightbox(fullUrl);
+    };
   }
   
   const nameEl = $('peopleDetailDisplayName');
@@ -1728,6 +2298,7 @@ async function showPlayerDetails(person) {
   
   const dotEl = $('peopleDetailStatusDot');
   const labelEl = $('peopleDetailStatusLabel');
+  const activityEl = $('peopleDetailActivityBadge');
   
   const isOnline = person.isOnline;
   if (dotEl) {
@@ -1735,6 +2306,10 @@ async function showPlayerDetails(person) {
   }
   if (labelEl) {
     labelEl.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
+  }
+  if (activityEl) {
+    activityEl.style.display = 'none';
+    activityEl.textContent = '';
   }
   
   const bannerEl = $('peopleDetailBanner');
@@ -1751,7 +2326,12 @@ async function showPlayerDetails(person) {
   detail.classList.remove('hidden');
 
   // Load scraped web details asynchronously
-  const webDetails = await window.radium?.fetchUserWebDetails(person.userName);
+  let webDetails = null;
+  try {
+    webDetails = await getUserWebDetails(person.userName);
+  } catch (err) {
+    console.error("Error loading web details for user:", err);
+  }
   if (webDetails && webDetails.success) {
     if (friendsEl) friendsEl.textContent = webDetails.friends;
     if (subsEl) subsEl.textContent = webDetails.subscribers;
@@ -1762,9 +2342,22 @@ async function showPlayerDetails(person) {
     }
     
     // Live update status if scrape has it
-    const webOnline = webDetails.status === 'ONLINE';
-    if (dotEl) dotEl.className = `status-dot ${webOnline ? 'online' : 'offline'}`;
-    if (labelEl) labelEl.textContent = webDetails.status;
+    if (webDetails.status) {
+      const isOnlineScraped = webDetails.status !== 'OFFLINE';
+      if (dotEl) dotEl.className = `status-dot ${isOnlineScraped ? 'online' : 'offline'}`;
+      if (labelEl) labelEl.textContent = isOnlineScraped ? 'ONLINE' : 'OFFLINE';
+
+      if (webDetails.status !== 'ONLINE' && webDetails.status !== 'OFFLINE') {
+        if (activityEl) {
+          activityEl.style.display = 'inline-flex';
+          activityEl.textContent = webDetails.status;
+        }
+      }
+    } else {
+      // If no status was scraped, fallback to person.isOnline
+      if (dotEl) dotEl.className = `status-dot ${person.isOnline ? 'online' : 'offline'}`;
+      if (labelEl) labelEl.textContent = person.isOnline ? 'ONLINE' : 'OFFLINE';
+    }
   } else {
     if (friendsEl) friendsEl.textContent = '—';
     if (subsEl) subsEl.textContent = '—';
@@ -1772,8 +2365,326 @@ async function showPlayerDetails(person) {
     if (bioEl) bioEl.textContent = person.bio || 'This user has not setup a bio yet.';
   }
 
-  // Load player photos
+  // Disconnect existing observers and reset pagination states
+  if (playerPhotoObserver) playerPhotoObserver.disconnect();
+  if (playerFeedsObserver) playerFeedsObserver.disconnect();
+  if (playerRoomsObserver) playerRoomsObserver.disconnect();
+
+  playerPhotosSkip = 0;
+  playerPhotosHasMore = false;
+  playerPhotosLoading = false;
+
+  playerFeedsSkip = 0;
+  playerFeedsHasMore = false;
+  playerFeedsLoading = false;
+
+  playerRoomsSkip = 0;
+  playerRoomsHasMore = false;
+  playerRoomsLoading = false;
+
+  // Tab switching logic
+  const tabs = [
+    { btn: $('tabBtnPeoplePhotos'), sec: $('peopleDetailPhotosSection') },
+    { btn: $('tabBtnPeopleFeeds'), sec: $('peopleDetailFeedsSection') },
+    { btn: $('tabBtnPeopleRooms'), sec: $('peopleDetailRoomsSection') }
+  ];
+  
+  tabs.forEach(t => {
+    if (t.btn) {
+      t.btn.onclick = () => {
+        tabs.forEach(other => {
+          if (other.btn) {
+            other.btn.classList.remove('active');
+            other.btn.style.borderBottom = 'none';
+            other.btn.style.color = 'var(--text-muted)';
+          }
+          if (other.sec) other.sec.style.display = 'none';
+        });
+        t.btn.classList.add('active');
+        t.btn.style.borderBottom = '2px solid var(--green)';
+        t.btn.style.color = 'var(--green)';
+        if (t.sec) t.sec.style.display = 'block';
+        
+        // Trigger observer layouts on tab switch
+        if (t.btn.id === 'tabBtnPeoplePhotos') {
+          setupPlayerPhotoObserver();
+        } else if (t.btn.id === 'tabBtnPeopleFeeds') {
+          setupPlayerFeedsObserver();
+        } else if (t.btn.id === 'tabBtnPeopleRooms') {
+          setupPlayerRoomsObserver();
+        }
+      };
+    }
+  });
+  
+  // Reset tabs to Photos active by default
+  if (tabs[0].btn) tabs[0].btn.click();
+
+  // Load player data for all tabs
   loadPlayerPhotos(person.id);
+  loadPlayerFeeds(person.id);
+  loadPlayerRooms(person.id);
+}
+
+async function loadPlayerFeeds(userId, append = false) {
+  const grid = $('peopleDetailFeedsGrid');
+  const empty = $('peopleDetailFeedsEmpty');
+  if (!grid) return;
+  if (playerFeedsLoading) return;
+  
+  if (!userId) {
+    grid.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    playerFeedsHasMore = false;
+    return;
+  }
+  
+  if (!append) {
+    playerFeedsSkip = 0;
+    playerFeedsHasMore = false;
+    grid.innerHTML = '<div id="playerFeedsLoading" style="text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);">Loading feeds...</div>';
+    if (empty) empty.style.display = 'none';
+  } else {
+    const loadingEl = document.createElement('div');
+    loadingEl.id = 'playerFeedsLoading';
+    loadingEl.style.cssText = 'text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted); width: 100%;';
+    loadingEl.textContent = 'Loading more...';
+    grid.appendChild(loadingEl);
+  }
+  
+  currentPlayerFeedsId = userId;
+  playerFeedsLoading = true;
+  
+  const res = await window.radium?.fetchUserFeed({ userId, skip: playerFeedsSkip, take: playerFeedsTake });
+  const loadingEl = $('playerFeedsLoading');
+  if (loadingEl) loadingEl.remove();
+  playerFeedsLoading = false;
+  
+  if (res && res.success && res.data && res.data.Results) {
+    const feeds = res.data.Results || [];
+    
+    if (!append) grid.innerHTML = '';
+    
+    feeds.forEach(photo => {
+      // Create Feed Post Card
+      const card = document.createElement('div');
+      card.className = 'feed-post-card';
+      
+      const photoId = photo.Id || photo.id;
+      const cheers = photo.CheerCount || photo.cheerCount || 0;
+      const comments = photo.CommentCount || photo.commentCount || 0;
+      const captionText = photo.Description || photo.description || '';
+      
+      let dateStr = '';
+      const createdAt = photo.CreatedAt || photo.createdAt;
+      if (createdAt) {
+        try {
+          dateStr = new Date(createdAt).toLocaleString();
+        } catch (e) {
+          dateStr = createdAt;
+        }
+      }
+      
+      const imgName = photo.ImageName || photo.imageName || '';
+      
+      card.innerHTML = `
+        <div class="feed-post-header">
+          <img class="feed-post-avatar creator-avatar image-loading-placeholder" src="https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./logo.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+          <div class="feed-post-header-text">
+            <div class="feed-post-creator creator-name">Loading...</div>
+            <div class="feed-post-meta">
+              <span>in</span>
+              <span class="feed-post-room room-link">Loading...</span>
+              <span class="feed-post-dot">•</span>
+              <span class="feed-post-time">${dateStr}</span>
+            </div>
+          </div>
+        </div>
+        ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
+        <div class="feed-post-image-wrap image-wrap">
+          <img class="feed-post-image image-loading-placeholder" src="${imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+        </div>
+        <div class="feed-post-footer">
+          <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
+          <span class="feed-post-stat"><span class="comments-count">${comments}</span> Comments</span>
+        </div>
+      `;
+      
+      // Hook up clicks
+      const imgWrap = card.querySelector('.image-wrap');
+      if (imgWrap) {
+        imgWrap.onclick = () => showPhotoDetails(photo, 'people-detail');
+      }
+      
+      grid.appendChild(card);
+      
+      // Asynchronously fetch photo web details in background
+      (async () => {
+        const details = await getPhotoWebDetails(photoId);
+        if (details && details.success) {
+          const creatorName = details.creatorUsername || 'Unknown';
+          const roomName = details.roomName || '';
+          
+          const creatorEl = card.querySelector('.creator-name');
+          if (creatorEl) {
+            creatorEl.textContent = creatorName;
+            creatorEl.onclick = (e) => {
+              e.stopPropagation();
+              showCreatorProfile(creatorName);
+            };
+          }
+          
+          const roomEl = card.querySelector('.room-link');
+          if (roomEl) {
+            if (roomName && roomName.toLowerCase() !== 'none') {
+              roomEl.textContent = roomName;
+              roomEl.onclick = (e) => {
+                e.stopPropagation();
+                showRoomByName(roomName);
+              };
+            } else {
+              roomEl.previousElementSibling?.remove(); // remove 'in'
+              roomEl.remove();
+            }
+          }
+          
+          // Asynchronously fetch creator avatar in background
+          if (creatorName && creatorName !== 'Unknown') {
+            const userDetails = await getUserWebDetails(creatorName);
+            if (userDetails && userDetails.success && userDetails.avatar) {
+              const avatarEl = card.querySelector('.creator-avatar');
+              if (avatarEl) {
+                avatarEl.classList.add('image-loading-placeholder');
+                avatarEl.src = userDetails.avatar;
+              }
+            }
+          }
+        } else {
+          const creatorEl = card.querySelector('.creator-name');
+          if (creatorEl) creatorEl.textContent = 'Unknown Creator';
+          const roomEl = card.querySelector('.room-link');
+          if (roomEl) {
+            roomEl.previousElementSibling?.remove();
+            roomEl.remove();
+          }
+        }
+      })();
+    });
+    
+    const totalInGrid = grid.querySelectorAll('.feed-post-card').length;
+    if (totalInGrid === 0 && !append) {
+      if (empty) empty.style.display = 'block';
+    } else {
+      if (empty) empty.style.display = 'none';
+    }
+    
+    playerFeedsHasMore = feeds.length === playerFeedsTake;
+    
+    setupPlayerFeedsObserver();
+  } else {
+    if (!append) {
+      grid.innerHTML = '';
+      if (empty) { empty.textContent = 'Error loading feed.'; empty.style.display = 'block'; }
+    }
+    playerFeedsHasMore = false;
+  }
+}
+
+async function loadPlayerRooms(userId, append = false) {
+  const grid = $('peopleDetailRoomsGrid');
+  const empty = $('peopleDetailRoomsEmpty');
+  if (!grid) return;
+  if (playerRoomsLoading) return;
+  
+  if (!userId) {
+    grid.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    playerRoomsHasMore = false;
+    return;
+  }
+  
+  if (!append) {
+    playerRoomsSkip = 0;
+    playerRoomsHasMore = false;
+    grid.innerHTML = '<div id="playerRoomsLoading" style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading rooms...</div>';
+    if (empty) empty.style.display = 'none';
+  } else {
+    const loadingEl = document.createElement('div');
+    loadingEl.id = 'playerRoomsLoading';
+    loadingEl.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);';
+    loadingEl.textContent = 'Loading more...';
+    grid.appendChild(loadingEl);
+  }
+  
+  currentPlayerRoomsUserId = userId;
+  playerRoomsLoading = true;
+  
+  const res = await window.radium?.fetchUserRooms({ userId, skip: playerRoomsSkip, take: playerRoomsTake });
+  const loadingEl = $('playerRoomsLoading');
+  if (loadingEl) loadingEl.remove();
+  playerRoomsLoading = false;
+  
+  if (res && res.success && res.data && res.data.Results) {
+    const rooms = res.data.Results || [];
+    
+    if (!append) grid.innerHTML = '';
+    
+    rooms.forEach(room => {
+      const roomCard = document.createElement('div');
+      roomCard.className = 'room-card';
+      const imgName = room.ImageName || room.imageName || '';
+      const imgUrl = imgName ? `https://img.radie.app/${imgName}?width=400` : './images.png';
+      const roomName = room.Name || room.name || 'Unknown Room';
+      const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
+      roomCard.innerHTML = `
+        <img class="room-card-image image-loading-placeholder" src="${imgUrl}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" alt="${escapeHtml(roomName)}" />
+        <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
+        <div class="room-card-creator" onclick="event.stopPropagation(); showCreatorProfile('${escapeHtml(creatorUsername)}')" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
+        <div class="room-card-stats">
+          <span>Cheers: <span class="room-card-cheers">...</span></span>
+          <span>Visits: <span class="room-card-visits">...</span></span>
+        </div>
+      `;
+      roomCard.onclick = () => {
+        switchTab('rooms');
+        showRoomDetails(room);
+      };
+      grid.appendChild(roomCard);
+
+      // Asynchronously fetch actual statistics in the background
+      (async () => {
+        const details = await window.radium?.fetchRoomWebDetails(roomName);
+        if (details && details.success) {
+          const cheerEl = roomCard.querySelector('.room-card-cheers');
+          const visitEl = roomCard.querySelector('.room-card-visits');
+          if (cheerEl) cheerEl.textContent = details.cheers || '0';
+          if (visitEl) visitEl.textContent = details.visits || '0';
+        } else {
+          const cheerEl = roomCard.querySelector('.room-card-cheers');
+          const visitEl = roomCard.querySelector('.room-card-visits');
+          if (cheerEl) cheerEl.textContent = '—';
+          if (visitEl) visitEl.textContent = '—';
+        }
+      })();
+    });
+    
+    const totalInGrid = grid.querySelectorAll('.room-card').length;
+    if (totalInGrid === 0 && !append) {
+      if (empty) empty.style.display = 'block';
+    } else {
+      if (empty) empty.style.display = 'none';
+    }
+    
+    playerRoomsHasMore = rooms.length === playerRoomsTake;
+    
+    setupPlayerRoomsObserver();
+  } else {
+    if (!append) {
+      grid.innerHTML = '';
+      if (empty) { empty.textContent = 'Error loading rooms.'; empty.style.display = 'block'; }
+    }
+    playerRoomsHasMore = false;
+  }
 }
 
 function hidePlayerDetails() {
@@ -1783,7 +2694,138 @@ function hidePlayerDetails() {
     detail.classList.add('hidden');
     list.classList.remove('hidden');
   }
+  if (playerPhotoObserver) playerPhotoObserver.disconnect();
+  if (playerFeedsObserver) playerFeedsObserver.disconnect();
+  if (playerRoomsObserver) playerRoomsObserver.disconnect();
 }
 
 $('btnRoomsBack')?.addEventListener('click', hideRoomDetails);
 $('btnPeopleBack')?.addEventListener('click', hidePlayerDetails);
+
+// Image Lightbox Modal
+const lightboxModal = $('lightboxModal');
+const lightboxImage = $('lightboxImage');
+const lightboxCloseBtn = $('lightboxCloseBtn');
+
+function showLightbox(src) {
+  if (lightboxModal && lightboxImage) {
+    lightboxImage.classList.add('image-loading-placeholder');
+    lightboxImage.src = src;
+    lightboxImage.onerror = () => {
+      const avatarEl = $('peopleDetailAvatar');
+      if (avatarEl && lightboxImage.src !== avatarEl.src) {
+        lightboxImage.src = avatarEl.src;
+      } else {
+        lightboxImage.classList.remove('image-loading-placeholder');
+      }
+      lightboxImage.onerror = null;
+    };
+    lightboxModal.style.display = 'flex';
+  }
+}
+
+function hideLightbox() {
+  if (lightboxModal) {
+    lightboxModal.style.display = 'none';
+  }
+}
+
+lightboxCloseBtn?.addEventListener('click', hideLightbox);
+lightboxModal?.addEventListener('click', (e) => {
+  if (e.target === lightboxModal) {
+    hideLightbox();
+  }
+});
+
+// Bug Reporter event handler
+(function setupBugReporter() {
+  const btnSubmit = $('btnSubmitBugReport');
+  const txtReport = $('bugReportText');
+  const lblStatus = $('bugReportStatus');
+
+  if (!btnSubmit || !txtReport || !lblStatus) return;
+
+  let cooldownTimer = null;
+  let cooldownTimeLeft = 0;
+
+  function setStatus(text, type = 'info') {
+    lblStatus.textContent = text;
+    if (type === 'error') {
+      lblStatus.style.color = '#ff4444'; // Error red matching theme toast.error
+    } else if (type === 'success' || type === 'ok') {
+      lblStatus.style.color = 'var(--green)'; // Success green
+    } else {
+      lblStatus.style.color = 'var(--text-muted)';
+    }
+  }
+
+  function startCooldown(seconds) {
+    cooldownTimeLeft = seconds;
+    btnSubmit.disabled = true;
+    txtReport.disabled = true;
+    setStatus('');
+    
+    if (cooldownTimer) clearInterval(cooldownTimer);
+    
+    cooldownTimer = setInterval(() => {
+      cooldownTimeLeft--;
+      if (cooldownTimeLeft <= 0) {
+        clearInterval(cooldownTimer);
+        cooldownTimer = null;
+        btnSubmit.disabled = false;
+        txtReport.disabled = false;
+        btnSubmit.textContent = 'SUBMIT BUG REPORT';
+      } else {
+        btnSubmit.textContent = `COOLDOWN (${cooldownTimeLeft}s)`;
+      }
+    }, 1000);
+  }
+
+  btnSubmit.addEventListener('click', async () => {
+    const bugText = txtReport.value.trim();
+    
+    // 1. Length validation (frontend check)
+    if (bugText.length < 10) {
+      toast('Description is too short. Minimum 10 characters required.', 'error');
+      setStatus('Description too short (min 10 chars).', 'error');
+      return;
+    }
+    if (bugText.length > 1500) {
+      toast('Description is too long. Maximum 1500 characters allowed.', 'error');
+      setStatus('Description too long (max 1500 chars).', 'error');
+      return;
+    }
+
+    // 2. Disable inputs & show loading state
+    btnSubmit.disabled = true;
+    txtReport.disabled = true;
+    btnSubmit.textContent = 'SUBMITTING...';
+    setStatus('Submitting report to Discord...', 'info');
+
+    // Use the full unbounded log buffer (not the capped DOM viewer)
+    // This ensures early startup logs are always included in bug reports.
+    const fullLogs = fullLogBuffer.join('\n');
+
+    try {
+      // 3. Invoke Tauri backend command
+      const responseMessage = await window.radium.submitBugReport(bugText, fullLogs);
+      
+      // 4. Handle success
+      toast(responseMessage || 'Bug report submitted successfully! Thank you.', 'ok');
+      setStatus('Submitted successfully!', 'ok');
+      txtReport.value = ''; // Clear report text
+      
+      // 5. Start cooldown (60 seconds)
+      startCooldown(60);
+    } catch (err) {
+      // 6. Handle error
+      const errMsg = String(err || 'Failed to submit bug report.');
+      toast(errMsg, 'error');
+      setStatus(errMsg, 'error');
+      btnSubmit.disabled = false;
+      txtReport.disabled = false;
+      btnSubmit.textContent = 'SUBMIT BUG REPORT';
+    }
+  });
+})();
+

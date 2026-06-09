@@ -10,7 +10,7 @@
   --green:        #00ff00; /* Retro matrix neon green */
   --green-dim:    #7ca969; /* Soft text green */
   --text:         #d4e0ce; /* Light olive text */
-  --text-muted:   #5b6953; /* Dark muted green text */
+  --text-muted:   #8da082; /* Brighter muted green for contrast and visibility */
   --status-online:#00ff00; /* Legible green for online status */
   
   --font-ui:      'Tahoma', 'Verdana', sans-serif;
@@ -29,7 +29,7 @@ body.theme-win98 {
   --green:        #000080; /* Navy Accent */
   --green-dim:    #404040;
   --text:         #000000;
-  --text-muted:   #808080;
+  --text-muted:   #555555;
   --status-online:#008000;
 }
 body.theme-win98 .titlebar {
@@ -54,7 +54,7 @@ body.theme-winxp {
   --green:        #225ad7; /* XP Active Blue */
   --green-dim:    #004e98;
   --text:         #000000;
-  --text-muted:   #7f7f7f;
+  --text-muted:   #555555;
   --status-online:#008000;
   border: 3px solid #0058e6;
   border-radius: 8px 8px 0 0;
@@ -162,11 +162,13 @@ body.theme-winvista {
   --bg-btn:       rgba(241, 245, 249, 0.8);
   --border-light: rgba(255, 255, 255, 0.6); /* Transparent glass edge */
   --border-dark:  #708090;
-  --green:        #0088ff; /* Vista Aero Blue */
+  --green:        #0055cc; /* Vista Aero Blue - darkened for contrast */
   --green-dim:    #004488;
   --text:         #1a2a3a;
-  --text-muted:   #607080;
+  --text-muted:   #3b4d5e;
   --status-online:#008000;
+  --status-offline: #a00000; /* Contrast error/offline text */
+  --btn-primary-text: #ffffff; /* Improved button contrast */
   border: 4px solid rgba(0, 0, 0, 0.8);
   box-shadow: 0 0 15px rgba(0, 0, 0, 0.6), inset 1px 1px 0 rgba(255, 255, 255, 0.2);
   border-radius: 6px 6px 0 0;
@@ -522,7 +524,7 @@ body.theme-win95 {
   --green:        #000080;
   --green-dim:    #000000;
   --text:         #000000;
-  --text-muted:   #808080;
+  --text-muted:   #555555;
   --status-online:#008000;
 }
 body.theme-win95 .titlebar {
@@ -532,6 +534,18 @@ body.theme-win95 .titlebar {
 body.theme-win95 .titlebar-app-name {
   color: #ffffff;
   font-weight: bold;
+}
+body.theme-win95 .log-output,
+body.theme-win95 .cfg-input,
+body.theme-win95 .cfg-path-display,
+body.theme-win95 .native-grid-container,
+body.theme-win95 .native-table-container {
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+body.theme-win95 .server-pill {
+  background: #c0c0c0 !important;
+  color: #000000 !important;
 }
 
 /* Windows XP Royale Noir Theme overrides */
@@ -543,9 +557,9 @@ body.theme-royalenoir {
   --border-light: #606060;
   --border-dark:  #141414;
   --green:        #3b93ff;
-  --green-dim:    #1f57b3;
+  --green-dim:    #5285e9;
   --text:         #ffffff;
-  --text-muted:   #8a8a8a;
+  --text-muted:   #b0b0b0;
   --status-online:#00d000;
   border: 3px solid #141414;
   border-radius: 8px 8px 0 0;
@@ -655,7 +669,7 @@ body.theme-macosclassic {
   --green:        #000000;
   --green-dim:    #4c4c4c;
   --text:         #000000;
-  --text-muted:   #767676;
+  --text-muted:   #505050;
   --status-online:#007a00;
   font-family: "Geneva", "Charcoal", sans-serif;
 }
@@ -738,7 +752,7 @@ body.theme-moderndark {
   --green:        #ff007f; /* Neon Hot Pink */
   --green-dim:    #c084fc;
   --text:         #f8fafc;
-  --text-muted:   #64748b;
+  --text-muted:   #94a3b8;
   --status-online:#10b981;
 }
 
@@ -768,7 +782,7 @@ body.theme-modernlight {
   --green:        #4f46e5; /* Indigo */
   --green-dim:    #2563eb;
   --text:         #0f172a;
-  --text-muted:   #64748b;
+  --text-muted:   #475569;
   --status-online:#16a34a;
 }
 
@@ -780,6 +794,12 @@ body.theme-modernlight {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5) !important;
   border: 1px solid var(--border-dark) !important;
   border-radius: 12px 12px 0 0 !important;
+}
+
+body.theme-moderndark .tab-panel,
+body.theme-moderngreen .tab-panel,
+body.theme-modernlight .tab-panel {
+  scrollbar-gutter: stable !important;
 }
 
 /* Scrollbars */
@@ -1018,7 +1038,6 @@ body.theme-moderndark .modal-btn {
 body.theme-moderndark .btn-download-big:hover,
 body.theme-moderndark .modal-btn:hover {
   background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%) !important;
-  transform: translateY(-1px) !important;
 }
 
 /* Forest Green Theme Button Accents */
@@ -1037,7 +1056,6 @@ body.theme-moderngreen .modal-btn {
 body.theme-moderngreen .btn-download-big:hover,
 body.theme-moderngreen .modal-btn:hover {
   background: linear-gradient(135deg, #34d399 0%, #10b981 100%) !important;
-  transform: translateY(-1px) !important;
 }
 
 /* Glass Light Theme Button Accents */
@@ -1056,7 +1074,6 @@ body.theme-modernlight .modal-btn {
 body.theme-modernlight .btn-download-big:hover,
 body.theme-modernlight .modal-btn:hover {
   background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%) !important;
-  transform: translateY(-1px) !important;
 }
 
 /* Play Buttons */
@@ -1126,6 +1143,7 @@ body.theme-modernlight .log-output { background: #f8fafc !important; }
 body {
   width: 100vw; height: 100vh;
   overflow: hidden;
+  overscroll-behavior: none;
   background: var(--bg-main);
   color: var(--text);
   font-family: var(--font-ui);
@@ -1133,6 +1151,21 @@ body {
   user-select: none;
   border: 3px solid var(--bg-main); /* Outer shell */
   box-shadow: inset 1px 1px 0 var(--border-light), inset -1px -1px 0 var(--border-dark);
+}
+
+html {
+  overscroll-behavior: none;
+}
+
+/* Base link and text-link styling across themes */
+a, .text-link {
+  color: var(--green);
+  text-decoration: none;
+  cursor: pointer;
+}
+a:hover, .text-link:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 /* Win2000 Outset Bevel Utility */
@@ -1722,7 +1755,6 @@ body.theme-moderndark .btn-exclude-av {
 }
 body.theme-moderndark .btn-exclude-av:hover {
   background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%) !important;
-  transform: translateY(-1px) !important;
 }
 
 body.theme-moderngreen .btn-exclude-av {
@@ -1731,7 +1763,6 @@ body.theme-moderngreen .btn-exclude-av {
 }
 body.theme-moderngreen .btn-exclude-av:hover {
   background: linear-gradient(135deg, #34d399 0%, #10b981 100%) !important;
-  transform: translateY(-1px) !important;
 }
 
 body.theme-modernlight .btn-exclude-av {
@@ -1740,7 +1771,6 @@ body.theme-modernlight .btn-exclude-av {
 }
 body.theme-modernlight .btn-exclude-av:hover {
   background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%) !important;
-  transform: translateY(-1px) !important;
 }
 
 /* ==========================================
@@ -2233,207 +2263,24 @@ body.theme-royalenoir ::-webkit-scrollbar-button {
   flex-direction: column;
   gap: 4px;
   cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.room-card-image {
-  width: 100%;
-  aspect-ratio: 16/9;
-  object-fit: cover;
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  background: var(--bg-dark);
+.room-card:hover {
+  background: var(--bg-btn);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
-.room-card-name {
-  font-weight: bold;
-  font-size: 11px;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.room-card-creator {
-  font-size: 9px;
-  color: var(--text-muted);
-  text-decoration: underline;
-  cursor: pointer;
-  width: fit-content;
-}
-
-.room-card-creator:hover {
-  color: var(--text);
-}
-
-.room-card-stats {
-  font-size: 9px;
-  color: var(--text-muted);
-  display: flex;
-  justify-content: space-between;
-}
-
-/* Layout utility styles to support native Rooms/People layouts */
-.flex { display: flex; }
-.flex-col { flex-direction: column; }
-.flex-1 { flex: 1; }
-.flex-shrink-0 { flex-shrink: 0; }
-.overflow-hidden { overflow: hidden; }
-.overflow-auto { overflow: auto; }
-.overflow-y-auto { overflow-y: auto; }
-.gap-1 { gap: 4px; }
-.gap-2 { gap: 8px; }
-.gap-2\.5 { gap: 10px; }
-.gap-3\.75 { gap: 15px; }
-.w-50 { width: 140px; } /* Set rooms sidebar filter/sort panel width */
-.w-full { width: 100%; }
-.p-2 { padding: 8px; }
-.p-4 { padding: 16px; }
-.mb-1\.5 { margin-bottom: 6px; }
-.mb-2 { margin-bottom: 8px; }
-.mt-2 { margin-top: 8px; }
-.font-bold { font-weight: bold; }
-.text-\[10px\] { font-size: 10px; }
-.text-sm { font-size: 12px; }
-.text-center { text-align: center; }
-.hidden { display: none !important; }
-.grid { display: grid; }
-.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (min-width: 768px) {
-  .md\:flex-row { flex-direction: row !important; }
-}
-@media (min-width: 1024px) {
-  .lg\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-.justify-between { justify-content: space-between; }
-.items-center { align-items: center; }
-.gap-4 { gap: 16px; }
-
-/* Photo Grid and Cards Styles */
-.photo-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 10px;
-}
-.photo-card {
-  position: relative;
-  background: var(--bg-panel);
-  border: 2px solid;
-  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  overflow: hidden;
-  cursor: pointer;
-  aspect-ratio: 16/9;
-  transition: transform 0.15s ease, border-color 0.15s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.photo-card:hover {
-  transform: scale(1.03);
-  border-color: var(--green);
-}
-.photo-card:active {
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-}
-.photo-card-image {
-  padding: 6px 8px;
-  font-size: 11px;
-  font-weight: bold;
-  color: var(--text);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.native-table td {
-  border: 1px solid var(--border-dark);
-  padding: 6px 8px;
-  font-size: 11px;
-  color: var(--text);
-  background: var(--bg-panel);
-  vertical-align: middle;
-}
-
-.native-table tbody tr {
-  cursor: pointer;
-}
-
-.native-table tr:hover td {
+/* Disable card float behaviors on classic desktop themes to maintain design integrity */
+body.theme-win98 .room-card:hover,
+body.theme-win95 .room-card:hover,
+body.theme-macosclassic .room-card:hover {
+  transform: none;
+  box-shadow: none;
   background: var(--bg-btn);
 }
 
-.people-avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  object-fit: cover;
-  border: 1px solid var(--border-dark);
-  background: var(--bg-dark);
-  display: block;
-}
-
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 6px;
-}
-
-.status-dot.online {
-  background-color: var(--status-online);
-}
-
-.status-dot.offline {
-  background-color: var(--text-muted);
-}
-
-.native-pagination {
-  padding-top: 6px;
-  border-top: 1px dashed var(--border-dark);
-}
-
-/* Rooms layout */
-.filter-btn, .sort-btn {
-  text-align: left;
-  padding: 4px 6px;
-  font-size: 10px;
-  background: var(--bg-panel);
-  border: 2px solid;
-  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  color: var(--text);
-  text-decoration: underline;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: var(--font-ui);
-}
-
-.filter-btn.active, .sort-btn.active {
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark) !important;
-  background: var(--bg-dark) !important;
-  color: var(--text) !important;
-  text-decoration: none !important;
-}
-
-.native-grid-container {
-  background: var(--bg-dark);
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  overflow-y: auto;
-}
-
-.room-card {
-  background: var(--bg-panel);
-  border: 2px solid;
-  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  cursor: pointer;
-}
-
 .room-card-image {
   width: 100%;
   aspect-ratio: 16/9;
@@ -2533,6 +2380,7 @@ body.theme-royalenoir ::-webkit-scrollbar-button {
 .photo-card:active {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
 }
+
 .photo-card-image {
   width: 100%;
   height: 100%;
@@ -2799,6 +2647,9 @@ body.theme-winvista .native-table-container {
   box-shadow: inset 0 1px 2px rgba(0,0,0,0.08) !important;
   background: #ffffff !important;
 }
+body.theme-winvista .native-panel {
+  background: var(--bg-panel) !important;
+}
 body.theme-winvista #roomsDetailView .bevel-inset,
 body.theme-winvista #peopleDetailView .bevel-inset,
 body.theme-winvista #tab-photo-detail .bevel-inset {
@@ -2865,6 +2716,8 @@ body.theme-winvista #photoDetailCreatorAvatar {
 body.theme-winvista .panel-header {
   background: linear-gradient(180deg, #edf3fb 0%, #dbe9f6 100%) !important;
   border-bottom: 1px solid #708090 !important;
+  padding: 6px 12px !important;
+  margin-bottom: 12px !important;
 }
 body.theme-winvista .panel-header h2 {
   color: #1a2a3a !important;
@@ -2952,6 +2805,8 @@ body.theme-win7 #photoDetailCreatorAvatar {
 body.theme-win7 .panel-header {
   background: linear-gradient(180deg, #f4f8fe 0%, #e2ecf7 100%) !important;
   border-bottom: 1px solid #b8c7d9 !important;
+  padding: 6px 12px !important;
+  margin-bottom: 12px !important;
 }
 body.theme-win7 .panel-header h2 {
   color: #1e395b !important;
@@ -2998,3 +2853,1442 @@ body.theme-win7 .modal-close-btn {
   max-width: 500px;
   aspect-ratio: 16/9;
 }
+.photo-list-vertical .photo-card:hover {
+  transform: none; /* Disable scale to prevent chromium scroll bugs on large elements */
+}
+
+/* Feed Post Card Styles */
+.feed-post-card {
+  background: var(--bg-panel);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  border-radius: 4px;
+  width: 100%;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 10px;
+  box-shadow: inset 1px 1px 0 var(--border-light), 1px 1px 3px rgba(0,0,0,0.1);
+  box-sizing: border-box;
+}
+
+.feed-post-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.feed-post-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid var(--border-dark);
+  background: var(--bg-dark);
+}
+
+.feed-post-header-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.feed-post-creator {
+  font-weight: bold;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  text-decoration: underline;
+  width: fit-content;
+}
+
+.feed-post-creator:hover {
+  color: var(--green);
+}
+
+.feed-post-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.feed-post-room {
+  color: var(--green);
+  font-weight: bold;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.feed-post-room:hover {
+  color: var(--text);
+}
+
+.feed-post-time {
+  white-space: nowrap;
+}
+
+.feed-post-description {
+  font-size: 11.5px;
+  color: var(--text);
+  line-height: 1.4;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.feed-post-image-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--bg-dark);
+}
+
+.feed-post-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s ease;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.feed-post-image-wrap:hover .feed-post-image {
+  transform: scale(1.02);
+}
+
+.feed-post-footer {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-dark);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.feed-post-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Modern Theme overrides for Feed Cards */
+body.theme-moderndark .feed-post-card,
+body.theme-moderngreen .feed-post-card,
+body.theme-modernlight .feed-post-card {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05) !important;
+}
+
+body.theme-moderndark .feed-post-avatar,
+body.theme-moderngreen .feed-post-avatar,
+body.theme-modernlight .feed-post-avatar {
+  border-radius: 50% !important;
+}
+
+body.theme-moderndark .feed-post-image-wrap,
+body.theme-moderngreen .feed-post-image-wrap,
+body.theme-modernlight .feed-post-image-wrap {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 6px !important;
+}
+
+/* WinXP Luna theme overrides */
+body.theme-winxp .feed-post-card {
+  border: 1px solid #7f9db9 !important;
+  background: #ffffff !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+body.theme-winxp .feed-post-avatar,
+body.theme-winxp .feed-post-image-wrap {
+  border: 1px solid #7f9db9 !important;
+  border-radius: 0 !important;
+}
+
+body.theme-winxp .feed-post-footer {
+  border-top: 1px solid #aca899 !important;
+}
+
+/* ==========================================
+   CLASSIC & LIGHT THEME CONTRAST & VISIBILITY FIXES
+   ========================================== */
+
+/* 1. Modal Primary Button High Contrast Override */
+body.theme-win95 .modal-btn-primary,
+body.theme-win98 .modal-btn-primary,
+body.theme-winxp .modal-btn-primary,
+body.theme-royalenoir .modal-btn-primary,
+body.theme-winvista .modal-btn-primary,
+body.theme-win7 .modal-btn-primary,
+body.theme-macosclassic .modal-btn-primary,
+body.theme-modernlight .modal-btn-primary {
+  color: #ffffff !important;
+  background: var(--green-dim) !important;
+}
+body.theme-win95 .modal-btn-primary:hover,
+body.theme-win98 .modal-btn-primary:hover,
+body.theme-winxp .modal-btn-primary:hover,
+body.theme-royalenoir .modal-btn-primary:hover,
+body.theme-winvista .modal-btn-primary:hover,
+body.theme-win7 .modal-btn-primary:hover,
+body.theme-macosclassic .modal-btn-primary:hover,
+body.theme-modernlight .modal-btn-primary:hover {
+  background: var(--green) !important;
+  color: #ffffff !important;
+}
+
+/* 2. Light Themes Error / Offline Red Contrast Overrides */
+body.theme-win95 .qs-card.offline .qs-value,
+body.theme-win95 .status-card.offline .sc-state,
+body.theme-win95 .test-result.error,
+body.theme-win98 .qs-card.offline .qs-value,
+body.theme-win98 .status-card.offline .sc-state,
+body.theme-win98 .test-result.error,
+body.theme-winxp .qs-card.offline .qs-value,
+body.theme-winxp .status-card.offline .sc-state,
+body.theme-winxp .test-result.error,
+body.theme-winvista .qs-card.offline .qs-value,
+body.theme-winvista .status-card.offline .sc-state,
+body.theme-winvista .test-result.error,
+body.theme-win7 .qs-card.offline .qs-value,
+body.theme-win7 .status-card.offline .sc-state,
+body.theme-win7 .test-result.error,
+body.theme-macosclassic .qs-card.offline .qs-value,
+body.theme-macosclassic .status-card.offline .sc-state,
+body.theme-macosclassic .test-result.error,
+body.theme-modernlight .qs-card.offline .qs-value,
+body.theme-modernlight .status-card.offline .sc-state,
+body.theme-modernlight .test-result.error {
+  color: #cc0000 !important;
+}
+
+/* 3. Skinned Table Headers (Aero, Classic, Luna, and Royal) */
+body.theme-win95 .native-table th,
+body.theme-win98 .native-table th,
+body.theme-win95 th,
+body.theme-win98 th {
+  background: var(--bg-btn) !important;
+  color: var(--text) !important;
+  border-top: 1px solid var(--border-light) !important;
+  border-left: 1px solid var(--border-light) !important;
+  border-right: 1px solid var(--border-dark) !important;
+  border-bottom: 1px solid var(--border-dark) !important;
+  box-shadow: none !important;
+}
+
+body.theme-winxp .native-table th,
+body.theme-winxp th {
+  background: linear-gradient(180deg, #ffffff 0%, #ece9d8 100%) !important;
+  color: #000000 !important;
+  border-right: 1px solid #aca899 !important;
+  border-bottom: 1px solid #aca899 !important;
+  border-left: none !important;
+  border-top: none !important;
+  box-shadow: none !important;
+}
+
+body.theme-royalenoir .native-table th,
+body.theme-royalenoir th {
+  background: linear-gradient(180deg, #444444 0%, #282828 100%) !important;
+  color: #ffffff !important;
+  border-right: 1px solid #141414 !important;
+  border-bottom: 1px solid #606060 !important;
+  border-left: none !important;
+  border-top: none !important;
+  box-shadow: none !important;
+}
+
+body.theme-winvista .native-table th,
+body.theme-winvista th {
+  background: linear-gradient(180deg, #f2f6fa 0%, #d5e1ee 100%) !important;
+  color: #1a2a3a !important;
+  border-right: 1px solid #a0b0c0 !important;
+  border-bottom: 1px solid #708090 !important;
+  border-left: none !important;
+  border-top: none !important;
+  text-shadow: none !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5) !important;
+}
+
+body.theme-win7 .native-table th,
+body.theme-win7 th {
+  background: linear-gradient(180deg, #f2f7fc 0%, #e3effd 100%) !important;
+  color: #1e395b !important;
+  border-right: 1px solid #d9e1e8 !important;
+  border-bottom: 1px solid #b8c7d9 !important;
+  border-left: none !important;
+  border-top: none !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6) !important;
+}
+
+body.theme-macosclassic .native-table th,
+body.theme-macosclassic th {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid #000000 !important;
+  box-shadow: none !important;
+}
+
+/* Image loading skeleton loaders */
+@keyframes skeleton-pulse {
+  0% {
+    background-color: var(--bg-dark);
+    opacity: 0.7;
+  }
+  50% {
+    background-color: var(--border-dark);
+    opacity: 0.9;
+  }
+  100% {
+    background-color: var(--bg-dark);
+    opacity: 0.7;
+  }
+}
+
+.image-loading-placeholder {
+  animation: skeleton-pulse 1.8s infinite ease-in-out !important;
+  background-size: 200% 200%;
+}
+
+#photoDetailImage.image-loading-placeholder {
+  aspect-ratio: 16/9;
+  min-height: 220px;
+}
+
+#lightboxImage.image-loading-placeholder {
+  aspect-ratio: 1/1;
+  min-width: 280px;
+  min-height: 280px;
+}
+
+/* Redesigned Profile Details View */
+.profile-card-container {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.profile-banner-container {
+  height: 140px;
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  flex-shrink: 0;
+}
+
+.profile-banner-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.15) 0%, rgba(0, 0, 0, 0.65) 100%);
+}
+
+.profile-header-content {
+  display: flex;
+  flex-direction: row;
+  padding: 16px;
+  gap: 16px;
+  align-items: flex-end;
+  position: relative;
+  margin-top: -55px; /* Overlap avatar onto banner */
+  z-index: 2;
+}
+
+.profile-avatar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  width: 80px;
+  height: 80px;
+}
+
+.profile-avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 4px solid var(--bg-panel);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+  background: var(--bg-panel);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.profile-avatar-image:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5);
+}
+
+.profile-identity-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-grow: 1;
+}
+
+.profile-display-name {
+  font-size: 20px;
+  font-weight: bold;
+  color: #ffffff; /* Contrast on banner overlay */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  line-height: 1.2;
+}
+
+.profile-username-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.profile-username {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85); /* Contrast on banner overlay */
+  font-family: var(--font-mono);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.profile-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--bg-dark);
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.profile-body-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  padding-top: 8px;
+  background: var(--bg-panel);
+}
+
+/* 2-column details underneath header info */
+.profile-details-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .profile-details-grid {
+    grid-template-columns: 280px 1fr;
+    gap: 16px;
+  }
+}
+
+.profile-sidebar-stats {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .profile-sidebar-stats {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+.profile-stat-item {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: var(--bg-dark);
+  padding: 10px;
+  border-radius: 4px;
+  text-align: center;
+  min-height: 52px;
+  box-sizing: border-box;
+}
+
+.profile-stat-val {
+  font-family: var(--font-mono);
+  font-weight: bold;
+  font-size: 16px;
+  color: var(--green);
+  line-height: 1;
+}
+
+.profile-stat-lbl {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-weight: bold;
+  margin-top: 4px;
+  letter-spacing: 0.5px;
+}
+
+.profile-bio-box {
+  background: var(--bg-dark);
+  padding: 14px;
+  border-radius: 4px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-bio-title {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-bottom: 8px;
+  border-bottom: 1px dashed var(--border-dark);
+  padding-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.profile-bio-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-ui);
+}
+
+/* Premium Profile tabs style */
+.profile-tabs-nav {
+  display: flex;
+  gap: 20px;
+  margin-top: 20px;
+  border-bottom: 1px solid var(--border-dark);
+  padding-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.profile-tab-btn {
+  font-size: 12px;
+  font-weight: bold;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.profile-tab-btn:hover {
+  color: var(--text) !important;
+}
+
+.profile-tab-btn.active {
+  color: var(--green) !important;
+  border-bottom: 2px solid var(--green) !important;
+}
+
+.profile-activity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--bg-dark);
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--green);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.profile-activity-badge::before {
+  content: "ROOM: ";
+  color: var(--text-muted);
+  font-size: 8px;
+  font-family: var(--font-mono);
+}
+
+/* Redesigned Room Details Card */
+.room-card-container {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.room-card-main {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 16px;
+}
+
+@media (min-width: 768px) {
+  .room-card-main {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+}
+
+.room-thumbnail-wrapper {
+  width: 100%;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+  .room-thumbnail-wrapper {
+    width: 280px;
+  }
+}
+
+.room-thumbnail-image {
+  width: 100%;
+  aspect-ratio: 16/9;
+  object-fit: contain;
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  background: var(--bg-dark);
+  border-radius: 4px;
+  transition: border-color 0.2s ease;
+}
+
+.room-details-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-grow: 1;
+  text-align: left;
+}
+
+.room-title {
+  font-size: 22px;
+  font-weight: bold;
+  color: var(--text);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.room-creator-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: var(--bg-dark);
+  width: fit-content;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.room-creator-box:hover {
+  background: var(--bg-btn);
+}
+
+.room-creator-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 5px;
+  object-fit: cover;
+  border: 1px solid var(--border-dark);
+}
+
+.room-creator-info {
+  display: flex;
+  flex-direction: column;
+  leading-tight: 1.1;
+}
+
+.room-creator-name {
+  font-weight: bold;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.room-creator-handle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.room-description {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  margin: 4px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-ui);
+}
+
+.room-card-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 16px 16px;
+  background: var(--bg-panel);
+}
+
+.room-stats-grid {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.room-stat-item {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: var(--bg-dark);
+  padding: 10px;
+  border-radius: 4px;
+  text-align: center;
+  min-height: 52px;
+  box-sizing: border-box;
+  min-width: 90px;
+}
+
+.room-stat-val {
+  font-family: var(--font-mono);
+  font-weight: bold;
+  font-size: 16px;
+  color: var(--green);
+  line-height: 1;
+}
+
+.room-stat-lbl {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-weight: bold;
+  margin-top: 4px;
+  letter-spacing: 0.5px;
+}
+
+.room-meta-bar {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-dark);
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-dark);
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.room-meta-bar span {
+  color: var(--text);
+}
+
+/* ==========================================================================
+   Redesigned Home Tab Layout - ONLY for Modern Themes (Sleek Dashboard Look)
+   ========================================================================== */
+
+/* 1. Launch Panel Container */
+body.theme-moderndark .launch-panel,
+body.theme-moderngreen .launch-panel,
+body.theme-modernlight .launch-panel {
+  background: linear-gradient(135deg, var(--bg-panel) 0%, var(--bg-dark) 100%) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3) !important;
+  padding: 0 !important;
+}
+
+/* Glassmorphism accent for Modern Glass Light Theme */
+body.theme-modernlight .launch-panel {
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(16px) !important;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* 2. Header Band inside Launch Panel */
+body.theme-moderndark .launch-header-band,
+body.theme-moderngreen .launch-header-band,
+body.theme-modernlight .launch-header-band {
+  background: transparent !important;
+  border-bottom: 1px solid var(--border-light) !important;
+  padding: 12px 24px !important;
+}
+
+body.theme-moderndark .launch-band-title,
+body.theme-moderngreen .launch-band-title,
+body.theme-modernlight .launch-band-title {
+  font-family: 'Orbitron', var(--font-mono) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  letter-spacing: 4px !important;
+  color: var(--green) !important;
+  text-shadow: 0 0 10px rgba(255, 0, 127, 0.2) !important;
+}
+
+body.theme-moderngreen .launch-band-title {
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.2) !important;
+}
+
+body.theme-modernlight .launch-band-title {
+  text-shadow: 0 0 10px rgba(79, 70, 229, 0.2) !important;
+}
+
+/* 3. Controls Row inside Launch Panel */
+body.theme-moderndark .launch-controls-row,
+body.theme-moderngreen .launch-controls-row,
+body.theme-modernlight .launch-controls-row {
+  padding: 24px !important;
+  gap: 24px !important;
+}
+
+/* 4. Play Mode Slide Capsule Switch */
+body.theme-moderndark .mode-toggle-wrap,
+body.theme-moderngreen .mode-toggle-wrap,
+body.theme-modernlight .mode-toggle-wrap {
+  border-radius: 20px !important;
+  background: var(--bg-dark) !important;
+  border: 1px solid var(--border-light) !important;
+  padding: 3px !important;
+  display: inline-flex !important;
+  gap: 4px !important;
+}
+
+body.theme-moderndark .mode-btn,
+body.theme-moderngreen .mode-btn,
+body.theme-modernlight .mode-btn {
+  border-radius: 16px !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--text-muted) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  padding: 6px 18px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+}
+
+body.theme-moderndark .mode-btn.active {
+  background: var(--green) !important; /* Neon Pink active */
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(255, 0, 127, 0.3) !important;
+}
+
+body.theme-moderngreen .mode-btn.active {
+  background: var(--green) !important; /* Emerald active */
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3) !important;
+}
+
+body.theme-modernlight .mode-btn.active {
+  background: var(--green) !important; /* Indigo active */
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3) !important;
+}
+
+/* 5. Modern Outline Action Buttons */
+body.theme-moderndark .launch-secondary-actions button,
+body.theme-moderngreen .launch-secondary-actions button,
+body.theme-modernlight .launch-secondary-actions button {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  padding: 6px 14px !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: var(--text-muted) !important;
+  transition: all 0.2s ease !important;
+}
+
+body.theme-moderndark .launch-secondary-actions button:hover {
+  background: rgba(255, 0, 127, 0.08) !important;
+  border-color: var(--green) !important;
+  color: var(--text) !important;
+}
+
+body.theme-moderngreen .launch-secondary-actions button:hover {
+  background: rgba(16, 185, 129, 0.08) !important;
+  border-color: var(--green) !important;
+  color: var(--text) !important;
+}
+
+body.theme-modernlight .launch-secondary-actions button:hover {
+  background: rgba(79, 70, 229, 0.08) !important;
+  border-color: var(--green) !important;
+  color: var(--text) !important;
+}
+
+/* 6. Glowing PLAY Button */
+body.theme-moderndark .btn-play,
+body.theme-moderngreen .btn-play,
+body.theme-modernlight .btn-play {
+  border: none !important;
+  border-radius: 12px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  width: 120px !important;
+  height: 68px !important;
+}
+
+body.theme-moderndark .btn-play {
+  background: linear-gradient(135deg, #ff007f 0%, #7c3aed 100%) !important;
+  box-shadow: 0 4px 15px rgba(255, 0, 127, 0.35) !important;
+}
+
+body.theme-moderndark .btn-play:hover {
+  background: linear-gradient(135deg, #ff3399 0%, #8b5cf6 100%) !important;
+  box-shadow: 0 8px 25px rgba(255, 0, 127, 0.5) !important;
+}
+
+body.theme-moderndark .btn-play:active {
+  transform: scale(0.97) !important;
+  box-shadow: 0 2px 10px rgba(255, 0, 127, 0.3) !important;
+}
+
+body.theme-moderngreen .btn-play {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35) !important;
+}
+
+body.theme-moderngreen .btn-play:hover {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%) !important;
+  box-shadow: 0 8px 25px rgba(16, 185, 129, 0.5) !important;
+}
+
+body.theme-moderngreen .btn-play:active {
+  transform: scale(0.97) !important;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.3) !important;
+}
+
+body.theme-modernlight .btn-play {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35) !important;
+}
+
+body.theme-modernlight .btn-play:hover {
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%) !important;
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.5) !important;
+}
+
+body.theme-modernlight .btn-play:active {
+  transform: scale(0.97) !important;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.3) !important;
+}
+
+/* 7. Quick Stats Cards (.qs-card) */
+body.theme-moderndark .qs-card,
+body.theme-moderngreen .qs-card,
+body.theme-modernlight .qs-card {
+  border-radius: 8px !important;
+  border: 1px solid var(--border-light) !important;
+  border-left: 4px solid var(--border-light) !important;
+  background: var(--bg-panel) !important;
+  padding: 12px 16px !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Glassmorphism stats for Modern Light */
+body.theme-modernlight .qs-card {
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04) !important;
+}
+
+body.theme-moderndark .qs-card:hover,
+body.theme-moderngreen .qs-card:hover,
+body.theme-modernlight .qs-card:hover {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25) !important;
+}
+
+body.theme-modernlight .qs-card:hover {
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.1) !important;
+}
+
+/* Status specific left-borders */
+body.theme-moderndark .qs-card.online,
+body.theme-moderngreen .qs-card.online,
+body.theme-modernlight .qs-card.online {
+  border-left-color: var(--status-online) !important;
+}
+body.theme-moderndark .qs-card.offline,
+body.theme-moderngreen .qs-card.offline,
+body.theme-modernlight .qs-card.offline {
+  border-left-color: #ef4444 !important;
+}
+body.theme-moderndark .qs-card.installed,
+body.theme-moderngreen .qs-card.installed,
+body.theme-modernlight .qs-card.installed {
+  border-left-color: var(--status-online) !important;
+}
+body.theme-moderndark .qs-card.not-installed,
+body.theme-moderngreen .qs-card.not-installed,
+body.theme-modernlight .qs-card.not-installed {
+  border-left-color: #f59e0b !important;
+}
+body.theme-moderndark .qs-card.mode-vr,
+body.theme-moderngreen .qs-card.mode-vr,
+body.theme-modernlight .qs-card.mode-vr {
+  border-left-color: #3b82f6 !important;
+}
+body.theme-moderndark .qs-card.mode-screen,
+body.theme-moderngreen .qs-card.mode-screen,
+body.theme-modernlight .qs-card.mode-screen {
+  border-left-color: var(--green) !important;
+}
+
+/* 8. Glowing Circular Status Indicator Dots */
+body.theme-moderndark .qs-icon-indicator,
+body.theme-moderngreen .qs-icon-indicator,
+body.theme-modernlight .qs-icon-indicator {
+  border-radius: 50% !important;
+  width: 8px !important;
+  height: 8px !important;
+  transition: all 0.2s ease !important;
+}
+
+body.theme-moderndark .qs-card.online .qs-icon-indicator,
+body.theme-moderngreen .qs-card.online .qs-icon-indicator,
+body.theme-modernlight .qs-card.online .qs-icon-indicator {
+  background: var(--status-online) !important;
+  box-shadow: 0 0 10px var(--status-online) !important;
+}
+
+body.theme-moderndark .qs-card.offline .qs-icon-indicator,
+body.theme-moderngreen .qs-card.offline .qs-icon-indicator,
+body.theme-modernlight .qs-card.offline .qs-icon-indicator {
+  background: #ef4444 !important;
+  box-shadow: 0 0 10px #ef4444 !important;
+}
+
+body.theme-moderndark .qs-card.installed .qs-icon-indicator,
+body.theme-moderngreen .qs-card.installed .qs-icon-indicator,
+body.theme-modernlight .qs-card.installed .qs-icon-indicator {
+  background: var(--status-online) !important;
+  box-shadow: 0 0 10px var(--status-online) !important;
+}
+
+body.theme-moderndark .qs-card.not-installed .qs-icon-indicator,
+body.theme-moderngreen .qs-card.not-installed .qs-icon-indicator,
+body.theme-modernlight .qs-card.not-installed .qs-icon-indicator {
+  background: #f59e0b !important;
+  box-shadow: 0 0 10px #f59e0b !important;
+}
+
+/* 9. Text Value Labels inside Stats cards */
+body.theme-moderndark .qs-value,
+body.theme-moderngreen .qs-value,
+body.theme-modernlight .qs-value {
+  font-size: 13px !important;
+  letter-spacing: 0.5px !important;
+}
+
+/* ==========================================================================
+   Redesigned Rooms/People Tab Layout - ONLY for Modern Themes
+   ========================================================================== */
+
+/* 1. Sleek Modern Search Bars (.native-search-bar input) */
+body.theme-moderndark .native-search-bar input,
+body.theme-moderngreen .native-search-bar input,
+body.theme-modernlight .native-search-bar input {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 20px !important;
+  padding: 8px 16px !important;
+  background: var(--bg-dark) !important;
+  color: var(--text) !important;
+  font-size: 11.5px !important;
+  font-family: var(--font-ui) !important;
+  box-shadow: none !important;
+  transition: all 0.25s ease !important;
+  outline: none !important;
+}
+
+body.theme-moderndark .native-search-bar input:focus,
+body.theme-moderngreen .native-search-bar input:focus,
+body.theme-modernlight .native-search-bar input:focus {
+  border-color: var(--green) !important;
+  box-shadow: 0 0 10px rgba(255, 0, 127, 0.2) !important;
+}
+body.theme-moderngreen .native-search-bar input:focus {
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2) !important;
+}
+body.theme-modernlight .native-search-bar input:focus {
+  box-shadow: 0 0 10px rgba(79, 70, 229, 0.15) !important;
+}
+
+/* 2. Modern Tag Button Filters & Sort Buttons (.filter-btn, .sort-btn) */
+body.theme-moderndark .filter-btn,
+body.theme-moderndark .sort-btn,
+body.theme-moderngreen .filter-btn,
+body.theme-moderngreen .sort-btn,
+body.theme-modernlight .filter-btn,
+body.theme-modernlight .sort-btn {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  background: var(--bg-panel) !important;
+  color: var(--text-muted) !important;
+  padding: 6px 12px !important;
+  text-decoration: none !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  transition: all 0.2s ease !important;
+  box-shadow: none !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  font-family: var(--font-ui) !important;
+}
+
+body.theme-moderndark .filter-btn:hover,
+body.theme-moderndark .sort-btn:hover,
+body.theme-moderngreen .filter-btn:hover,
+body.theme-moderngreen .sort-btn:hover,
+body.theme-modernlight .filter-btn:hover,
+body.theme-modernlight .sort-btn:hover {
+  background: var(--bg-dark) !important;
+  color: var(--text) !important;
+  border-color: var(--green) !important;
+}
+
+body.theme-moderndark .filter-btn.active,
+body.theme-moderndark .sort-btn.active,
+body.theme-moderngreen .filter-btn.active,
+body.theme-moderngreen .sort-btn.active,
+body.theme-modernlight .filter-btn.active,
+body.theme-modernlight .sort-btn.active {
+  background: var(--green) !important;
+  color: #ffffff !important;
+  border-color: var(--green) !important;
+  text-decoration: none !important;
+}
+
+body.theme-moderndark .filter-btn.active,
+body.theme-moderndark .sort-btn.active {
+  box-shadow: 0 4px 12px rgba(255, 0, 127, 0.3) !important;
+}
+body.theme-moderngreen .filter-btn.active,
+body.theme-moderngreen .sort-btn.active {
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3) !important;
+}
+body.theme-modernlight .filter-btn.active,
+body.theme-modernlight .sort-btn.active {
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25) !important;
+}
+
+/* 3. Sleek Rounded Room Cards (.room-card) */
+body.theme-moderndark .room-card,
+body.theme-moderngreen .room-card,
+body.theme-modernlight .room-card {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 12px !important;
+  background: var(--bg-panel) !important;
+  padding: 10px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06) !important;
+}
+
+body.theme-modernlight .room-card {
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04) !important;
+}
+
+body.theme-moderndark .room-card-image,
+body.theme-moderngreen .room-card-image,
+body.theme-modernlight .room-card-image {
+  border-radius: 8px !important;
+  border: none !important;
+}
+
+body.theme-moderndark .room-card-name,
+body.theme-moderngreen .room-card-name,
+body.theme-modernlight .room-card-name {
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--text) !important;
+  margin-top: 6px !important;
+}
+
+body.theme-moderndark .room-card-creator,
+body.theme-moderngreen .room-card-creator,
+body.theme-modernlight .room-card-creator {
+  font-family: var(--font-ui) !important;
+  font-size: 11px !important;
+  color: var(--text-muted) !important;
+  text-decoration: none !important;
+}
+
+body.theme-moderndark .room-card-creator:hover,
+body.theme-moderngreen .room-card-creator:hover,
+body.theme-modernlight .room-card-creator:hover {
+  color: var(--green) !important;
+}
+
+body.theme-moderndark .room-card-stats,
+body.theme-moderngreen .room-card-stats,
+body.theme-modernlight .room-card-stats {
+  font-size: 11px !important;
+  font-family: var(--font-ui) !important;
+  color: var(--text-muted) !important;
+  margin-top: 4px !important;
+}
+
+/* ==========================================================================
+   Modern UI Animations System
+   ========================================================================== */
+
+/* Fade-in and slide-up transition for tab panels */
+body.animations-enabled.theme-moderndark .tab-panel.active,
+body.animations-enabled.theme-moderngreen .tab-panel.active,
+body.animations-enabled.theme-modernlight .tab-panel.active {
+  animation: modernTabFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+@keyframes modernTabFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Sidebar Nav Hover sliding transition */
+body.animations-enabled.theme-moderndark .nav-btn,
+body.animations-enabled.theme-moderngreen .nav-btn,
+body.animations-enabled.theme-modernlight .nav-btn {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+body.animations-enabled.theme-moderndark .nav-btn:hover,
+body.animations-enabled.theme-moderngreen .nav-btn:hover,
+body.animations-enabled.theme-modernlight .nav-btn:hover {
+  transform: translateX(4px) !important;
+}
+
+/* Room Card hover lifts and shadows */
+body.animations-enabled.theme-moderndark .room-card:hover,
+body.animations-enabled.theme-moderngreen .room-card:hover,
+body.animations-enabled.theme-modernlight .room-card:hover {
+  transform: translateY(-4px) scale(1.02) !important;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2) !important;
+}
+body.animations-enabled.theme-modernlight .room-card:hover {
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* Smooth active button click compression scaling */
+body.animations-enabled.theme-moderndark .btn-play:active,
+body.animations-enabled.theme-moderngreen .btn-play:active,
+body.animations-enabled.theme-modernlight .btn-play:active,
+body.animations-enabled.theme-moderndark .btn-download-big:active,
+body.animations-enabled.theme-moderngreen .btn-download-big:active,
+body.animations-enabled.theme-modernlight .btn-download-big:active,
+body.animations-enabled.theme-moderndark .modal-btn:active,
+body.animations-enabled.theme-moderngreen .modal-btn:active,
+body.animations-enabled.theme-modernlight .modal-btn:active,
+body.animations-enabled.theme-moderndark .btn-exclude-av:active,
+body.animations-enabled.theme-moderngreen .btn-exclude-av:active,
+body.animations-enabled.theme-modernlight .btn-exclude-av:active,
+body.animations-enabled.theme-moderndark .launch-secondary-actions button:active,
+body.animations-enabled.theme-moderngreen .launch-secondary-actions button:active,
+body.animations-enabled.theme-modernlight .launch-secondary-actions button:active {
+  transform: scale(0.96) !important;
+}
+
+/* Modern Theme overrides for Rooms tab inner containers and headers */
+body.theme-moderndark #roomsListView .border,
+body.theme-moderngreen #roomsListView .border,
+body.theme-modernlight #roomsListView .border {
+  background: var(--bg-panel) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+body.theme-moderndark #roomsListView .sg-title,
+body.theme-moderngreen #roomsListView .sg-title,
+body.theme-modernlight #roomsListView .sg-title {
+  border-bottom: 1px solid var(--border-light) !important;
+  color: var(--green) !important;
+  font-family: var(--font-ui) !important;
+  text-transform: uppercase !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  letter-spacing: 1px !important;
+}
+
+body.theme-moderndark .native-grid-container,
+body.theme-moderngreen .native-grid-container,
+body.theme-modernlight .native-grid-container {
+  background: var(--bg-dark) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 12px !important;
+  padding: 12px !important;
+}
+
+body.theme-moderndark .native-pagination,
+body.theme-moderngreen .native-pagination,
+body.theme-modernlight .native-pagination {
+  border-top: 1px solid var(--border-light) !important;
+}
+
+body.theme-moderndark #txtRoomsPage,
+body.theme-moderngreen #txtRoomsPage,
+body.theme-modernlight #txtRoomsPage,
+body.theme-moderndark #txtPeoplePage,
+body.theme-moderngreen #txtPeoplePage,
+body.theme-modernlight #txtPeoplePage {
+  font-family: var(--font-ui) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+body.theme-moderndark .btn-refresh:disabled,
+body.theme-moderngreen .btn-refresh:disabled,
+body.theme-modernlight .btn-refresh:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  background: transparent !important;
+  border-color: var(--border-light) !important;
+  color: var(--text-muted) !important;
+}
+
+/* Modern Rooms Details View styling overrides */
+body.theme-moderndark .room-card-container,
+body.theme-moderngreen .room-card-container,
+body.theme-modernlight .room-card-container {
+  background: var(--bg-panel) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2) !important;
+  overflow: hidden !important;
+}
+
+body.theme-modernlight .room-card-container {
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05) !important;
+}
+
+body.theme-moderndark .room-thumbnail-image,
+body.theme-moderngreen .room-thumbnail-image,
+body.theme-modernlight .room-thumbnail-image {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  background: var(--bg-dark) !important;
+}
+
+body.theme-moderndark .room-creator-box,
+body.theme-moderngreen .room-creator-box,
+body.theme-modernlight .room-creator-box {
+  background: var(--bg-dark) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+}
+
+body.theme-moderndark .room-creator-box:hover,
+body.theme-moderngreen .room-creator-box:hover,
+body.theme-modernlight .room-creator-box:hover {
+  background: var(--bg-btn) !important;
+  border-color: var(--green) !important;
+}
+
+body.theme-moderndark .room-creator-avatar,
+body.theme-moderngreen .room-creator-avatar,
+body.theme-modernlight .room-creator-avatar {
+  border: none !important;
+  border-radius: 6px !important;
+}
+
+body.theme-moderndark .room-stat-item,
+body.theme-moderngreen .room-stat-item,
+body.theme-modernlight .room-stat-item {
+  background: var(--bg-dark) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  padding: 12px 8px !important;
+  transition: all 0.2s ease !important;
+}
+
+body.theme-moderndark .room-meta-bar,
+body.theme-moderngreen .room-meta-bar,
+body.theme-modernlight .room-meta-bar {
+  background: var(--bg-dark) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+body.theme-moderndark #roomsDetailPhotosSection h4,
+body.theme-moderngreen #roomsDetailPhotosSection h4,
+body.theme-modernlight #roomsDetailPhotosSection h4 {
+  font-family: var(--font-ui) !important;
+  border-bottom: 1px solid var(--border-light) !important;
+  letter-spacing: 0.5px !important;
+  color: var(--text) !important;
+}
+
+/* Animations updates inside Modern UI Animations System */
+body.animations-enabled.theme-moderndark .room-card,
+body.animations-enabled.theme-moderngreen .room-card,
+body.animations-enabled.theme-modernlight .room-card {
+  animation: modernCardFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+body.animations-enabled.theme-moderndark #roomsDetailView:not(.hidden),
+body.animations-enabled.theme-moderngreen #roomsDetailView:not(.hidden),
+body.animations-enabled.theme-modernlight #roomsDetailView:not(.hidden) {
+  animation: modernTabFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+body.animations-enabled.theme-moderndark .room-stat-item:hover,
+body.animations-enabled.theme-moderngreen .room-stat-item:hover,
+body.animations-enabled.theme-modernlight .room-stat-item:hover {
+  border-color: var(--green) !important;
+  transform: translateY(-2px) !important;
+}
+
+@keyframes modernCardFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Clip sharp corners of modal children (titlebar/footer) to respect the parent's rounded border-radius */
+body.theme-moderndark .modal-box,
+body.theme-moderngreen .modal-box,
+body.theme-modernlight .modal-box {
+  overflow: hidden !important;
+}
+
+
+
+
+
+

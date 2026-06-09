@@ -2,21 +2,12 @@
   "name": "radium-launcher",
   "version": "2.0.0",
   "description": "Radium — Custom Rec Room Private Server Launcher",
-  "main": "electron/main.js",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/abod124-sudo/Radium-Launcher.git"
-  },
+  "private": true,
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
-    "build": "electron-builder --config electron-builder.config.js --win --x64 --arm64"
+    "dev": "tauri dev",
+    "build": "tauri build"
   },
   "devDependencies": {
-    "electron": "^36.3.1",
-    "electron-builder": "^26.0.12"
-  },
-  "dependencies": {
-    "extract-zip": "^2.0.1"
+    "@tauri-apps/cli": "^2"
   }
 }

@@ -1,0 +1,500 @@
+﻿diff --git a/src/index.html b/src/index.html
+index b2c0b1d..e4ccd71 100644
+--- a/src/index.html
++++ b/src/index.html
+@@ -2,7 +2,7 @@
+ <html lang="en">
+ <head>
+   <meta charset="UTF-8" />
+-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.radie.app https://radie.app https://img.radie.app https://www.radie.app; frame-src 'self' https://*.radie.app https://radie.app;" />
++  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https:;" />
+   <title>Radium Launcher</title>
+   <link rel="preconnect" href="https://fonts.googleapis.com" />
+   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+@@ -30,7 +30,7 @@
+     <aside class="sidebar">
+       <div class="sidebar-logo">
+         <div class="logo-combo" id="logoCombo">
+-          <img src="../logo.png" alt="Radium Icon" id="sidebarLogo" />
++          <img src="logo.png" alt="Radium Icon" id="sidebarLogo" />
+           <div class="logo-wordmark">
+             <div class="wordmark-text">RADIUM</div>
+           </div>
+@@ -201,7 +201,7 @@
+             <div class="flex-1 flex flex-col overflow-hidden">
+               <!-- Search Bar -->
+               <div class="native-search-bar mb-2">
+-                <input type="text" id="roomsSearch" class="cfg-input w-full" placeholder="Search rooms..." style="font-size: 11px;" />
++                <input type="text" id="roomsSearch" class="cfg-input w-full" placeholder="Search rooms..." style="font-size: 11px;" autocomplete="off" />
+               </div>
+               <!-- Rooms Grid Container -->
+               <div class="native-grid-container flex-1 overflow-auto bevel-inset p-2">
+@@ -224,42 +224,51 @@
+               <button id="btnRoomsBack" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">ΓåÉ Back to List</button>
+             </div>
+             <div class="bevel-inset flex-1 p-4 overflow-y-auto" style="background: var(--bg-dark); min-height: 0;">
+-              <div style="max-width: 900px; margin: 0 auto; width: 100%;">
+-                <div class="flex flex-col md:flex-row gap-4 items-start w-full">
+-                <!-- Left: Room Image -->
+-                <div style="width: 100%; max-width: 320px; flex-shrink: 0;">
+-                  <img id="roomsDetailImage" src="" alt="Room Thumbnail" style="width: 100%; aspect-ratio: 16/9; object-fit: cover; border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark); background: var(--bg-panel);" />
+-                </div>
+-                <!-- Right: Details Info Block -->
+-                <div class="flex-1 flex flex-col gap-2.5 text-left w-full">
+-                  <h3 id="roomsDetailName" style="font-size: 20px; font-weight: bold; color: var(--text); margin: 0;">Room Name</h3>
+-                  <!-- Creator Block -->
+-                  <div id="roomsDetailCreatorLink" class="flex gap-2 items-center cursor-pointer" style="text-decoration: none; width: fit-content;">
+-                    <img id="roomsDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" style="width: 34px; height: 34px; border-radius: 5px; object-fit: cover; border: 1px solid var(--border-dark);" />
+-                    <div class="flex flex-col leading-tight">
+-                      <span id="roomsDetailCreatorName" style="font-weight: bold; font-size: 12px; color: var(--text);">Coach</span>
+-                      <span id="roomsDetailCreatorHandle" style="font-size: 11px; color: var(--text-muted);">@Coach</span>
++              <!-- Redesigned Room Header Container -->
++              <div class="room-card-container bevel-inset">
++                <div class="room-card-main">
++                  <!-- Left Column: Thumbnail -->
++                  <div class="room-thumbnail-wrapper">
++                    <img id="roomsDetailImage" class="room-thumbnail-image image-loading-placeholder" src="" alt="Room Thumbnail" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
++                  </div>
++
++                  <!-- Right Column: Details info -->
++                  <div class="room-details-content">
++                    <h3 id="roomsDetailName" class="room-title">Room Name</h3>
++                    
++                    <!-- Creator Signature Box -->
++                    <div id="roomsDetailCreatorLink" class="room-creator-box bevel-inset">
++                      <img id="roomsDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" class="room-creator-avatar image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
++                      <div class="room-creator-info">
++                        <span id="roomsDetailCreatorName" class="room-creator-name">Coach</span>
++                        <span id="roomsDetailCreatorHandle" class="room-creator-handle">@Coach</span>
++                      </div>
+                     </div>
++
++                    <!-- Description -->
++                    <p id="roomsDetailDescription" class="room-description">Room description goes here...</p>
+                   </div>
+-                  <p id="roomsDetailDescription" style="font-size: 11.5px; color: var(--text); line-height: 1.4; margin: 4px 0 8px 0; max-width: 500px;">Room description goes here...</p>
+-                  <!-- Stats Row (Cheers, Favorites, Visits) -->
+-                  <div class="flex border-t" style="border-color: var(--border-dark); padding-top: 8px;">
+-                    <div class="pr-5" style="border-right: 1px dashed var(--border-dark); padding-right: 20px; min-width: 80px;">
+-                      <div id="roomsDetailCheers" style="font-weight: bold; font-size: 14px; color: var(--text);">0</div>
+-                      <div style="font-size: 9px; color: var(--text-muted); font-weight: bold; margin-top: 2px;">CHEERS</div>
++                </div>
++
++                <!-- Footer Stats & Meta -->
++                <div class="room-card-footer">
++                  <div class="room-stats-grid">
++                    <div class="room-stat-item bevel-inset">
++                      <div id="roomsDetailCheers" class="room-stat-val">0</div>
++                      <div class="room-stat-lbl">CHEERS</div>
+                     </div>
+-                    <div class="px-5" style="border-right: 1px dashed var(--border-dark); padding-left: 20px; padding-right: 20px; min-width: 80px;">
+-                      <div id="roomsDetailFavorites" style="font-weight: bold; font-size: 14px; color: var(--text);">0</div>
+-                      <div style="font-size: 9px; color: var(--text-muted); font-weight: bold; margin-top: 2px;">FAVORITES</div>
++                    <div class="room-stat-item bevel-inset">
++                      <div id="roomsDetailFavorites" class="room-stat-val">0</div>
++                      <div class="room-stat-lbl">FAVORITES</div>
+                     </div>
+-                    <div class="pl-5" style="padding-left: 20px; min-width: 80px;">
+-                      <div id="roomsDetailVisits" style="font-weight: bold; font-size: 14px; color: var(--text);">0</div>
+-                      <div style="font-size: 9px; color: var(--text-muted); font-weight: bold; margin-top: 2px;">VISITS</div>
++                    <div class="room-stat-item bevel-inset">
++                      <div id="roomsDetailVisits" class="room-stat-val">0</div>
++                      <div class="room-stat-lbl">VISITS</div>
+                     </div>
+                   </div>
+-                  <!-- Created date -->
+-                  <div style="border-top: 1px dashed var(--border-dark); margin-top: 10px; padding-top: 8px; font-size: 10px; color: var(--text-muted);">
+-                    Created: <span id="roomsDetailCreatedAt" style="color: var(--text);">ΓÇö</span>
++                  
++                  <div class="room-meta-bar font-mono">
++                    Created: <span id="roomsDetailCreatedAt">ΓÇö</span>
+                   </div>
+                 </div>
+               </div>
+@@ -289,7 +298,7 @@
+           <div id="peopleListView" class="flex-1 flex flex-col overflow-hidden" style="min-height: 0;">
+             <!-- Search Bar -->
+             <div class="native-search-bar mb-2">
+-              <input type="text" id="peopleSearch" class="cfg-input w-full" placeholder="Search people..." style="font-size: 11px;" />
++              <input type="text" id="peopleSearch" class="cfg-input w-full" placeholder="Search people..." style="font-size: 11px;" autocomplete="off" />
+             </div>
+             <!-- Table Container -->
+             <div class="native-table-container flex-1 overflow-auto bevel-inset" style="background: var(--bg-panel);">
+@@ -320,60 +329,93 @@
+               <button id="btnPeopleBack" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">ΓåÉ Back to List</button>
+             </div>
+             <div class="bevel-inset flex-1 p-4 overflow-y-auto" style="background: var(--bg-dark); min-height: 0;">
+-              <div style="max-width: 900px; margin: 0 auto; width: 100%;">
+-                <div class="flex flex-col md:flex-row gap-4 items-start w-full">
+-                <!-- Left: Profile Banner Card -->
+-                <div class="border flex flex-col overflow-hidden" style="width: 100%; max-width: 320px; flex-shrink: 0; background: var(--bg-panel); border-radius: 5px; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);">
+-                  <div id="peopleDetailBanner" style="height: 110px; background: linear-gradient(135deg, var(--green-dim), var(--green)); position: relative; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 8px; background-size: cover; background-position: center;">
+-                    <img id="peopleDetailAvatar" src="" alt="Player Avatar" style="width: 64px; height: 64px; border-radius: 6px; object-fit: cover; border: 3px solid #fff; background: var(--bg-panel); box-shadow: 0 2px 4px rgba(0,0,0,0.2);" />
+-                    <div style="margin-top: 6px; text-align: center; line-height: 1.2; z-index: 2;">
+-                      <div id="peopleDetailDisplayName" style="font-weight: bold; font-size: 14px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.8), 0 2px 8px rgba(0,0,0,0.8);">Display Name</div>
+-                      <div id="peopleDetailUsername" style="font-size: 11px; color: rgba(255,255,255,0.9); font-family: var(--font-mono); text-shadow: 0 1px 2px rgba(0,0,0,0.8);">@username</div>
+-                    </div>
++              <!-- Redesigned Profile Header Container -->
++              <div class="profile-card-container bevel-inset">
++                <!-- Banner Area -->
++                <div id="peopleDetailBanner" class="profile-banner-container">
++                  <div class="profile-banner-overlay"></div>
++                </div>
++
++                <!-- Profile Info Header Bar (overlapping the banner) -->
++                <div class="profile-header-content">
++                  <div class="profile-avatar-wrapper">
++                    <img id="peopleDetailAvatar" src="" alt="Player Avatar" class="profile-avatar-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
+                   </div>
+-                  <div style="padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+-                    <!-- Status tag -->
+-                    <div style="display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 10px; font-weight: bold; color: var(--text-muted);">
+-                      <span id="peopleDetailStatusDot" class="status-dot online" style="margin-right: 0;"></span>
+-                      <span id="peopleDetailStatusLabel">ONLINE</span>
++                  <div class="profile-identity-info">
++                    <div id="peopleDetailDisplayName" class="profile-display-name">Display Name</div>
++                     <div class="profile-username-status">
++                      <span id="peopleDetailUsername" class="profile-username">@username</span>
++                      <div class="profile-status-badge bevel-inset">
++                        <span id="peopleDetailStatusDot" class="status-dot online"></span>
++                        <span id="peopleDetailStatusLabel">ONLINE</span>
++                      </div>
++                      <div id="peopleDetailActivityBadge" class="profile-activity-badge bevel-inset" style="display: none;"></div>
+                     </div>
+-                    <!-- Stats Grid -->
+-                    <div class="flex border-t" style="border-color: var(--border-dark); padding-top: 8px; text-align: center; justify-content: space-around;">
+-                      <div class="flex-1" style="border-right: 1px dashed var(--border-dark);">
+-                        <div id="peopleDetailFriends" style="font-weight: bold; font-size: 13px; color: var(--text);">0</div>
+-                        <div style="font-size: 8px; color: var(--text-muted); font-weight: bold;">FRIENDS</div>
++                  </div>
++                </div>
++
++                <!-- Profile Body (Stats & Bio) -->
++                <div class="profile-body-content">
++                  <div class="profile-details-grid">
++                    <!-- Left: Stats -->
++                    <div class="profile-sidebar-stats">
++                      <div class="profile-stat-item bevel-inset">
++                        <div id="peopleDetailFriends" class="profile-stat-val">0</div>
++                        <div class="profile-stat-lbl">FRIENDS</div>
+                       </div>
+-                      <div class="flex-1" style="border-right: 1px dashed var(--border-dark);">
+-                        <div id="peopleDetailSubscribers" style="font-weight: bold; font-size: 13px; color: var(--text);">0</div>
+-                        <div style="font-size: 8px; color: var(--text-muted); font-weight: bold;">SUBSCRIBERS</div>
++                      <div class="profile-stat-item bevel-inset">
++                        <div id="peopleDetailSubscribers" class="profile-stat-val">0</div>
++                        <div class="profile-stat-lbl">SUBSCRIBERS</div>
+                       </div>
+-                      <div class="flex-1">
+-                        <div id="peopleDetailVisits" style="font-weight: bold; font-size: 13px; color: var(--text);">0</div>
+-                        <div style="font-size: 8px; color: var(--text-muted); font-weight: bold;">VISITS</div>
++                      <div class="profile-stat-item bevel-inset">
++                        <div id="peopleDetailVisits" class="profile-stat-val">0</div>
++                        <div class="profile-stat-lbl">VISITS</div>
+                       </div>
+                     </div>
+-                  </div>
+-                </div>
+-                <!-- Right: About Box (Bio) -->
+-                <div class="flex-1 flex flex-col gap-2.5 w-full">
+-                  <div class="border p-3" style="background: var(--bg-panel); border-radius: 5px; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark); width: 100%;">
+-                    <p class="font-bold text-[13px]" style="margin: 0 0 6px 0; border-bottom: 1px dashed var(--border-dark); padding-bottom: 4px;" id="peopleDetailAboutLabel">About Player</p>
+-                    <p id="peopleDetailBio" class="whitespace-pre-wrap" style="font-size: 11.5px; line-height: 1.4; color: var(--text); margin: 0; min-height: 120px; font-family: var(--font-ui);">
+-                      Player bio text goes here...
+-                    </p>
++
++                    <!-- Right: Bio -->
++                    <div class="profile-bio-box bevel-inset">
++                      <div id="peopleDetailAboutLabel" class="profile-bio-title">About Player</div>
++                      <p id="peopleDetailBio" class="profile-bio-text">
++                        Player bio text goes here...
++                      </p>
++                    </div>
+                   </div>
+                 </div>
+               </div>
++              
++              <!-- Redesigned Player Detail Tabs -->
++              <div class="profile-tabs-nav">
++                <div id="tabBtnPeoplePhotos" class="profile-tab-btn active">PHOTOS</div>
++                <div id="tabBtnPeopleFeeds" class="profile-tab-btn">FEEDS</div>
++                <div id="tabBtnPeopleRooms" class="profile-tab-btn">ROOMS</div>
++              </div>
+ 
+-              <!-- Player Photos Section -->
+-              <div id="peopleDetailPhotosSection" class="mt-6 border-t pt-4" style="border-color: var(--border-dark); width: 100%;">
+-                <h4 style="font-size: 13px; font-weight: bold; color: var(--text); margin: 0 0 10px 0; font-family: var(--font-mono); border-bottom: 1px dashed var(--border-dark); padding-bottom: 4px;">PHOTOS</h4>
++              <!-- PHOTOS -->
++              <div id="peopleDetailPhotosSection" class="profile-tab-content" style="margin-top: 15px; width: 100%;">
+                 <div id="peopleDetailPhotosGrid" class="photo-list-vertical">
+-                  <!-- Player photos loaded here -->
++                  <!-- photos inserted here -->
+                 </div>
+-                <div id="peopleDetailPhotosEmpty" class="photo-empty-msg" style="display: none;">No photos found for this player.</div>
++                <div id="peopleDetailPhotosEmpty" class="photo-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No photos found for this player.</div>
+                 <div id="peopleDetailPhotosSentinel" style="height: 1px; width: 100%;"></div>
+               </div>
++
++              <!-- FEEDS -->
++              <div id="peopleDetailFeedsSection" class="profile-tab-content" style="display: none; margin-top: 15px; width: 100%;">
++                <div id="peopleDetailFeedsGrid" class="photo-list-vertical">
++                  <!-- feeds inserted here -->
++                </div>
++                <div id="peopleDetailFeedsEmpty" class="photo-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No feeds found for this player.</div>
++                <div id="peopleDetailFeedsSentinel" style="height: 1px; width: 100%;"></div>
++              </div>
++
++              <!-- ROOMS -->
++              <div id="peopleDetailRoomsSection" class="profile-tab-content" style="display: none; margin-top: 15px; width: 100%;">
++                <div id="peopleDetailRoomsGrid" class="room-list-vertical" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
++                  <!-- rooms inserted here -->
++                </div>
++                <div id="peopleDetailRoomsEmpty" class="room-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No rooms found for this player.</div>
++                <div id="peopleDetailRoomsSentinel" style="height: 1px; width: 100%;"></div>
+               </div>
+             </div>
+           </div>
+@@ -402,16 +444,16 @@
+ 
+ 
+ 
+-          <!-- Client -->
++          <!-- Game Path / Executable -->
+           <div class="settings-group">
+-            <div class="sg-title">CLIENT</div>
++            <div class="sg-title">LAUNCH OPTIONS</div>
+             <div class="sg-row">
+-              <label for="cfgExePath">Launch Script</label>
+-              <input type="text" id="cfgExePath" class="cfg-input" placeholder="Auto-detected after install" readonly />
++              <label for="cfgLaunchOptions">Launch Options</label>
++              <input type="text" id="cfgLaunchOptions" class="cfg-input" placeholder="e.g. -fullscreen -windowed" />
+             </div>
+             <div class="sg-row">
+               <label>Install Location</label>
+-              <span class="cfg-path-display" id="cfgInstallDir">%APPDATA%\radium-launcher\client</span>
++              <span class="cfg-path-display" id="cfgInstallDir">%APPDATA%\com.radium.launcher\client</span>
+               <button class="btn-open-folder" id="btnChangeFolder" title="Change install directory">Change</button>
+               <button class="btn-open-folder" id="btnResetFolder" title="Reset to default directory">Reset</button>
+               <button class="btn-open-folder" id="btnOpenFolderSettings" title="Open client folder">Open</button>
+@@ -448,6 +490,12 @@
+                 <div class="tgl-knob"></div>
+               </div>
+             </div>
++            <div class="sg-toggle-row">
++              <span>Close launcher when game starts</span>
++              <div class="toggle-wrap" id="tgl-closeOnLaunch">
++                <div class="tgl-knob"></div>
++              </div>
++            </div>
+             <div class="sg-toggle-row">
+               <span>Auto-update launcher on startup</span>
+               <div class="toggle-wrap" id="tgl-autoUpdate">
+@@ -460,6 +508,21 @@
+             </div>
+           </div>
+ 
++          <!-- Report a Bug -->
++          <div class="settings-group">
++            <div class="sg-title">REPORT A BUG</div>
++            <div class="sg-row" style="flex-direction: column; align-items: stretch; gap: 8px; width: 100%;">
++              <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">
++                Found an issue? Describe the bug in detail (minimum 10 characters). System diagnostics (OS version, play mode) will be appended automatically.
++              </div>
++              <textarea id="bugReportText" class="cfg-input" placeholder="Describe the steps to reproduce the bug and what happened..." style="width: 100%; min-height: 80px; resize: vertical; padding: 6px; box-sizing: border-box; font-family: var(--font-ui); font-size: 11.5px; background: var(--bg-dark); color: var(--text); border: 1px solid var(--border-dark);"></textarea>
++              <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 4px; width: 100%;">
++                <span id="bugReportStatus" style="font-size: 11px; font-weight: bold; color: var(--text-muted); line-height: 24px; vertical-align: middle;"></span>
++                <button class="btn-refresh" id="btnSubmitBugReport" style="padding: 4px 12px; font-weight: bold; font-size: 11px;">SUBMIT BUG REPORT</button>
++              </div>
++            </div>
++          </div>
++
+           </div>
+         </section>
+ 
+@@ -474,54 +537,50 @@
+             
+             <!-- Large Image Container -->
+             <div class="photo-detail-img-wrap" style="width: 100%; border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark); background: var(--bg-panel); overflow: hidden;">
+-              <img id="photoDetailImage" src="" alt="Photo" style="width: 100%; height: auto; display: block; object-fit: contain; max-height: 400px;" />
++              <img id="photoDetailImage" class="image-loading-placeholder" src="" alt="Photo" style="width: 100%; height: auto; display: block; object-fit: contain; max-height: 400px;" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
+             </div>
+ 
+             <!-- Details Block -->
+-            <div class="border flex flex-col gap-2.5 w-full text-left" style="background: var(--bg-panel); padding: 15px; border-radius: 5px; border: 1px solid var(--border-dark);">
+-              <div class="flex justify-between items-center" style="border-bottom: 1px dashed var(--border-dark); padding-bottom: 6px;">
+-                <!-- Creator Link -->
+-                <div id="photoDetailCreatorLink" class="flex gap-2 items-center cursor-pointer">
+-                  <img id="photoDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" style="width: 34px; height: 34px; border-radius: 5px; object-fit: cover; border: 1px solid var(--border-dark);" />
+-                  <div class="flex flex-col leading-tight">
+-                    <span id="photoDetailCreatorName" style="font-weight: bold; font-size: 12px; color: var(--text);">Loading...</span>
+-                    <span id="photoDetailCreatorHandle" style="font-size: 11px; color: var(--text-muted);">@...</span>
+-                  </div>
++            <div id="photoDetailInfoBlock" class="bevel-inset" style="background: var(--bg-panel); padding: 12px; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; box-sizing: border-box;">
++              <!-- Creator Inset Box -->
++              <div class="bevel-inset" style="grid-column: span 1; background: var(--bg-dark); padding: 8px; display: flex; align-items: center; gap: 8px; box-sizing: border-box; min-height: 52px;">
++                <img id="photoDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" style="width: 34px; height: 34px; border-radius: 5px; object-fit: cover; border: 1px solid var(--border-dark);" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
++                <div id="photoDetailCreatorLink" class="flex flex-col leading-tight cursor-pointer" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
++                  <span id="photoDetailCreatorName" style="font-weight: bold; font-size: 11.5px; color: var(--text);">Loading...</span>
++                  <span id="photoDetailCreatorHandle" style="font-size: 10.5px; color: var(--text-muted);">@...</span>
+                 </div>
+-                <!-- Room Link -->
+-                <div id="photoDetailRoomLink" class="cursor-pointer font-mono" style="font-size: 11px; color: var(--green); text-decoration: underline; display: none;">
+-                  Room: <span id="photoDetailRoomName">ΓÇö</span>
++              </div>
++
++              <!-- Room Inset Box -->
++              <div class="bevel-inset" style="grid-column: span 1; background: var(--bg-dark); padding: 8px; display: flex; align-items: center; justify-content: center; min-height: 52px; box-sizing: border-box;">
++                <div id="photoDetailRoomLink" class="cursor-pointer font-mono" style="font-size: 11px; color: var(--green); text-decoration: underline; display: none; text-align: center; width: 100%; word-break: break-word;">
++                  Room: <span id="photoDetailRoomName" style="font-weight: bold;">ΓÇö</span>
+                 </div>
++                <div id="photoDetailNoRoom" style="font-size: 11px; color: var(--text-muted); text-align: center;">No Room Link</div>
+               </div>
+ 
+-              <!-- Caption -->
+-              <p id="photoDetailCaption" style="font-size: 12px; color: var(--text); line-height: 1.4; margin: 8px 0; min-height: 20px; font-style: italic;">
+-                Loading photo caption...
+-              </p>
++              <!-- Caption (Full Width Inset) -->
++              <div class="bevel-inset" style="grid-column: span 2; background: var(--bg-dark); padding: 10px; box-sizing: border-box;">
++                <div style="font-size: 9px; font-weight: bold; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 6px; border-bottom: 1px dashed var(--border-dark); padding-bottom: 2px;">CAPTION</div>
++                <p id="photoDetailCaption" style="font-size: 12px; color: var(--text); line-height: 1.4; margin: 0; min-height: 20px; font-style: italic; word-break: break-word; white-space: pre-wrap;">
++                  Loading photo caption...
++                </p>
++              </div>
+ 
+-              <!-- Stats & Date Row -->
+-              <div class="flex justify-between items-center border-t" style="border-color: var(--border-dark); padding-top: 8px; font-size: 11px; color: var(--text-muted);">
+-                <div class="flex gap-4">
+-                  <div>
+-                    Cheers: <span id="photoDetailCheers" style="font-weight: bold; color: var(--text);">0</span>
+-                  </div>
+-                  <div>
+-                    Comments: <span id="photoDetailComments" style="font-weight: bold; color: var(--text);">0</span>
+-                  </div>
++              <!-- Stats & Date Grid -->
++              <div class="bevel-inset" style="grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; background: var(--bg-dark); text-align: center; font-size: 11px; box-sizing: border-box;">
++                <div style="border-right: 1px solid var(--border-dark); padding: 6px;">
++                  <div id="photoDetailCheers" style="font-weight: bold; color: var(--text); font-size: 13px;">0</div>
++                  <div style="color: var(--text-muted); font-size: 9px; font-weight: bold; margin-top: 2px;">CHEERS</div>
+                 </div>
+-                <div id="photoDetailCreatedAt">
+-                  ΓÇö
++                <div style="padding: 6px; display: flex; flex-direction: column; justify-content: center; align-items: center;">
++                  <div id="photoDetailCreatedAt" style="font-weight: bold; color: var(--text); font-size: 11px;">ΓÇö</div>
++                  <div style="color: var(--text-muted); font-size: 9px; font-weight: bold; margin-top: 2px;">CREATED AT</div>
+                 </div>
+               </div>
+             </div>
+ 
+-            <!-- Comments Section -->
+-            <div class="w-full text-left">
+-              <div style="font-size: 13px; font-weight: bold; color: var(--text); margin: 0 0 8px 0; font-family: var(--font-mono); border-bottom: 1px dashed var(--border-dark); padding-bottom: 4px;">COMMENTS</div>
+-              <div id="photoDetailCommentsList" style="display: flex; flex-direction: column; gap: 8px;">
+-                <div id="photoDetailCommentsLoading" style="font-size: 11px; color: var(--text-muted); font-style: italic;">Loading comments...</div>
+-              </div>
+-            </div>
++            <!-- Comments Section Removed as requested -->
+ 
+           </div>
+         </div>
+@@ -579,6 +638,50 @@
+     </div>
+   </div>
+ 
++  <!-- Uninstall Confirmation Modal -->
++  <div class="modal-overlay" id="uninstallModal" style="display:none">
++    <div class="modal-box">
++      <div class="modal-titlebar">
++        <span class="modal-title">ΓÜá UNINSTALL CLIENT</span>
++        <button class="modal-close-btn" id="uninstallModalClose">Γ£ò</button>
++      </div>
++      <div class="modal-body">
++        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
++          Are you sure you want to uninstall the Radium client?
++        </p>
++        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
++          This will delete all downloaded game files. You will need to download them again if you want to play.
++        </p>
++      </div>
++      <div class="modal-footer">
++        <button class="modal-btn modal-btn-secondary" id="uninstallCancelBtn">Cancel</button>
++        <button class="modal-btn modal-btn-primary" id="uninstallConfirmBtn" style="background: #e63946; color: white;">Uninstall</button>
++      </div>
++    </div>
++  </div>
++
++  <!-- Reinstall Confirmation Modal -->
++  <div class="modal-overlay" id="reinstallModal" style="display:none">
++    <div class="modal-box">
++      <div class="modal-titlebar">
++        <span class="modal-title">ΓÜá REINSTALL CLIENT</span>
++        <button class="modal-close-btn" id="reinstallModalClose">Γ£ò</button>
++      </div>
++      <div class="modal-body">
++        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
++          Are you sure you want to reinstall the Radium client?
++        </p>
++        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
++          This will delete your current game client files and re-download them from scratch.
++        </p>
++      </div>
++      <div class="modal-footer">
++        <button class="modal-btn modal-btn-secondary" id="reinstallCancelBtn">Cancel</button>
++        <button class="modal-btn modal-btn-primary" id="reinstallConfirmBtn">Reinstall</button>
++      </div>
++    </div>
++  </div>
++
+   <!-- Exclude AV Warning Modal -->
+   <div class="modal-overlay" id="excludeAvModal" style="display:none">
+     <div class="modal-box">
+@@ -629,8 +732,48 @@
+       </div>
+     </div>
+   </div>
++  <!-- Missing Patch DLL Warning Modal -->
++  <div class="modal-overlay" id="dllMissingModal" style="display:none">
++    <div class="modal-box">
++      <div class="modal-titlebar">
++        <span class="modal-title">ΓÜá MISSING GAME PATCH FILE</span>
++        <button class="modal-close-btn" id="dllMissingModalClose">Γ£ò</button>
++      </div>
++      <div class="modal-body">
++        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
++          Critical game file is missing: Radeon.Core.BasePatch.dll
++        </p>
++        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
++          The patch DLL was not found in your game directory. This is usually caused by Windows Defender or other antivirus software removing it as a false positive.
++        </p>
++        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 6px;">
++          Without this DLL, you will not be able to connect to the game servers. Would you like to restore the file now?
++        </p>
++        <p style="font-size: 11px; line-height: 1.3; color: var(--text-muted); margin-top: 10px; font-style: italic;">
++          Tip: After restoring, we highly recommend clicking "Exclude AV" in settings to prevent Windows Defender from deleting it again.
++        </p>
++      </div>
++      <div class="modal-footer">
++        <button class="modal-btn modal-btn-secondary" id="dllLaunchAnywayBtn">Launch Anyway</button>
++        <button class="modal-btn modal-btn-primary" id="dllRestoreBtn">Restore DLL</button>
++      </div>
++    </div>
++  </div>
+ 
+-
++  <!-- Lightbox Modal -->
++  <div class="modal-overlay" id="lightboxModal" style="display:none">
++    <div class="modal-box" style="width: auto; max-width: 400px; margin: 20px;">
++      <div class="modal-titlebar">
++        <span class="modal-title">PROFILE IMAGE PREVIEW</span>
++        <button class="modal-close-btn" id="lightboxCloseBtn">Γ£ò</button>
++      </div>
++      <div class="modal-body" style="padding: 8px;">
++        <div class="bevel-inset" style="padding: 4px; background: var(--bg-dark); display: flex; justify-content: center; align-items: center; box-sizing: border-box; width: 100%;">
++          <img id="lightboxImage" src="" alt="Full size preview" style="max-width: 100%; max-height: 60vh; object-fit: contain; display: block;" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
++        </div>
++      </div>
++    </div>
++  </div>
+ 
+   <!-- Toast -->
+   <div class="toast-container" id="toastContainer"></div>

@@ -4,9 +4,10 @@ node_modules/
 # Production builds
 dist/
 out/
-*.exe
 *.msi
-*.zip
+
+# Rust / Tauri build artifacts
+src-tauri/target/
 
 # OS Files
 .DS_Store
@@ -22,3 +23,6 @@ logs/
 # Local Config
 config.json
 .env
+
+# Lock files (optional)
+package-lock.json
