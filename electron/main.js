@@ -39,6 +39,41 @@ function getClientDir(cfg) {
   return c.installDir || path.join(USER_DATA, 'client');
 }
 
+function safeDeleteGameDir(dir) {
+  if (!dir || !fs.existsSync(dir)) return;
+
+  const defaultDir = path.join(USER_DATA, 'client');
+  if (path.resolve(dir) === path.resolve(defaultDir)) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    return;
+  }
+
+  // For custom directories, carefully remove only likely game files/folders
+  // to avoid deleting the user's personal files if they selected a bad folder.
+  const safeToDelete = (name) => {
+    const lower = name.toLowerCase();
+    if (lower.startsWith('recroom')) return true;
+    if (lower === 'monobleedingedge') return true;
+    if (lower === 'unitycrashhandler64.exe') return true;
+    if (lower === 'unityplayer.dll') return true;
+    if (lower === 'steam_api64.dll') return true;
+    if (lower === 'gameassembly.dll') return true;
+    if (lower === 'baselib.dll') return true;
+    if (lower === 'winpixeventruntime.dll') return true;
+    return false;
+  };
+
+  try {
+    const entries = fs.readdirSync(dir);
+    for (const entry of entries) {
+      if (safeToDelete(entry)) {
+        const fullPath = path.join(dir, entry);
+        try { fs.rmSync(fullPath, { recursive: true, force: true }); } catch {}
+      }
+    }
+  } catch {}
+}
+
 // Config management helper functions
 function ensureConfig() {
   if (!fs.existsSync(USER_DATA)) fs.mkdirSync(USER_DATA, { recursive: true });
@@ -683,10 +718,10 @@ ipcMain.handle('download-client', async (event) => {
 
     // Phase 2: Extract
     progress({ phase: 'extract', pct: 0, status: 'Preparing extraction...' });
-    if (fs.existsSync(clientDir)) {
-      try { fs.rmSync(clientDir, { recursive: true, force: true }); } catch {}
+    safeDeleteGameDir(clientDir);
+    if (!fs.existsSync(clientDir)) {
+      fs.mkdirSync(clientDir, { recursive: true });
     }
-    fs.mkdirSync(clientDir, { recursive: true });
 
     let extractedCount = 0;
     let lastPercent = -1;
@@ -724,7 +759,7 @@ ipcMain.handle('download-client', async (event) => {
 
   } catch (err) {
     try { if (fs.existsSync(CLIENT_ZIP)) fs.unlinkSync(CLIENT_ZIP); } catch {}
-    try { if (fs.existsSync(clientDir)) fs.rmSync(clientDir, { recursive: true, force: true }); } catch {}
+    safeDeleteGameDir(clientDir);
     return { success: false, error: err.message };
   }
 });
@@ -736,9 +771,7 @@ ipcMain.handle('uninstall-client', async () => {
 
   try {
     const clientDir = getClientDir();
-    if (fs.existsSync(clientDir)) {
-      fs.rmSync(clientDir, { recursive: true, force: true });
-    }
+    safeDeleteGameDir(clientDir);
     const cfg = ensureConfig();
     cfg.gameExePath = '';
     cfg.defenderExcluded = false;

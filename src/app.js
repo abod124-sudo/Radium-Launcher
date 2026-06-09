@@ -364,8 +364,11 @@ $('btnChangeFolder')?.addEventListener('click', async () => {
     const span = $('cfgInstallDir');
     if (span) {
       span.textContent = newDir;
-      toast('Install location updated in settings. Click SAVE to apply.', 'info');
+      config.installDir = newDir;
+      await window.radium?.saveConfig(config);
+      toast('Install location updated!', 'ok');
       addLog(`Selected install directory: ${newDir}`, 'info');
+      await checkInstall();
     }
   } else {
     addLog('Install directory selection cancelled.', 'info');
@@ -379,8 +382,11 @@ $('btnResetFolder')?.addEventListener('click', async () => {
     const span = $('cfgInstallDir');
     if (span) {
       span.textContent = defaultDir;
-      toast('Install location reset. Click SAVE to apply.', 'info');
+      config.installDir = ''; // Clear custom dir to use default
+      await window.radium?.saveConfig(config);
+      toast('Install location reset!', 'ok');
       addLog(`Reset install directory to default: ${defaultDir}`, 'info');
+      await checkInstall();
     }
   }
 });
