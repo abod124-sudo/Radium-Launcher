@@ -9,5 +9,8 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
+  },
+  "dependencies": {
+    "jimp": "^0.22.10"
   }
 }

@@ -36,8 +36,12 @@ ${StrLoc}
 !define INSTALLMODE "currentUser"
 !define LICENSE ""
 !define INSTALLERICON ""
-!define SIDEBARIMAGE ""
-!define HEADERIMAGE ""
+!ifndef SIDEBARIMAGE
+  !define SIDEBARIMAGE ""
+!endif
+!ifndef HEADERIMAGE
+  !define HEADERIMAGE ""
+!endif
 !define UNINSTALLERICON ""
 !define UNINSTALLERHEADERIMAGE ""
 !define MAINBINARYNAME "radium-launcher"

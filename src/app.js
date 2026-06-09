@@ -2006,6 +2006,7 @@ async function showPhotoDetails(photo, backToView) {
     imgEl.classList.add('image-loading-placeholder');
     const imgName = photo.ImageName || photo.imageName || '';
     imgEl.src = imgName ? `https://img.radie.app/${imgName}?width=720` : './images.png';
+    imgEl.onload = () => imgEl.classList.remove('image-loading-placeholder');
     imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.classList.remove('image-loading-placeholder'); imgEl.onerror = null; };
   }
   
@@ -2685,6 +2686,7 @@ function showLightbox(src) {
   if (lightboxModal && lightboxImage) {
     lightboxImage.classList.add('image-loading-placeholder');
     lightboxImage.src = src;
+    lightboxImage.onload = () => lightboxImage.classList.remove('image-loading-placeholder');
     lightboxImage.onerror = () => {
       const avatarEl = $('peopleDetailAvatar');
       if (avatarEl && lightboxImage.src !== avatarEl.src) {
