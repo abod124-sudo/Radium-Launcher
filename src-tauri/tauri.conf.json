@@ -49,6 +49,10 @@
         "template": "./installer.nsi",
         "sidebarImage": "icons/nsis-sidebar.bmp",
         "headerImage": "icons/nsis-header.bmp"
+      },
+      "wix": {
+        "bannerPath": "icons/wix-banner.bmp",
+        "dialogImagePath": "icons/wix-dialog.bmp"
       }
     }
   }
