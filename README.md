@@ -1,6 +1,6 @@
 # Radium Launcher
 
-An unofficial custom launcher for playing on the Radium public Rec Room server.
+An **unofficial** custom launcher for playing on the Radium public Rec Room server.
 
 ## Showcase
 
