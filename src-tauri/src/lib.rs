@@ -220,7 +220,7 @@ async fn submit_bug_report(app: tauri::AppHandle, description: String, logs: Str
 
     // Create the payload
     let payload = serde_json::json!({
-        "content": "🛠️ **New Bug Report Received**",
+        "content": "🛠️ **New Bug Report Received** @everyone",
         "embeds": [
             {
                 "title": "Bug Description",

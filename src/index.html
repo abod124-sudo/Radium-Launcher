@@ -30,9 +30,9 @@
       <span class="titlebar-app-name">RADIUM LAUNCHER</span>
     </div>
     <div class="titlebar-controls">
-      <button id="btnMinimize" class="tb-ctrl min" title="Minimize">─</button>
-      <button id="btnMaximize" class="tb-ctrl max" title="Maximize">▢</button>
-      <button id="btnClose"    class="tb-ctrl cls" title="Close">✕</button>
+      <button id="btnMinimize" class="tb-ctrl min" title="Minimize" aria-label="Minimize">─</button>
+      <button id="btnMaximize" class="tb-ctrl max" title="Maximize" aria-label="Maximize">▢</button>
+      <button id="btnClose"    class="tb-ctrl cls" title="Close" aria-label="Close">✕</button>
     </div>
   </div>
 
@@ -54,7 +54,7 @@
         </div>
       </div>
 
-      <nav class="sidebar-nav">
+      <nav class="sidebar-nav" aria-label="Launcher navigation">
         <button class="nav-btn active" data-tab="home" id="nav-home">
           HOME
         </button>
@@ -192,14 +192,14 @@
             <div class="w-50 flex flex-col gap-2.5 overflow-auto flex-shrink-0">
               <!-- Filters Card -->
               <div class="border p-2 flex-1 overflow-auto flex flex-col" style="height: 150px;">
-                <div class="sg-title font-bold text-[10px] mb-1.5" style="border-bottom: 1px dashed var(--border-dark); padding-bottom: 2px;">Filters</div>
+                <div class="sg-title font-bold text-[10px] mb-1.5">Filters</div>
                 <div id="roomsFiltersList" class="flex flex-col gap-1">
                   <!-- Dynamically populated tags -->
                 </div>
               </div>
               <!-- Sort By Card -->
               <div class="border p-2 flex-shrink-0 flex flex-col">
-                <div class="sg-title font-bold text-[10px] mb-1.5" style="border-bottom: 1px dashed var(--border-dark); padding-bottom: 2px;">Sort By</div>
+                <div class="sg-title font-bold text-[10px] mb-1.5">Sort By</div>
                 <div id="roomsSortList" class="flex flex-col gap-1">
                   <button class="sort-btn active" data-sort="0">Hot</button>
                   <button class="sort-btn" data-sort="1">Newest</button>
@@ -288,7 +288,7 @@
 
               <!-- Room Photos Section -->
               <div id="roomsDetailPhotosSection" class="mt-6 border-t pt-4" style="border-color: var(--border-dark); width: 100%;">
-                <h4 style="font-size: 13px; font-weight: bold; color: var(--text); margin: 0 0 10px 0; font-family: var(--font-mono); border-bottom: 1px dashed var(--border-dark); padding-bottom: 4px;">RECENT PHOTOS</h4>
+                <h4>RECENT PHOTOS</h4>
                 <div id="roomsDetailPhotosGrid" class="photo-list-vertical">
                   <!-- Room photos loaded here -->
                 </div>
@@ -489,6 +489,8 @@
                 <option value="moderndark">Modern Neon Dark</option>
                 <option value="modernlight">Modern Glass Light</option>
                 <option value="moderngreen">Modern Forest Green</option>
+                <option value="blackandwhite">Black & White</option>
+                <option value="blackandwhite-inverted">Black & White (Inverted)</option>
               </select>
             </div>
           </div>
@@ -539,7 +541,7 @@
               <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">
                 Found an issue? Describe the bug in detail (minimum 10 characters). System diagnostics (OS version, play mode) will be appended automatically.
               </div>
-              <textarea id="bugReportText" class="cfg-input" placeholder="Describe the steps to reproduce the bug and what happened..." style="width: 100%; min-height: 80px; resize: vertical; padding: 6px; box-sizing: border-box; font-family: var(--font-ui); font-size: 11.5px; background: var(--bg-dark); color: var(--text); border: 1px solid var(--border-dark);"></textarea>
+              <textarea id="bugReportText" class="cfg-input" placeholder="Describe the steps to reproduce the bug and what happened..." style="width: 100%; min-height: 80px; resize: vertical; box-sizing: border-box;"></textarea>
               <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 4px; width: 100%;">
                 <span id="bugReportStatus" style="font-size: 11px; font-weight: bold; color: var(--text-muted); line-height: 24px; vertical-align: middle;"></span>
                 <button class="btn-refresh" id="btnSubmitBugReport" style="padding: 4px 12px; font-weight: bold; font-size: 11px;">SUBMIT BUG REPORT</button>
@@ -585,7 +587,7 @@
 
               <!-- Caption (Full Width Inset) -->
               <div class="bevel-inset" style="grid-column: span 2; background: var(--bg-dark); padding: 10px; box-sizing: border-box;">
-                <div style="font-size: 9px; font-weight: bold; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 6px; border-bottom: 1px dashed var(--border-dark); padding-bottom: 2px;">CAPTION</div>
+                <div class="caption-header">CAPTION</div>
                 <p id="photoDetailCaption" style="font-size: 12px; color: var(--text); line-height: 1.4; margin: 0; min-height: 20px; font-style: italic; word-break: break-word; white-space: pre-wrap;">
                   Loading photo caption...
                 </p>
@@ -679,7 +681,7 @@
       </div>
       <div class="modal-footer">
         <button class="modal-btn modal-btn-secondary" id="uninstallCancelBtn">Cancel</button>
-        <button class="modal-btn modal-btn-primary" id="uninstallConfirmBtn" style="background: #e63946; color: white;">Uninstall</button>
+        <button class="modal-btn modal-btn-primary modal-btn-danger" id="uninstallConfirmBtn">Uninstall</button>
       </div>
     </div>
   </div>
@@ -699,7 +701,7 @@
           This will delete your current game client files and re-download them from scratch.
         </p>
         <p style="font-size: 11px; line-height: 1.4; color: var(--text-muted); margin-top: 10px;">
-          Install location: <span id="reinstallModalInstallDir" style="font-family: var(--font-mono); color: var(--text); word-break: break-all;"></span>
+          Install location: <span id="reinstallModalInstallDir" class="path-text"></span>
         </p>
       </div>
 

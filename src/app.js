@@ -195,7 +195,8 @@ if (logoImg) {
 // Fetch version tag
 async function loadVersion() {
   const v = await window.radium?.getVersion();
-  if (v) $('versionTag').textContent = `v${v}`;
+  const el = $('versionTag');
+  if (el && v) el.textContent = `v${v}`;
 }
 
 // Load and save local settings config
@@ -319,9 +320,9 @@ async function checkInstall() {
 
   if (isInstalled) {
     // Show launch panel, hide download section
-    $('downloadSection').style.display = 'none';
-    $('launchPanel').style.display     = 'flex';
-    $('qsInstalled').textContent       = 'INSTALLED';
+    const ds = $('downloadSection'); if (ds) ds.style.display = 'none';
+    const lp = $('launchPanel'); if (lp) lp.style.display = 'flex';
+    const qi = $('qsInstalled'); if (qi) qi.textContent = 'INSTALLED';
     if (qscC) {
       qscC.classList.add('installed');
       qscC.classList.remove('not-installed');
@@ -335,9 +336,9 @@ async function checkInstall() {
     }
   } else {
     // Show download section, hide launch panel
-    $('downloadSection').style.display = 'flex';
-    $('launchPanel').style.display     = 'none';
-    $('qsInstalled').textContent       = 'NOT INSTALLED';
+    const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
+    const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
+    const qi = $('qsInstalled'); if (qi) qi.textContent = 'NOT INSTALLED';
     if (qscC) {
       qscC.classList.add('not-installed');
       qscC.classList.remove('installed');
@@ -452,8 +453,8 @@ $('btnReinstall')?.addEventListener('click', () => {
 
 $('reinstallConfirmBtn')?.addEventListener('click', () => {
   closeReinstallModal();
-  $('downloadSection').style.display = 'flex';
-  $('launchPanel').style.display     = 'none';
+  const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
+  const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
   isInstalled = false;
   addLog('Reinstall initiated.', 'info');
   toast('Starting reinstall...', 'info');
@@ -995,9 +996,9 @@ let updateInfo = null;
 
 function showUpdateModal(info) {
   updateInfo = info;
-  $('updateCurrentVer').textContent = `v${info.currentVersion}`;
-  $('updateLatestVer').textContent  = info.latestVersion;
-  $('updateNotes').textContent      = info.releaseNotes || '(No release notes provided.)';
+  const ucv = $('updateCurrentVer'); if (ucv) ucv.textContent = `v${info.currentVersion}`;
+  const ulv = $('updateLatestVer'); if (ulv) ulv.textContent = info.latestVersion;
+  const un = $('updateNotes'); if (un) un.textContent = info.releaseNotes || '(No release notes provided.)';
   const status = $('updateStatus');
   if (status) status.style.display = 'none';
   const nowBtn = $('updateNowBtn');
@@ -1063,7 +1064,7 @@ async function checkForLauncherUpdate() {
 
 $('btnCheckUpdates')?.addEventListener('click', async () => {
   const btn = $('btnCheckUpdates');
-  if (btn.disabled) return;
+  if (!btn || btn.disabled) return;
   btn.disabled = true;
   const resultEl = $('updateCheckResult');
   if (resultEl) {
@@ -2004,7 +2005,7 @@ async function showPhotoDetails(photo, backToView) {
   
   // Switch to photo detail panel
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  $('tab-photo-detail').classList.add('active');
+  $('tab-photo-detail')?.classList.add('active');
   
   // Render initial photo fields we have
   const imgEl = $('photoDetailImage');
@@ -2791,7 +2792,7 @@ lightboxModal?.addEventListener('click', (e) => {
 
     try {
       // 3. Invoke Tauri backend command
-      const responseMessage = await window.radium.submitBugReport(bugText, fullLogs);
+      const responseMessage = await window.radium?.submitBugReport(bugText, fullLogs);
       
       // 4. Handle success
       toast(responseMessage || 'Bug report submitted successfully! Thank you.', 'ok');

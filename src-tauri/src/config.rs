@@ -90,7 +90,26 @@ fn migrate_legacy_data(app_handle: &tauri::AppHandle) {
                 // Move client folder (containing rec room files)
                 let target_client = new_dir.join("client");
                 let legacy_client = legacy_dir.join("client");
-                if legacy_client.exists() && !target_client.exists() {
+                
+                let legacy_has_client = legacy_client.exists() && (
+                    legacy_client.join("RecRoom.exe").exists() ||
+                    legacy_client.join("RecRoom_ScreenMode.bat").exists()
+                );
+                
+                let target_has_client = target_client.exists() && (
+                    target_client.join("RecRoom.exe").exists() ||
+                    target_client.join("RecRoom_ScreenMode.bat").exists()
+                );
+
+                if legacy_has_client && !target_has_client {
+                    if target_client.exists() {
+                        let _ = std::fs::remove_dir_all(&target_client);
+                    }
+                    if std::fs::rename(&legacy_client, &target_client).is_err() {
+                        let _ = move_dir_recursive(legacy_client, target_client);
+                    }
+                } else if legacy_client.exists() && !target_client.exists() {
+                    // Fallback standard move
                     if std::fs::rename(&legacy_client, &target_client).is_err() {
                         let _ = move_dir_recursive(legacy_client, target_client);
                     }
@@ -123,6 +142,30 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
     // Migrate old API URL to the current one.
     if config.api_url == "https://ns.radie.app" || config.api_url == "https://ns.radie.app/" {
         config.api_url = "https://api.radie.app/".to_string();
+    }
+
+    // Detect if client is/was installed in the old directory "%APPDATA%\radium-launcher\client"
+    // or if the settings path points to it, and trigger a reset.
+    if let Ok(data_dir) = app_handle.path().data_dir() {
+        let legacy_client_dir = data_dir.join("radium-launcher").join("client");
+        let legacy_client_dir_str = legacy_client_dir.to_string_lossy().to_string();
+        
+        let normalized_install = config.install_dir.replace('\\', "/");
+        let normalized_legacy = legacy_client_dir_str.replace('\\', "/");
+
+        let settings_points_to_old = !config.install_dir.is_empty() && (
+            normalized_install.eq_ignore_ascii_case(&normalized_legacy) ||
+            normalized_install.contains("radium-launcher/client")
+        );
+
+        let legacy_client_installed = legacy_client_dir.exists() && (
+            legacy_client_dir.join("RecRoom.exe").exists() ||
+            legacy_client_dir.join("RecRoom_ScreenMode.bat").exists()
+        );
+
+        if settings_points_to_old || legacy_client_installed {
+            config.install_dir = String::new();
+        }
     }
 
     // Persist the (potentially migrated) config back to disk.
