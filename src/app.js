@@ -2810,5 +2810,16 @@ lightboxModal?.addEventListener('click', (e) => {
       btnSubmit.textContent = 'SUBMIT BUG REPORT';
     }
   });
+
+  // Global cleanup interval for image placeholders
+  // This catches images loaded from cache where onload might not fire, 
+  // or images that finished loading synchronously before handlers attach.
+  setInterval(() => {
+    document.querySelectorAll('.image-loading-placeholder').forEach(el => {
+      if (el.tagName === 'IMG' && el.complete && el.src && el.src !== 'data:,') {
+        el.classList.remove('image-loading-placeholder');
+      }
+    });
+  }, 500);
 })();
 
