@@ -1291,7 +1291,7 @@ async function loadRooms() {
         const roomName = room.Name || room.name || 'Unknown Room';
         const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
         card.innerHTML = `
-          <img class="room-card-image image-loading-placeholder" src="${thumbUrl}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" alt="${escapeHtml(roomName)}" />
+          <img class="room-card-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${thumbUrl}" alt="${escapeHtml(roomName)}" />
           <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
           <div class="room-card-creator" onclick="event.stopPropagation(); showCreatorProfile('${escapeHtml(creatorUsername)}')" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         `;
@@ -1361,7 +1361,7 @@ async function loadPeople() {
         };
         row.innerHTML = `
           <td>
-            <img class="people-avatar image-loading-placeholder" src="${avatarUrl}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" alt="${escapeHtml(person.userName)}" />
+            <img class="people-avatar image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${avatarUrl}" alt="${escapeHtml(person.userName)}" />
           </td>
           <td>
             <span class="status-dot ${person.isOnline ? 'online' : 'offline'}" title="${person.isOnline ? 'Online' : 'Offline'}"></span>
@@ -1679,7 +1679,7 @@ async function loadRoomPhotos(roomId, append = false) {
           
           card.innerHTML = `
             <div class="feed-post-header">
-              <img class="feed-post-avatar creator-avatar image-loading-placeholder" src="https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./logo.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+              <img class="feed-post-avatar creator-avatar image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./logo.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1" />
               <div class="feed-post-header-text">
                 <div class="feed-post-creator creator-name">Loading...</div>
                 <div class="feed-post-meta">
@@ -1692,7 +1692,7 @@ async function loadRoomPhotos(roomId, append = false) {
             </div>
             ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
             <div class="feed-post-image-wrap image-wrap">
-              <img class="feed-post-image image-loading-placeholder" src="${imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+              <img class="feed-post-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png'}" />
             </div>
             <div class="feed-post-footer">
               <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
@@ -1745,6 +1745,12 @@ async function loadRoomPhotos(roomId, append = false) {
                   const avatarEl = card.querySelector('.creator-avatar');
                   if (avatarEl) {
                     avatarEl.classList.add('image-loading-placeholder');
+                    avatarEl.onload = () => avatarEl.classList.remove('image-loading-placeholder');
+                    avatarEl.onerror = () => {
+                      avatarEl.src = './logo.png';
+                      avatarEl.classList.remove('image-loading-placeholder');
+                      avatarEl.onerror = null;
+                    };
                     avatarEl.src = userDetails.avatar;
                   }
                 }
@@ -2004,10 +2010,10 @@ async function showPhotoDetails(photo, backToView) {
   const imgEl = $('photoDetailImage');
   if (imgEl) {
     imgEl.classList.add('image-loading-placeholder');
-    const imgName = photo.ImageName || photo.imageName || '';
-    imgEl.src = imgName ? `https://img.radie.app/${imgName}?width=720` : './images.png';
     imgEl.onload = () => imgEl.classList.remove('image-loading-placeholder');
     imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.classList.remove('image-loading-placeholder'); imgEl.onerror = null; };
+    const imgName = photo.ImageName || photo.imageName || '';
+    imgEl.src = imgName ? `https://img.radie.app/${imgName}?width=720` : './images.png';
   }
   
   const captionEl = $('photoDetailCaption');
@@ -2685,17 +2691,18 @@ const lightboxCloseBtn = $('lightboxCloseBtn');
 function showLightbox(src) {
   if (lightboxModal && lightboxImage) {
     lightboxImage.classList.add('image-loading-placeholder');
-    lightboxImage.src = src;
     lightboxImage.onload = () => lightboxImage.classList.remove('image-loading-placeholder');
     lightboxImage.onerror = () => {
       const avatarEl = $('peopleDetailAvatar');
       if (avatarEl && lightboxImage.src !== avatarEl.src) {
         lightboxImage.src = avatarEl.src;
+        lightboxImage.classList.remove('image-loading-placeholder');
       } else {
         lightboxImage.classList.remove('image-loading-placeholder');
       }
       lightboxImage.onerror = null;
     };
+    lightboxImage.src = src;
     lightboxModal.style.display = 'flex';
   }
 }
