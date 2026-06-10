@@ -361,7 +361,7 @@ pub async fn select_folder() -> Result<Option<String>, String> {
 /// Return the default client directory path (`<app_data_dir>/client`).
 #[tauri::command]
 pub fn get_default_client_dir(app: tauri::AppHandle) -> String {
-    let app_data_dir = app.path().app_data_dir().unwrap();
+    let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     app_data_dir
         .join("client")
         .to_string_lossy()

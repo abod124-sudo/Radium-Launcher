@@ -215,12 +215,14 @@ fn launch_game_impl(
     } else {
         let mut cmd = Command::new("cmd.exe");
         cmd.arg("/c");
-        let mut start_cmd = format!("start \"\" \"{}\"", bat_path);
-        if !launch_opts.is_empty() {
-            start_cmd.push_str(" ");
-            start_cmd.push_str(launch_opts);
-        }
-        cmd.arg(start_cmd);
+        cmd.arg("start");
+            cmd.arg("");
+            cmd.arg(bat_path);
+            if !launch_opts.is_empty() {
+                for opt in launch_opts.split_whitespace() {
+                    cmd.arg(opt);
+                }
+            }
         cmd.current_dir(&bat_dir);
         #[cfg(target_os = "windows")]
         cmd.creation_flags(0x00000008); // DETACHED_PROCESS
@@ -244,6 +246,16 @@ fn launch_game_impl(
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.minimize();
         }
+    }
+
+    // 9. Optionally close the launcher
+    let close = config
+        .get("closeOnLaunch")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if close || cfg.close_on_launch {
+        app.exit(0);
     }
 
     Ok(json!({ "success": true, "pid": pid }))
@@ -333,6 +345,11 @@ pub fn start_game_monitor(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+            // Graceful shutdown: break if the main window is gone
+            if app.get_webview_window("main").is_none() {
+                break;
+            }
 
             let running = check_game_running();
             let previous = GAME_RUNNING_STATE.load(Ordering::Relaxed);

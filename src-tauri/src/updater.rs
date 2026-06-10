@@ -136,7 +136,7 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
 /// "RadiumLauncherSetup_update.exe", spawns the installer as a detached process,
 /// waits briefly, then exits the current application.
 #[tauri::command]
-pub async fn download_update(url: String) -> Result<serde_json::Value, String> {
+pub async fn download_update(app: tauri::AppHandle, url: String) -> Result<serde_json::Value, String> {
     // Security check: restrict downloads to trusted official release URLs
     if !url.starts_with("https://github.com/abod124-sudo/Radium-Launcher/releases/download/") {
         return Err("Untrusted update download URL.".into());
@@ -175,7 +175,8 @@ pub async fn download_update(url: String) -> Result<serde_json::Value, String> {
 
     // Wait briefly to let the installer start, then exit the app
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-    std::process::exit(0);
+    app.exit(0);
+    Ok(json!({ "success": true }))
 }
 
 /// Return the current application version string.

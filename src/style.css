@@ -3519,7 +3519,7 @@ body.theme-macosclassic th {
 .room-creator-info {
   display: flex;
   flex-direction: column;
-  leading-tight: 1.1;
+  line-height: 1.1;
 }
 
 .room-creator-name {

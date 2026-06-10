@@ -66,16 +66,17 @@ pub fn run() {
             game::start_game_monitor(app_handle.clone());
 
             // Listen for window maximize/unmaximize events
-            let window = app.get_webview_window("main").unwrap();
-            let window_clone = window.clone();
-            window.on_window_event(move |event| {
-                use tauri::Emitter;
-                if let tauri::WindowEvent::Resized(_) = event {
-                    if let Ok(maximized) = window_clone.is_maximized() {
-                        let _ = window_clone.emit("window-maximized-state", maximized);
+            if let Some(window) = app.get_webview_window("main") {
+                let window_clone = window.clone();
+                window.on_window_event(move |event| {
+                    use tauri::Emitter;
+                    if let tauri::WindowEvent::Resized(_) = event {
+                        if let Ok(maximized) = window_clone.is_maximized() {
+                            let _ = window_clone.emit("window-maximized-state", maximized);
+                        }
                     }
-                }
-            });
+                });
+            }
 
             Ok(())
         })
@@ -95,11 +96,11 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
     match serde_json::from_value::<config::Config>(config) {
         Ok(cfg) => {
             let dir = &cfg.install_dir;
-            if dir.contains('"') || dir.contains(';') || dir.contains('&') || dir.contains('|') || dir.contains('\r') || dir.contains('\n') {
+            if dir.contains('"') || dir.contains(';') || dir.contains('&') || dir.contains('|') || dir.contains('\r') || dir.contains('\n') || dir.contains('$') || dir.contains('%') || dir.contains('>') || dir.contains('<') || dir.contains('^') || dir.contains('`') {
                 return false;
             }
             let opt = &cfg.launch_options;
-            if opt.contains(';') || opt.contains('&') || opt.contains('|') || opt.contains('\r') || opt.contains('\n') {
+            if opt.contains(';') || opt.contains('&') || opt.contains('|') || opt.contains('\r') || opt.contains('\n') || opt.contains('`') || opt.contains('$') || opt.contains('%') || opt.contains('>') || opt.contains('<') || opt.contains('^') {
                 return false;
             }
             config::save_config(&app, &cfg).is_ok()
@@ -188,7 +189,7 @@ async fn submit_bug_report(app: tauri::AppHandle, description: String, logs: Str
         .unwrap_or_default()
         .as_secs();
 
-    let last_time = LAST_SUBMISSION_TIME.load(Ordering::Relaxed);
+    let last_time = LAST_SUBMISSION_TIME.load(Ordering::SeqCst);
     if now < last_time + 60 {
         let remaining = (last_time + 60) - now;
         return Err(format!(
@@ -257,7 +258,7 @@ async fn submit_bug_report(app: tauri::AppHandle, description: String, logs: Str
         .build()
         .map_err(|e| format!("Failed to initialize HTTP client: {}", e))?;
 
-    let url = "https://discord.com/api/webhooks/1513559636333170749/pf4DGcoowdQsFZignVKwcErrTb-HnOXPnOOGORRi1w_xAljckbmx9g0BZhSjzzhVmefj";
+    let url = "https://api.radie.app/launcher/webhook";
     
     // Build multipart form data
     let mut form = reqwest::multipart::Form::new();
@@ -289,8 +290,7 @@ async fn submit_bug_report(app: tauri::AppHandle, description: String, logs: Str
     }
 
     // Update cooldown timestamp only on successful send
-    LAST_SUBMISSION_TIME.store(now, Ordering::Relaxed);
+    LAST_SUBMISSION_TIME.store(now, Ordering::SeqCst);
 
     Ok("Bug report successfully submitted. Thank you!".to_string())
 }
-

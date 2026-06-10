@@ -188,7 +188,7 @@ if (logoImg) {
   logoImg.addEventListener('error', () => {
     const combo = $('logoCombo');
     if (combo) combo.style.display = 'none';
-    $('logoFallback').style.display = 'flex';
+    const lf = $('logoFallback'); if (lf) lf.style.display = 'flex';
   });
 }
 
@@ -233,7 +233,7 @@ async function loadConfig() {
 }
 
 function applyTheme(theme) {
-  document.body.className = '';
+  document.body.className = document.body.className.split(' ').filter(c => c === 'animations-enabled').join(' ');
   if (theme && theme !== 'steam-green') {
     document.body.classList.add('theme-' + theme);
   }
@@ -1002,11 +1002,11 @@ function showUpdateModal(info) {
   if (status) status.style.display = 'none';
   const nowBtn = $('updateNowBtn');
   if (nowBtn) { nowBtn.disabled = false; nowBtn.textContent = '⬇ Update Now'; }
-  $('updateModal').style.display = 'flex';
+  const m = $('updateModal'); if (m) m.style.display = 'flex';
 }
 
 function hideUpdateModal() {
-  $('updateModal').style.display = 'none';
+  const m = $('updateModal'); if (m) m.style.display = 'none';
 }
 
 $('updateModalClose')?.addEventListener('click', hideUpdateModal);
@@ -1130,7 +1130,7 @@ async function init() {
   checkForLauncherUpdate();
 
   addLog(`API: ${config.apiUrl}`, 'info');
-  addLog(`Install dir: %APPDATA%\\com.radium.launcher\\client`, 'info');
+  addLog(`Install dir: ${config?.installDir || '%APPDATA%\\com.radium.launcher\\client'}`, 'info');
 
   // Check install first (determines which panel to show)
   await checkInstall();
@@ -2218,7 +2218,7 @@ async function showRoomDetails(room) {
   }
 
   // Load room photos
-  loadRoomPhotos(room.RoomId);
+  loadRoomPhotos(room.RoomId || room.roomId);
 }
 
 function hideRoomDetails() {

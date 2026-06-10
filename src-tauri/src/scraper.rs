@@ -66,7 +66,8 @@ fn first_capture(pattern: &str, text: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 #[tauri::command]
 pub async fn fetch_room_web_details(name: String) -> Value {
-    let url = format!("https://www.radie.app/room/{}", name);
+    let safe_name = name.replace('/', "%2F").replace('?', "%3F").replace('#', "%23").replace('&', "%26").replace('=', "%3D");
+    let url = format!("https://www.radie.app/room/{}", safe_name);
 
     let html = match http_get_text(&url).await {
         Ok(h) => h,
@@ -121,7 +122,8 @@ pub async fn fetch_room_web_details(name: String) -> Value {
 // ---------------------------------------------------------------------------
 #[tauri::command]
 pub async fn fetch_user_web_details(name: String) -> Value {
-    let url = format!("https://www.radie.app/user/{}", name);
+    let safe_name = name.replace('/', "%2F").replace('?', "%3F").replace('#', "%23").replace('&', "%26").replace('=', "%3D");
+    let url = format!("https://www.radie.app/user/{}", safe_name);
 
     let html = match http_get_text(&url).await {
         Ok(h) => h,
@@ -217,7 +219,8 @@ pub async fn fetch_user_web_details(name: String) -> Value {
 // ---------------------------------------------------------------------------
 #[tauri::command]
 pub async fn fetch_photo_web_details(photo_id: String) -> Value {
-    let url = format!("https://www.radie.app/photo/{}", photo_id);
+    let safe_photo_id = photo_id.replace('/', "%2F").replace('?', "%3F").replace('#', "%23").replace('&', "%26").replace('=', "%3D");
+    let url = format!("https://www.radie.app/photo/{}", safe_photo_id);
 
     let html = match http_get_text(&url).await {
         Ok(h) => h,

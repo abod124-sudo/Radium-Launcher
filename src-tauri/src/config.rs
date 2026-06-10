@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+static MIGRATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Application configuration for the Radium Launcher.
 ///
 /// Fields are serialized as camelCase to match the existing config.json format
@@ -46,13 +48,16 @@ impl Default for Config {
 
 /// Returns the path to config.json inside the app data directory.
 pub fn get_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
-    let app_data_dir = app_handle.path().app_data_dir().unwrap();
+    let app_data_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     app_data_dir.join("config.json")
 }
 
 /// Migrates data from the legacy Electron `%APPDATA%\radium-launcher` folder
 /// to the new Tauri `%APPDATA%\com.radium.launcher` folder.
+
 fn migrate_legacy_data(app_handle: &tauri::AppHandle) {
+    if MIGRATED.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
+    if MIGRATED.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
     if let Ok(data_dir) = app_handle.path().data_dir() {
         let legacy_dir = data_dir.join("radium-launcher");
         if let Ok(new_dir) = app_handle.path().app_data_dir() {
@@ -133,7 +138,7 @@ pub fn get_client_dir(app_handle: &tauri::AppHandle, config: &Config) -> String 
     if !config.install_dir.is_empty() {
         config.install_dir.clone()
     } else {
-        let app_data_dir = app_handle.path().app_data_dir().unwrap();
+        let app_data_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         app_data_dir.join("client").to_string_lossy().to_string()
     }
 }
