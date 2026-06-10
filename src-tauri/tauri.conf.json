@@ -48,7 +48,9 @@
         "displayLanguageSelector": false,
         "template": "./installer.nsi",
         "sidebarImage": "icons/nsis-sidebar.bmp",
-        "headerImage": "icons/nsis-header.bmp"
+        "headerImage": "icons/nsis-header.bmp",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
       },
       "wix": {
         "bannerPath": "icons/wix-banner.bmp",
