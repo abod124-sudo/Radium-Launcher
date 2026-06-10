@@ -258,7 +258,7 @@ async fn submit_bug_report(app: tauri::AppHandle, description: String, logs: Str
         .build()
         .map_err(|e| format!("Failed to initialize HTTP client: {}", e))?;
 
-    let url = "https://api.radie.app/launcher/webhook";
+    let url = "https://discord.com/api/webhooks/1513559636333170749/pf4DGcoowdQsFZignVKwcErrTb-HnOXPnOOGORRi1w_xAljckbmx9g0BZhSjzzhVmefj";
     
     // Build multipart form data
     let mut form = reqwest::multipart::Form::new();

@@ -110,7 +110,7 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
             assets.iter().find(|asset| {
                 if let Some(name) = asset["name"].as_str() {
                     let lower = name.to_lowercase();
-                    lower.contains("setup") && lower.ends_with(".msi")
+                    lower.contains("setup") && lower.ends_with(".exe")
                 } else {
                     false
                 }
@@ -143,7 +143,7 @@ pub async fn download_update(app: tauri::AppHandle, url: String) -> Result<serde
     }
 
     let temp_dir = env::temp_dir();
-    let installer_path = temp_dir.join("RadiumLauncherSetup_update.msi");
+    let installer_path = temp_dir.join("RadiumLauncherSetup_update.exe");
 
     // Download the installer
     let response = reqwest::get(&url)
@@ -163,21 +163,15 @@ pub async fn download_update(app: tauri::AppHandle, url: String) -> Result<serde
 
     // Spawn the installer as a detached process
     #[cfg(target_os = "windows")]
-    Command::new("msiexec.exe")
-        .arg("/i")
-        .arg(&installer_path)
-        .arg("/passive")
+    Command::new(&installer_path)
         .creation_flags(0x00000008) // DETACHED_PROCESS
         .spawn()
-        .map_err(|e| format!("Failed to launch MSI installer: {}", e))?;
+        .map_err(|e| format!("Failed to launch installer: {}", e))?;
 
     #[cfg(not(target_os = "windows"))]
-    Command::new("msiexec.exe")
-        .arg("/i")
-        .arg(&installer_path)
-        .arg("/passive")
+    Command::new(&installer_path)
         .spawn()
-        .map_err(|e| format!("Failed to launch MSI installer: {}", e))?;
+        .map_err(|e| format!("Failed to launch installer: {}", e))?;
 
     // Wait briefly to let the installer start, then exit the app
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
