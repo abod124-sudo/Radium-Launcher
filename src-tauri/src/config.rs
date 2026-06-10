@@ -56,8 +56,8 @@ fn migrate_legacy_data(app_handle: &tauri::AppHandle) {
     if let Ok(data_dir) = app_handle.path().data_dir() {
         let legacy_dir = data_dir.join("radium-launcher");
         if let Ok(new_dir) = app_handle.path().app_data_dir() {
-            // Check if legacy config exists to identify if migration is needed
-            if legacy_dir.join("config.json").exists() {
+            // Check if legacy dir exists to identify if migration is needed
+            if legacy_dir.exists() {
                 if !new_dir.exists() {
                     let _ = std::fs::create_dir_all(&new_dir);
                 }
