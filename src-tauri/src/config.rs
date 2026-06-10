@@ -52,11 +52,24 @@ pub fn get_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
     app_data_dir.join("config.json")
 }
 
+fn move_dir_recursive(src: std::path::PathBuf, dst: std::path::PathBuf) -> std::io::Result<()> {
+    if src.is_dir() {
+        std::fs::create_dir_all(&dst)?;
+        for entry in std::fs::read_dir(src.clone())? {
+            let entry = entry?;
+            move_dir_recursive(entry.path(), dst.join(entry.file_name()))?;
+        }
+        std::fs::remove_dir(src)?;
+    } else {
+        std::fs::copy(src.clone(), dst)?;
+        std::fs::remove_file(src)?;
+    }
+    Ok(())
+}
+
 /// Migrates data from the legacy Electron `%APPDATA%\radium-launcher` folder
 /// to the new Tauri `%APPDATA%\com.radium.launcher` folder.
-
 fn migrate_legacy_data(app_handle: &tauri::AppHandle) {
-    if MIGRATED.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
     if MIGRATED.swap(true, std::sync::atomic::Ordering::SeqCst) { return; }
     if let Ok(data_dir) = app_handle.path().data_dir() {
         let legacy_dir = data_dir.join("radium-launcher");
@@ -67,14 +80,19 @@ fn migrate_legacy_data(app_handle: &tauri::AppHandle) {
                     let _ = std::fs::create_dir_all(&new_dir);
                 }
                 
-                // Move everything (including the 'client' directory) individually
-                if let Ok(entries) = std::fs::read_dir(&legacy_dir) {
-                    for entry in entries.flatten() {
-                        let target_path = new_dir.join(entry.file_name());
-                        // Only move if target doesn't exist to avoid overwriting new data
-                        if !target_path.exists() {
-                            let _ = std::fs::rename(entry.path(), target_path);
-                        }
+                // Move config.json first
+                let target_config = new_dir.join("config.json");
+                let legacy_config = legacy_dir.join("config.json");
+                if legacy_config.exists() && !target_config.exists() {
+                    let _ = std::fs::rename(&legacy_config, &target_config);
+                }
+
+                // Move client folder (containing rec room files)
+                let target_client = new_dir.join("client");
+                let legacy_client = legacy_dir.join("client");
+                if legacy_client.exists() && !target_client.exists() {
+                    if std::fs::rename(&legacy_client, &target_client).is_err() {
+                        let _ = move_dir_recursive(legacy_client, target_client);
                     }
                 }
                 
