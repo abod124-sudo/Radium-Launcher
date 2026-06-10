@@ -161,18 +161,18 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 ; Installer pages, must be ordered as they appear
 ; 1. Welcome Page
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
 !insertmacro MUI_PAGE_WELCOME
 
 ; 2. License Page (if defined)
 !if "${LICENSE}" != ""
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
   !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
 !endif
 
 ; 3. Install mode (if it is set to `both`)
 !if "${INSTALLMODE}" == "both"
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
   !insertmacro MULTIUSER_PAGE_INSTALLMODE
 !endif
 
@@ -181,6 +181,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 Var ReinstallPageCheck
 Page custom PageReinstall PageLeaveReinstall
 Function PageReinstall
+  Abort
   ; Uninstall previous WiX installation if exists.
   ;
   ; A WiX installer stores the installation info in registry
@@ -380,13 +381,13 @@ Function PageLeaveReinstall
 FunctionEnd
 
 ; 5. Choose install directory page
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
 !insertmacro MUI_PAGE_DIRECTORY
 
 ; 6. Start menu shortcut page
 Var AppStartMenuFolder
 !if "${STARTMENUFOLDER}" != ""
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
   !define MUI_STARTMENUPAGE_DEFAULTFOLDER "${STARTMENUFOLDER}"
 !else
   !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
@@ -408,7 +409,7 @@ Var AppStartMenuFolder
 ; Show run app after installation.
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
+!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
 !insertmacro MUI_PAGE_FINISH
 
 Function RunMainBinary
@@ -713,23 +714,13 @@ Section Install
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
 
-  ; Auto close this page for passive mode
-  ${If} $PassiveMode = 1
-    SetAutoClose true
-  ${EndIf}
+  ; Auto close this page
+  SetAutoClose true
 SectionEnd
 
 Function .onInstSuccess
-  ; Check for `/R` flag only in silent and passive installers because
-  ; GUI installer has a toggle for the user to (re)start the app
-  ${If} $PassiveMode = 1
-  ${OrIf} ${Silent}
-    ${GetOptions} $CMDLINE "/R" $R0
-    ${IfNot} ${Errors}
-      ${GetOptions} $CMDLINE "/ARGS" $R0
-      nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
-    ${EndIf}
-  ${EndIf}
+  ${GetOptions} $CMDLINE "/ARGS" $R0
+  nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
 FunctionEnd
 
 Function un.onInit
