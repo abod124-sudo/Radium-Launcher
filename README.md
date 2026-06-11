@@ -36,7 +36,7 @@ Grab the latest build (**v2.5.1**) directly or check the [Releases page](https:/
 
 | File | Description |
 |------|-------------|
-| [Radium.Launcher_2.5.1_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v2.5.1/Radium.Launcher_2.5.1_x64-setup.exe) | NSIS installer (recommended) |
+| [Radium.Launcher_2.5.1_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v2.5.1/Radium.Launcher_2.5.1_x64-setup.exe) | NSIS installer |
 
 
 
