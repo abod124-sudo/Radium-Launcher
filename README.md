@@ -38,24 +38,7 @@ Grab the latest build (**v2.5.1**) directly or check the [Releases page](https:/
 |------|-------------|
 | [Radium.Launcher_2.5.1_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v2.5.1/Radium.Launcher_2.5.1_x64-setup.exe) | NSIS installer (recommended) |
 
----
 
-## Development Setup
-
-Requires **Node.js** on Windows.
-
-```bash
-# Install dependencies
-npm install
-
-# Run in dev mode (opens the app)
-npm run dev
-
-# Package into installer + portable exe
-npm run build
-```
-
----
 
 ## File Locations
 
