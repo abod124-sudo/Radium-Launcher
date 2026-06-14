@@ -182,8 +182,7 @@ fn launch_game_impl(
 
     let exe_path = Path::new(&bat_dir).join("RecRoom.exe");
     let has_exe = exe_path.exists();
-
-    let play_mode_arg = if play_mode == "vr" {
+    let play_mode_arg = if play_mode == "vr" {
         "+mode:vr"
     } else {
         "+mode:screen"
@@ -194,6 +193,15 @@ fn launch_game_impl(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim();
+
+    // Validate launch options (block shell metacharacters)
+    if launch_opts.contains(';') || launch_opts.contains('&') || launch_opts.contains('|') || 
+       launch_opts.contains('\r') || launch_opts.contains('\n') || launch_opts.contains('`') || 
+       launch_opts.contains('$') || launch_opts.contains('%') || launch_opts.contains('>') || 
+       launch_opts.contains('<') || launch_opts.contains('^') || launch_opts.contains('\'') || 
+       launch_opts.contains('"') {
+        return Err("Launch options contain invalid or dangerous characters.".into());
+    }
 
     // 6. Spawn the process (DETACHED_PROCESS = 0x00000008)
     #[cfg(target_os = "windows")]

@@ -97,9 +97,20 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
             return Err("Cancelled".into());
         }
 
-        let chunk = chunk_result.map_err(|e| format!("Download stream error: {}", e))?;
-        file.write_all(&chunk)
-            .map_err(|e| format!("Failed to write chunk: {}", e))?;
+        let chunk = match chunk_result {
+            Ok(c) => c,
+            Err(e) => {
+                drop(file);
+                let _ = fs::remove_file(&client_zip);
+                return Err(format!("Download stream error: {}", e).into());
+            }
+        };
+
+        if let Err(e) = file.write_all(&chunk) {
+            drop(file);
+            let _ = fs::remove_file(&client_zip);
+            return Err(format!("Failed to write chunk: {}", e).into());
+        }
 
         downloaded += chunk.len() as u64;
 

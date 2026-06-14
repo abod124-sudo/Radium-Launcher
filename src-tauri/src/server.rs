@@ -29,11 +29,12 @@ async fn http_get_json(url: &str) -> Result<Value, String> {
 /// Ping a server and return its online status, latency, and HTTP status code.
 #[tauri::command]
 pub async fn ping_server(url: String) -> Value {
-    if !url.starts_with("https://api.radie.app") && !url.starts_with("https://www.radie.app") {
-        return serde_json::json!({"error": "Invalid URL"});
-    }
-    // SSRF protection: only allow trusted Radie domains
-    if !url.starts_with("https://api.radie.app") && !url.starts_with("https://www.radie.app") && !url.starts_with("https://launcher.radie.app") {
+    let parsed = match reqwest::Url::parse(&url) {
+        Ok(u) => u,
+        Err(_) => return json!({"error": "Invalid URL format"}),
+    };
+    let host = parsed.host_str().unwrap_or("");
+    if host != "api.radie.app" && host != "www.radie.app" && host != "launcher.radie.app" {
         return json!({ "online": false, "latency": -1, "error": "Untrusted URL. Only radie.app domains are allowed." });
     }
 

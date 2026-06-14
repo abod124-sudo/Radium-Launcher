@@ -123,6 +123,7 @@
               <div class="launch-label">PLAY MODE</div>
               <div class="mode-row">
                 <div class="mode-toggle-wrap">
+                  <div class="mode-slider" id="modeSlider"></div>
                   <button class="mode-btn active" id="modeScreen" data-mode="screen">SCREEN</button>
                   <button class="mode-btn" id="modeVR" data-mode="vr">VR</button>
                 </div>
@@ -139,15 +140,10 @@
             <div class="launch-right">
               <button class="btn-play" id="btnPlay">
                 <div class="play-inner">
-                  <span class="play-triangle">▶</span>
+                  <span class="play-triangle" id="playIcon">▶</span>
                   <span class="play-text" id="playText">PLAY</span>
                 </div>
               </button>
-              <div class="play-status" id="playStatus" style="display:none">
-                <div class="running-dot"></div>
-                <span>GAME RUNNING</span>
-                <button class="btn-kill" id="btnKill">STOP</button>
-              </div>
             </div>
           </div>
 
@@ -493,6 +489,159 @@
                 <option value="blackandwhite-inverted">Black & White (Inverted)</option>
               </select>
             </div>
+            
+            <div class="sg-toggle-row" style="margin-top: 10px;">
+              <span>Custom Theme</span>
+              <div class="toggle-wrap" id="tgl-customTheme">
+                <div class="tgl-knob"></div>
+              </div>
+            </div>
+
+            <!-- Custom Theme Color Pickers -->
+            <div id="customThemeGroup" style="display:none; margin-top: 12px; border-top: 1px dashed var(--border-light); padding-top: 12px;">
+              
+              <!-- Template Loader -->
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px; background: rgba(0,0,0,0.15); padding: 6px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
+                <label for="themeTemplateSelect" style="font-size: 11px; font-weight: bold; color: var(--text);">Start from Template:</label>
+                <select id="themeTemplateSelect" class="cfg-input" style="font-size: 11px; width: 55%;">
+                  <option value="" disabled selected>Select baseline...</option>
+                  <option value="steam-green">Steam 2003 Green</option>
+                  <option value="win98">Windows 98 Gray</option>
+                  <option value="win95">Windows 95 Teal</option>
+                  <option value="winxp">Windows XP Blue</option>
+                  <option value="royalenoir">Windows XP Royale Noir</option>
+                  <option value="winvista">Windows Vista Aero</option>
+                  <option value="win7">Windows 7 Aero</option>
+                  <option value="macosclassic">Mac OS Classic</option>
+                  <option value="moderndark">Modern Neon Dark</option>
+                  <option value="modernlight">Modern Glass Light</option>
+                  <option value="moderngreen">Modern Forest Green</option>
+                  <option value="blackandwhite">Black & White</option>
+                </select>
+              </div>
+
+              <!-- Style Base Selection -->
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px; background: rgba(0,0,0,0.15); padding: 6px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
+                <span style="font-size: 11px; font-weight: bold; color: var(--text);">Style Base:</span>
+                <div style="display: flex; gap: 12px;">
+                  <label style="font-size: 11px; display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text);">
+                    <input type="radio" name="themeStyleBase" id="styleBaseRetro" value="retro" checked style="cursor: pointer; accent-color: var(--green); margin: 0;"> Retro
+                  </label>
+                  <label style="font-size: 11px; display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text);">
+                    <input type="radio" name="themeStyleBase" id="styleBaseModern" value="modern" style="cursor: pointer; accent-color: var(--green); margin: 0;"> Modern
+                  </label>
+                </div>
+              </div>
+
+              <!-- Color Categories -->
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                
+                <!-- Category: Backgrounds -->
+                <div style="background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
+                  <div style="font-size: 10px; font-weight: bold; color: var(--green-dim); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">1. Backgrounds</div>
+                  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-bgDark" class="theme-color-input" value="#21281e">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Deep BG</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-bgMain" class="theme-color-input" value="#384232">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Main BG</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-bgPanel" class="theme-color-input" value="#4b5845">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Panel BG</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-bgBtn" class="theme-color-input" value="#5e6d56">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Button BG</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Category: Borders & Accents -->
+                <div style="background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
+                  <div style="font-size: 10px; font-weight: bold; color: var(--green-dim); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">2. Borders & Accents</div>
+                  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-borderLight" class="theme-color-input" value="#829478">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Border Light</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-borderDark" class="theme-color-input" value="#1b2118">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Border Dark</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-green" class="theme-color-input" value="#00ff00">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Accent</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-greenDim" class="theme-color-input" value="#7ca969">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Muted Accent</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Category: Text & Status -->
+                <div style="background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
+                  <div style="font-size: 10px; font-weight: bold; color: var(--green-dim); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">3. Text & Status</div>
+                  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-text" class="theme-color-input" value="#d4e0ce">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Main Text</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                      <input type="color" id="theme-textMuted" class="theme-color-input" value="#8da082">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Muted Text</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); grid-column: span 2;">
+                      <input type="color" id="theme-statusOnline" class="theme-color-input" value="#00ff00">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Status Online</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Category: Background & Glass -->
+                <div style="background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
+                  <div style="font-size: 10px; font-weight: bold; color: var(--green-dim); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">4. Background & Glass</div>
+                  
+                  <!-- Remote URL Input -->
+                  <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px;">
+                    <span style="font-size: 11px; color: var(--text-muted);">Remote Image URL</span>
+                    <input type="text" id="theme-bgImage" class="cfg-input" placeholder="https://example.com/image.jpg" style="font-size: 11px; width: 100%;" />
+                  </div>
+
+                  <!-- Local File Picker & Clear -->
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px;">
+                    <span style="font-size: 11px; color: var(--text-muted);">Local Background</span>
+                    <div style="display: flex; gap: 4px;">
+                      <!-- Hidden file input -->
+                      <input type="file" id="theme-bgFilePicker" accept="image/*" style="position: absolute; width: 0; height: 0; opacity: 0; overflow: hidden; pointer-events: none; z-index: -1;" />
+                      <button class="modal-btn" id="btnBrowseBgFile" style="font-size: 9px; padding: 2px 6px; min-width: 60px;">Choose File</button>
+                      <button class="modal-btn" id="btnClearBgImage" style="font-size: 9px; padding: 2px 6px; min-width: 50px;">Clear</button>
+                    </div>
+                  </div>
+
+                  <!-- Liquid Glass Toggle -->
+                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0;">
+                    <span style="font-size: 11px; color: var(--text-muted);">Liquid Glass Effect</span>
+                    <div class="toggle-wrap" id="tgl-glassEnabled" style="margin: 0;">
+                      <div class="tgl-knob"></div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- Presets Import / Export / Reset -->
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 10px;">
+                <button class="modal-btn" id="btnResetTheme" style="font-size: 10px; padding: 3px 8px; min-width: 70px; background: rgba(220, 38, 38, 0.15) !important; border-color: rgba(220, 38, 38, 0.3) !important;">Reset Theme</button>
+                <div style="display: flex; gap: 8px;">
+                  <button class="modal-btn" id="btnExportTheme" style="font-size: 10px; padding: 3px 8px; min-width: 70px;">Export Theme</button>
+                  <button class="modal-btn" id="btnImportTheme" style="font-size: 10px; padding: 3px 8px; min-width: 70px;">Import Theme</button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Options -->
@@ -541,6 +690,29 @@
               <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">
                 Found an issue? Describe the bug in detail (minimum 10 characters). System diagnostics (OS version, play mode) will be appended automatically.
               </div>
+              
+              <!-- Category and Severity Selection -->
+              <div style="display: flex; gap: 10px; width: 100%;">
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+                  <label for="bugReportCategory" style="font-size: 10px; font-weight: bold; color: var(--text-muted);">BUG CATEGORY</label>
+                  <select id="bugReportCategory" class="cfg-input" style="width: 100%; box-sizing: border-box; height: 26px; padding: 2px 6px;">
+                    <option value="general">General / Launcher Issue</option>
+                    <option value="launch">Game Launch Failure / Crash</option>
+                    <option value="theme">UI Layout / Custom Themes</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+                  <label for="bugReportSeverity" style="font-size: 10px; font-weight: bold; color: var(--text-muted);">SEVERITY LEVEL</label>
+                  <select id="bugReportSeverity" class="cfg-input" style="width: 100%; box-sizing: border-box; height: 26px; padding: 2px 6px;">
+                    <option value="low">Low - Cosmetic/Typo</option>
+                    <option value="medium" selected>Medium - Functional Issue</option>
+                    <option value="high">High - Cannot Launch/Play</option>
+                    <option value="critical">Critical - Launcher Crash/Freeze</option>
+                  </select>
+                </div>
+              </div>
+
               <textarea id="bugReportText" class="cfg-input" placeholder="Describe the steps to reproduce the bug and what happened..." style="width: 100%; min-height: 80px; resize: vertical; box-sizing: border-box;"></textarea>
               <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 4px; width: 100%;">
                 <span id="bugReportStatus" style="font-size: 11px; font-weight: bold; color: var(--text-muted); line-height: 24px; vertical-align: middle;"></span>
@@ -712,6 +884,50 @@
     </div>
   </div>
 
+  <!-- Stop Game Confirmation Modal -->
+  <div class="modal-overlay" id="stopGameModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⚠ STOP RUNNING GAME</span>
+        <button class="modal-close-btn" id="stopGameModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
+          Are you sure you want to stop the running game?
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text-muted); margin-top: 8px;">
+          Stopping the game will force-terminate the Rec Room process immediately. Any unsaved progress will be lost.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="stopGameCancelBtn">Cancel</button>
+        <button class="modal-btn modal-btn-primary modal-btn-danger" id="stopGameConfirmBtn" style="background: rgba(220, 38, 38, 0.15) !important; border-color: rgba(220, 38, 38, 0.3) !important; color: #ff6b6b !important;">Stop Game</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset Theme Confirmation Modal -->
+  <div class="modal-overlay" id="resetThemeModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⚠ RESET THEME</span>
+        <button class="modal-close-btn" id="resetThemeModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
+          Are you sure you want to reset your custom theme settings?
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
+          This will revert all color settings to default Steam Green values, clear the background image, and disable Liquid Glass.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="resetThemeCancelBtn">Cancel</button>
+        <button class="modal-btn modal-btn-primary modal-btn-danger" id="resetThemeConfirmBtn" style="background: rgba(220, 38, 38, 0.15) !important; border-color: rgba(220, 38, 38, 0.3) !important; color: #ff6b6b !important;">Reset Theme</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Exclude AV Warning Modal -->
   <div class="modal-overlay" id="excludeAvModal" style="display:none">
     <div class="modal-box">
@@ -734,6 +950,33 @@
         <button class="modal-btn modal-btn-secondary" id="btnExcludeAvCancel">Cancel</button>
         <button class="modal-btn modal-btn-secondary" id="btnExcludeAvAnyway">Launch Anyway</button>
         <button class="modal-btn modal-btn-primary" id="btnExcludeAvConfirm">Exclude AV</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Third-Party AV Warning Modal -->
+  <div class="modal-overlay" id="thirdPartyAvModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⚠ THIRD-PARTY ANTIVIRUS</span>
+        <button class="modal-close-btn" id="thirdPartyAvModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
+          Third-party Antivirus active: <span id="detectedAvNames" style="color: var(--primary); text-decoration: underline;">[Antivirus Name]</span>
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
+          Automatic exclusions are only supported for Windows Defender. For third-party antivirus software, you must manually exclude the Radium client folder to prevent it from blocking or deleting custom patches.
+        </p>
+        <div style="margin-top: 10px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <code id="tpClientFolderPath" style="font-size: 11px; word-break: break-all; color: var(--accent); max-width: 80%; font-family: monospace;">[Client Folder Path]</code>
+          <button class="modal-btn" id="btnCopyTpPath" style="padding: 4px 8px; font-size: 11px; min-width: 50px;">Copy</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="btnThirdPartyAvCancel">Cancel</button>
+        <button class="modal-btn modal-btn-secondary" id="btnThirdPartyAvOpenFolder">Open Folder</button>
+        <button class="modal-btn modal-btn-primary" id="btnThirdPartyAvAnyway">Launch Anyway</button>
       </div>
     </div>
   </div>

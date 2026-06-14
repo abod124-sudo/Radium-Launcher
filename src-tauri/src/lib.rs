@@ -49,6 +49,7 @@ pub fn run() {
             // Defender
             defender::add_defender_exclusion,
             defender::remove_defender_exclusion,
+            defender::detect_antivirus,
             // Updater
             updater::check_for_update,
             updater::download_update,
@@ -129,23 +130,44 @@ fn cmd_debug_exec(app: tauri::AppHandle, mode: String) -> serde_json::Value {
     }
 
     #[cfg(target_os = "windows")]
-    use std::os::windows::process::CommandExt;
-
-    match std::process::Command::new("cmd")
-        .raw_arg("/c")
-        .raw_arg(format!("\"{}\"", bat_path.to_string_lossy()))
-        .current_dir(&client_dir)
-        .output()
     {
-        Ok(output) => serde_json::json!({
-            "ok": output.status.success(),
-            "stdout": String::from_utf8_lossy(&output.stdout),
-            "stderr": String::from_utf8_lossy(&output.stderr),
-        }),
-        Err(e) => serde_json::json!({
-            "ok": false,
-            "err": e.to_string(),
-        }),
+        use std::os::windows::process::CommandExt;
+        match std::process::Command::new("cmd")
+            .raw_arg("/c")
+            .raw_arg(format!("\"{}\"", bat_path.to_string_lossy()))
+            .current_dir(&client_dir)
+            .output()
+        {
+            Ok(output) => serde_json::json!({
+                "ok": output.status.success(),
+                "stdout": String::from_utf8_lossy(&output.stdout),
+                "stderr": String::from_utf8_lossy(&output.stderr),
+            }),
+            Err(e) => serde_json::json!({
+                "ok": false,
+                "err": e.to_string(),
+            }),
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("\"{}\"", bat_path.to_string_lossy()))
+            .current_dir(&client_dir)
+            .output()
+        {
+            Ok(output) => serde_json::json!({
+                "ok": output.status.success(),
+                "stdout": String::from_utf8_lossy(&output.stdout),
+                "stderr": String::from_utf8_lossy(&output.stderr),
+            }),
+            Err(e) => serde_json::json!({
+                "ok": false,
+                "err": e.to_string(),
+            }),
+        }
     }
 }
 
@@ -182,7 +204,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 static LAST_SUBMISSION_TIME: AtomicU64 = AtomicU64::new(0);
 
 #[tauri::command]
-async fn submit_bug_report(app: tauri::AppHandle, description: String, logs: String) -> Result<String, String> {
+async fn submit_bug_report(
+    app: tauri::AppHandle,
+    description: String,
+    logs: String,
+    category: String,
+    severity: String,
+    diagnostics: serde_json::Value,
+) -> Result<String, String> {
     // 1. Cooldown Safeguard (60 seconds)
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -218,33 +247,96 @@ async fn submit_bug_report(app: tauri::AppHandle, description: String, logs: Str
     let os_name = std::env::consts::OS;
     let os_arch = std::env::consts::ARCH;
 
-    // Create the payload
+    let launcher_version = diagnostics.get("launcherVersion").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let is_installed = diagnostics.get("isInstalled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_game_running = diagnostics.get("isGameRunning").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_downloading = diagnostics.get("isDownloading").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    let category_name = match category.to_lowercase().as_str() {
+        "general" => "General / Launcher Issue",
+        "launch" => "Game Launch Failure / Crash",
+        "theme" => "UI Layout / Custom Themes",
+        "other" => "Other / Unspecified",
+        _ => &category,
+    };
+
+    let severity_name = match severity.to_lowercase().as_str() {
+        "critical" => "Critical - Launcher Crash/Freeze",
+        "high" => "High - Cannot Launch/Play",
+        "medium" => "Medium - Functional Issue",
+        "low" => "Low - Cosmetic/Typo",
+        _ => &severity,
+    };
+
+    let embed_color = match severity.to_lowercase().as_str() {
+        "critical" => 16711680, // Red
+        "high" => 16737792,     // Red/Orange
+        "medium" => 16763904,   // Yellow
+        "low" => 65280,         // Green
+        _ => 16738656,          // Default Orange
+    };
+
+    // Create the payload (no emojis, pings everyone)
     let payload = serde_json::json!({
-        "content": "🛠️ **New Bug Report Received** @everyone",
+        "content": format!("New Bug Report Received [{}] @everyone", severity_name),
+        "allowed_mentions": { "parse": ["everyone"] },
         "embeds": [
             {
                 "title": "Bug Description",
                 "description": sanitized_desc,
-                "color": 16738656, // Orange
+                "color": embed_color,
                 "fields": [
                     {
-                        "name": "💻 OS & Architecture",
+                        "name": "Category",
+                        "value": category_name,
+                        "inline": true
+                    },
+                    {
+                        "name": "Severity",
+                        "value": severity_name,
+                        "inline": true
+                    },
+                    {
+                        "name": "OS & Architecture",
                         "value": format!("{} ({})", os_name, os_arch),
                         "inline": true
                     },
                     {
-                        "name": "🚀 Play Mode",
-                        "value": &cfg.play_mode,
+                        "name": "Launcher Version",
+                        "value": launcher_version,
                         "inline": true
                     },
                     {
-                        "name": "🎨 Active Theme",
-                        "value": &cfg.theme,
+                        "name": "Game Status",
+                        "value": format!(
+                            "Installed: {}\nRunning: {}\nDownloading: {}\nPlay Mode: {}",
+                            if is_installed { "Yes" } else { "No" },
+                            if is_game_running { "Yes" } else { "No" },
+                            if is_downloading { "Yes" } else { "No" },
+                            cfg.play_mode
+                        ),
+                        "inline": false
+                    },
+                    {
+                        "name": "Active Theme",
+                        "value": format!("{} (Baseline: {})", cfg.theme, cfg.baseline_theme),
                         "inline": true
                     },
                     {
-                        "name": "📂 Options",
-                        "value": format!("Minimize on launch: {}\nClose on launch: {}\nLaunch Options: `{}`", cfg.minimize_on_launch, cfg.close_on_launch, cfg.launch_options),
+                        "name": "AV Exclusion Status",
+                        "value": if cfg.defender_excluded { "Excluded" } else { "Not Excluded" },
+                        "inline": true
+                    },
+                    {
+                        "name": "Options & Paths",
+                        "value": format!(
+                            "Minimize on Launch: {}\nClose on Launch: {}\nInstall Dir: {}\nGame Exe Path: {}\nLaunch Options: {}",
+                            cfg.minimize_on_launch,
+                            cfg.close_on_launch,
+                            cfg.install_dir,
+                            cfg.game_exe_path,
+                            if cfg.launch_options.is_empty() { "None" } else { &cfg.launch_options }
+                        ),
                         "inline": false
                     }
                 ]

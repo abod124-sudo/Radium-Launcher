@@ -9,6 +9,8 @@
 
   const appWindow = getCurrentWindow();
 
+  let unlistenMap = {};
+
   window.radium = {
     // Window controls
     minimize: () => appWindow.minimize(),
@@ -24,6 +26,7 @@
     getPlayerCount: ()    => invoke('get_player_count'),
     addDefenderExclusion:    () => invoke('add_defender_exclusion'),
     removeDefenderExclusion: () => invoke('remove_defender_exclusion'),
+    detectAntivirus:         () => invoke('detect_antivirus'),
 
     // Install
     checkInstall: () => invoke('check_install'),
@@ -36,15 +39,17 @@
     selectFolder:     () => invoke('select_folder'),
     getDefaultClientDir: () => invoke('get_default_client_dir'),
     restoreDll:          () => invoke('restore_dll'),
-    onDownloadProgress: (cb) => {
-      listen('download-progress', (event) => cb(event.payload));
+    onDownloadProgress: async (cb) => {
+      if (unlistenMap['download-progress']) unlistenMap['download-progress']();
+      unlistenMap['download-progress'] = await listen('download-progress', (event) => cb(event.payload));
     },
 
     // Game
     launchGame: (cfg) => invoke('launch_game', { config: cfg }),
     killGame:   ()    => invoke('kill_game'),
-    onGameState: (cb) => {
-      listen('game-state', (event) => cb(event.payload));
+    onGameState: async (cb) => {
+      if (unlistenMap['game-state']) unlistenMap['game-state']();
+      unlistenMap['game-state'] = await listen('game-state', (event) => cb(event.payload));
     },
 
     // Misc
@@ -71,13 +76,15 @@
     fetchPhotoComments:   (photoId) => invoke('fetch_photo_comments', { photoId: String(photoId) }),
 
     // Log URL events
-    onLogUrl: (cb) => {
-      listen('log-url', (event) => cb(event.payload));
+    onLogUrl: async (cb) => {
+      if (unlistenMap['log-url']) unlistenMap['log-url']();
+      unlistenMap['log-url'] = await listen('log-url', (event) => cb(event.payload));
     },
 
     // Window state events
-    onWindowMaximizedState: (cb) => {
-      listen('window-maximized-state', (event) => cb(event.payload));
+    onWindowMaximizedState: async (cb) => {
+      if (unlistenMap['window-maximized-state']) unlistenMap['window-maximized-state']();
+      unlistenMap['window-maximized-state'] = await listen('window-maximized-state', (event) => cb(event.payload));
     },
 
     // Debug
@@ -85,25 +92,49 @@
     debugPaths: ()     => invoke('cmd_debug_paths'),
 
     // Bug Reporter
-    submitBugReport: (description, logs) => invoke('submit_bug_report', { description, logs }),
+    submitBugReport: (description, logs, category, severity, diagnostics) =>
+      invoke('submit_bug_report', { description, logs, category, severity, diagnostics }),
   };
 })();
 
 // App state variables
 let config                = {};
 let isGameRunning         = false;
+let isGameLaunching       = false;
 let isDownloading         = false;
 let isInstalled           = false;
 let playMode              = 'screen';
 let launchAfterExclusion  = false;
 let sacWarnedThisSession  = false;
 
-// Unbounded log buffer — captures every log entry for bug reports.
-// The DOM viewer is capped at 120 for performance; this buffer has no cap.
+// Capped log buffer — captures up to 2000 log entries for bug reports.
+// The DOM viewer is capped at 120 for performance.
 const fullLogBuffer = [];
 
 // DOM shortcuts
 const $ = id => document.getElementById(id);
+
+// Background Image Helper (prevent base64 string from freezing text inputs)
+function setBgImageUI(val) {
+  const el = $('theme-bgImage');
+  if (!el) return;
+  if (val && val.startsWith('data:image/')) {
+    el.dataset.localBase64 = val;
+    el.value = '(Local File Selected)';
+  } else {
+    delete el.dataset.localBase64;
+    el.value = val || '';
+  }
+}
+
+function getBgImageUI() {
+  const el = $('theme-bgImage');
+  if (!el) return '';
+  if (el.value === '(Local File Selected)' && el.dataset.localBase64) {
+    return el.dataset.localBase64;
+  }
+  return el.value;
+}
 
 // Formatting utility helpers
 function formatBytes(b) {
@@ -135,8 +166,11 @@ function addLog(msg, type = 'info') {
   const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
   const line = `[${ts}] ${msg}`;
 
-  // Always push to the full unbounded buffer (used by bug reports)
+  // Push to the full log buffer (capped at 2000 to prevent memory leaks)
   fullLogBuffer.push(line);
+  if (fullLogBuffer.length > 2000) {
+    fullLogBuffer.shift();
+  }
 
   // Also render in the DOM viewer (capped at 120 entries for performance)
   const out = $('logOutput');
@@ -199,6 +233,60 @@ async function loadVersion() {
   if (el && v) el.textContent = `v${v}`;
 }
 
+// Helper to force modern style base and lock choices/color pickers when glass theme is active
+function updateStyleBaseLocks(glassEnabled) {
+  const modernRadio = $('styleBaseModern');
+  const retroRadio = $('styleBaseRetro');
+  const templateSelect = $('themeTemplateSelect');
+  const colorInputs = document.querySelectorAll('.theme-color-input');
+
+  if (glassEnabled) {
+    if (modernRadio) {
+      modernRadio.checked = true;
+      modernRadio.disabled = true;
+      const lbl = modernRadio.closest('label');
+      if (lbl) { lbl.style.opacity = '0.5'; lbl.style.cursor = 'not-allowed'; }
+    }
+    if (retroRadio) {
+      retroRadio.checked = false;
+      retroRadio.disabled = true;
+      const lbl = retroRadio.closest('label');
+      if (lbl) { lbl.style.opacity = '0.5'; lbl.style.cursor = 'not-allowed'; }
+    }
+    if (templateSelect) {
+      templateSelect.disabled = true;
+      const parent = templateSelect.closest('div');
+      if (parent) { parent.style.opacity = '0.5'; parent.style.pointerEvents = 'none'; }
+    }
+    colorInputs.forEach(input => {
+      input.disabled = true;
+      const parent = input.closest('div');
+      if (parent) { parent.style.opacity = '0.4'; parent.style.pointerEvents = 'none'; }
+    });
+  } else {
+    if (modernRadio) {
+      modernRadio.disabled = false;
+      const lbl = modernRadio.closest('label');
+      if (lbl) { lbl.style.opacity = '1'; lbl.style.cursor = 'pointer'; }
+    }
+    if (retroRadio) {
+      retroRadio.disabled = false;
+      const lbl = retroRadio.closest('label');
+      if (lbl) { lbl.style.opacity = '1'; lbl.style.cursor = 'pointer'; }
+    }
+    if (templateSelect) {
+      templateSelect.disabled = false;
+      const parent = templateSelect.closest('div');
+      if (parent) { parent.style.opacity = '1'; parent.style.pointerEvents = 'auto'; }
+    }
+    colorInputs.forEach(input => {
+      input.disabled = false;
+      const parent = input.closest('div');
+      if (parent) { parent.style.opacity = '1'; parent.style.pointerEvents = 'auto'; }
+    });
+  }
+}
+
 // Load and save local settings config
 async function loadConfig() {
   config = (await window.radium?.getConfig()) || {};
@@ -222,8 +310,57 @@ async function loadConfig() {
   updateQsMode();
 
   // Theme
+  // Theme
   const activeTheme = config.theme || 'steam-green';
-  setValue('cfgTheme', activeTheme);
+  const customOn = activeTheme === 'custom';
+  
+  // Set Custom Theme toggle and groups
+  setToggle('tgl-customTheme', customOn);
+  const customGroup = $('customThemeGroup');
+  if (customGroup) {
+    customGroup.style.display = customOn ? 'block' : 'none';
+  }
+  
+  const cfgThemeSelect = $('cfgTheme');
+  if (cfgThemeSelect) {
+    cfgThemeSelect.value = customOn ? (config.baselineTheme || 'steam-green') : activeTheme;
+    cfgThemeSelect.disabled = customOn;
+    const parent = cfgThemeSelect.closest('div');
+    if (parent) {
+      parent.style.opacity = customOn ? '0.5' : '1';
+      parent.style.pointerEvents = customOn ? 'none' : 'auto';
+    }
+  }
+
+  // Load custom colors if customTheme exists in config
+  if (config.customTheme) {
+    const colors = config.customTheme;
+    if ($('theme-bgDark')) $('theme-bgDark').value = colors.bgDark || '#21281e';
+    if ($('theme-bgMain')) $('theme-bgMain').value = colors.bgMain || '#384232';
+    if ($('theme-bgPanel')) $('theme-bgPanel').value = colors.bgPanel || '#4b5845';
+    if ($('theme-bgBtn')) $('theme-bgBtn').value = colors.bgBtn || '#5e6d56';
+    if ($('theme-borderLight')) $('theme-borderLight').value = colors.borderLight || '#829478';
+    if ($('theme-borderDark')) $('theme-borderDark').value = colors.borderDark || '#1b2118';
+    if ($('theme-green')) $('theme-green').value = colors.green || '#00ff00';
+    if ($('theme-greenDim')) $('theme-greenDim').value = colors.greenDim || '#7ca969';
+    if ($('theme-text')) $('theme-text').value = colors.text || '#d4e0ce';
+    if ($('theme-textMuted')) $('theme-textMuted').value = colors.textMuted || '#8da082';
+    if ($('theme-statusOnline')) $('theme-statusOnline').value = colors.statusOnline || '#00ff00';
+    
+    setBgImageUI(colors.bgImage);
+    const glassOn = colors.glassEnabled === true;
+    setToggle('tgl-glassEnabled', glassOn);
+    updateStyleBaseLocks(glassOn);
+    if (!glassOn) {
+      const styleBase = colors.styleBase || 'retro';
+      if (styleBase === 'modern') {
+        if ($('styleBaseModern')) $('styleBaseModern').checked = true;
+      } else {
+        if ($('styleBaseRetro')) $('styleBaseRetro').checked = true;
+      }
+    }
+  }
+
   applyTheme(activeTheme);
 
   // Defender Exclusion State
@@ -235,9 +372,570 @@ async function loadConfig() {
 
 function applyTheme(theme) {
   document.body.className = document.body.className.split(' ').filter(c => c === 'animations-enabled').join(' ');
-  if (theme && theme !== 'steam-green') {
+  document.body.classList.remove('theme-custom-retro', 'theme-custom-modern', 'theme-custom-glass');
+
+  // Remove existing custom style block if any
+  const existingStyle = document.getElementById('custom-theme-style');
+  if (existingStyle) existingStyle.remove();
+
+  if (theme === 'custom') {
+    document.body.classList.add('theme-custom');
+    const colors = config.customTheme || {
+      bgDark:      '#21281e',
+      bgMain:      '#384232',
+      bgPanel:     '#4b5845',
+      bgBtn:       '#5e6d56',
+      borderLight: '#829478',
+      borderDark:  '#1b2118',
+      green:        '#00ff00',
+      greenDim:    '#7ca969',
+      text:         '#d4e0ce',
+      textMuted:   '#8da082',
+      statusOnline:'#00ff00',
+      styleBase:   'retro',
+      bgImage:     '',
+      glassEnabled:false
+    };
+    
+    const styleBase = colors.styleBase || 'retro';
+    document.body.classList.add('theme-custom-' + styleBase);
+
+    // Apply layout base classes (modern or retro) so they inherit structural rules from style.css
+    if (styleBase === 'modern') {
+      document.body.classList.add('theme-moderndark');
+    } else {
+      document.body.classList.add('theme-win98');
+    }
+
+    if (colors.glassEnabled) {
+      document.body.classList.add('theme-custom-glass');
+    }
+
+    let css = `
+      body.theme-custom {
+        --bg-dark: ${colors.bgDark};
+        --bg-main: ${colors.bgMain};
+        --bg-panel: ${colors.bgPanel};
+        --bg-btn: ${colors.bgBtn};
+        --border-light: ${colors.borderLight};
+        --border-dark: ${colors.borderDark};
+        --green: ${colors.green};
+        --green-dim: ${colors.greenDim};
+        --text: ${colors.text};
+        --text-muted: ${colors.textMuted};
+        --status-online: ${colors.statusOnline};
+      }
+      body.theme-custom .titlebar {
+        background: var(--bg-dark) !important;
+        border-bottom: 2px solid var(--border-dark) !important;
+      }
+      body.theme-custom .titlebar-app-name {
+        color: var(--green) !important;
+      }
+
+      /* Force custom button background on modern/retro layouts when not in glass mode */
+      body.theme-custom:not(.theme-custom-glass) .btn-download-big,
+      body.theme-custom:not(.theme-custom-glass) .btn-play,
+      body.theme-custom:not(.theme-custom-glass) .btn-refresh,
+      body.theme-custom:not(.theme-custom-glass) .btn-save,
+      body.theme-custom:not(.theme-custom-glass) .btn-test-server,
+      body.theme-custom:not(.theme-custom-glass) .btn-cancel-dl,
+      body.theme-custom:not(.theme-custom-glass) .btn-open-folder,
+      body.theme-custom:not(.theme-custom-glass) .btn-reinstall,
+      body.theme-custom:not(.theme-custom-glass) .btn-uninstall,
+      body.theme-custom:not(.theme-custom-glass) .btn-kill,
+      body.theme-custom:not(.theme-custom-glass) .modal-btn,
+      body.theme-custom:not(.theme-custom-glass) .btn-exclude-av,
+      body.theme-custom:not(.theme-custom-glass) .filter-btn,
+      body.theme-custom:not(.theme-custom-glass) .sort-btn,
+      body.theme-custom:not(.theme-custom-glass) .nav-btn.active,
+      body.theme-custom:not(.theme-custom-glass) .launch-secondary-actions button {
+        background: var(--bg-btn) !important;
+        color: var(--text) !important;
+        border-color: var(--border-light) !important;
+        box-shadow: none !important;
+      }
+
+      body.theme-custom:not(.theme-custom-glass) .btn-download-big:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-play:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-refresh:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-save:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-test-server:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-cancel-dl:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-open-folder:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-reinstall:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-uninstall:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-kill:hover,
+      body.theme-custom:not(.theme-custom-glass) .modal-btn:hover,
+      body.theme-custom:not(.theme-custom-glass) .btn-exclude-av:hover,
+      body.theme-custom:not(.theme-custom-glass) .filter-btn:hover,
+      body.theme-custom:not(.theme-custom-glass) .sort-btn:hover,
+      body.theme-custom:not(.theme-custom-glass) .nav-btn:hover:not(.active),
+      body.theme-custom:not(.theme-custom-glass) .launch-secondary-actions button:hover {
+        background: color-mix(in srgb, var(--bg-btn) 80%, var(--text)) !important;
+        color: var(--text) !important;
+        border-color: var(--green) !important;
+      }
+    `;
+
+    // 1. Layout-specific overrides (font matching)
+    if (styleBase === 'modern') {
+      const stopColor1 = encodeURIComponent(colors.bgDark);
+      const stopColor2 = encodeURIComponent(colors.bgPanel);
+      const avatarBgStart = encodeURIComponent(colors.bgDark);
+      const avatarBgEnd = encodeURIComponent(colors.bgMain);
+
+      css += `
+        body.theme-custom-modern, body.theme-custom-modern * {
+          font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif !important;
+        }
+        /* Modern assets (logo & image replacements) for custom theme */
+        body.theme-custom-modern img[src="./images.png"],
+        body.theme-custom-modern img[src="images.png"] {
+          content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='270'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='${stopColor1}'/%3E%3Cstop offset='100%25' stop-color='${stopColor2}'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='240' cy='135' r='30' fill='none' stroke='rgba(255,255,255,0.1)' stroke-width='2'/%3E%3Cpath d='M235 123l15 12-15 12z' fill='rgba(255,255,255,0.2)'/%3E%3C/svg%3E") !important;
+        }
+        body.theme-custom-modern .creator-avatar[src="./logo.png"],
+        body.theme-custom-modern .feed-post-avatar[src="./logo.png"],
+        body.theme-custom-modern .people-avatar[src="./logo.png"],
+        body.theme-custom-modern .creator-avatar[src="logo.png"],
+        body.theme-custom-modern .feed-post-avatar[src="logo.png"],
+        body.theme-custom-modern .people-avatar[src="logo.png"] {
+          content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='${avatarBgStart}'/%3E%3Cstop offset='100%25' stop-color='${avatarBgEnd}'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='48' cy='38' r='18' fill='rgba(255,255,255,0.3)'/%3E%3Cpath d='M48 62c-15 0-26 8-26 14v4h52v-4c0-6-11-14-26-14z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E") !important;
+        }
+      `;
+    }
+
+    let safeBgImage = '';
+    if (colors.bgImage) {
+      if (colors.bgImage.startsWith('data:image/') && !/['"()\{\}\\]/.test(colors.bgImage)) {
+        safeBgImage = colors.bgImage;
+      } else if ((colors.bgImage.startsWith('http://') || colors.bgImage.startsWith('https://')) && !/['";()\{\}\\]/.test(colors.bgImage)) {
+        safeBgImage = colors.bgImage;
+      }
+    }
+
+    // 2. Background image transparent overrides (always transparent main-content and translucent sidebar)
+    if (safeBgImage) {
+      css += `
+        body.theme-custom {
+          background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)), url('${safeBgImage}') no-repeat center center fixed !important;
+          background-size: cover !important;
+        }
+        body.theme-custom .app-layout {
+          background: transparent !important;
+        }
+        body.theme-custom .main-content {
+          background: transparent !important;
+        }
+        body.theme-custom .sidebar {
+          background: color-mix(in srgb, var(--bg-panel) 80%, transparent) !important;
+        }
+      `;
+    }
+
+    // 3. Apple-style Liquid Glass overrides - MUST COME LAST to override modern layout solid styles
+    if (colors.glassEnabled) {
+      css += `
+        /* Specular, deeply blurred glass panels for that Apple Tahoe/visionOS feel */
+        body.theme-custom-glass {
+          background: ${safeBgImage ? `linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)), url('${safeBgImage}') no-repeat center center fixed !important` : `radial-gradient(circle at center, #1a1c29 0%, #000000 100%) !important`};
+          background-size: cover !important;
+          
+          /* Neutralize baseline colors (Steam Green, etc.) at the token/variable level */
+          --bg-dark: transparent !important;
+          --bg-main: transparent !important;
+          --bg-panel: rgba(255, 255, 255, 0.05) !important;
+          --bg-btn: rgba(255, 255, 255, 0.08) !important;
+          --border-light: rgba(255, 255, 255, 0.2) !important;
+          --border-dark: rgba(0, 0, 0, 0.15) !important;
+          --green: #ffffff !important;
+          --green-dim: rgba(255, 255, 255, 0.6) !important;
+          --text: #ffffff !important;
+          --text-muted: rgba(255, 255, 255, 0.5) !important;
+          --status-online: #ffffff !important;
+        }
+        body.theme-custom-glass .titlebar {
+          background: rgba(255, 255, 255, 0.05) !important;
+          backdrop-filter: blur(35px) saturate(210%) !important;
+          -webkit-backdrop-filter: blur(35px) saturate(210%) !important;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.25) !important;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+          border-radius: 0 !important;
+        }
+
+        body.theme-custom-glass .app-layout,
+        body.theme-custom-glass .main-content {
+          background: transparent !important;
+        }
+
+        body.theme-custom-glass .panel-header {
+          border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+        }
+
+        body.theme-custom-glass .sidebar-logo {
+          border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+        }
+
+        /* Transparent scrollbar under custom glass theme */
+        body.theme-custom-glass .tab-panel {
+          box-sizing: border-box !important;
+        }
+        body.theme-custom-glass .tab-panel:not(#tab-rooms):not(#tab-people) {
+          padding: 14px 16px 10px 24px !important;
+        }
+        body.theme-custom-glass #tab-rooms,
+        body.theme-custom-glass #tab-people {
+          padding: 14px 14px 10px 14px !important;
+        }
+        body.theme-custom-glass ::-webkit-scrollbar {
+          background: transparent !important;
+          width: 8px !important;
+        }
+        body.theme-custom-glass ::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.18) !important;
+          border-radius: 4px !important;
+        }
+        body.theme-custom-glass ::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 255, 255, 0.3) !important;
+        }
+
+        /* Force single border pixel thickness on status cards to restore rounded corners */
+        body.theme-custom-glass .qs-card {
+          border-left: 1px solid rgba(255, 255, 255, 0.30) !important;
+        }
+
+        /* Contrast fix for mode switches across all custom theme configurations */
+        body.theme-custom .mode-btn.active {
+          color: var(--bg-dark) !important;
+        }
+
+        /* Glassmorphic mode toggle wrapper and action buttons */
+        body.theme-custom-glass .mode-toggle-wrap {
+          position: relative !important;
+          z-index: 1 !important;
+          background: rgba(0, 0, 0, 0.25) !important;
+          border: 1px solid rgba(255, 255, 255, 0.15) !important;
+          border-radius: 20px !important;
+          padding: 3px !important;
+          display: inline-flex !important;
+          gap: 4px !important;
+          box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+        }
+        html body.theme-custom-glass .mode-btn {
+          position: relative !important;
+          z-index: 2 !important;
+          width: 80px !important;
+          text-align: center !important;
+          border-radius: 16px !important;
+          border: none !important;
+          background: transparent !important;
+          color: rgba(255, 255, 255, 0.6) !important;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+          padding: 6px 0 !important;
+          font-size: 10px !important;
+          font-weight: 700 !important;
+        }
+        html body.theme-custom-glass .mode-btn.active {
+          background: transparent !important;
+          color: #ffffff !important;
+          box-shadow: none !important;
+        }
+        html body.theme-custom-glass .mode-btn:hover:not(.active) {
+          color: #ffffff !important;
+          background: rgba(255, 255, 255, 0.05) !important;
+          border-radius: 16px !important;
+        }
+        body.theme-custom-glass .mode-slider {
+          display: block !important;
+          position: absolute !important;
+          top: 3px !important;
+          bottom: 3px !important;
+          left: 3px !important;
+          width: 80px !important;
+          border-radius: 16px !important;
+          background: rgba(255, 255, 255, 0.2) !important;
+          box-shadow: 
+            inset 0 1px 0 rgba(255, 255, 255, 0.3),
+            0 2px 8px rgba(255, 255, 255, 0.1) !important;
+          transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+          z-index: 1 !important;
+        }
+
+        html body.theme-custom-glass .version-tag {
+          background: rgba(255, 255, 255, 0.05) !important;
+          border: 1px solid rgba(255, 255, 255, 0.15) !important;
+          border-radius: 8px !important;
+          color: #ffffff !important;
+          box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.1) !important;
+          backdrop-filter: blur(5px) !important;
+        }
+
+        body.theme-custom-glass.theme-custom-modern .bevel-outset,
+        body.theme-custom-glass.theme-custom-modern .launch-panel,
+        body.theme-custom-glass.theme-custom-modern .download-section,
+        body.theme-custom-glass.theme-custom-modern .qs-card,
+        body.theme-custom-glass.theme-custom-modern .log-output,
+        body.theme-custom-glass.theme-custom-modern .settings-group,
+        body.theme-custom-glass.theme-custom-modern .modal-box,
+        body.theme-custom-glass.theme-custom-modern .tab-panel {
+          border-radius: 18px !important;
+        }
+
+        body.theme-custom-glass .bevel-outset,
+        body.theme-custom-glass .bevel-inset,
+        body.theme-custom-glass .launch-panel,
+        body.theme-custom-glass .download-section,
+        body.theme-custom-glass .qs-card,
+        body.theme-custom-glass .log-output,
+        body.theme-custom-glass .settings-group,
+        body.theme-custom-glass .modal-box,
+        body.theme-custom-glass .tab-panel {
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 100%) !important;
+          backdrop-filter: blur(40px) saturate(210%) !important;
+          -webkit-backdrop-filter: blur(40px) saturate(210%) !important;
+          border: 1px solid rgba(255, 255, 255, 0.22) !important;
+          border-top-color: rgba(255, 255, 255, 0.35) !important;
+          border-left-color: rgba(255, 255, 255, 0.30) !important;
+          border-bottom-color: rgba(255, 255, 255, 0.15) !important;
+          border-right-color: rgba(255, 255, 255, 0.15) !important;
+          box-shadow: 
+            inset 0 1.5px 0 rgba(255, 255, 255, 0.35),
+            inset 1.5px 0 0 rgba(255, 255, 255, 0.15),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+            0 12px 36px rgba(0, 0, 0, 0.35) !important;
+        }
+
+        /* Docked Sidebar Glass Override (no double border/corners against window edge) */
+        body.theme-custom-glass .sidebar {
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 100%) !important;
+          backdrop-filter: blur(40px) saturate(210%) !important;
+          -webkit-backdrop-filter: blur(40px) saturate(210%) !important;
+          border: none !important;
+          border-right: 1px solid rgba(255, 255, 255, 0.22) !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+
+        /* Glassmorphic input controls inside panels */
+        html body.theme-custom-glass .cfg-input,
+        html body.theme-custom-glass .cfg-select,
+        html body.theme-custom-glass select,
+        html body.theme-custom-glass input[type="text"],
+        html body.theme-custom-glass input[type="number"],
+        html body.theme-custom-glass textarea {
+          background: rgba(0, 0, 0, 0.25) !important;
+          border: 1px solid rgba(255, 255, 255, 0.15) !important;
+          border-radius: 8px !important;
+          color: #ffffff !important;
+          box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+          backdrop-filter: blur(5px) !important;
+          transition: all 0.2s ease !important;
+        }
+        html body.theme-custom-glass select option {
+          background: #16181f !important;
+          color: #ffffff !important;
+        }
+        html body.theme-custom-glass .cfg-input:focus,
+        html body.theme-custom-glass .cfg-select:focus,
+        html body.theme-custom-glass select:focus,
+        html body.theme-custom-glass input[type="text"]:focus,
+        html body.theme-custom-glass input[type="number"]:focus,
+        html body.theme-custom-glass textarea:focus {
+          border-color: rgba(255, 255, 255, 0.4) !important;
+          box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 8px rgba(255, 255, 255, 0.2) !important;
+          outline: none !important;
+        }
+
+        /* Console log output translucent overlay */
+        body.theme-custom-glass .log-output {
+          background: rgba(0, 0, 0, 0.35) !important;
+          border: 1px solid rgba(255, 255, 255, 0.15) !important;
+          box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5) !important;
+          backdrop-filter: blur(10px) !important;
+        }
+
+        /* Small titlebar traffic-light buttons */
+        body.theme-custom-glass .titlebar-controls {
+          display: flex !important;
+          gap: 6px !important;
+          align-items: center !important;
+          margin-right: 8px !important;
+        }
+        body.theme-custom-glass .tb-ctrl {
+          border-radius: 50% !important;
+          aspect-ratio: 1/1 !important;
+          width: 12px !important;
+          height: 12px !important;
+          padding: 0 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          margin: 0 !important;
+        }
+        body.theme-custom-glass .tb-ctrl.cls {
+          order: 3 !important;
+        }
+        body.theme-custom-glass .tb-ctrl.min {
+          order: 1 !important;
+        }
+        body.theme-custom-glass .tb-ctrl.max {
+          order: 2 !important;
+        }
+
+        /* Glassmorphic buttons styling: 3D jelly/liquid capsule look */
+        html body.theme-custom-glass .btn-download-big,
+        html body.theme-custom-glass .btn-play,
+        html body.theme-custom-glass .btn-refresh,
+        html body.theme-custom-glass .btn-save,
+        html body.theme-custom-glass .btn-test-server,
+        html body.theme-custom-glass .btn-cancel-dl,
+        html body.theme-custom-glass .btn-kill,
+        html body.theme-custom-glass .btn-open-folder,
+        html body.theme-custom-glass .btn-reinstall,
+        html body.theme-custom-glass .btn-uninstall,
+        html body.theme-custom-glass .modal-btn,
+        html body.theme-custom-glass .nav-btn,
+        html body.theme-custom-glass .btn-exclude-av,
+        html body.theme-custom-glass .filter-btn,
+        html body.theme-custom-glass .sort-btn,
+        html body.theme-custom-glass .launch-secondary-actions button {
+          border-radius: 30px !important;
+          background: 
+            linear-gradient(to bottom, 
+              rgba(255, 255, 255, 0.2) 0%, 
+              rgba(255, 255, 255, 0.05) 48%, 
+              rgba(0, 0, 0, 0.08) 50%, 
+              rgba(0, 0, 0, 0.03) 52%, 
+              rgba(255, 255, 255, 0.1) 100%
+            ),
+            rgba(255, 255, 255, 0.03) !important;
+          backdrop-filter: blur(20px) saturate(160%) !important;
+          -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
+          border: 1px solid rgba(255, 255, 255, 0.25) !important;
+          box-shadow: 
+            0 0 0 1.5px rgba(255, 255, 255, 0.08),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.15),
+            inset 0 1.5px 0 rgba(255, 255, 255, 0.45), 
+            inset 0 -1.5px 0 rgba(0, 0, 0, 0.1), 
+            0 4px 12px 0 rgba(0, 0, 0, 0.15) !important;
+          transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+          color: #ffffff !important;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+          font-weight: 700 !important;
+          letter-spacing: 0.3px !important;
+        }
+
+        /* Action buttons hover states: hyper-glossy and glowing */
+        html body.theme-custom-glass .btn-download-big:hover,
+        html body.theme-custom-glass .btn-play:hover,
+        html body.theme-custom-glass .btn-refresh:hover,
+        html body.theme-custom-glass .btn-save:hover,
+        html body.theme-custom-glass .btn-test-server:hover,
+        html body.theme-custom-glass .btn-cancel-dl:hover,
+        html body.theme-custom-glass .btn-kill:hover,
+        html body.theme-custom-glass .btn-open-folder:hover,
+        html body.theme-custom-glass .btn-reinstall:hover,
+        html body.theme-custom-glass .btn-uninstall:hover,
+        html body.theme-custom-glass .modal-btn:hover,
+        html body.theme-custom-glass .nav-btn:hover,
+        html body.theme-custom-glass .btn-exclude-av:hover,
+        html body.theme-custom-glass .filter-btn:hover,
+        html body.theme-custom-glass .sort-btn:hover,
+        html body.theme-custom-glass .launch-secondary-actions button:hover {
+          background: 
+            linear-gradient(to bottom, 
+              rgba(255, 255, 255, 0.45) 0%, 
+              rgba(255, 255, 255, 0.15) 48%, 
+              rgba(0, 0, 0, 0.05) 50%, 
+              rgba(0, 0, 0, 0.01) 52%, 
+              rgba(255, 255, 255, 0.2) 100%
+            ),
+            rgba(255, 255, 255, 0.08) !important;
+          border-color: rgba(255, 255, 255, 0.4) !important;
+          box-shadow: 
+            0 0 0 1.5px rgba(255, 255, 255, 0.12),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+            inset 0 1.5px 0 rgba(255, 255, 255, 0.55),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.05),
+            0 0 15px rgba(255, 255, 255, 0.1),
+            0 6px 16px rgba(0, 0, 0, 0.2) !important;
+          transform: translateY(-1.5px) scale(1.01) !important;
+        }
+
+        /* Action buttons active press (visual depress) */
+        html body.theme-custom-glass .btn-download-big:active,
+        html body.theme-custom-glass .btn-play:active,
+        html body.theme-custom-glass .btn-refresh:active,
+        html body.theme-custom-glass .btn-save:active,
+        html body.theme-custom-glass .btn-test-server:active,
+        html body.theme-custom-glass .btn-cancel-dl:active,
+        html body.theme-custom-glass .btn-kill:active,
+        html body.theme-custom-glass .btn-open-folder:active,
+        html body.theme-custom-glass .btn-reinstall:active,
+        html body.theme-custom-glass .btn-uninstall:active,
+        html body.theme-custom-glass .modal-btn:active,
+        html body.theme-custom-glass .nav-btn:active,
+        html body.theme-custom-glass .btn-exclude-av:active,
+        html body.theme-custom-glass .filter-btn:active,
+        html body.theme-custom-glass .sort-btn:active,
+        html body.theme-custom-glass .launch-secondary-actions button:active {
+          background: 
+            linear-gradient(to bottom, 
+              rgba(0, 0, 0, 0.1) 0%, 
+              rgba(0, 0, 0, 0.03) 48%, 
+              rgba(255, 255, 255, 0.03) 50%, 
+              rgba(255, 255, 255, 0.1) 100%
+            ),
+            rgba(255, 255, 255, 0.02) !important;
+          box-shadow: 
+            0 0 0 1.5px rgba(255, 255, 255, 0.08),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+            inset 2.5px 6px rgba(0, 0, 0, 0.35),
+            inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+            0 2px 4px rgba(0, 0, 0, 0.1) !important;
+          transform: translateY(1px) scale(0.98) !important;
+        }
+
+        /* Sidebar Navigation, filter & sort buttons */
+        html body.theme-custom-glass .nav-btn {
+          margin: 4px 0 !important;
+          padding: 8px 12px !important;
+          box-sizing: border-box !important;
+          width: 100% !important;
+        }
+        html body.theme-custom-glass .nav-btn.active,
+        html body.theme-custom-glass .filter-btn.active,
+        html body.theme-custom-glass .sort-btn.active {
+          background: 
+            linear-gradient(to bottom, 
+              rgba(255, 255, 255, 0.35) 0%, 
+              rgba(255, 255, 255, 0.1) 48%, 
+              rgba(0, 0, 0, 0.08) 50%, 
+              rgba(255, 255, 255, 0.15) 100%
+            ),
+            rgba(255, 255, 255, 0.12) !important;
+          border-color: rgba(255, 255, 255, 0.45) !important;
+          box-shadow: 
+            0 0 0 1.5px rgba(255, 255, 255, 0.15),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+            inset 0 1.5px 0 rgba(255, 255, 255, 0.55),
+            inset 0 -1.5px 0 rgba(0, 0, 0, 0.15),
+            0 0 15px rgba(255, 255, 255, 0.15),
+            0 4px 12px 0 rgba(0, 0, 0, 0.20) !important;
+          font-weight: bold !important;
+          color: #ffffff !important;
+        }
+      `;
+    }
+
+    const style = document.createElement('style');
+    style.id = 'custom-theme-style';
+    style.textContent = css;
+    document.head.appendChild(style);
+  } else if (theme && theme !== 'steam-green') {
     document.body.classList.add('theme-' + theme);
   }
+
   const anims = getToggle('tgl-enableAnimations');
   if (anims) {
     document.body.classList.add('animations-enabled');
@@ -278,13 +976,496 @@ $('cfgTheme')?.addEventListener('change', () => {
   applyTheme(selectedTheme);
 });
 
+$('tgl-customTheme')?.addEventListener('click', () => {
+  const customOn = !getToggle('tgl-customTheme');
+  setToggle('tgl-customTheme', customOn);
+  
+  const customGroup = $('customThemeGroup');
+  if (customGroup) customGroup.style.display = customOn ? 'block' : 'none';
+  
+  const cfgThemeSelect = $('cfgTheme');
+  if (cfgThemeSelect) {
+    cfgThemeSelect.disabled = customOn;
+    const parent = cfgThemeSelect.closest('div');
+    if (parent) {
+      parent.style.opacity = customOn ? '0.5' : '1';
+      parent.style.pointerEvents = customOn ? 'none' : 'auto';
+    }
+  }
+
+  if (customOn) {
+    updateCustomThemeFromUI();
+  } else {
+    const selectedTheme = $('cfgTheme').value || 'steam-green';
+    applyTheme(selectedTheme);
+    try {
+      localStorage.setItem('radium-theme', selectedTheme);
+    } catch (e) {}
+  }
+});
+
+function updateCustomThemeFromUI() {
+  const isModern = $('styleBaseModern')?.checked === true;
+  const customColors = {
+    bgDark:       $('theme-bgDark')?.value || '#21281e',
+    bgMain:       $('theme-bgMain')?.value || '#384232',
+    bgPanel:      $('theme-bgPanel')?.value || '#4b5845',
+    bgBtn:        $('theme-bgBtn')?.value || '#5e6d56',
+    borderLight:  $('theme-borderLight')?.value || '#829478',
+    borderDark:   $('theme-borderDark')?.value || '#1b2118',
+    green:         $('theme-green')?.value || '#00ff00',
+    greenDim:     $('theme-greenDim')?.value || '#7ca969',
+    text:         $('theme-text')?.value || '#d4e0ce',
+    textMuted:    $('theme-textMuted')?.value || '#8da082',
+    statusOnline: $('theme-statusOnline')?.value || '#00ff00',
+    styleBase:    isModern ? 'modern' : 'retro',
+    bgImage:      getBgImageUI(),
+    glassEnabled: getToggle('tgl-glassEnabled')
+  };
+  config.customTheme = customColors;
+  config.baselineTheme = $('cfgTheme')?.value || 'steam-green';
+  applyTheme('custom');
+}
+
+const THEME_PRESETS = {
+  'steam-green': {
+    bgDark:      '#21281e',
+    bgMain:      '#384232',
+    bgPanel:     '#4b5845',
+    bgBtn:       '#5e6d56',
+    borderLight: '#829478',
+    borderDark:  '#1b2118',
+    green:        '#00ff00',
+    greenDim:    '#7ca969',
+    text:         '#d4e0ce',
+    textMuted:   '#8da082',
+    statusOnline:'#00ff00'
+  },
+  'win98': {
+    bgDark:      '#ffffff',
+    bgMain:      '#d4d0c8',
+    bgPanel:     '#d4d0c8',
+    bgBtn:       '#d4d0c8',
+    borderLight: '#ffffff',
+    borderDark:  '#808080',
+    green:        '#000080',
+    greenDim:    '#404040',
+    text:         '#000000',
+    textMuted:   '#555555',
+    statusOnline:'#008000'
+  },
+  'win95': {
+    bgDark:      '#008080',
+    bgMain:      '#c0c0c0',
+    bgPanel:     '#c0c0c0',
+    bgBtn:       '#c0c0c0',
+    borderLight: '#ffffff',
+    borderDark:  '#808080',
+    green:       '#000080',
+    greenDim:    '#000000',
+    text:        '#000000',
+    textMuted:   '#555555',
+    statusOnline:'#008000'
+  },
+  'winxp': {
+    bgDark:      '#ffffff',
+    bgMain:      '#d8e4f8',
+    bgPanel:     '#ece9d8',
+    bgBtn:       '#ece9d8',
+    borderLight: '#ffffff',
+    borderDark:  '#aca899',
+    green:        '#0054e3',
+    greenDim:    '#7a96df',
+    text:         '#000000',
+    textMuted:   '#555555',
+    statusOnline:'#008000'
+  },
+  'royalenoir': {
+    bgDark:      '#1c1c1c',
+    bgMain:      '#2b2b2b',
+    bgPanel:     '#3a3a3a',
+    bgBtn:       '#4c4c4c',
+    borderLight: '#606060',
+    borderDark:  '#141414',
+    green:       '#3b93ff',
+    greenDim:    '#5285e9',
+    text:        '#ffffff',
+    textMuted:   '#b0b0b0',
+    statusOnline:'#00d000'
+  },
+  'winvista': {
+    bgDark:      '#e2e8f0',
+    bgMain:      '#1f2d3d',
+    bgPanel:     '#e2e8f0',
+    bgBtn:       '#f1f5f9',
+    borderLight: '#ffffff',
+    borderDark:  '#708090',
+    green:       '#0055cc',
+    greenDim:    '#004488',
+    text:        '#1a2a3a',
+    textMuted:   '#3b4d5e',
+    statusOnline:'#008000'
+  },
+  'win7': {
+    bgDark:      '#f0f3f7',
+    bgMain:      '#edf2f8',
+    bgPanel:     '#ffffff',
+    bgBtn:       '#f2f6fa',
+    borderLight: '#dbe4f0',
+    borderDark:  '#a3b8cc',
+    green:       '#1068c8',
+    greenDim:    '#0a4b96',
+    text:        '#000000',
+    textMuted:   '#555555',
+    statusOnline:'#0a8a0a'
+  },
+  'macosclassic': {
+    bgDark:      '#dddddd',
+    bgMain:      '#cccccc',
+    bgPanel:     '#cccccc',
+    bgBtn:       '#e2e2e2',
+    borderLight: '#ffffff',
+    borderDark:  '#949494',
+    green:       '#000000',
+    greenDim:    '#4c4c4c',
+    text:        '#000000',
+    textMuted:   '#505050',
+    statusOnline:'#007a00'
+  },
+  'moderndark': {
+    bgDark:      '#0d0f12',
+    bgMain:      '#161a22',
+    bgPanel:     '#212630',
+    bgBtn:       '#2d3342',
+    borderLight: '#3d4559',
+    borderDark:  '#08090a',
+    green:        '#00f0ff',
+    greenDim:    '#009bb3',
+    text:         '#e2e8f0',
+    textMuted:   '#8a99ad',
+    statusOnline:'#10b981'
+  },
+  'modernlight': {
+    bgDark:      '#f1f5f9',
+    bgMain:      '#f8fafc',
+    bgPanel:     '#ffffff',
+    bgBtn:       '#f1f5f9',
+    borderLight: '#e2e8f0',
+    borderDark:  '#cbd5e1',
+    green:        '#3b82f6',
+    greenDim:    '#60a5fa',
+    text:         '#0f172a',
+    textMuted:   '#64748b',
+    statusOnline:'#10b981'
+  },
+  'moderngreen': {
+    bgDark:      '#070b07',
+    bgMain:      '#0d140d',
+    bgPanel:     '#131e13',
+    bgBtn:       '#10b981',
+    borderLight: '#223322',
+    borderDark:  '#050705',
+    green:       '#10b981',
+    greenDim:    '#34d399',
+    text:        '#f0fdf4',
+    textMuted:   '#4ade80',
+    statusOnline:'#10b981'
+  },
+  'blackandwhite': {
+    bgDark:      '#050505',
+    bgMain:      '#0d0d0d',
+    bgPanel:     '#141414',
+    bgBtn:       '#ffffff',
+    borderLight: '#262626',
+    borderDark:  '#090909',
+    green:       '#ffffff',
+    greenDim:    '#bbbbbb',
+    text:        '#ffffff',
+    textMuted:   '#888888',
+    statusOnline:'#ffffff'
+  }
+};
+
+$('themeTemplateSelect')?.addEventListener('change', () => {
+  const presetKey = $('themeTemplateSelect').value;
+  const colors = THEME_PRESETS[presetKey];
+  if (colors) {
+    const keys = ['bgDark', 'bgMain', 'bgPanel', 'bgBtn', 'borderLight', 'borderDark', 'green', 'greenDim', 'text', 'textMuted', 'statusOnline'];
+    keys.forEach(k => {
+      const el = $('theme-' + k);
+      if (el) el.value = colors[k];
+    });
+
+    const isModern = presetKey.startsWith('modern');
+    if (isModern) {
+      if ($('styleBaseModern')) $('styleBaseModern').checked = true;
+    } else {
+      if ($('styleBaseRetro')) $('styleBaseRetro').checked = true;
+    }
+    updateStyleBaseLocks(getToggle('tgl-glassEnabled'));
+
+    updateCustomThemeFromUI();
+    toast('Template loaded! Adjust colors as desired.', 'ok');
+  }
+});
+
+// Bind color pickers input events for live preview
+['theme-bgDark', 'theme-bgMain', 'theme-bgPanel', 'theme-bgBtn', 'theme-borderLight', 'theme-borderDark', 'theme-green', 'theme-greenDim', 'theme-text', 'theme-textMuted', 'theme-statusOnline'].forEach(id => {
+  $(id)?.addEventListener('input', () => {
+    if (getToggle('tgl-customTheme')) {
+      updateCustomThemeFromUI();
+    }
+  });
+});
+
+$('styleBaseRetro')?.addEventListener('change', () => {
+  if (getToggle('tgl-customTheme')) updateCustomThemeFromUI();
+});
+$('styleBaseModern')?.addEventListener('change', () => {
+  if (getToggle('tgl-customTheme')) updateCustomThemeFromUI();
+});
+
+// Category 4: Background & Glass event listeners
+$('theme-bgImage')?.addEventListener('input', (e) => {
+  if (e.target.value !== '(Local File Selected)') {
+    delete e.target.dataset.localBase64;
+  }
+  if (getToggle('tgl-customTheme')) {
+    updateCustomThemeFromUI();
+  }
+});
+
+$('btnBrowseBgFile')?.addEventListener('click', () => {
+  const picker = $('theme-bgFilePicker');
+  if (picker) picker.value = '';
+  picker?.click();
+});
+
+$('theme-bgFilePicker')?.addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    const base64 = event.target.result;
+    setBgImageUI(base64);
+    if (getToggle('tgl-customTheme')) {
+      updateCustomThemeFromUI();
+    }
+  };
+  reader.readAsDataURL(file);
+});
+
+$('btnClearBgImage')?.addEventListener('click', () => {
+  setBgImageUI('');
+  if ($('theme-bgFilePicker')) $('theme-bgFilePicker').value = '';
+  if (getToggle('tgl-customTheme')) {
+    updateCustomThemeFromUI();
+  }
+});
+
+$('tgl-glassEnabled')?.addEventListener('click', () => {
+  $('tgl-glassEnabled').classList.toggle('on');
+  updateStyleBaseLocks(getToggle('tgl-glassEnabled'));
+  if (getToggle('tgl-customTheme')) {
+    updateCustomThemeFromUI();
+  }
+});
+
+// Export theme
+$('btnExportTheme')?.addEventListener('click', async () => {
+  const isModern = $('styleBaseModern')?.checked === true;
+  const customColors = {
+    bgDark:       $('theme-bgDark')?.value || '#21281e',
+    bgMain:       $('theme-bgMain')?.value || '#384232',
+    bgPanel:      $('theme-bgPanel')?.value || '#4b5845',
+    bgBtn:        $('theme-bgBtn')?.value || '#5e6d56',
+    borderLight:  $('theme-borderLight')?.value || '#829478',
+    borderDark:   $('theme-borderDark')?.value || '#1b2118',
+    green:         $('theme-green')?.value || '#00ff00',
+    greenDim:     $('theme-greenDim')?.value || '#7ca969',
+    text:         $('theme-text')?.value || '#d4e0ce',
+    textMuted:    $('theme-textMuted')?.value || '#8da082',
+    statusOnline: $('theme-statusOnline')?.value || '#00ff00',
+    styleBase:    isModern ? 'modern' : 'retro',
+    bgImage:      getBgImageUI(),
+    glassEnabled: getToggle('tgl-glassEnabled')
+  };
+  try {
+    const jsonStr = JSON.stringify(customColors, null, 2);
+    await navigator.clipboard.writeText(jsonStr);
+    toast('Custom theme JSON copied to clipboard!', 'ok');
+  } catch (e) {
+    toast('Failed to export theme.', 'error');
+  }
+});
+
+// Import theme
+$('btnImportTheme')?.addEventListener('click', async () => {
+  const input = prompt('Paste custom theme JSON here:');
+  if (!input) return;
+
+  try {
+    const colors = JSON.parse(input);
+    const keys = ['bgDark', 'bgMain', 'bgPanel', 'bgBtn', 'borderLight', 'borderDark', 'green', 'greenDim', 'text', 'textMuted', 'statusOnline'];
+    
+    // Quick validation
+    let valid = true;
+    keys.forEach(k => {
+      if (!colors[k] || typeof colors[k] !== 'string' || !colors[k].startsWith('#')) {
+        valid = false;
+      }
+    });
+
+    if (!valid) {
+      toast('Invalid theme colors format.', 'error');
+      return;
+    }
+
+    // Set values to inputs
+    keys.forEach(k => {
+      const el = $('theme-' + k);
+      if (el) el.value = colors[k];
+    });
+
+    setBgImageUI(colors.bgImage);
+    const glassOn = colors.glassEnabled === true;
+    setToggle('tgl-glassEnabled', glassOn);
+    updateStyleBaseLocks(glassOn);
+
+    let styleBase = colors.styleBase || 'retro';
+    if (glassOn) {
+      styleBase = 'modern';
+    } else {
+      if (styleBase === 'modern') {
+        if ($('styleBaseModern')) $('styleBaseModern').checked = true;
+      } else {
+        if ($('styleBaseRetro')) $('styleBaseRetro').checked = true;
+      }
+    }
+
+    // Save and apply preview
+    config.customTheme = { ...colors, styleBase, bgImage: colors.bgImage || '', glassEnabled: glassOn };
+    updateCustomThemeFromUI();
+    toast('Theme imported successfully! Click Save to persist.', 'ok');
+  } catch (e) {
+    toast('Failed to parse theme JSON.', 'error');
+  }
+});
+
+// Reset custom theme
+const resetThemeModal = $('resetThemeModal');
+const closeResetThemeModal = () => { if (resetThemeModal) resetThemeModal.style.display = 'none'; };
+$('resetThemeCancelBtn')?.addEventListener('click', closeResetThemeModal);
+$('resetThemeModalClose')?.addEventListener('click', closeResetThemeModal);
+$('resetThemeModal')?.addEventListener('click', (e) => {
+  if (e.target === resetThemeModal) closeResetThemeModal();
+});
+
+$('btnResetTheme')?.addEventListener('click', () => {
+  if (resetThemeModal) resetThemeModal.style.display = 'flex';
+});
+
+$('resetThemeConfirmBtn')?.addEventListener('click', async () => {
+  closeResetThemeModal();
+
+  const defaults = {
+    bgDark:       '#21281e',
+    bgMain:       '#384232',
+    bgPanel:      '#4b5845',
+    bgBtn:        '#5e6d56',
+    borderLight:  '#829478',
+    borderDark:   '#1b2118',
+    green:         '#00ff00',
+    greenDim:     '#7ca969',
+    text:         '#d4e0ce',
+    textMuted:    '#8da082',
+    statusOnline: '#00ff00',
+    styleBase:    'retro',
+    bgImage:      '',
+    glassEnabled: false
+  };
+
+  // Set values to inputs
+  setValue('theme-bgDark', defaults.bgDark);
+  setValue('theme-bgMain', defaults.bgMain);
+  setValue('theme-bgPanel', defaults.bgPanel);
+  setValue('theme-bgBtn', defaults.bgBtn);
+  setValue('theme-borderLight', defaults.borderLight);
+  setValue('theme-borderDark', defaults.borderDark);
+  setValue('theme-green', defaults.green);
+  setValue('theme-greenDim', defaults.greenDim);
+  setValue('theme-text', defaults.text);
+  setValue('theme-textMuted', defaults.textMuted);
+  setValue('theme-statusOnline', defaults.statusOnline);
+
+  setBgImageUI('');
+  if ($('theme-bgFilePicker')) $('theme-bgFilePicker').value = '';
+  setToggle('tgl-glassEnabled', false);
+  updateStyleBaseLocks(false);
+  
+  // Reset custom theme toggle and groups
+  setToggle('tgl-customTheme', false);
+  const customGroup = $('customThemeGroup');
+  if (customGroup) customGroup.style.display = 'none';
+
+  const cfgThemeSelect = $('cfgTheme');
+  if (cfgThemeSelect) {
+    cfgThemeSelect.value = 'steam-green';
+    cfgThemeSelect.disabled = false;
+    const parent = cfgThemeSelect.closest('div');
+    if (parent) {
+      parent.style.opacity = '1';
+      parent.style.pointerEvents = 'auto';
+    }
+  }
+
+  if ($('styleBaseRetro')) $('styleBaseRetro').checked = true;
+  if ($('styleBaseModern')) $('styleBaseModern').checked = false;
+  if ($('themeTemplateSelect')) $('themeTemplateSelect').value = '';
+
+  config.customTheme = defaults;
+  config.theme = 'steam-green';
+  config.baselineTheme = 'steam-green';
+  applyTheme('steam-green');
+  
+  try {
+    await window.radium?.saveConfig(config);
+    toast('Custom theme reset to default!', 'ok');
+  } catch (e) {
+    toast('Theme reset locally, failed to persist config.', 'error');
+  }
+});
+
 // Save
 $('btnSaveSettings')?.addEventListener('click', async () => {
+  const customActive = getToggle('tgl-customTheme');
   const selectedTheme = $('cfgTheme')?.value || 'steam-green';
+  const saveTheme = customActive ? 'custom' : selectedTheme;
   const customDir = $('cfgInstallDir')?.textContent.trim() || '';
+  const isModern = $('styleBaseModern')?.checked === true;
+  
+  // Custom theme colors structure
+  const customColors = {
+    bgDark:       $('theme-bgDark')?.value || '#21281e',
+    bgMain:       $('theme-bgMain')?.value || '#384232',
+    bgPanel:      $('theme-bgPanel')?.value || '#4b5845',
+    bgBtn:        $('theme-bgBtn')?.value || '#5e6d56',
+    borderLight:  $('theme-borderLight')?.value || '#829478',
+    borderDark:   $('theme-borderDark')?.value || '#1b2118',
+    green:         $('theme-green')?.value || '#00ff00',
+    greenDim:     $('theme-greenDim')?.value || '#7ca969',
+    text:         $('theme-text')?.value || '#d4e0ce',
+    textMuted:    $('theme-textMuted')?.value || '#8da082',
+    statusOnline: $('theme-statusOnline')?.value || '#00ff00',
+    styleBase:    isModern ? 'modern' : 'retro',
+    bgImage:      getBgImageUI(),
+    glassEnabled: getToggle('tgl-glassEnabled')
+  };
+
   const updated = {
     ...config,
-    apiUrl:           config.apiUrl || 'https://api.radie.app/',
+    apiUrl:           $('cfgApiUrl')?.value.trim() || config.apiUrl || 'https://api.radie.app/',
     minimizeOnLaunch: getToggle('tgl-minimizeOnLaunch'),
     closeOnLaunch:    getToggle('tgl-closeOnLaunch'),
     autoUpdate:       getToggle('tgl-autoUpdate'),
@@ -292,11 +1473,23 @@ $('btnSaveSettings')?.addEventListener('click', async () => {
     disableWarnings:  getToggle('tgl-disableWarnings'),
     installDir:       customDir,
     playMode,
-    theme:            selectedTheme,
+    theme:            saveTheme,
+    baselineTheme:    selectedTheme,
     launchOptions:    $('cfgLaunchOptions')?.value.trim() || '',
+    customTheme:      customColors
   };
-  applyTheme(selectedTheme);
-  const ok = await window.radium?.saveConfig(updated);
+
+  config.customTheme = customColors;
+  config.baselineTheme = selectedTheme;
+  applyTheme(saveTheme);
+
+  let ok = false;
+  try {
+    ok = await window.radium?.saveConfig(updated);
+  } catch (e) {
+    console.error('saveConfig error:', e);
+  }
+  
   if (ok) {
     config = updated;
     toast('Settings saved!', 'ok');
@@ -309,7 +1502,12 @@ $('btnSaveSettings')?.addEventListener('click', async () => {
 
 // Check client installation state
 async function checkInstall() {
-  const result = await window.radium?.checkInstall();
+  let result = null;
+  try {
+    result = await window.radium?.checkInstall();
+  } catch (e) {
+    console.error('checkInstall error:', e);
+  }
   isInstalled = result?.installed ?? false;
   const qscC = $('qsc-client');
   const installDirSpan = $('cfgInstallDir');
@@ -399,7 +1597,13 @@ $('btnDownload')?.addEventListener('click', async () => {
   addLog('Starting download from cdn.recroomarchive.org...', 'info');
   toast('Download started!', 'info', 2500);
 
-  const result = await window.radium?.downloadClient();
+  let result = null;
+  try {
+    result = await window.radium?.downloadClient();
+  } catch (e) {
+    console.error('downloadClient error:', e);
+    result = { success: false, error: e.toString() };
+  }
 
   if (result?.success) {
     setDownloadUI(false);
@@ -460,6 +1664,27 @@ $('reinstallConfirmBtn')?.addEventListener('click', () => {
   toast('Starting reinstall...', 'info');
   $('btnDownload')?.click();
 });
+
+// Stop Game logic with Modal
+const stopGameModal = $('stopGameModal');
+const closeStopGameModal = () => { if (stopGameModal) stopGameModal.style.display = 'none'; };
+$('stopGameCancelBtn')?.addEventListener('click', closeStopGameModal);
+$('stopGameModalClose')?.addEventListener('click', closeStopGameModal);
+$('stopGameConfirmBtn')?.addEventListener('click', async () => {
+  closeStopGameModal();
+  addLog('User confirmed stop game request. Killing game process...', 'info');
+  toast('Stopping Radium...', 'info', 2000);
+  await window.radium?.killGame();
+  setGameRunning(false);
+});
+$('stopGameModal')?.addEventListener('click', (e) => {
+  if (e.target === stopGameModal) {
+    closeStopGameModal();
+  }
+});
+function showStopGameModal() {
+  if (stopGameModal) stopGameModal.style.display = 'flex';
+}
 
 // Uninstall logic with Modal
 const uninstallModal = $('uninstallModal');
@@ -566,6 +1791,7 @@ function hideExcludeAvModal() {
   const m = $('excludeAvModal');
   if (m) m.style.display = 'none';
   launchAfterExclusion = false; // Reset whenever the modal is hidden
+  isGameLaunching = false;
 }
 
 $('excludeAvModalClose')?.addEventListener('click', hideExcludeAvModal);
@@ -605,6 +1831,7 @@ async function executeExcludeAv() {
     toast('Failed to add exclusion.', 'error');
     addLog(`Exclusion failed: ${err}`, 'error');
     launchAfterExclusion = false;
+    isGameLaunching = false;
   }
 }
 
@@ -613,6 +1840,80 @@ $('btnExcludeAvConfirm')?.addEventListener('click', () => {
   const m = $('excludeAvModal');
   if (m) m.style.display = 'none';
   executeExcludeAv();
+});
+
+// Third-Party AV Warning Modal Actions
+function showThirdPartyAvModal(thirdPartyAvs) {
+  const m = $('thirdPartyAvModal');
+  if (!m) return;
+
+  const avNames = $('detectedAvNames');
+  if (avNames) {
+    avNames.textContent = thirdPartyAvs.map(av => av.name).join(', ');
+  }
+
+  const clientPathCode = $('tpClientFolderPath');
+  if (clientPathCode) {
+    const clientPath = $('cfgInstallDir')?.textContent.trim() || config.installDir || '';
+    clientPathCode.textContent = clientPath;
+  }
+
+  m.style.display = 'flex';
+}
+
+function hideThirdPartyAvModal() {
+  const m = $('thirdPartyAvModal');
+  if (m) m.style.display = 'none';
+  launchAfterExclusion = false; // Reset whenever the modal is hidden
+  isGameLaunching = false;
+}
+
+$('thirdPartyAvModalClose')?.addEventListener('click', hideThirdPartyAvModal);
+$('btnThirdPartyAvCancel')?.addEventListener('click', hideThirdPartyAvModal);
+
+$('btnCopyTpPath')?.addEventListener('click', async () => {
+  const clientPath = $('cfgInstallDir')?.textContent.trim() || config.installDir || '';
+  if (clientPath) {
+    try {
+      await navigator.clipboard.writeText(clientPath);
+      toast('Client folder path copied!', 'ok');
+    } catch (e) {
+      toast('Failed to copy path.', 'error');
+    }
+  }
+});
+
+$('btnThirdPartyAvOpenFolder')?.addEventListener('click', async () => {
+  const ok = await window.radium?.openClientFolder();
+  if (ok) {
+    toast('Client folder opened!', 'ok');
+  } else {
+    toast('Failed to open folder.', 'error');
+  }
+});
+
+$('btnThirdPartyAvAnyway')?.addEventListener('click', async () => {
+  const m = $('thirdPartyAvModal');
+  if (m) m.style.display = 'none';
+
+  config.defenderExcluded = true;
+  await window.radium?.saveConfig(config);
+
+  const btn = $('btnExcludeAv');
+  if (btn) btn.textContent = 'UNExclude AV';
+
+  addLog('Third-party AV manual exclusion acknowledged by user.', 'ok');
+
+  if (launchAfterExclusion) {
+    launchAfterExclusion = false;
+    await proceedAfterAvCheck();
+  }
+});
+
+$('thirdPartyAvModal')?.addEventListener('click', (e) => {
+  if (e.target === $('thirdPartyAvModal')) {
+    hideThirdPartyAvModal();
+  }
 });
 
 $('btnExcludeAv')?.addEventListener('click', async () => {
@@ -637,7 +1938,14 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
       addLog(`Exclusion removal failed: ${err}`, 'error');
     }
   } else {
-    showExcludeAvModal();
+    // Detect third party AV
+    const avs = await window.radium?.detectAntivirus() || [];
+    const thirdPartyAvs = avs.filter(av => !av.isDefender);
+    if (thirdPartyAvs.length > 0) {
+      showThirdPartyAvModal(thirdPartyAvs);
+    } else {
+      executeExcludeAv();
+    }
   }
 });
 
@@ -645,6 +1953,10 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
 function setModeUI(mode) {
   $('modeScreen')?.classList.toggle('active', mode === 'screen');
   $('modeVR')?.classList.toggle('active',     mode === 'vr');
+  const wrap = document.querySelector('.mode-toggle-wrap');
+  if (wrap) {
+    wrap.classList.toggle('vr-active', mode === 'vr');
+  }
 }
 
 function updateQsMode() {
@@ -742,15 +2054,18 @@ async function updatePlayerCount(silent = false) {
 // Game execution and process monitoring
 function setGameRunning(running) {
   isGameRunning = running;
+  if (running) {
+    isGameLaunching = false;
+  }
   const btn = $('btnPlay');
   if (running) {
     btn?.classList.add('running');
-    const pt = $('playText'); if (pt) pt.textContent = 'RUNNING';
-    const ps = $('playStatus'); if (ps) ps.style.display = 'flex';
+    const pt = $('playText'); if (pt) pt.textContent = 'STOP';
+    const pi = $('playIcon'); if (pi) pi.textContent = '■';
   } else {
     btn?.classList.remove('running');
     const pt = $('playText'); if (pt) pt.textContent = 'PLAY';
-    const ps = $('playStatus'); if (ps) ps.style.display = 'none';
+    const pi = $('playIcon'); if (pi) pi.textContent = '▶';
   }
 }
 
@@ -760,15 +2075,16 @@ function showSteamModal() {
   if (m) m.style.display = 'flex';
 }
 
-function hideSteamModal() {
+function hideSteamModal(cancelLaunch = true) {
   const m = $('steamModal');
   if (m) m.style.display = 'none';
+  if (cancelLaunch) isGameLaunching = false;
 }
 
-$('steamModalClose')?.addEventListener('click', hideSteamModal);
+$('steamModalClose')?.addEventListener('click', () => hideSteamModal(true));
 $('steamModal')?.addEventListener('click', (e) => {
   if (e.target === $('steamModal')) {
-    hideSteamModal();
+    hideSteamModal(true);
   }
 });
 
@@ -777,8 +2093,15 @@ async function executeLaunch() {
   addLog('Launching game...', 'info');
   toast('Launching Radium...', 'info', 2000);
 
-  const result = await window.radium?.launchGame({ ...config, playMode });
+  let result = null;
+  try {
+    result = await window.radium?.launchGame({ ...config, playMode });
+  } catch (e) {
+    console.error('launchGame error:', e);
+    result = { success: false, error: e.toString() };
+  }
 
+  isGameLaunching = false;
   if (!result?.success) {
     setGameRunning(false);
     const err = result?.error || 'Unknown error';
@@ -797,12 +2120,12 @@ async function executeLaunch() {
 }
 
 $('steamAnywayBtn')?.addEventListener('click', () => {
-  hideSteamModal();
+  hideSteamModal(false);
   executeLaunch();
 });
 
 $('steamLaunchBtn')?.addEventListener('click', async () => {
-  hideSteamModal();
+  hideSteamModal(false);
   addLog('Launching Steam...', 'info');
   toast('Launching Steam...', 'info', 2000);
   window.radium?.openUrl('steam://');
@@ -850,7 +2173,12 @@ async function proceedAfterAvCheck() {
 }
 
 $('btnPlay')?.addEventListener('click', async () => {
-  if (isGameRunning || !isInstalled) return;
+  if (isGameRunning) {
+    showStopGameModal();
+    return;
+  }
+  if (isGameLaunching || !isInstalled) return;
+  isGameLaunching = true;
 
   const isCurrentlyExcluded = config.defenderExcluded === true;
 
@@ -861,7 +2189,14 @@ $('btnPlay')?.addEventListener('click', async () => {
     } else {
       addLog('Antivirus exclusion not set. Prompting user...', 'info');
       launchAfterExclusion = true;
-      showExcludeAvModal();
+      // Detect third party AV
+      const avs = await window.radium?.detectAntivirus() || [];
+      const thirdPartyAvs = avs.filter(av => !av.isDefender);
+      if (thirdPartyAvs.length > 0) {
+        showThirdPartyAvModal(thirdPartyAvs);
+      } else {
+        showExcludeAvModal();
+      }
     }
   } else {
     await proceedAfterAvCheck();
@@ -873,9 +2208,10 @@ function showSacModal() {
   if (m) m.style.display = 'flex';
 }
 
-function hideSacModal() {
+function hideSacModal(cancelLaunch = true) {
   const m = $('sacModal');
   if (m) m.style.display = 'none';
+  if (cancelLaunch) isGameLaunching = false;
 }
 
 function showDllMissingModal() {
@@ -883,25 +2219,26 @@ function showDllMissingModal() {
   if (m) m.style.display = 'flex';
 }
 
-function hideDllMissingModal() {
+function hideDllMissingModal(cancelLaunch = true) {
   const m = $('dllMissingModal');
   if (m) m.style.display = 'none';
+  if (cancelLaunch) isGameLaunching = false;
 }
 
-$('dllMissingModalClose')?.addEventListener('click', hideDllMissingModal);
+$('dllMissingModalClose')?.addEventListener('click', () => hideDllMissingModal(true));
 $('dllMissingModal')?.addEventListener('click', (e) => {
   if (e.target === $('dllMissingModal')) {
-    hideDllMissingModal();
+    hideDllMissingModal(true);
   }
 });
 
 $('dllLaunchAnywayBtn')?.addEventListener('click', async () => {
-  hideDllMissingModal();
+  hideDllMissingModal(false);
   await checkSacAndLaunch();
 });
 
 $('dllRestoreBtn')?.addEventListener('click', async () => {
-  hideDllMissingModal();
+  hideDllMissingModal(false);
   addLog('Restoring Radeon.Core.BasePatch.dll...', 'info');
   toast('Restoring patch file...', 'info', 3000);
   
@@ -920,29 +2257,31 @@ $('dllRestoreBtn')?.addEventListener('click', async () => {
     } else {
       toast('Failed to restore DLL.', 'error');
       addLog('Failed to restore patch DLL.', 'error');
+      isGameLaunching = false;
     }
   } catch (err) {
     if (restoreBtn) restoreBtn.disabled = false;
     toast(`Error: ${err}`, 'error');
     addLog(`Error restoring DLL: ${err}`, 'error');
+    isGameLaunching = false;
   }
 });
 
-$('sacModalClose')?.addEventListener('click', hideSacModal);
+$('sacModalClose')?.addEventListener('click', () => hideSacModal(true));
 $('sacAnywayBtn')?.addEventListener('click', async () => {
-  hideSacModal();
+  hideSacModal(false);
   sacWarnedThisSession = true;
   await checkSteamAndLaunch();
 });
 $('sacSettingsBtn')?.addEventListener('click', async () => {
-  hideSacModal();
+  hideSacModal(false);
   sacWarnedThisSession = true;
   window.radium?.openUrl('windowsdefender://appbrowser');
   await checkSteamAndLaunch();
 });
 $('sacModal')?.addEventListener('click', (e) => {
   if (e.target === $('sacModal')) {
-    hideSacModal();
+    hideSacModal(true);
   }
 });
 
@@ -967,12 +2306,6 @@ async function checkSacAndLaunch() {
   }
 }
 
-$('btnKill')?.addEventListener('click', async () => {
-  await window.radium?.killGame();
-  setGameRunning(false);
-  addLog('Game stopped.', 'info');
-  toast('Game stopped.', 'info');
-});
 
 window.radium?.onGameState((data) => {
   if (data.running === false) {
@@ -1202,10 +2535,12 @@ const roomsTake = 12;
 let activeRoomsTag = '';
 let activeRoomsSort = 0;
 let roomsSearchQuery = '';
+let roomsSequenceId = 0;
 
 let peopleSkip = 0;
 const peopleTake = 15;
 let peopleSearchQuery = '';
+let peopleSequenceId = 0;
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -1261,6 +2596,9 @@ async function loadRooms() {
   const emptyEl = $('roomsEmptyMsg');
   if (!gridEl) return;
   
+  roomsSequenceId++;
+  const currentSeq = roomsSequenceId;
+  
   gridEl.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading rooms...</div>';
   emptyEl?.classList.add('hidden');
   
@@ -1271,6 +2609,8 @@ async function loadRooms() {
     query: roomsSearchQuery,
     tag: activeRoomsTag
   });
+  
+  if (currentSeq !== roomsSequenceId) return;
   
   if (res && res.success && res.data) {
     const rooms = res.data.Results || [];
@@ -1335,6 +2675,9 @@ async function loadPeople() {
   const bodyEl = $('peopleListBody');
   if (!bodyEl) return;
   
+  peopleSequenceId++;
+  const currentSeq = peopleSequenceId;
+  
   bodyEl.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading players...</td></tr>';
   
   const res = await window.radium?.fetchPeople({
@@ -1342,6 +2685,8 @@ async function loadPeople() {
     take: peopleTake,
     query: peopleSearchQuery
   });
+  
+  if (currentSeq !== peopleSequenceId) return;
   
   if (res && res.success && res.data) {
     const people = res.data.Results || [];
@@ -1502,6 +2847,10 @@ async function getPhotoWebDetails(photoId) {
   }
   const res = await window.radium?.fetchPhotoWebDetails(photoId);
   if (res && res.success) {
+    if (photoWebDetailsCache.size >= 200) {
+      const oldestKey = photoWebDetailsCache.keys().next().value;
+      if (oldestKey !== undefined) photoWebDetailsCache.delete(oldestKey);
+    }
     photoWebDetailsCache.set(photoId, res);
   }
   return res;
@@ -1515,6 +2864,10 @@ async function getUserWebDetails(username) {
   }
   const res = await window.radium?.fetchUserWebDetails(username);
   if (res && res.success) {
+    if (userWebDetailsCache.size >= 200) {
+      const oldestKey = userWebDetailsCache.keys().next().value;
+      if (oldestKey !== undefined) userWebDetailsCache.delete(oldestKey);
+    }
     userWebDetailsCache.set(key, res);
   }
   return res;
@@ -1615,11 +2968,13 @@ async function loadRoomPhotos(roomId, append = false) {
   if (!photosGrid) return;
   if (roomPhotosLoading) return;
   
+  // Reset pages searched so infinite scroll can continue
+  roomPhotosTotalPagesSearched = 0;
+
   if (!append) {
     roomPhotosFeedSkip = 0;
     currentRoomPhotosCount = 0;
     roomPhotosHasMore = false;
-    roomPhotosTotalPagesSearched = 0;
     photosGrid.innerHTML = '<div id="roomPhotosLoading" style="text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);">Loading photos...</div>';
     if (photosEmpty) photosEmpty.style.display = 'none';
   } else {
@@ -2387,25 +3742,34 @@ async function showPlayerDetails(person) {
         t.btn.style.color = 'var(--green)';
         if (t.sec) t.sec.style.display = 'block';
         
-        // Trigger observer layouts on tab switch
+        // Trigger observer layouts and lazy load data on tab switch
         if (t.btn.id === 'tabBtnPeoplePhotos') {
+          if (currentPlayerId !== person.id) {
+            loadPlayerPhotos(person.id);
+          }
           setupPlayerPhotoObserver();
         } else if (t.btn.id === 'tabBtnPeopleFeeds') {
+          if (currentPlayerFeedsId !== person.id) {
+            loadPlayerFeeds(person.id);
+          }
           setupPlayerFeedsObserver();
         } else if (t.btn.id === 'tabBtnPeopleRooms') {
+          if (currentPlayerRoomsUserId !== person.id) {
+            loadPlayerRooms(person.id);
+          }
           setupPlayerRoomsObserver();
         }
       };
     }
   });
   
+  // Reset active user trackers to guarantee correct lazy loading
+  currentPlayerId = null;
+  currentPlayerFeedsId = null;
+  currentPlayerRoomsUserId = null;
+
   // Reset tabs to Photos active by default
   if (tabs[0].btn) tabs[0].btn.click();
-
-  // Load player data for all tabs
-  loadPlayerPhotos(person.id);
-  loadPlayerFeeds(person.id);
-  loadPlayerRooms(person.id);
 }
 
 async function loadPlayerFeeds(userId, append = false) {
@@ -2747,6 +4111,10 @@ lightboxModal?.addEventListener('click', (e) => {
     cooldownTimeLeft = seconds;
     btnSubmit.disabled = true;
     txtReport.disabled = true;
+    const categorySel = $('bugReportCategory');
+    const severitySel = $('bugReportSeverity');
+    if (categorySel) categorySel.disabled = true;
+    if (severitySel) severitySel.disabled = true;
     setStatus('');
     
     if (cooldownTimer) clearInterval(cooldownTimer);
@@ -2758,6 +4126,8 @@ lightboxModal?.addEventListener('click', (e) => {
         cooldownTimer = null;
         btnSubmit.disabled = false;
         txtReport.disabled = false;
+        if (categorySel) categorySel.disabled = false;
+        if (severitySel) severitySel.disabled = false;
         btnSubmit.textContent = 'SUBMIT BUG REPORT';
       } else {
         btnSubmit.textContent = `COOLDOWN (${cooldownTimeLeft}s)`;
@@ -2767,6 +4137,10 @@ lightboxModal?.addEventListener('click', (e) => {
 
   btnSubmit.addEventListener('click', async () => {
     const bugText = txtReport.value.trim();
+    const categorySel = $('bugReportCategory');
+    const severitySel = $('bugReportSeverity');
+    const category = categorySel ? categorySel.value : 'general';
+    const severity = severitySel ? severitySel.value : 'medium';
     
     // 1. Length validation (frontend check)
     if (bugText.length < 10) {
@@ -2783,6 +4157,8 @@ lightboxModal?.addEventListener('click', (e) => {
     // 2. Disable inputs & show loading state
     btnSubmit.disabled = true;
     txtReport.disabled = true;
+    if (categorySel) categorySel.disabled = true;
+    if (severitySel) severitySel.disabled = true;
     btnSubmit.textContent = 'SUBMITTING...';
     setStatus('Submitting report to Discord...', 'info');
 
@@ -2790,9 +4166,16 @@ lightboxModal?.addEventListener('click', (e) => {
     // This ensures early startup logs are always included in bug reports.
     const fullLogs = fullLogBuffer.join('\n');
 
+    const diagnostics = {
+      launcherVersion: $('versionTag')?.textContent || 'unknown',
+      isInstalled: isInstalled,
+      isGameRunning: isGameRunning,
+      isDownloading: isDownloading
+    };
+
     try {
       // 3. Invoke Tauri backend command
-      const responseMessage = await window.radium?.submitBugReport(bugText, fullLogs);
+      const responseMessage = await window.radium?.submitBugReport(bugText, fullLogs, category, severity, diagnostics);
       
       // 4. Handle success
       toast(responseMessage || 'Bug report submitted successfully! Thank you.', 'ok');
@@ -2808,6 +4191,8 @@ lightboxModal?.addEventListener('click', (e) => {
       setStatus(errMsg, 'error');
       btnSubmit.disabled = false;
       txtReport.disabled = false;
+      if (categorySel) categorySel.disabled = false;
+      if (severitySel) severitySel.disabled = false;
       btnSubmit.textContent = 'SUBMIT BUG REPORT';
     }
   });

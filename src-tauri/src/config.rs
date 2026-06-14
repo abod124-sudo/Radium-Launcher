@@ -5,6 +5,47 @@ use tauri::Manager;
 
 static MIGRATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct CustomThemeColors {
+    pub bg_dark: String,
+    pub bg_main: String,
+    pub bg_panel: String,
+    pub bg_btn: String,
+    pub border_light: String,
+    pub border_dark: String,
+    pub green: String,
+    pub green_dim: String,
+    pub text: String,
+    pub text_muted: String,
+    pub status_online: String,
+    pub style_base: String,
+    pub bg_image: String,
+    pub glass_enabled: bool,
+}
+
+impl Default for CustomThemeColors {
+    fn default() -> Self {
+        Self {
+            bg_dark: "#21281e".to_string(),
+            bg_main: "#384232".to_string(),
+            bg_panel: "#4b5845".to_string(),
+            bg_btn: "#5e6d56".to_string(),
+            border_light: "#829478".to_string(),
+            border_dark: "#1b2118".to_string(),
+            green: "#00ff00".to_string(),
+            green_dim: "#7ca969".to_string(),
+            text: "#d4e0ce".to_string(),
+            text_muted: "#8da082".to_string(),
+            status_online: "#00ff00".to_string(),
+            style_base: "retro".to_string(),
+            bg_image: String::new(),
+            glass_enabled: false,
+        }
+    }
+}
+
 /// Application configuration for the Radium Launcher.
 ///
 /// Fields are serialized as camelCase to match the existing config.json format
@@ -21,10 +62,12 @@ pub struct Config {
     pub install_dir: String,
     pub defender_excluded: bool,
     pub theme: String,
+    pub baseline_theme: String,
     pub close_on_launch: bool,
     pub launch_options: String,
     pub enable_animations: bool,
     pub disable_warnings: bool,
+    pub custom_theme: Option<CustomThemeColors>,
 }
 
 impl Default for Config {
@@ -38,10 +81,12 @@ impl Default for Config {
             install_dir: String::new(),
             defender_excluded: false,
             theme: "steam-green".to_string(),
+            baseline_theme: "steam-green".to_string(),
             close_on_launch: false,
             launch_options: String::new(),
             enable_animations: true,
             disable_warnings: false,
+            custom_theme: None,
         }
     }
 }
@@ -132,7 +177,14 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
 
     let mut config = if config_path.exists() {
         match fs::read_to_string(&config_path) {
-            Ok(contents) => serde_json::from_str::<Config>(&contents).unwrap_or_default(),
+            Ok(contents) => match serde_json::from_str::<Config>(&contents) {
+                Ok(cfg) => cfg,
+                Err(_) => {
+                    let backup_path = config_path.with_extension("json.bak");
+                    let _ = fs::copy(&config_path, &backup_path);
+                    Config::default()
+                }
+            },
             Err(_) => Config::default(),
         }
     } else {
@@ -186,7 +238,12 @@ pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(),
     let json =
         serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
 
-    fs::write(&config_path, json).map_err(|e| e.to_string())?;
+    let temp_path = config_path.with_extension("json.tmp");
+    fs::write(&temp_path, json).map_err(|e| e.to_string())?;
+    fs::rename(&temp_path, &config_path).map_err(|e| {
+        let _ = fs::remove_file(&temp_path);
+        e.to_string()
+    })?;
 
     Ok(())
 }

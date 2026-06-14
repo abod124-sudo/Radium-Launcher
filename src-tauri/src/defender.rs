@@ -16,6 +16,11 @@ fn get_powershell_path() -> String {
     }
 }
 
+fn is_path_safe(path: &str) -> bool {
+    // Whitelist approach: only allow safe alphanumeric characters and standard path separators
+    path.chars().all(|c| c.is_ascii_alphanumeric() || ['_', '-', '.', ' ', ':', '\\', '/'].contains(&c))
+}
+
 /// Add the Rec Room client directory to the Windows Defender exclusion list.
 ///
 /// The command is executed through an elevated (`-Verb RunAs`) PowerShell
@@ -24,6 +29,10 @@ fn get_powershell_path() -> String {
 pub async fn add_defender_exclusion(app: tauri::AppHandle) -> Value {
     let cfg = config::ensure_config(&app);
     let client_dir = config::get_client_dir(&app, &cfg);
+
+    if !is_path_safe(&client_dir) {
+        return json!({ "success": false, "error": "Invalid characters in client path." });
+    }
 
     // Escape single quotes for PowerShell by doubling them.
     let escaped_path = client_dir.replace('\'', "''");
@@ -63,6 +72,10 @@ pub async fn remove_defender_exclusion(app: tauri::AppHandle) -> Value {
     let cfg = config::ensure_config(&app);
     let client_dir = config::get_client_dir(&app, &cfg);
 
+    if !is_path_safe(&client_dir) {
+        return json!({ "success": false, "error": "Invalid characters in client path." });
+    }
+
     let escaped_path = client_dir.replace('\'', "''");
 
     let powershell_path = get_powershell_path();
@@ -89,3 +102,81 @@ pub async fn remove_defender_exclusion(app: tauri::AppHandle) -> Value {
         }
     }
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct AntivirusProduct {
+    pub name: String,
+    #[serde(rename = "isDefender")]
+    pub is_defender: bool,
+}
+
+/// Query the system's antivirus products.
+/// Classifies products as Microsoft Defender or third-party.
+#[tauri::command]
+pub async fn detect_antivirus() -> Vec<AntivirusProduct> {
+    #[cfg(target_os = "windows")]
+    {
+        let powershell_path = get_powershell_path();
+        let ps_command = r#"
+            $result = @()
+            try {
+                $avs = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue
+                if ($avs) {
+                    foreach ($av in $avs) {
+                        $result += $av.displayName
+                    }
+                } else {
+                    $avs = Get-WmiObject -Namespace root/SecurityCenter2 -Class AntiVirusProduct -ErrorAction SilentlyContinue
+                    foreach ($av in $avs) {
+                        $result += $av.displayName
+                    }
+                }
+            } catch {}
+            if ($result.Count -eq 0) {
+                if (Get-Service -Name WinDefend -ErrorAction SilentlyContinue) {
+                    $result += "Windows Defender"
+                }
+            }
+            $result | Write-Output
+        "#;
+
+        use std::os::windows::process::CommandExt;
+        match Command::new(&powershell_path)
+            .args(["-NoProfile", "-Command", ps_command])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output()
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let mut products = Vec::new();
+                for line in stdout.lines() {
+                    let name = line.trim();
+                    if !name.is_empty() {
+                        let lower_name = name.to_lowercase();
+                        let is_defender = lower_name.contains("defender") || lower_name.contains("microsoft security essentials");
+                        products.push(AntivirusProduct {
+                            name: name.to_string(),
+                            is_defender,
+                        });
+                    }
+                }
+                if products.is_empty() {
+                    products.push(AntivirusProduct {
+                        name: "Windows Defender".to_string(),
+                        is_defender: true,
+                    });
+                }
+                products
+            }
+            Err(_) => vec![AntivirusProduct {
+                name: "Windows Defender".to_string(),
+                is_defender: true,
+            }],
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        vec![]
+    }
+}
+
