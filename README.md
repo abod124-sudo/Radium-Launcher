@@ -21,11 +21,12 @@ An **unofficial** custom launcher for playing on the Radium public Rec Room serv
 - **Rooms Tab** — Browse, search, and sort custom rooms, with infinite scrolling/pagination to explore in-game content.
 - **People Tab** — Search and view detailed player profiles, bios, and statistics.
 - **Photo Comments** — View photos along with user comments left on them.
-- **UI Skins** — Toggle between 13 themes: Steam 2003 Green, Windows 98 Gray, Windows 95 Gray, Windows XP Luna, Windows XP Royale Noir, Windows Vista Aero, Windows 7 Aero, Mac OS Classic, Modern Dark, Modern Light, Modern Forest Green, Black & White, and Black & White (Inverted) — each with custom styles and borders.
+- **UI Skins & Custom Themes** — Toggle between 13 built-in themes (Steam 2003 Green, Windows 98 Gray, Windows XP Luna, Windows 7 Aero, Modern Dark, Black & White, etc.), or build your own custom JSON theme! Includes a stunning **Liquid Glass** effect for translucent backgrounds.
 - **In-App Client Download** — Downloads the game zip directly inside the launcher with live speed & ETA progress, then auto-extracts it to `%APPDATA%\com.radium.launcher\client`.
 - **Play Modes** — Supports both Screen and VR modes, executing the correct `.bat` script from the client folder.
-- **Server Status** — Checks the game API gateway and CDN on startup and every 60 seconds, with an instant refresh button.
-- **Auto-Update** — On startup the launcher checks GitHub for a newer version. If one is found, a popup shows the release notes and lets you download & install it in one click.
+- **Server Status & Bug Reporting** — Checks the game API gateway and CDN on startup. Includes an advanced built-in bug reporter that gathers app logs and system diagnostics.
+- **Antivirus Detection** — Automatically detects third-party antivirus software and Windows Defender status to prevent false positive confusion during launch.
+- **Auto-Update** — On startup the launcher checks GitHub for a newer version and lets you download & install it in one click.
 - **Settings** — Configure the API server URL, play mode, theme, minimize-on-launch, and auto-update toggle. All saved locally.
 
 ---
