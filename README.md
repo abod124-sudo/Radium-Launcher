@@ -33,11 +33,11 @@ An **unofficial** custom launcher for playing on the Radium public Rec Room serv
 
 ## Download
 
-Grab the latest build (**v3.0.0**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
+Grab the latest build (**v3.0.1**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
 
 | File | Description |
 |------|-------------|
-| [Radium.Launcher_3.0.0_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v3.0.0/Radium.Launcher_3.0.0_x64-setup.exe) | NSIS installer (recommended) |
+| [Radium.Launcher_3.0.1_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v3.0.1/Radium.Launcher_3.0.1_x64-setup.exe) | NSIS installer (recommended) |
 
 
 

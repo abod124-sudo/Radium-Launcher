@@ -58,11 +58,12 @@ pub async fn ping_server(url: String) -> Value {
     match client.get(&ping_url).send().await {
         Ok(resp) => {
             let latency = start.elapsed().as_millis() as i64;
-            let status = resp.status().as_u16();
+            let status = resp.status();
+            let online = status.is_success();
             json!({
-                "online": true,
+                "online": online,
                 "latency": latency,
-                "status": status,
+                "status": status.as_u16(),
             })
         }
         Err(_) => {
@@ -93,13 +94,19 @@ pub async fn get_player_count() -> Value {
         .send()
         .await
     {
-        Ok(resp) => match resp.json::<Value>().await {
-            Ok(data) => {
-                let count = data.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
-                json!({ "success": true, "count": count })
+        Ok(resp) => {
+            let status = resp.status();
+            if !status.is_success() {
+                return json!({ "success": false, "error": format!("HTTP error: {}", status) });
             }
-            Err(e) => json!({ "success": false, "error": e.to_string() }),
-        },
+            match resp.json::<Value>().await {
+                Ok(data) => {
+                    let count = data.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+                    json!({ "success": true, "count": count })
+                }
+                Err(e) => json!({ "success": false, "error": e.to_string() }),
+            }
+        }
         Err(e) => json!({ "success": false, "error": e.to_string() }),
     }
 }
