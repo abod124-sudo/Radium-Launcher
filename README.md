@@ -26,20 +26,37 @@ An **unofficial** custom launcher for playing on the Radium public Rec Room serv
 - **Play Modes** — Supports both Screen and VR modes, executing the correct `.bat` script from the client folder.
 - **Server Status & Bug Reporting** — Checks the game API gateway and CDN on startup. Includes an advanced built-in bug reporter that gathers app logs and system diagnostics.
 - **Antivirus Detection** — Automatically detects third-party antivirus software and Windows Defender status to prevent false positive confusion during launch.
-- **Auto-Update** — On startup the launcher checks GitHub for a newer version and lets you download & install it in one click.
-- **Settings** — Configure the API server URL, play mode, theme, minimize-on-launch, and auto-update toggle. All saved locally.
+- **Auto-Update** — On startup the launcher checks GitHub for a newer version and lets you download & install it in one click. When updating you can choose whether to restore the desktop shortcut after the update.
+- **Auto-Save Settings** — All settings save automatically the moment you change them. Toggles apply instantly; text fields save after a short delay. No Save button needed.
 
 ---
 
 ## Download
 
-Grab the latest build (**v3.0.1**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
+Grab the latest build (**v3.0.2**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
 
 | File | Description |
 |------|-------------|
-| [Radium.Launcher_3.0.1_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v3.0.1/Radium.Launcher_3.0.1_x64-setup.exe) | NSIS installer (recommended) |
+| [RadiumLauncherSetup_3.0.2_x64.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v3.0.2/RadiumLauncherSetup_3.0.2_x64.exe) | NSIS installer for Windows x64 (recommended) |
 
+---
 
+## Changelog
+
+### v3.0.2
+- Fixed desktop shortcut disappearing after an update — the update dialog now includes a "Place shortcut on desktop after update" option (checked by default).
+- Fixed theme reverting to the default Steam green skin after restarting the launcher — your chosen theme now persists immediately without needing to save.
+- Removed the manual Save button from Settings. All settings now auto-save as you change them, with a small indicator in the header confirming each save.
+
+### v3.0.1
+- Migrated from Electron to Tauri v2 for a smaller, faster, native binary.
+- Added Liquid Glass translucent theme effect.
+- Added Windows Vista Aero, Windows 7 Aero, and Mac OS Classic built-in skins.
+- Added custom theme import/export.
+- Added advanced bug reporter with system diagnostics.
+- Added antivirus detection and Windows Defender exclusion helper.
+
+---
 
 ## File Locations
 
@@ -52,7 +69,6 @@ All client data and settings are stored locally under:
 ```
 
 ---
-
 
 ## Note
 
