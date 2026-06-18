@@ -445,7 +445,7 @@
       <section class="tab-panel" id="tab-settings">
         <div class="panel-header">
           <h2>SETTINGS</h2>
-          <button class="btn-save" id="btnSaveSettings">SAVE</button>
+          <span class="autosave-indicator" id="autosaveIndicator" style="display:none"></span>
         </div>
 
         <div class="settings-body">
@@ -809,6 +809,12 @@
         <div class="update-notes-label">RELEASE NOTES</div>
         <div class="update-notes" id="updateNotes"></div>
         <div class="update-status" id="updateStatus" style="display:none"></div>
+      </div>
+      <div class="update-desktop-option">
+        <label class="update-desktop-label">
+          <input type="checkbox" id="updateDesktopShortcut" checked>
+          Place shortcut on desktop after update
+        </label>
       </div>
       <div class="modal-footer">
         <button class="modal-btn modal-btn-secondary" id="updateLaterBtn">Later</button>

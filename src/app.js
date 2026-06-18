@@ -59,8 +59,8 @@
     checkSmartAppControl: () => invoke('check_smart_app_control'),
 
     // Auto-update
-    checkForUpdate:  ()            => invoke('check_for_update'),
-    downloadUpdate:  (downloadUrl) => invoke('download_update', { url: downloadUrl }),
+    checkForUpdate:  ()                            => invoke('check_for_update'),
+    downloadUpdate:  (downloadUrl, placeOnDesktop) => invoke('download_update', { url: downloadUrl, placeOnDesktop: !!placeOnDesktop }),
 
     // Data Fetching
     fetchRooms:           (args) => invoke('fetch_rooms', { args }),
@@ -968,12 +968,33 @@ function getToggle(id) { return $(id)?.classList.contains('on') ?? false; }
         localStorage.setItem('radium-animations', enabled ? 'true' : 'false');
       } catch (e) {}
     }
+    autoSaveSettings();
   })
 );
+
+// Auto-saves only the theme-related fields without touching other settings.
+// Called whenever the theme changes so the choice survives restarts without
+// the user needing to click "Save Settings".
+async function autoSaveTheme(newTheme, customColors) {
+  if (!config || Object.keys(config).length === 0) return; // config not loaded yet
+  const updated = {
+    ...config,
+    theme:         newTheme,
+    baselineTheme: customColors ? (config.baselineTheme || 'steam-green') : newTheme,
+    customTheme:   customColors || config.customTheme,
+  };
+  try {
+    const ok = await window.radium?.saveConfig(updated);
+    if (ok) config = updated;
+  } catch (e) {
+    console.warn('autoSaveTheme: failed to persist', e);
+  }
+}
 
 $('cfgTheme')?.addEventListener('change', () => {
   const selectedTheme = $('cfgTheme').value;
   applyTheme(selectedTheme);
+  autoSaveTheme(selectedTheme, null);
 });
 
 $('tgl-customTheme')?.addEventListener('click', () => {
@@ -995,12 +1016,11 @@ $('tgl-customTheme')?.addEventListener('click', () => {
 
   if (customOn) {
     updateCustomThemeFromUI();
+    // autoSaveTheme is called inside updateCustomThemeFromUI via the debounce below
   } else {
     const selectedTheme = $('cfgTheme').value || 'steam-green';
     applyTheme(selectedTheme);
-    try {
-      localStorage.setItem('radium-theme', selectedTheme);
-    } catch (e) {}
+    autoSaveTheme(selectedTheme, null);
   }
 });
 
@@ -1025,6 +1045,7 @@ function updateCustomThemeFromUI() {
   config.customTheme = customColors;
   config.baselineTheme = $('cfgTheme')?.value || 'steam-green';
   applyTheme('custom');
+  autoSaveTheme('custom', customColors);
 }
 
 const THEME_PRESETS = {
@@ -1438,14 +1459,29 @@ $('resetThemeConfirmBtn')?.addEventListener('click', async () => {
 });
 
 // Save
-$('btnSaveSettings')?.addEventListener('click', async () => {
-  const customActive = getToggle('tgl-customTheme');
+// ─── Auto-save Settings ─────────────────────────────────────────────────────
+// Replaces the old manual Save button. Collects the full settings state and
+// persists it to config.json. A small indicator in the header gives feedback.
+
+let _autoSaveTimer = null;
+
+function showAutosaveIndicator(state, text) {
+  const el = $('autosaveIndicator');
+  if (!el) return;
+  el.style.display = '';
+  el.className = `autosave-indicator visible ${state}`;
+  el.textContent = text;
+}
+
+async function autoSaveSettings() {
+  if (!config || Object.keys(config).length === 0) return;
+
+  const customActive  = getToggle('tgl-customTheme');
   const selectedTheme = $('cfgTheme')?.value || 'steam-green';
-  const saveTheme = customActive ? 'custom' : selectedTheme;
-  const customDir = $('cfgInstallDir')?.textContent.trim() || '';
-  const isModern = $('styleBaseModern')?.checked === true;
-  
-  // Custom theme colors structure
+  const saveTheme     = customActive ? 'custom' : selectedTheme;
+  const customDir     = $('cfgInstallDir')?.textContent.trim() || '';
+  const isModern      = $('styleBaseModern')?.checked === true;
+
   const customColors = {
     bgDark:       $('theme-bgDark')?.value || '#21281e',
     bgMain:       $('theme-bgMain')?.value || '#384232',
@@ -1453,7 +1489,7 @@ $('btnSaveSettings')?.addEventListener('click', async () => {
     bgBtn:        $('theme-bgBtn')?.value || '#5e6d56',
     borderLight:  $('theme-borderLight')?.value || '#829478',
     borderDark:   $('theme-borderDark')?.value || '#1b2118',
-    green:         $('theme-green')?.value || '#00ff00',
+    green:        $('theme-green')?.value || '#00ff00',
     greenDim:     $('theme-greenDim')?.value || '#7ca969',
     text:         $('theme-text')?.value || '#d4e0ce',
     textMuted:    $('theme-textMuted')?.value || '#8da082',
@@ -1479,26 +1515,45 @@ $('btnSaveSettings')?.addEventListener('click', async () => {
     customTheme:      customColors
   };
 
-  config.customTheme = customColors;
+  config.customTheme  = customColors;
   config.baselineTheme = selectedTheme;
-  applyTheme(saveTheme);
+
+  showAutosaveIndicator('saving', 'Saving...');
 
   let ok = false;
   try {
     ok = await window.radium?.saveConfig(updated);
   } catch (e) {
-    console.error('saveConfig error:', e);
+    console.error('autoSaveSettings error:', e);
   }
-  
+
   if (ok) {
     config = updated;
-    toast('Settings saved!', 'ok');
-    addLog('Configuration saved.', 'ok');
+    showAutosaveIndicator('saved', '✓ Saved');
+    addLog('Configuration auto-saved.', 'ok');
     await checkInstall();
   } else {
-    toast('Failed to save.', 'error');
+    showAutosaveIndicator('error', '✕ Save failed');
+    addLog('Auto-save failed.', 'error');
   }
-});
+
+  // Fade the indicator out after 2 seconds
+  setTimeout(() => {
+    const el = $('autosaveIndicator');
+    if (el) el.classList.remove('visible');
+  }, 2000);
+}
+
+// Debounce helper for text inputs — waits 800ms after the user stops typing
+function debounceAutoSave() {
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(autoSaveSettings, 800);
+}
+
+// Wire up text inputs
+$('cfgLaunchOptions')?.addEventListener('input', debounceAutoSave);
+$('cfgApiUrl')?.addEventListener('input', debounceAutoSave);
+
 
 // Check client installation state
 async function checkInstall() {
@@ -2355,11 +2410,12 @@ $('updateNowBtn')?.addEventListener('click', async () => {
   }
   const nowBtn = $('updateNowBtn');
   const status = $('updateStatus');
+  const placeOnDesktop = $('updateDesktopShortcut')?.checked !== false;
   if (nowBtn) { nowBtn.disabled = true; nowBtn.textContent = '⬇ Downloading...'; }
   if (status) { status.style.display = 'block'; status.style.color = ''; status.textContent = 'Downloading update, please wait...'; }
   addLog(`Downloading update ${updateInfo.latestVersion}...`, 'info');
 
-  const result = await window.radium?.downloadUpdate(updateInfo.downloadUrl);
+  const result = await window.radium?.downloadUpdate(updateInfo.downloadUrl, placeOnDesktop);
   if (result?.success) {
     if (status) status.textContent = 'Update downloaded! Launching installer...';
     addLog('Launcher update started — restarting.', 'ok');

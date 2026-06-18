@@ -30,8 +30,8 @@ ${StrLoc}
 
 !define MANUFACTURER "abod124-sudo"
 !define PRODUCTNAME "Radium Launcher"
-!define VERSION "3.0.1"
-!define VERSIONWITHBUILD "3.0.1.0"
+!define VERSION "3.0.2"
+!define VERSIONWITHBUILD "3.0.2.0"
 !define HOMEPAGE ""
 !define INSTALLMODE "currentUser"
 !define LICENSE ""
@@ -68,6 +68,7 @@ ${StrLoc}
 Var PassiveMode
 Var UpdateMode
 Var NoShortcutMode
+Var PlaceDesktop
 Var WixMode
 Var OldMainBinaryName
 
@@ -475,6 +476,11 @@ Function .onInit
   ${GetOptions} $CMDLINE "/NS" $NoShortcutMode
   ${IfNot} ${Errors}
     StrCpy $NoShortcutMode 1
+  ${EndIf}
+
+  ${GetOptions} $CMDLINE "/DESKTOP" $PlaceDesktop
+  ${IfNot} ${Errors}
+    StrCpy $PlaceDesktop 1
   ${EndIf}
 
   ${GetOptions} $CMDLINE "/UPDATE" $UpdateMode
@@ -914,8 +920,9 @@ Function CreateOrUpdateDesktopShortcut
   ${EndIf}
 
   ; Skip creating shortcut if in update mode or no shortcut mode
-  ; but always create if migrating from wix
+  ; but always create if migrating from wix OR the user opted in via /DESKTOP
   ${If} $WixMode = 0
+  ${AndIf} $PlaceDesktop <> 1
     ${If} $UpdateMode = 1
     ${OrIf} $NoShortcutMode = 1
       Return

@@ -1704,6 +1704,18 @@ a:hover, .text-link:hover {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 7px 15px 5px 17px;
 }
+/* Auto-save indicator shown in settings header */
+.autosave-indicator {
+  font-family: var(--font-ui); font-size: 10px; font-weight: bold;
+  color: var(--green-dim); letter-spacing: 0.5px;
+  opacity: 0; transition: opacity 0.3s ease;
+  user-select: none;
+}
+.autosave-indicator.visible { opacity: 1; }
+.autosave-indicator.saving  { color: var(--text-muted); }
+.autosave-indicator.saved   { color: var(--green-dim); }
+.autosave-indicator.error   { color: #ff6666; }
+
 .btn-open-folder, .btn-reinstall, .btn-uninstall {
   background: var(--bg-btn);
   border: 2px solid;
@@ -2010,6 +2022,21 @@ body.theme-custom-glass .btn-play.running:active {
   border-top: 2px solid var(--border-dark);
   background: var(--bg-dark);
 }
+.update-desktop-option {
+  padding: 6px 16px 0;
+  background: var(--bg-dark);
+}
+.update-desktop-label {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--font-ui); font-size: 11px;
+  color: var(--text-muted); cursor: pointer;
+  user-select: none;
+}
+.update-desktop-label input[type="checkbox"] {
+  accent-color: var(--green-dim);
+  width: 13px; height: 13px; cursor: pointer;
+}
+
 .modal-btn {
   font-family: var(--font-ui); font-size: 11px; font-weight: bold;
   padding: 5px 18px; cursor: pointer;

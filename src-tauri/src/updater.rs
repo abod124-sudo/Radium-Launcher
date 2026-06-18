@@ -135,8 +135,11 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
 /// Downloads the file from the given URL to the system temp directory as
 /// "RadiumLauncherSetup_update.exe", spawns the installer as a detached process,
 /// waits briefly, then exits the current application.
+///
+/// If `place_on_desktop` is true, the `/DESKTOP` flag is passed to the installer
+/// so it re-creates the desktop shortcut even when running in update mode.
 #[tauri::command]
-pub async fn download_update(app: tauri::AppHandle, url: String) -> Result<serde_json::Value, String> {
+pub async fn download_update(app: tauri::AppHandle, url: String, place_on_desktop: bool) -> Result<serde_json::Value, String> {
     // Security check: restrict downloads to trusted official release URLs
     if !url.starts_with("https://github.com/abod124-sudo/Radium-Launcher/releases/download/") {
         return Err("Untrusted update download URL.".into());
@@ -161,16 +164,20 @@ pub async fn download_update(app: tauri::AppHandle, url: String) -> Result<serde
     #[cfg(target_os = "windows")]
     use std::os::windows::process::CommandExt;
 
+    // Build the installer command, optionally requesting a desktop shortcut
+    let mut cmd = Command::new(&installer_path);
+    if place_on_desktop {
+        cmd.arg("/DESKTOP");
+    }
+
     // Spawn the installer as a detached process
     #[cfg(target_os = "windows")]
-    Command::new(&installer_path)
-        .creation_flags(0x00000008) // DETACHED_PROCESS
+    cmd.creation_flags(0x00000008) // DETACHED_PROCESS
         .spawn()
         .map_err(|e| format!("Failed to launch installer: {}", e))?;
 
     #[cfg(not(target_os = "windows"))]
-    Command::new(&installer_path)
-        .spawn()
+    cmd.spawn()
         .map_err(|e| format!("Failed to launch installer: {}", e))?;
 
     // Wait briefly to let the installer start, then exit the app
@@ -178,6 +185,7 @@ pub async fn download_update(app: tauri::AppHandle, url: String) -> Result<serde
     app.exit(0);
     Ok(json!({ "success": true }))
 }
+
 
 /// Return the current application version string.
 #[tauri::command]
