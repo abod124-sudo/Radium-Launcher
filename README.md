@@ -41,22 +41,6 @@ Grab the latest build (**v3.0.2**) directly or check the [Releases page](https:/
 
 ---
 
-## Changelog
-
-### v3.0.2
-- Fixed desktop shortcut disappearing after an update — the update dialog now includes a "Place shortcut on desktop after update" option (checked by default).
-- Fixed theme reverting to the default Steam green skin after restarting the launcher — your chosen theme now persists immediately without needing to save.
-- Removed the manual Save button from Settings. All settings now auto-save as you change them, with a small indicator in the header confirming each save.
-
-### v3.0.1
-- Migrated from Electron to Tauri v2 for a smaller, faster, native binary.
-- Added Liquid Glass translucent theme effect.
-- Added Windows Vista Aero, Windows 7 Aero, and Mac OS Classic built-in skins.
-- Added custom theme import/export.
-- Added advanced bug reporter with system diagnostics.
-- Added antivirus detection and Windows Defender exclusion helper.
-
----
 
 ## File Locations
 
