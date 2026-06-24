@@ -37,7 +37,7 @@ Grab the latest build (**v3.0.2**) directly or check the [Releases page](https:/
 
 | File | Description |
 |------|-------------|
-| [RadiumLauncherSetup_3.0.2_x64.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v3.0.2/RadiumLauncherSetup_3.0.2_x64.exe) | NSIS installer for Windows x64 (recommended) |
+| [RadiumLauncherSetup_3.0.2_x64.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v3.0.2/RadiumLauncherSetup_3.0.2_x64.exe) | NSIS installer for Windows x64 |
 
 ---
 
