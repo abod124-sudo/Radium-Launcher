@@ -56,32 +56,48 @@ pub fn find_bat_in(dir: &str, name: &str, depth: u32) -> Option<String> {
     None
 }
 
+/// Game executables the launcher recognises, newest client first.
+/// (The new recroom.baby client uses `Recroom_Release.exe`; the legacy client
+/// used `RecRoom.exe`.)
+pub const GAME_EXES: [&str; 2] = ["Recroom_Release.exe", "RecRoom.exe"];
+
+/// Locate the game executable inside `dir` (recursive, newest-known first),
+/// falling back to the legacy screen-mode launch script.
+pub fn find_game_exe(dir: &str) -> Option<String> {
+    for name in GAME_EXES {
+        if let Some(p) = find_bat_in(dir, name, 0) {
+            return Some(p);
+        }
+    }
+    find_bat_in(dir, "RecRoom_ScreenMode.bat", 0)
+}
+
+/// Returns true if a process with the given image name is currently running.
+#[cfg(target_os = "windows")]
+fn is_process_running(image: &str) -> bool {
+    use std::os::windows::process::CommandExt;
+    Command::new("tasklist")
+        .args(["/NH", "/FI", &format!("IMAGENAME eq {}", image)])
+        .creation_flags(0x08000000)
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .to_lowercase()
+                .contains(&image.to_lowercase())
+        })
+        .unwrap_or(false)
+}
+#[cfg(not(target_os = "windows"))]
+fn is_process_running(_image: &str) -> bool {
+    false
+}
+
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
 
-/// Checks whether `RecRoom.exe` is currently running via `tasklist`.
+/// Checks whether any recognised game executable is currently running.
 #[tauri::command]
 pub fn check_game_running() -> bool {
-    #[cfg(target_os = "windows")]
-    use std::os::windows::process::CommandExt;
-
-    #[cfg(target_os = "windows")]
-    let output = Command::new("tasklist")
-        .args(["/NH", "/FI", "IMAGENAME eq RecRoom.exe"])
-        .creation_flags(0x08000000)
-        .output();
-
-    #[cfg(not(target_os = "windows"))]
-    let output = Command::new("tasklist")
-        .args(["/NH", "/FI", "IMAGENAME eq RecRoom.exe"])
-        .output();
-
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout).to_lowercase();
-            stdout.contains("recroom.exe")
-        }
-        Err(_) => false,
-    }
+    GAME_EXES.iter().any(|e| is_process_running(e))
 }
 
 /// Checks whether `steam.exe` is currently running via `tasklist`.
@@ -110,6 +126,45 @@ pub fn check_steam() -> bool {
     }
 }
 
+/// Returns true if the required Rec Room Steam app (appid 92) is installed,
+/// by reading the Steam per-user registry key. Returns true on non-Windows so
+/// the check never blocks there.
+#[tauri::command]
+pub fn check_required_steam_app() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let output = Command::new("reg")
+            .args([
+                "query",
+                r"HKCU\Software\Valve\Steam\Apps\92",
+                "/v",
+                "Installed",
+            ])
+            .creation_flags(0x08000000)
+            .output();
+
+        match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                stdout
+                    .lines()
+                    .find(|l| l.contains("Installed"))
+                    .map(|l| {
+                        let v = l.trim();
+                        v.ends_with("0x1") || v.ends_with("0x00000001")
+                    })
+                    .unwrap_or(false)
+            }
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        true
+    }
+}
+
 #[tauri::command]
 pub fn launch_game(
     app: tauri::AppHandle,
@@ -130,63 +185,41 @@ fn launch_game_impl(
         return Err("Game already running.".into());
     }
 
-    // 2. Determine bat name from play_mode
+    // 2. Play mode (legacy clients accept a +mode arg; the new client ignores it)
     let play_mode = config
         .get("playMode")
         .and_then(|v| v.as_str())
         .unwrap_or("screen");
 
-    let bat_name = if play_mode == "vr" {
-        "RecRoom_VR.bat"
-    } else {
-        "RecRoom_ScreenMode.bat"
-    };
-
-    // 3. Resolve client directory
+    // 3. Resolve client directory + game executable
     let cfg = config::ensure_config(&app);
     let client_dir = config::get_client_dir(&app, &cfg);
 
-    // 4. Locate the bat file
-    let direct_bat_path = Path::new(&client_dir).join(bat_name);
-    let bat_path: String = if direct_bat_path.exists() {
-        direct_bat_path.to_string_lossy().to_string()
-    } else if let Some(game_exe_path) = config.get("gameExePath").and_then(|v| v.as_str()) {
-        let sibling = Path::new(game_exe_path)
-            .parent()
-            .map(|p| p.join(bat_name));
-        if let Some(ref s) = sibling {
-            if s.exists() {
-                s.to_string_lossy().to_string()
-            } else {
-                find_bat_in(&client_dir, bat_name, 0).unwrap_or_default()
-            }
-        } else {
-            find_bat_in(&client_dir, bat_name, 0).unwrap_or_default()
-        }
-    } else {
-        find_bat_in(&client_dir, bat_name, 0).unwrap_or_default()
-    };
-
-    if bat_path.is_empty() {
+    // Prefer the saved exe path; otherwise search the client dir for a known exe.
+    let mut exe_path = config
+        .get("gameExePath")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if exe_path.is_empty() || !Path::new(&exe_path).exists() {
+        exe_path = find_game_exe(&client_dir).unwrap_or_default();
+    }
+    if exe_path.is_empty() {
         return Err(format!(
-            "Launch file not found: {}\nLooked in: {}\n\nPlease download the client first.",
-            bat_name, client_dir
+            "Game executable not found in: {}\n\nPlease download the client first.",
+            client_dir
         ));
     }
 
-    // 5. Determine launch directory and check for RecRoom.exe
-    let bat_dir = Path::new(&bat_path)
+    let exe = Path::new(&exe_path);
+    let work_dir = exe
         .parent()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
-
-    let exe_path = Path::new(&bat_dir).join("RecRoom.exe");
-    let has_exe = exe_path.exists();
-    let play_mode_arg = if play_mode == "vr" {
-        "+mode:vr"
-    } else {
-        "+mode:screen"
-    };
+    let file_lower = exe
+        .file_name()
+        .map(|f| f.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
 
     let launch_opts = config
         .get("launchOptions")
@@ -207,35 +240,33 @@ fn launch_game_impl(
     #[cfg(target_os = "windows")]
     use std::os::windows::process::CommandExt;
 
-    let child = if has_exe {
-        let mut cmd = Command::new(&exe_path);
-        cmd.arg(play_mode_arg);
-        if !launch_opts.is_empty() {
-            for opt in launch_opts.split_whitespace() {
-                cmd.arg(opt);
-            }
-        }
-        cmd.current_dir(&bat_dir);
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(0x00000008); // DETACHED_PROCESS
-        cmd.spawn()
-            .map_err(|e| format!("Failed to launch game executable: {}", e))?
-    } else {
+    let child = if file_lower.ends_with(".bat") {
+        // Legacy: run the launch script via cmd.
         let mut cmd = Command::new("cmd.exe");
-        cmd.arg("/c");
-        cmd.arg("start");
-            cmd.arg("");
-            cmd.arg(bat_path);
-            if !launch_opts.is_empty() {
-                for opt in launch_opts.split_whitespace() {
-                    cmd.arg(opt);
-                }
-            }
-        cmd.current_dir(&bat_dir);
+        cmd.arg("/c").arg("start").arg("").arg(&exe_path);
+        for opt in launch_opts.split_whitespace() {
+            cmd.arg(opt);
+        }
+        cmd.current_dir(&work_dir);
         #[cfg(target_os = "windows")]
         cmd.creation_flags(0x00000008); // DETACHED_PROCESS
         cmd.spawn()
             .map_err(|e| format!("Failed to launch batch file: {}", e))?
+    } else {
+        let mut cmd = Command::new(exe);
+        // Legacy RecRoom.exe accepts a +mode argument; the new Recroom_Release.exe
+        // is launched plain.
+        if file_lower == "recroom.exe" {
+            cmd.arg(if play_mode == "vr" { "+mode:vr" } else { "+mode:screen" });
+        }
+        for opt in launch_opts.split_whitespace() {
+            cmd.arg(opt);
+        }
+        cmd.current_dir(&work_dir);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x00000008); // DETACHED_PROCESS
+        cmd.spawn()
+            .map_err(|e| format!("Failed to launch game executable: {}", e))?
     };
 
     let pid = child.id();

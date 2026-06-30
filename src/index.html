@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com;" />
   <title>Radium Launcher</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -120,8 +120,8 @@
           <div class="launch-controls-row">
             <!-- Left: mode toggle + secondary actions -->
             <div class="launch-left">
-              <div class="launch-label">PLAY MODE</div>
-              <div class="mode-row">
+              <div class="launch-label" style="display:none">PLAY MODE</div>
+              <div class="mode-row" style="display:none">
                 <div class="mode-toggle-wrap">
                   <div class="mode-slider" id="modeSlider"></div>
                   <button class="mode-btn active" id="modeScreen" data-mode="screen">SCREEN</button>
@@ -132,7 +132,7 @@
                 <button class="btn-open-folder" id="btnOpenFolder" title="Open client folder">Open Folder</button>
                 <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
                 <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
-                <button class="btn-exclude-av" id="btnExcludeAv" title="Add Windows Defender exclusion for the client folder">Exclude AV</button>
+                <button class="btn-exclude-av" id="btnExcludeAv" title="Add Windows Defender exclusion for the client folder" style="display:none">Exclude AV</button>
               </div>
             </div>
 
@@ -474,7 +474,9 @@
             <div class="sg-row">
               <label for="cfgTheme">Active Skin</label>
               <select id="cfgTheme" class="cfg-input">
+                <option value="recroom">Rec Room</option>
                 <option value="steam-green">Steam 2003 Green</option>
+                <option value="steam2010">Steam 2010</option>
                 <option value="win98">Windows 98 Gray</option>
                 <option value="win95">Windows 95 Teal</option>
                 <option value="winxp">Windows XP Blue</option>
@@ -482,6 +484,7 @@
                 <option value="winvista">Windows Vista Aero</option>
                 <option value="win7">Windows 7 Aero</option>
                 <option value="macosclassic">Mac OS Classic</option>
+                <option value="macosaqua">Mac OS X Aqua</option>
                 <option value="moderndark">Modern Neon Dark</option>
                 <option value="modernlight">Modern Glass Light</option>
                 <option value="moderngreen">Modern Forest Green</option>
@@ -505,7 +508,9 @@
                 <label for="themeTemplateSelect" style="font-size: 11px; font-weight: bold; color: var(--text);">Start from Template:</label>
                 <select id="themeTemplateSelect" class="cfg-input" style="font-size: 11px; width: 55%;">
                   <option value="" disabled selected>Select baseline...</option>
-                  <option value="steam-green">Steam 2003 Green</option>
+                  <option value="recroom">Rec Room</option>
+                <option value="steam-green">Steam 2003 Green</option>
+                <option value="steam2010">Steam 2010</option>
                   <option value="win98">Windows 98 Gray</option>
                   <option value="win95">Windows 95 Teal</option>
                   <option value="winxp">Windows XP Blue</option>
@@ -513,6 +518,7 @@
                   <option value="winvista">Windows Vista Aero</option>
                   <option value="win7">Windows 7 Aero</option>
                   <option value="macosclassic">Mac OS Classic</option>
+                <option value="macosaqua">Mac OS X Aqua</option>
                   <option value="moderndark">Modern Neon Dark</option>
                   <option value="modernlight">Modern Glass Light</option>
                   <option value="moderngreen">Modern Forest Green</option>
@@ -604,7 +610,16 @@
                 <!-- Category: Background & Glass -->
                 <div style="background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
                   <div style="font-size: 10px; font-weight: bold; color: var(--green-dim); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">4. Background & Glass</div>
-                  
+
+                  <!-- Liquid Glass Background Color (used when Liquid Glass is on and no image is set) -->
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <input type="color" id="theme-glassBg" class="theme-color-input" value="#0b0c14">
+                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Glass Background</span>
+                    </div>
+                    <span style="font-size: 9px; color: var(--text-muted);">used when no image set</span>
+                  </div>
+
                   <!-- Remote URL Input -->
                   <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px;">
                     <span style="font-size: 11px; color: var(--text-muted);">Remote Image URL</span>
@@ -842,6 +857,29 @@
     </div>
   </div>
 
+  <!-- Required Steam App Modal -->
+  <div class="modal-overlay" id="steamAppModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⚠ STEAM APP REQUIRED</span>
+        <button class="modal-close-btn" id="steamAppModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
+          A required Steam app isn't installed yet.
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
+          Radium needs a Rec Room Steam component to run. Click <b>Install</b> to install it through Steam, then press Play again once it finishes.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="steamAppCancelBtn">Cancel</button>
+        <button class="modal-btn modal-btn-secondary" id="steamAppAnywayBtn">Launch Anyway</button>
+        <button class="modal-btn modal-btn-primary" id="steamAppInstallBtn">Install</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Uninstall Confirmation Modal -->
   <div class="modal-overlay" id="uninstallModal" style="display:none">
     <div class="modal-box">
@@ -886,6 +924,31 @@
       <div class="modal-footer">
         <button class="modal-btn modal-btn-secondary" id="reinstallCancelBtn">Cancel</button>
         <button class="modal-btn modal-btn-primary" id="reinstallConfirmBtn">Reinstall</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client Update Required Modal -->
+  <div class="modal-overlay" id="clientUpdateModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⬆ CLIENT UPDATE REQUIRED</span>
+        <button class="modal-close-btn" id="clientUpdateModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
+          Your installed game client is out of date.
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
+          This launcher update uses a new Radium client build. Your existing client was installed by an older version, so it needs to be re-downloaded to keep working.
+        </p>
+        <p style="font-size: 12px; line-height: 1.4; color: var(--text-muted); margin-top: 8px;">
+          This will replace your current game files with the new build.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="clientUpdateLaterBtn">Later</button>
+        <button class="modal-btn modal-btn-primary" id="clientUpdateNowBtn">⬇ Update Client</button>
       </div>
     </div>
   </div>

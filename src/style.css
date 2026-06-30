@@ -3249,6 +3249,236 @@ body.theme-win7 .modal-close-btn {
   color: #333333 !important;
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   FRUTIGER AERO enhancement layer for the Windows 7 Aero theme.
+   Glossy aqua gel surfaces, a sky-blue → fresh-green scene with light blooms
+   and bubbles, and vivid candy-gel buttons. Uses `html body.theme-win7` so it
+   wins over the literal-Aero rules above. Text stays dark on light panels.
+   ════════════════════════════════════════════════════════════════════════ */
+html body.theme-win7 {
+  /* Vivid aqua accents + fresh green status */
+  --green:         #0a8fcf;
+  --green-dim:     #0b6fa0;
+  --status-online: #16b40e;
+  border-color: rgba(160, 215, 250, 0.85) !important;
+
+  /* The signature Frutiger Aero scene: bright sky fading into fresh grass,
+     a soft sun-bloom up top, and a few translucent bubbles. Fixed so it
+     stays put while content scrolls. */
+  background:
+    radial-gradient(circle at 13% 80%, rgba(255,255,255,0.55) 0 5px, rgba(255,255,255,0) 7px),
+    radial-gradient(circle at 87% 64%, rgba(255,255,255,0.45) 0 9px, rgba(255,255,255,0) 11px),
+    radial-gradient(circle at 62% 90%, rgba(255,255,255,0.42) 0 4px, rgba(255,255,255,0) 6px),
+    radial-gradient(circle at 40% 70%, rgba(255,255,255,0.35) 0 3px, rgba(255,255,255,0) 5px),
+    radial-gradient(ellipse 130% 75% at 50% -12%, rgba(255,255,255,0.65), transparent 62%),
+    linear-gradient(180deg, #57bbef 0%, #7fd1e9 38%, #a7e07c 74%, #79c64a 100%) !important;
+  background-attachment: fixed !important;
+  background-size: cover !important;
+}
+
+/* Let the scene show through the structural layers */
+html body.theme-win7 .app-layout,
+html body.theme-win7 .main-content,
+html body.theme-win7 .tab-panel,
+html body.theme-win7 .settings-body,
+html body.theme-win7 .log-section {
+  background: transparent !important;
+}
+
+/* Glossy translucent Explorer pane */
+html body.theme-win7 .sidebar {
+  background: linear-gradient(180deg, rgba(255,255,255,0.74) 0%, rgba(224,243,255,0.56) 100%) !important;
+  backdrop-filter: blur(14px) saturate(165%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(165%) !important;
+  border-right: 1px solid rgba(255,255,255,0.65) !important;
+  box-shadow: inset -1px 0 0 rgba(255,255,255,0.55), 1px 0 14px rgba(40,110,170,0.18) !important;
+}
+html body.theme-win7 .sidebar-logo,
+html body.theme-win7 .sidebar-footer {
+  border-color: rgba(120,180,225,0.45) !important;
+}
+
+/* Aqua-glass nav buttons */
+html body.theme-win7 .nav-btn {
+  border-radius: 8px !important;
+  color: #0c3a63 !important;
+}
+html body.theme-win7 .nav-btn:hover {
+  background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(208,238,255,0.85) 50%, rgba(186,228,252,0.85) 100%) !important;
+  border-color: rgba(120,190,240,0.8) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 0 8px rgba(90,180,235,0.35) !important;
+}
+html body.theme-win7 .nav-btn.active {
+  background: linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(190,231,253,0.92) 49%, rgba(150,210,247,0.92) 51%, rgba(196,234,253,0.92) 100%) !important;
+  border-color: rgba(95,175,230,0.9) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), inset 0 -6px 8px -6px rgba(70,160,215,0.4), 0 0 10px rgba(90,180,235,0.4) !important;
+}
+
+/* Glossy gel panels — bright shine over the top half, crease in the middle */
+html body.theme-win7 .launch-panel,
+html body.theme-win7 .download-section,
+html body.theme-win7 .qs-card,
+html body.theme-win7 .settings-group,
+html body.theme-win7 .bevel-inset,
+html body.theme-win7 .bevel-outset,
+html body.theme-win7 .border,
+html body.theme-win7 .native-grid-container,
+html body.theme-win7 .native-table-container,
+html body.theme-win7 .log-output,
+html body.theme-win7 .photo-card,
+html body.theme-win7 .modal-box {
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.96) 0%,
+    rgba(255,255,255,0.82) 49%,
+    rgba(231,245,255,0.80) 51%,
+    rgba(244,251,255,0.88) 100%) !important;
+  border: 1px solid rgba(255,255,255,0.85) !important;
+  border-radius: 12px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.98),
+    inset 0 16px 20px -16px rgba(255,255,255,0.95),
+    0 2px 3px rgba(40,110,170,0.12),
+    0 10px 24px -10px rgba(30,90,150,0.32) !important;
+  backdrop-filter: blur(7px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(7px) saturate(150%) !important;
+}
+html body.theme-win7 .modal-box {
+  border: 1px solid rgba(150,210,250,0.9) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 14px 40px rgba(20,70,120,0.45), inset 0 1px 0 rgba(255,255,255,0.95) !important;
+}
+html body.theme-win7 .qs-card:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.98),
+    0 0 0 1px rgba(120,195,245,0.6),
+    0 6px 18px -6px rgba(30,110,180,0.4) !important;
+}
+
+/* Secondary / utility buttons — light aqua glass gel */
+html body.theme-win7 .btn-refresh,
+html body.theme-win7 .btn-save,
+html body.theme-win7 .btn-test-server,
+html body.theme-win7 .btn-cancel-dl,
+html body.theme-win7 .btn-open-folder,
+html body.theme-win7 .btn-reinstall,
+html body.theme-win7 .btn-uninstall,
+html body.theme-win7 .btn-kill,
+html body.theme-win7 .btn-exclude-av,
+html body.theme-win7 .modal-btn,
+html body.theme-win7 .launch-secondary-actions button {
+  border-radius: 9px !important;
+  border: 1px solid rgba(70,140,195,0.55) !important;
+  color: #08344f !important;
+  font-weight: 700 !important;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.75) !important;
+  background: linear-gradient(180deg,
+    #ffffff 0%,
+    #ecf9ff 48%,
+    #c7ecfb 50%,
+    #ddf4ff 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.98),
+    inset 0 -9px 10px -7px rgba(90,180,225,0.5),
+    0 1px 2px rgba(20,80,130,0.22) !important;
+  transition: all 0.13s ease !important;
+}
+html body.theme-win7 .btn-refresh:hover,
+html body.theme-win7 .btn-save:hover,
+html body.theme-win7 .btn-test-server:hover,
+html body.theme-win7 .btn-cancel-dl:hover,
+html body.theme-win7 .btn-open-folder:hover,
+html body.theme-win7 .btn-reinstall:hover,
+html body.theme-win7 .btn-uninstall:hover,
+html body.theme-win7 .btn-kill:hover,
+html body.theme-win7 .btn-exclude-av:hover,
+html body.theme-win7 .modal-btn:hover,
+html body.theme-win7 .launch-secondary-actions button:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #f4fcff 48%, #d8f3ff 50%, #ecfaff 100%) !important;
+  border-color: rgba(60,150,215,0.85) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,1),
+    0 0 10px rgba(90,185,240,0.6),
+    0 1px 2px rgba(20,80,130,0.22) !important;
+}
+
+/* Primary buttons (PLAY / DOWNLOAD) — vivid aqua candy gel */
+html body.theme-win7 .btn-play,
+html body.theme-win7 .btn-download-big,
+html body.theme-win7 .modal-btn-primary {
+  border-radius: 11px !important;
+  border: 1px solid rgba(15,95,150,0.8) !important;
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  text-shadow: 0 1px 2px rgba(0,55,100,0.55) !important;
+  background: linear-gradient(180deg,
+    #c8edff 0%,
+    #6fc6f2 47%,
+    #1f9ce4 50%,
+    #4fb6ec 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.9),
+    inset 0 -10px 12px -8px rgba(10,80,135,0.55),
+    0 2px 4px rgba(15,80,135,0.35),
+    0 0 0 1px rgba(255,255,255,0.35) !important;
+}
+html body.theme-win7 .btn-play:hover,
+html body.theme-win7 .btn-download-big:hover,
+html body.theme-win7 .modal-btn-primary:hover {
+  background: linear-gradient(180deg, #d9f4ff 0%, #84d2f6 47%, #2eabec 50%, #63c0ef 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 0 14px rgba(70,185,245,0.75),
+    0 2px 5px rgba(15,80,135,0.35) !important;
+}
+html body.theme-win7 .btn-play:active,
+html body.theme-win7 .btn-download-big:active,
+html body.theme-win7 .modal-btn-primary:active {
+  background: linear-gradient(180deg, #2f9bd8 0%, #56b6e8 100%) !important;
+  box-shadow: inset 0 2px 5px rgba(0,45,85,0.4) !important;
+}
+
+/* Glossy inputs */
+html body.theme-win7 .cfg-input,
+html body.theme-win7 input[type="text"],
+html body.theme-win7 textarea,
+html body.theme-win7 select {
+  background: linear-gradient(180deg, #ffffff 0%, #f3fafe 100%) !important;
+  border: 1px solid rgba(110,170,215,0.7) !important;
+  border-radius: 7px !important;
+  box-shadow: inset 0 1px 3px rgba(40,110,170,0.18) !important;
+  color: #08344f !important;
+}
+html body.theme-win7 .cfg-input:focus,
+html body.theme-win7 input[type="text"]:focus,
+html body.theme-win7 textarea:focus,
+html body.theme-win7 select:focus {
+  border-color: rgba(45,150,220,0.95) !important;
+  box-shadow: inset 0 1px 3px rgba(40,110,170,0.18), 0 0 8px rgba(80,180,240,0.55) !important;
+  outline: none !important;
+}
+
+/* Vivid glossy aqua titlebar */
+html body.theme-win7 .titlebar {
+  background:
+    linear-gradient(180deg,
+      rgba(255,255,255,0.85) 0%,
+      rgba(255,255,255,0.30) 49%,
+      rgba(120,205,250,0.28) 50%,
+      rgba(60,160,220,0.62) 100%),
+    linear-gradient(90deg, #4faae0 0%, #91d4f6 50%, #4faae0 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(0,0,0,0.15) !important;
+}
+
+/* Aqua scrollbar */
+html body.theme-win7 ::-webkit-scrollbar-thumb {
+  background: linear-gradient(90deg, #d6eefb 0%, #8fc8ee 50%, #d6eefb 100%) !important;
+  border: 1px solid rgba(90,160,215,0.7) !important;
+  border-radius: 6px !important;
+}
+html body.theme-win7 ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(90deg, #c4e6fa 0%, #6fb9e9 50%, #c4e6fa 100%) !important;
+}
+
 #roomsDetailPhotosSection h4 {
   font-size: 13px;
   font-weight: bold;
@@ -5428,3 +5658,640 @@ body.theme-blackandwhite-inverted .people-avatar[src="logo.png"] {
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2) !important;
   box-sizing: border-box;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   STEAM 2010 — classic Steam client (dark blue-gray, blue accent, green CTA)
+   ════════════════════════════════════════════════════════════════════════ */
+body.theme-steam2010 {
+  --bg-dark:      #2b2b2b;       /* deepest window gray */
+  --bg-main:      #3a3a3a;       /* content backdrop */
+  --bg-panel:     #46494d;       /* panels / content pane */
+  --bg-btn:       #54585d;
+  --border-light: rgba(255,255,255,0.06);
+  --border-dark:  #1d1d1d;
+  --green:        #8ab4cf;       /* muted Steam link blue */
+  --green-dim:    #6c93ab;
+  --text:         #d6d6d6;       /* light gray (not pure white) */
+  --text-muted:   #8a8a8a;
+  --status-online:#8bc34a;       /* Steam online green */
+  font-family: 'Motiva Sans','Segoe UI',Arial,sans-serif !important;
+  border: 1px solid #161616 !important;
+  border-radius: 6px 6px 0 0 !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+}
+body.theme-steam2010 .app-layout,
+body.theme-steam2010 .settings-body,
+body.theme-steam2010 .log-section { background: transparent !important; }
+body.theme-steam2010 .main-content,
+body.theme-steam2010 .tab-panel { background: var(--bg-main) !important; }
+body.theme-steam2010 .titlebar {
+  height: 34px !important;
+  background: linear-gradient(180deg, #4c4c4c 0%, #2f2f2f 100%) !important;
+  border-bottom: 1px solid #161616 !important;
+  border-radius: 6px 6px 0 0 !important;
+  padding: 0 10px !important;
+}
+body.theme-steam2010 .titlebar-app-name { color: #cfcfcf !important; text-shadow: 0 1px 1px #000 !important; font-weight: 700 !important; letter-spacing: .5px !important; }
+body.theme-steam2010 .tb-ctrl {
+  width: 26px !important; height: 18px !important;
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  border-radius: 3px !important; color: #c7d5e0 !important;
+}
+body.theme-steam2010 .tb-ctrl:hover { background: rgba(255,255,255,0.16) !important; border-color: rgba(255,255,255,0.3) !important; color: #fff !important; }
+body.theme-steam2010 .tb-ctrl.cls:hover { background: #b3413b !important; border-color: #b3413b !important; color: #fff !important; }
+body.theme-steam2010 .sidebar {
+  background: linear-gradient(180deg, #333333 0%, #2a2a2a 100%) !important;
+  border-right: 1px solid #161616 !important;
+  box-shadow: inset -1px 0 0 rgba(255,255,255,0.04) !important;
+}
+body.theme-steam2010 .sidebar-logo,
+body.theme-steam2010 .sidebar-footer { border-color: rgba(255,255,255,0.07) !important; }
+body.theme-steam2010 .nav-btn {
+  background: transparent !important; border: 1px solid transparent !important;
+  border-radius: 3px !important; color: #cfcfcf !important; text-align: left !important;
+}
+body.theme-steam2010 .nav-btn:hover { background: rgba(255,255,255,0.07) !important; color: #fff !important; }
+body.theme-steam2010 .nav-btn.active {
+  background: linear-gradient(90deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03)) !important;
+  border-color: rgba(255,255,255,0.14) !important; color: #fff !important;
+  box-shadow: inset 3px 0 0 #8ab4cf !important;
+}
+body.theme-steam2010 .launch-panel,
+body.theme-steam2010 .download-section,
+body.theme-steam2010 .qs-card,
+body.theme-steam2010 .settings-group,
+body.theme-steam2010 .bevel-inset,
+body.theme-steam2010 .bevel-outset,
+body.theme-steam2010 .border,
+body.theme-steam2010 .native-grid-container,
+body.theme-steam2010 .native-table-container,
+body.theme-steam2010 .photo-card,
+body.theme-steam2010 .modal-box {
+  background: linear-gradient(180deg, #4a4d51 0%, #3d4044 100%) !important;
+  border: 1px solid #1d1d1d !important;
+  border-radius: 3px !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 6px rgba(0,0,0,0.35) !important;
+}
+body.theme-steam2010 .log-output {
+  background: #1e1e1e !important; border: 1px solid #1d1d1d !important; border-radius: 3px !important;
+}
+body.theme-steam2010 .panel-header { border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
+body.theme-steam2010 .launch-header-band { background: linear-gradient(180deg, #53575c, #34373b) !important; border-bottom: 1px solid #1d1d1d !important; }
+body.theme-steam2010 .mode-toggle-wrap { border: 1px solid #1d1d1d !important; border-radius: 3px !important; overflow: hidden !important; }
+body.theme-steam2010 .mode-btn {
+  background: linear-gradient(180deg, #5a5e63 0%, #44474b 100%) !important;
+  color: #cfcfcf !important; border-right: 1px solid #1d1d1d !important;
+}
+body.theme-steam2010 .mode-btn.active { background: linear-gradient(180deg, #6f7378 0%, #4a4d51 100%) !important; color: #fff !important; }
+body.theme-steam2010 .btn-refresh,
+body.theme-steam2010 .btn-save,
+body.theme-steam2010 .btn-test-server,
+body.theme-steam2010 .btn-cancel-dl,
+body.theme-steam2010 .btn-open-folder,
+body.theme-steam2010 .btn-reinstall,
+body.theme-steam2010 .btn-uninstall,
+body.theme-steam2010 .btn-kill,
+body.theme-steam2010 .btn-exclude-av,
+body.theme-steam2010 .modal-btn,
+body.theme-steam2010 .launch-secondary-actions button {
+  background: linear-gradient(180deg, #5c5f64 0%, #404347 100%) !important;
+  border: 1px solid #1d1d1d !important; border-radius: 2px !important;
+  color: #e6e6e6 !important; font-weight: 600 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1) !important;
+}
+body.theme-steam2010 .btn-refresh:hover,
+body.theme-steam2010 .btn-save:hover,
+body.theme-steam2010 .btn-test-server:hover,
+body.theme-steam2010 .btn-cancel-dl:hover,
+body.theme-steam2010 .btn-open-folder:hover,
+body.theme-steam2010 .btn-reinstall:hover,
+body.theme-steam2010 .btn-uninstall:hover,
+body.theme-steam2010 .btn-kill:hover,
+body.theme-steam2010 .btn-exclude-av:hover,
+body.theme-steam2010 .modal-btn:hover,
+body.theme-steam2010 .launch-secondary-actions button:hover {
+  background: linear-gradient(180deg, #6f7378 0%, #4a4d51 100%) !important; color: #fff !important; border-color: #6f7378 !important;
+}
+body.theme-steam2010 .btn-play,
+body.theme-steam2010 .btn-download-big,
+body.theme-steam2010 .modal-btn-primary {
+  background: linear-gradient(180deg, #a1cd44 0%, #6e9b1f 100%) !important;
+  border: 1px solid #4c6b14 !important; border-radius: 3px !important;
+  color: #e8f7c0 !important; text-shadow: 0 1px 1px rgba(0,0,0,0.4) !important; font-weight: 700 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3) !important;
+}
+body.theme-steam2010 .btn-play:hover,
+body.theme-steam2010 .btn-download-big:hover,
+body.theme-steam2010 .modal-btn-primary:hover {
+  background: linear-gradient(180deg, #b6e05a 0%, #80b322 100%) !important; color: #fff !important;
+}
+body.theme-steam2010 .cfg-input,
+body.theme-steam2010 input[type="text"],
+body.theme-steam2010 textarea,
+body.theme-steam2010 select {
+  background: #262626 !important; border: 1px solid #1d1d1d !important; border-radius: 3px !important;
+  color: #e6e6e6 !important; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5) !important;
+}
+body.theme-steam2010 ::-webkit-scrollbar { width: 12px !important; background: #2f2f2f !important; border-left: 1px solid #1d1d1d !important; }
+body.theme-steam2010 ::-webkit-scrollbar-thumb { background: #5a5d61 !important; border-radius: 0 !important; border: 1px solid #1d1d1d !important; }
+body.theme-steam2010 ::-webkit-scrollbar-thumb:hover { background: #7c8085 !important; }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   MAC OS X AQUA — glossy 2001 candy gel, pinstripes, traffic-light controls
+   ════════════════════════════════════════════════════════════════════════ */
+body.theme-macosaqua {
+  --bg-dark:      #d9d9d9;
+  --bg-main:      #ececec;
+  --bg-panel:     #ffffff;
+  --bg-btn:       #f2f2f2;
+  --border-light: #ffffff;
+  --border-dark:  #9b9b9b;
+  --green:        #1f6feb;      /* Aqua blue */
+  --green-dim:    #2a6fd0;
+  --text:         #1a1a1a;
+  --text-muted:   #666666;
+  --status-online:#28c840;
+  font-family: -apple-system,'Lucida Grande','Helvetica Neue',Helvetica,Arial,sans-serif !important;
+  border: 1px solid #8f8f8f !important;
+  border-radius: 9px 9px 0 0 !important;
+  box-shadow: 0 14px 44px rgba(0,0,0,0.4) !important;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.018) 0px, rgba(0,0,0,0.018) 1px, transparent 1px, transparent 3px),
+    linear-gradient(180deg, #e9e9e9 0%, #d6d6d6 100%) !important;
+}
+body.theme-macosaqua .app-layout,
+body.theme-macosaqua .main-content,
+body.theme-macosaqua .tab-panel,
+body.theme-macosaqua .settings-body,
+body.theme-macosaqua .log-section { background: transparent !important; }
+body.theme-macosaqua .titlebar {
+  height: 36px !important;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 1px, transparent 1px, transparent 3px),
+    linear-gradient(180deg, #f6f6f6 0%, #d8d8d8 50%, #cfcfcf 100%) !important;
+  border-bottom: 1px solid #9b9b9b !important;
+  border-radius: 9px 9px 0 0 !important;
+  padding: 0 10px !important;
+}
+body.theme-macosaqua .titlebar-app-name { color: #3a3a3a !important; text-shadow: 0 1px 0 rgba(255,255,255,0.8) !important; font-weight: 600 !important; }
+body.theme-macosaqua .titlebar-controls { gap: 8px !important; }
+body.theme-macosaqua .tb-ctrl {
+  width: 13px !important; height: 13px !important; padding: 0 !important;
+  border-radius: 50% !important; font-size: 0 !important;
+  border: 1px solid rgba(0,0,0,0.25) !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.7) !important;
+}
+body.theme-macosaqua .tb-ctrl.cls { order: 1 !important; background: radial-gradient(circle at 50% 35%, #ff8a82, #ff5f57) !important; }
+body.theme-macosaqua .tb-ctrl.min { order: 2 !important; background: radial-gradient(circle at 50% 35%, #ffe08a, #febc2e) !important; }
+body.theme-macosaqua .tb-ctrl.max { order: 3 !important; background: radial-gradient(circle at 50% 35%, #7ee787, #28c840) !important; }
+body.theme-macosaqua .tb-ctrl:hover { filter: brightness(1.08) !important; }
+body.theme-macosaqua .sidebar {
+  background: linear-gradient(180deg, #e6ebf2 0%, #d4dbe6 100%) !important;
+  border-right: 1px solid #a9b2c0 !important;
+  box-shadow: inset -1px 0 0 rgba(255,255,255,0.5) !important;
+}
+body.theme-macosaqua .sidebar-logo,
+body.theme-macosaqua .sidebar-footer { border-color: #b7c0cd !important; }
+body.theme-macosaqua .nav-btn {
+  background: transparent !important; border: 1px solid transparent !important;
+  border-radius: 6px !important; color: #1f2d3d !important; text-align: left !important;
+}
+body.theme-macosaqua .nav-btn:hover { background: rgba(31,111,235,0.12) !important; }
+body.theme-macosaqua .nav-btn.active {
+  background: linear-gradient(180deg, #4a92f0 0%, #1f6feb 100%) !important;
+  border-color: #1a5fc8 !important; color: #ffffff !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5) !important;
+}
+body.theme-macosaqua .launch-panel,
+body.theme-macosaqua .download-section,
+body.theme-macosaqua .qs-card,
+body.theme-macosaqua .settings-group,
+body.theme-macosaqua .bevel-inset,
+body.theme-macosaqua .bevel-outset,
+body.theme-macosaqua .border,
+body.theme-macosaqua .native-grid-container,
+body.theme-macosaqua .native-table-container,
+body.theme-macosaqua .photo-card,
+body.theme-macosaqua .log-output,
+body.theme-macosaqua .modal-box {
+  background: #ffffff !important;
+  border: 1px solid #b8b8b8 !important;
+  border-radius: 8px !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 3px rgba(0,0,0,0.12) !important;
+}
+body.theme-macosaqua .modal-box { border-radius: 10px !important; box-shadow: 0 18px 50px rgba(0,0,0,0.4) !important; }
+body.theme-macosaqua .panel-header { border-bottom: 1px solid #d0d0d0 !important; }
+body.theme-macosaqua .launch-header-band { background: linear-gradient(180deg, #fbfbfb, #e9e9e9) !important; border-bottom: 1px solid #cccccc !important; }
+body.theme-macosaqua .mode-toggle-wrap { border: 1px solid #b0b0b0 !important; border-radius: 14px !important; overflow: hidden !important; }
+body.theme-macosaqua .mode-btn { background: #f0f0f0 !important; color: #555 !important; border-right: 1px solid #c8c8c8 !important; }
+body.theme-macosaqua .mode-btn.active { background: linear-gradient(180deg, #7ab0f0, #2f7bdc) !important; color: #fff !important; }
+body.theme-macosaqua .btn-refresh,
+body.theme-macosaqua .btn-save,
+body.theme-macosaqua .btn-test-server,
+body.theme-macosaqua .btn-cancel-dl,
+body.theme-macosaqua .btn-open-folder,
+body.theme-macosaqua .btn-reinstall,
+body.theme-macosaqua .btn-uninstall,
+body.theme-macosaqua .btn-kill,
+body.theme-macosaqua .btn-exclude-av,
+body.theme-macosaqua .modal-btn,
+body.theme-macosaqua .launch-secondary-actions button {
+  border-radius: 16px !important;
+  border: 1px solid #a7a7a7 !important;
+  color: #1a1a1a !important; font-weight: 600 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f4f4 49%, #e4e4e4 50%, #f3f3f3 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,1), 0 1px 2px rgba(0,0,0,0.15) !important;
+}
+body.theme-macosaqua .btn-refresh:hover,
+body.theme-macosaqua .btn-save:hover,
+body.theme-macosaqua .btn-test-server:hover,
+body.theme-macosaqua .btn-cancel-dl:hover,
+body.theme-macosaqua .btn-open-folder:hover,
+body.theme-macosaqua .btn-reinstall:hover,
+body.theme-macosaqua .btn-uninstall:hover,
+body.theme-macosaqua .btn-kill:hover,
+body.theme-macosaqua .btn-exclude-av:hover,
+body.theme-macosaqua .modal-btn:hover,
+body.theme-macosaqua .launch-secondary-actions button:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #fafaff 49%, #eaf1fc 50%, #f6faff 100%) !important;
+  border-color: #6f9fd8 !important;
+}
+body.theme-macosaqua .btn-play,
+body.theme-macosaqua .btn-download-big,
+body.theme-macosaqua .modal-btn-primary {
+  border-radius: 18px !important;
+  border: 1px solid #1a5fc8 !important;
+  color: #ffffff !important; font-weight: 700 !important; text-shadow: 0 1px 1px rgba(0,40,90,0.5) !important;
+  background: linear-gradient(180deg, #cfe4fb 0%, #6ca8ee 48%, #2f7bdc 50%, #5a9be8 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85), 0 1px 3px rgba(0,40,90,0.3) !important;
+}
+body.theme-macosaqua .btn-play:hover,
+body.theme-macosaqua .btn-download-big:hover,
+body.theme-macosaqua .modal-btn-primary:hover { filter: brightness(1.07) !important; }
+body.theme-macosaqua .cfg-input,
+body.theme-macosaqua input[type="text"],
+body.theme-macosaqua textarea,
+body.theme-macosaqua select {
+  background: #ffffff !important; border: 1px solid #9bb0c4 !important; border-radius: 12px !important;
+  color: #1a1a1a !important; box-shadow: inset 0 1px 2px rgba(0,0,0,0.12) !important;
+}
+body.theme-macosaqua .cfg-input:focus,
+body.theme-macosaqua input[type="text"]:focus,
+body.theme-macosaqua textarea:focus,
+body.theme-macosaqua select:focus { border-color: #2f7bdc !important; box-shadow: 0 0 0 3px rgba(47,123,220,0.3) !important; outline: none !important; }
+body.theme-macosaqua ::-webkit-scrollbar { width: 13px !important; background: #e8e8e8 !important; }
+body.theme-macosaqua ::-webkit-scrollbar-thumb { background: linear-gradient(90deg, #cfe0f5, #87b6e8) !important; border: 1px solid #7ea2cc !important; border-radius: 7px !important; }
+body.theme-macosaqua ::-webkit-scrollbar-thumb:hover { background: linear-gradient(90deg, #bcd6f3, #5e9ade) !important; }
+
+
+/* ════════════════════════════════════════════════════════════════════════
+   REC ROOM — 2020 "watch" UI: warm glassy background, vibrant glossy color
+   tiles for nav + stats, light glass panels, candy buttons. (Sounds wired in JS.)
+   ════════════════════════════════════════════════════════════════════════ */
+body.theme-recroom {
+  --bg-dark:      #ffe9c6;
+  --bg-main:      #ffdfb0;
+  --bg-panel:     rgba(255,255,255,0.78);
+  --bg-btn:       #ffffff;
+  --border-light: rgba(255,255,255,0.85);
+  --border-dark:  rgba(120,80,30,0.18);
+  --green:        #ff7a1a;       /* warm Rec Room accent */
+  --green-dim:    #e8650a;
+  --text:         #3a2a14;       /* warm dark brown — readable on light glass */
+  --text-muted:   #8a6a3a;
+  --status-online:#33ab43;
+  font-family: 'Nunito','Segoe UI',system-ui,-apple-system,sans-serif !important;
+  border: none !important;                 /* single clean rounded corner (no double outline) */
+  border-radius: 16px 16px 0 0 !important;
+  box-shadow: 0 14px 44px rgba(60,40,10,0.45) !important;
+  /* Transparent warm overlay — the desktop shows through like the in-game watch. */
+  background:
+    radial-gradient(120% 90% at 50% -20%, rgba(255,244,216,0.55) 0%, transparent 60%),
+    radial-gradient(110% 80% at 100% 105%, rgba(255,150,90,0.30), transparent 60%),
+    radial-gradient(110% 80% at 0% 105%, rgba(120,210,255,0.22), transparent 60%),
+    linear-gradient(180deg, rgba(255,225,173,0.42) 0%, rgba(255,205,148,0.38) 55%, rgba(255,188,124,0.38) 100%) !important;
+  background-attachment: fixed !important;
+  background-size: cover !important;
+}
+
+/* Make the body a stacking context so the scan band can sit BEHIND the UI. */
+body.theme-recroom { isolation: isolate !important; }
+
+/* ── Amber CRT scan band that drifts top→bottom on the background only (behind
+   all panels/tiles). It has a long fading trail above the bright head, loops
+   fully off-screen so it never pops mid-screen, and never blocks clicks. ── */
+body.theme-recroom::after {
+  content: '' !important;
+  position: absolute !important;
+  left: 0 !important; right: 0 !important;
+  top: 0 !important;
+  height: 48% !important;
+  border-radius: inherit !important;
+  pointer-events: none !important;
+  z-index: -1 !important;               /* behind the content, above the bg */
+  background:
+    repeating-linear-gradient(0deg, rgba(255,205,70,0.5) 0px, rgba(255,205,70,0.5) 1px, transparent 1px, transparent 3px),
+    linear-gradient(180deg, transparent 0%, rgba(255,196,50,0.10) 70%, rgba(255,214,96,0.30) 92%, rgba(255,236,170,0.45) 100%) !important;
+  /* Trail: invisible at the top, ramping to full at the bright head (bottom). */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.18) 55%, #000 100%) !important;
+  mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.18) 55%, #000 100%) !important;
+  filter: drop-shadow(0 0 9px rgba(255,196,50,0.5)) !important;
+  will-change: transform !important;
+  opacity: 0 !important;
+}
+body.theme-recroom.animations-enabled::after {
+  opacity: 1 !important;
+  animation: rrScanSweep 5s linear infinite !important;
+}
+@keyframes rrScanSweep {
+  0%   { transform: translateY(-110%); }
+  100% { transform: translateY(250%); }
+}
+body.theme-recroom .app-layout,
+body.theme-recroom .main-content,
+body.theme-recroom .tab-panel,
+body.theme-recroom .settings-body,
+body.theme-recroom .log-section { background: transparent !important; }
+
+/* Glassy warm titlebar */
+body.theme-recroom .titlebar {
+  height: 40px !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.22) 100%) !important;
+  backdrop-filter: blur(16px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.55) !important;
+  border-radius: 16px 16px 0 0 !important;
+  padding: 0 12px !important;
+}
+body.theme-recroom .titlebar-app-name { color: #6b4a1e !important; font-weight: 800 !important; letter-spacing: .5px !important; text-shadow: 0 1px 0 rgba(255,255,255,0.6) !important; }
+body.theme-recroom .tb-ctrl {
+  width: 28px !important; height: 22px !important; border-radius: 9px !important;
+  background: rgba(255,255,255,0.55) !important; border: 1px solid rgba(255,255,255,0.7) !important; color: #6b4a1e !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.8) !important;
+}
+body.theme-recroom .tb-ctrl:hover { background: #ff9a3c !important; border-color: #ff8a1a !important; color: #fff !important; }
+body.theme-recroom .tb-ctrl.cls:hover { background: #ff5e5b !important; border-color: #ff5e5b !important; color: #fff !important; }
+
+/* Glassy warm sidebar */
+body.theme-recroom .sidebar {
+  background: linear-gradient(180deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.28) 100%) !important;
+  backdrop-filter: blur(18px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(150%) !important;
+  border-right: 1px solid rgba(255,255,255,0.55) !important;
+  box-shadow: inset -1px 0 0 rgba(255,255,255,0.5) !important;
+}
+body.theme-recroom .sidebar-logo,
+body.theme-recroom .sidebar-footer { border-color: rgba(150,110,50,0.25) !important; }
+
+/* Vibrant glossy watch-style nav tiles (one colour each) */
+body.theme-recroom .nav-btn {
+  margin: 6px 2px !important;
+  padding: 12px 12px !important;
+  border-radius: 18px !important;
+  border: 1px solid rgba(255,255,255,0.5) !important;
+  color: #ffffff !important; font-weight: 800 !important; text-align: center !important; letter-spacing: .5px !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35) !important;
+  /* 3D raised watch tile: glossy top, curved-bottom shade, extruded base, float */
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,0.7),
+    inset 0 -7px 11px rgba(0,0,0,0.22),
+    0 6px 0 rgba(0,0,0,0.18),
+    0 13px 18px -6px rgba(40,25,5,0.5) !important;
+  transition: transform .1s ease, box-shadow .1s ease, filter .12s ease !important;
+}
+body.theme-recroom .nav-btn:hover {
+  transform: translateY(-2px) !important; filter: brightness(1.07) !important;
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,0.75),
+    inset 0 -7px 11px rgba(0,0,0,0.22),
+    0 8px 0 rgba(0,0,0,0.18),
+    0 17px 24px -6px rgba(40,25,5,0.55) !important;
+}
+body.theme-recroom .nav-btn:active {
+  transform: translateY(3px) !important;
+  box-shadow:
+    inset 0 2px 5px rgba(0,0,0,0.32),
+    0 1px 0 rgba(0,0,0,0.18),
+    0 4px 9px -3px rgba(40,25,5,0.5) !important;
+}
+body.theme-recroom .nav-btn.active {
+  transform: translateY(-1px) !important;
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,0.8),
+    inset 0 -7px 11px rgba(0,0,0,0.2),
+    0 0 0 2px rgba(255,255,255,0.85),
+    0 7px 0 rgba(0,0,0,0.18),
+    0 15px 22px -6px rgba(40,25,5,0.55) !important;
+}
+body.theme-recroom #nav-home     { background: linear-gradient(180deg, #ff7d72 0%, #e2392f 100%) !important; }
+body.theme-recroom #nav-rooms    { background: linear-gradient(180deg, #3fd0c9 0%, #1d9b96 100%) !important; }
+body.theme-recroom #nav-people   { background: linear-gradient(180deg, #ff90bd 0%, #ef5d97 100%) !important; }
+body.theme-recroom #nav-status   { background: linear-gradient(180deg, #5cb3ff 0%, #1f7fe0 100%) !important; }
+body.theme-recroom #nav-settings { background: linear-gradient(180deg, #a684ff 0%, #7a3fe0 100%) !important; }
+
+/* Light glass panels (dark text for readability) */
+body.theme-recroom .launch-panel,
+body.theme-recroom .download-section,
+body.theme-recroom .settings-group,
+body.theme-recroom .bevel-inset,
+body.theme-recroom .bevel-outset,
+body.theme-recroom .border,
+body.theme-recroom .native-grid-container,
+body.theme-recroom .native-table-container,
+body.theme-recroom .photo-card,
+body.theme-recroom .modal-box {
+  background: rgba(255,255,255,0.74) !important;
+  backdrop-filter: blur(14px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
+  border: 1px solid rgba(255,255,255,0.75) !important;
+  border-radius: 18px !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 8px 24px -10px rgba(120,70,20,0.4) !important;
+  color: #3a2a14 !important;
+}
+/* Console stays dark so coloured log text remains legible */
+body.theme-recroom .log-output {
+  background: rgba(20,28,40,0.9) !important;
+  border: 1px solid rgba(255,255,255,0.16) !important;
+  border-radius: 14px !important;
+  color: #e8eef5 !important;
+}
+body.theme-recroom .panel-header { border-bottom: 1px solid rgba(150,110,50,0.25) !important; }
+body.theme-recroom .launch-header-band {
+  background: linear-gradient(90deg, #ff8a3c 0%, #ff5e9e 100%) !important;
+  border-bottom: none !important; border-radius: 16px 16px 0 0 !important;
+}
+body.theme-recroom .launch-header-band .launch-band-title { color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.25) !important; }
+
+/* Colourful watch-style stat tiles */
+body.theme-recroom .qs-card {
+  border: 1px solid rgba(255,255,255,0.55) !important;
+  border-radius: 20px !important; color: #ffffff !important;
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,0.65),
+    inset 0 -9px 14px rgba(0,0,0,0.2),
+    0 7px 0 rgba(0,0,0,0.16),
+    0 15px 22px -8px rgba(40,25,5,0.45) !important;
+  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease !important;
+}
+body.theme-recroom .qs-card:hover {
+  transform: translateY(-2px) !important; filter: brightness(1.05) !important;
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,0.7),
+    inset 0 -9px 14px rgba(0,0,0,0.2),
+    0 9px 0 rgba(0,0,0,0.16),
+    0 19px 26px -8px rgba(40,25,5,0.5) !important;
+}
+body.theme-recroom #qsc-status  { background: linear-gradient(180deg, #6fe07a 0%, #33ab43 100%) !important; }
+body.theme-recroom #qsc-players { background: linear-gradient(180deg, #5cb3ff 0%, #1f7fe0 100%) !important; }
+body.theme-recroom #qsc-client  { background: linear-gradient(180deg, #ffc24a 0%, #f08a1f 100%) !important; }
+body.theme-recroom .qs-card .qs-label,
+body.theme-recroom .qs-card .qs-value { color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.22) !important; }
+
+/* Mode toggle pill */
+body.theme-recroom .mode-toggle-wrap { background: rgba(255,255,255,0.5) !important; border: 1px solid rgba(255,255,255,0.6) !important; border-radius: 20px !important; overflow: hidden !important; }
+body.theme-recroom .mode-btn { background: transparent !important; color: #7a5a2a !important; border: none !important; font-weight: 700 !important; }
+body.theme-recroom .mode-btn.active { background: linear-gradient(180deg, #ff9a3c, #f0731a) !important; color: #fff !important; border-radius: 18px !important; }
+
+/* Secondary buttons — white glossy pills */
+body.theme-recroom .btn-refresh,
+body.theme-recroom .btn-save,
+body.theme-recroom .btn-test-server,
+body.theme-recroom .btn-cancel-dl,
+body.theme-recroom .btn-open-folder,
+body.theme-recroom .btn-reinstall,
+body.theme-recroom .btn-uninstall,
+body.theme-recroom .btn-kill,
+body.theme-recroom .btn-exclude-av,
+body.theme-recroom .modal-btn,
+body.theme-recroom .launch-secondary-actions button {
+  background: rgba(255,255,255,0.9) !important;
+  border: 1px solid rgba(120,80,30,0.22) !important; border-radius: 14px !important;
+  color: #5a3a12 !important; font-weight: 700 !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 2px 7px -2px rgba(120,70,20,0.35) !important;
+}
+body.theme-recroom .btn-refresh:hover,
+body.theme-recroom .btn-save:hover,
+body.theme-recroom .btn-test-server:hover,
+body.theme-recroom .btn-cancel-dl:hover,
+body.theme-recroom .btn-open-folder:hover,
+body.theme-recroom .btn-reinstall:hover,
+body.theme-recroom .btn-uninstall:hover,
+body.theme-recroom .btn-kill:hover,
+body.theme-recroom .btn-exclude-av:hover,
+body.theme-recroom .modal-btn:hover,
+body.theme-recroom .launch-secondary-actions button:hover {
+  background: #ffffff !important; border-color: #ff7a1a !important; color: #c2560a !important;
+  box-shadow: inset 0 1px 0 #ffffff, 0 0 10px rgba(255,150,70,0.5) !important;
+}
+
+/* Primary buttons — vibrant green candy gel */
+body.theme-recroom .btn-play,
+body.theme-recroom .btn-download-big,
+body.theme-recroom .modal-btn-primary {
+  background: linear-gradient(180deg, #74e57f 0%, #2faa3e 100%) !important;
+  border: 1px solid #238a31 !important; border-radius: 16px !important;
+  color: #06310d !important; font-weight: 800 !important; text-shadow: 0 1px 0 rgba(255,255,255,0.35) !important;
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,0.7),
+    inset 0 -7px 11px rgba(0,80,20,0.3),
+    0 6px 0 #1f7a2c,
+    0 13px 18px -6px rgba(20,90,30,0.55) !important;
+  transition: transform .1s ease, box-shadow .1s ease, filter .12s ease !important;
+}
+body.theme-recroom .btn-play:hover,
+body.theme-recroom .btn-download-big:hover,
+body.theme-recroom .modal-btn-primary:hover {
+  background: linear-gradient(180deg, #88ef92 0%, #34bd46 100%) !important;
+  transform: translateY(-2px) !important;
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,0.8),
+    inset 0 -7px 11px rgba(0,80,20,0.3),
+    0 8px 0 #1f7a2c,
+    0 17px 24px -6px rgba(20,90,30,0.6) !important;
+}
+body.theme-recroom .btn-play:active,
+body.theme-recroom .btn-download-big:active,
+body.theme-recroom .modal-btn-primary:active {
+  transform: translateY(3px) !important;
+  box-shadow: inset 0 2px 6px rgba(0,60,15,0.4), 0 1px 0 #1f7a2c, 0 4px 9px -3px rgba(20,90,30,0.5) !important;
+}
+
+/* Inputs — white rounded */
+body.theme-recroom .cfg-input,
+body.theme-recroom input[type="text"],
+body.theme-recroom textarea,
+body.theme-recroom select {
+  background: rgba(255,255,255,0.92) !important; border: 1px solid rgba(120,80,30,0.25) !important; border-radius: 12px !important;
+  color: #3a2a14 !important; box-shadow: inset 0 1px 2px rgba(120,70,20,0.15) !important;
+}
+body.theme-recroom .cfg-input:focus,
+body.theme-recroom input[type="text"]:focus,
+body.theme-recroom textarea:focus,
+body.theme-recroom select:focus { border-color: #ff7a1a !important; box-shadow: 0 0 0 3px rgba(255,150,70,0.3) !important; outline: none !important; }
+
+/* Warm scrollbar */
+body.theme-recroom ::-webkit-scrollbar { width: 10px !important; background: transparent !important; }
+body.theme-recroom ::-webkit-scrollbar-thumb { background: rgba(255,150,70,0.5) !important; border-radius: 6px !important; border: none !important; }
+body.theme-recroom ::-webkit-scrollbar-thumb:hover { background: rgba(255,130,40,0.75) !important; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   FIXES — modal titlebar theming
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* The window is transparent (tauri.conf), so each theme's own border-radius
+   renders as clean rounded corners with no opaque-corner notch. */
+
+/* The newer themes restyled .modal-box but not its titlebar/close button, so
+   the title bar fell back to the default green. Theme them to match. */
+
+/* Rec Room */
+body.theme-recroom .modal-titlebar {
+  background: linear-gradient(90deg, #ff8a3c 0%, #ff5e9e 100%) !important;
+  border-bottom: none !important; border-radius: 18px 18px 0 0 !important;
+}
+body.theme-recroom .modal-title { color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.25) !important; }
+body.theme-recroom .modal-close-btn {
+  background: rgba(255,255,255,0.25) !important; border: 1px solid rgba(255,255,255,0.55) !important;
+  color: #ffffff !important; border-radius: 8px !important;
+}
+body.theme-recroom .modal-close-btn:hover { background: #ff5e5b !important; border-color: #ff5e5b !important; color: #ffffff !important; }
+
+/* Steam 2010 */
+body.theme-steam2010 .modal-titlebar {
+  background: linear-gradient(180deg, #4c4c4c 0%, #2f2f2f 100%) !important;
+  border-bottom: 1px solid #161616 !important; border-radius: 3px 3px 0 0 !important;
+}
+body.theme-steam2010 .modal-title { color: #cfcfcf !important; text-shadow: 0 1px 1px #000 !important; }
+body.theme-steam2010 .modal-close-btn {
+  background: rgba(255,255,255,0.08) !important; border: 1px solid rgba(255,255,255,0.15) !important;
+  color: #cfcfcf !important; border-radius: 3px !important;
+}
+body.theme-steam2010 .modal-close-btn:hover { background: #b3413b !important; border-color: #b3413b !important; color: #ffffff !important; }
+
+/* Mac OS X Aqua */
+body.theme-macosaqua .modal-titlebar {
+  background: linear-gradient(180deg, #f6f6f6 0%, #d8d8d8 100%) !important;
+  border-bottom: 1px solid #b0b0b0 !important; border-radius: 10px 10px 0 0 !important;
+}
+body.theme-macosaqua .modal-title { color: #3a3a3a !important; text-shadow: 0 1px 0 rgba(255,255,255,0.8) !important; }
+body.theme-macosaqua .modal-close-btn {
+  background: radial-gradient(circle at 50% 35%, #ff8a82, #ff5f57) !important;
+  border: 1px solid rgba(0,0,0,0.25) !important; color: transparent !important;
+  width: 16px !important; height: 16px !important; border-radius: 50% !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.7) !important;
+}
+body.theme-macosaqua .modal-close-btn:hover { filter: brightness(1.08) !important; }
+
+/* ── Transparent-window corner fixes ── */
+/* Root must be transparent so the body's rounded corners reveal the desktop
+   (not a white corner) on the transparent window. */
+html { background: transparent !important; background-color: transparent !important; }
+
+/* Clip modal titlebar/footer to the rounded modal-box corners so they don't
+   poke out as square notches. */
+body.theme-recroom .modal-box,
+body.theme-steam2010 .modal-box,
+body.theme-macosaqua .modal-box,
+body.theme-win7 .modal-box { overflow: hidden !important; }

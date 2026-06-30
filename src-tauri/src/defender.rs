@@ -45,10 +45,15 @@ pub async fn add_defender_exclusion(app: tauri::AppHandle) -> Value {
         powershell_path, escaped_path
     );
 
-    match Command::new(&powershell_path)
-        .args(["-NoProfile", "-Command", &ps_command])
-        .output()
+    let mut command = Command::new(&powershell_path);
+    command.args(["-NoProfile", "-Command", &ps_command]);
+    #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    match command.output() {
         Ok(output) => {
             if output.status.success() {
                 json!({ "success": true })
@@ -85,10 +90,15 @@ pub async fn remove_defender_exclusion(app: tauri::AppHandle) -> Value {
         powershell_path, escaped_path
     );
 
-    match Command::new(&powershell_path)
-        .args(["-NoProfile", "-Command", &ps_command])
-        .output()
+    let mut command = Command::new(&powershell_path);
+    command.args(["-NoProfile", "-Command", &ps_command]);
+    #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    match command.output() {
         Ok(output) => {
             if output.status.success() {
                 json!({ "success": true })

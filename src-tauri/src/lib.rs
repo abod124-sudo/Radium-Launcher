@@ -45,6 +45,7 @@ pub fn run() {
             game::kill_game,
             game::check_game_running,
             game::check_steam,
+            game::check_required_steam_app,
             game::check_smart_app_control,
             // Defender
             defender::add_defender_exclusion,
@@ -129,6 +130,8 @@ fn cmd_debug_exec(app: tauri::AppHandle, mode: String) -> serde_json::Value {
         });
     }
 
+    // Spawn (don't wait) — the bat launches the game, so blocking on its output
+    // would freeze this command until the game exits.
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -136,17 +139,11 @@ fn cmd_debug_exec(app: tauri::AppHandle, mode: String) -> serde_json::Value {
             .raw_arg("/c")
             .raw_arg(format!("\"{}\"", bat_path.to_string_lossy()))
             .current_dir(&client_dir)
-            .output()
+            .creation_flags(0x00000008) // DETACHED_PROCESS
+            .spawn()
         {
-            Ok(output) => serde_json::json!({
-                "ok": output.status.success(),
-                "stdout": String::from_utf8_lossy(&output.stdout),
-                "stderr": String::from_utf8_lossy(&output.stderr),
-            }),
-            Err(e) => serde_json::json!({
-                "ok": false,
-                "err": e.to_string(),
-            }),
+            Ok(child) => serde_json::json!({ "ok": true, "pid": child.id() }),
+            Err(e) => serde_json::json!({ "ok": false, "err": e.to_string() }),
         }
     }
 
@@ -156,17 +153,10 @@ fn cmd_debug_exec(app: tauri::AppHandle, mode: String) -> serde_json::Value {
             .arg("-c")
             .arg(format!("\"{}\"", bat_path.to_string_lossy()))
             .current_dir(&client_dir)
-            .output()
+            .spawn()
         {
-            Ok(output) => serde_json::json!({
-                "ok": output.status.success(),
-                "stdout": String::from_utf8_lossy(&output.stdout),
-                "stderr": String::from_utf8_lossy(&output.stderr),
-            }),
-            Err(e) => serde_json::json!({
-                "ok": false,
-                "err": e.to_string(),
-            }),
+            Ok(child) => serde_json::json!({ "ok": true, "pid": child.id() }),
+            Err(e) => serde_json::json!({ "ok": false, "err": e.to_string() }),
         }
     }
 }
@@ -328,13 +318,12 @@ async fn submit_bug_report(
                         "inline": true
                     },
                     {
-                        "name": "Options & Paths",
+                        "name": "Options",
                         "value": format!(
-                            "Minimize on Launch: {}\nClose on Launch: {}\nInstall Dir: {}\nGame Exe Path: {}\nLaunch Options: {}",
+                            "Minimize on Launch: {}\nClose on Launch: {}\nInstall Location: {}\nLaunch Options: {}",
                             cfg.minimize_on_launch,
                             cfg.close_on_launch,
-                            cfg.install_dir,
-                            cfg.game_exe_path,
+                            if cfg.install_dir.is_empty() { "Default" } else { "Custom" },
                             if cfg.launch_options.is_empty() { "None" } else { &cfg.launch_options }
                         ),
                         "inline": false

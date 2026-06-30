@@ -10,11 +10,66 @@ use tauri::Manager;
 use crate::config;
 use crate::game;
 
-/// CDN URL for the game client zip archive.
-const DOWNLOAD_URL: &str = "https://cdn.recroomarchive.org/radium/game-client/production/toukeh24kq6w2v4lndyc4z0pblvfyj75/windows/client.zip";
+/// Page that hosts the current client download links. The launcher fetches this
+/// at runtime and resolves the Windows build zip, so it stays correct when the
+/// build version is bumped on the site.
+const DOWNLOAD_PAGE: &str = "https://recroom.baby/downloads/";
+
+/// Browser-like User-Agent — the download site rejects requests without one.
+const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+/// Identifier for the client build this launcher expects. Bump this whenever the
+/// client on the download page changes in a way that requires a fresh install;
+/// any client installed under a different build id is treated as outdated and
+/// the user is prompted to re-download. (See `check_install` -> `clientOutdated`.)
+pub const REQUIRED_CLIENT_BUILD: &str = "recroom-baby-2016";
 
 /// Atomic flag used to signal cancellation of an in-progress download.
 static DOWNLOAD_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+/// Fetch the download page and resolve the direct URL of the Windows client zip.
+async fn resolve_download_url() -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let html = client
+        .get(DOWNLOAD_PAGE)
+        .header("User-Agent", BROWSER_UA)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to load download page: {}", e))?
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read download page: {}", e))?;
+
+    let resolve = |raw: &str| -> String {
+        if raw.starts_with("http") {
+            raw.to_string()
+        } else if let Some(stripped) = raw.strip_prefix("//") {
+            format!("https://{}", stripped)
+        } else if raw.starts_with('/') {
+            format!("https://recroom.baby{}", raw)
+        } else {
+            format!("https://recroom.baby/downloads/{}", raw)
+        }
+    };
+
+    // Prefer the Windows build link; fall back to any .zip link on the page.
+    let win_re = regex::Regex::new(r#"href\s*=\s*["']([^"']*windows[^"']*\.zip)["']"#)
+        .map_err(|e| e.to_string())?;
+    if let Some(c) = win_re.captures(&html) {
+        return Ok(resolve(c.get(1).unwrap().as_str()));
+    }
+    let zip_re = regex::Regex::new(r#"href\s*=\s*["']([^"']*\.zip)["']"#)
+        .map_err(|e| e.to_string())?;
+    if let Some(c) = zip_re.captures(&html) {
+        return Ok(resolve(c.get(1).unwrap().as_str()));
+    }
+
+    Err("Could not find a Windows download link on the download page.".into())
+}
 
 // ─── Download + extract client ──────────────────────────────────────────────
 
@@ -68,7 +123,17 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
         "eta": -1
     }));
 
-    let response = reqwest::get(DOWNLOAD_URL)
+    // Resolve the current Windows client zip from the download page.
+    let download_url = resolve_download_url().await?;
+
+    let http = reqwest::Client::builder()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = http
+        .get(&download_url)
+        .header("User-Agent", BROWSER_UA)
+        .send()
         .await
         .map_err(|e| format!("Download request failed: {}", e))?;
 
@@ -102,14 +167,14 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
             Err(e) => {
                 drop(file);
                 let _ = fs::remove_file(&client_zip);
-                return Err(format!("Download stream error: {}", e).into());
+                return Err(format!("Download stream error: {}", e));
             }
         };
 
         if let Err(e) = file.write_all(&chunk) {
             drop(file);
             let _ = fs::remove_file(&client_zip);
-            return Err(format!("Failed to write chunk: {}", e).into());
+            return Err(format!("Failed to write chunk: {}", e));
         }
 
         downloaded += chunk.len() as u64;
@@ -217,13 +282,15 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     let _ = fs::remove_file(&client_zip);
 
     // Find RecRoom_ScreenMode.bat in the extracted files.
-    let bat_path = game::find_bat_in(&client_dir, "RecRoom_ScreenMode.bat", 0)
-        .unwrap_or_default();
+    let bat_path = game::find_game_exe(&client_dir).unwrap_or_default();
 
-    // Save the bat path to config.
-    if !bat_path.is_empty() {
+    // Save the bat path and the installed client build id to config.
+    {
         let mut cfg = config::ensure_config(&app);
-        cfg.game_exe_path = bat_path.clone();
+        if !bat_path.is_empty() {
+            cfg.game_exe_path = bat_path.clone();
+        }
+        cfg.client_build = REQUIRED_CLIENT_BUILD.to_string();
         let _ = config::save_config(&app, &cfg);
     }
 
@@ -299,9 +366,17 @@ pub async fn check_install(app: tauri::AppHandle) -> Result<Value, String> {
         let exe = Path::new(&exe_path);
         let client = Path::new(&client_dir);
 
-        let is_inside = exe
-            .strip_prefix(client)
-            .is_ok();
+        // Prefer canonicalized comparison so differences in slash style or
+        // drive-letter casing on Windows don't cause a false "outside" result.
+        // Fall back to a normalized, case-insensitive string prefix check if
+        // either path can't be canonicalized.
+        let is_inside = match (std::fs::canonicalize(exe), std::fs::canonicalize(client)) {
+            (Ok(exe_canon), Ok(client_canon)) => exe_canon.starts_with(&client_canon),
+            _ => {
+                let normalize = |p: &str| p.replace('/', "\\").to_lowercase();
+                normalize(&exe_path).starts_with(&normalize(&client_dir))
+            }
+        };
 
         if !is_inside || !exe.exists() {
             exe_path = String::new();
@@ -310,30 +385,26 @@ pub async fn check_install(app: tauri::AppHandle) -> Result<Value, String> {
 
     // Try to locate the bat file if the config path was empty or invalid.
     if exe_path.is_empty() {
-        exe_path = game::find_bat_in(&client_dir, "RecRoom_ScreenMode.bat", 0)
-            .unwrap_or_default();
+        exe_path = game::find_game_exe(&client_dir).unwrap_or_default();
     }
 
     let installed = !exe_path.is_empty() && Path::new(&exe_path).exists();
     let is_running = game::check_game_running();
 
-    let mut dll_missing = false;
-    if installed {
-        if let Some(parent) = Path::new(&exe_path).parent() {
-            let dll_path_bepinex = parent.join("BepInEx").join("plugins").join("Radeon.Core.BasePatch.dll");
-            let dll_path_root = parent.join("Radeon.Core.BasePatch.dll");
-            if !dll_path_bepinex.exists() && !dll_path_root.exists() {
-                dll_missing = true;
-            }
-        }
-    }
+    // DLL-restore feature is disabled — never report a missing patch DLL.
+    let dll_missing = false;
+
+    // A client installed under a different build id (or with no recorded build,
+    // e.g. installed by an older launcher) is outdated and needs re-downloading.
+    let client_outdated = installed && cfg.client_build != REQUIRED_CLIENT_BUILD;
 
     Ok(json!({
         "installed": installed,
         "exePath": exe_path,
         "clientDir": client_dir,
         "isRunning": is_running,
-        "dllMissing": dll_missing
+        "dllMissing": dll_missing,
+        "clientOutdated": client_outdated
     }))
 }
 
@@ -379,93 +450,10 @@ pub fn get_default_client_dir(app: tauri::AppHandle) -> String {
         .to_string()
 }
 
-/// Downloads and restores the `Radeon.Core.BasePatch.dll` file to the game folder.
+/// Restore-DLL feature is disabled.
 #[tauri::command]
-pub async fn restore_dll(app: tauri::AppHandle) -> Result<Value, String> {
-    let cfg = config::ensure_config(&app);
-    let client_dir = config::get_client_dir(&app, &cfg);
-    let mut exe_path = cfg.game_exe_path.clone();
-
-    if exe_path.is_empty() {
-        exe_path = game::find_bat_in(&client_dir, "RecRoom_ScreenMode.bat", 0)
-            .unwrap_or_default();
-    }
-
-    if exe_path.is_empty() || !Path::new(&exe_path).exists() {
-        return Err("Client is not installed. Please download the client first.".into());
-    }
-
-    let bat_dir = Path::new(&exe_path).parent().ok_or("Invalid executable path")?;
-    let plugins_dir = bat_dir.join("BepInEx").join("plugins");
-
-    // Resolve where the patch file(s) should be extracted.
-    let target_dir = if plugins_dir.exists() {
-        plugins_dir
-    } else if bat_dir.join("BepInEx").exists() {
-        let _ = fs::create_dir_all(&plugins_dir);
-        plugins_dir
-    } else {
-        bat_dir.to_path_buf()
-    };
-
-    let patch_url = "https://cdn.recroomarchive.org/radium/game-client/production/toukeh24kq6w2v4lndyc4z0pblvfyj75/windows/patch.zip";
-
-    let response = reqwest::get(patch_url)
-        .await
-        .map_err(|e| format!("Failed to request patch ZIP: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(format!("Failed to download patch ZIP from CDN (HTTP {})", response.status()));
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read patch ZIP bytes: {}", e))?;
-
-    // Extract patch.zip directly from memory using Cursor to bypass antivirus scanning on the zip file itself
-    use std::io::Cursor;
-    let cursor = Cursor::new(bytes.to_vec());
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| format!("Failed to read patch ZIP archive: {}", e))?;
-
-    for i in 0..archive.len() {
-        let mut entry = archive
-            .by_index(i)
-            .map_err(|e| format!("Failed to read entry {} from patch ZIP: {}", i, e))?;
-
-        let out_path = match entry.enclosed_name() {
-            Some(p) => target_dir.join(p),
-            None => continue,
-        };
-
-        if entry.is_dir() {
-            fs::create_dir_all(&out_path)
-                .map_err(|e| format!("Failed to create directory {:?}: {}", out_path, e))?;
-        } else {
-            if let Some(parent) = out_path.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create parent directory: {}", e))?;
-            }
-            let mut out_file = fs::File::create(&out_path)
-                .map_err(|e| format!("Failed to create file {:?}: {}", out_path, e))?;
-
-            let mut buf = vec![0u8; 8192];
-            loop {
-                let n = entry
-                    .read(&mut buf)
-                    .map_err(|e| format!("Failed to read zip data: {}", e))?;
-                if n == 0 {
-                    break;
-                }
-                out_file
-                    .write_all(&buf[..n])
-                    .map_err(|e| format!("Failed to write extracted patch data: {}", e))?;
-            }
-        }
-    }
-
-    Ok(json!({ "success": true }))
+pub async fn restore_dll(_app: tauri::AppHandle) -> Result<Value, String> {
+    Ok(json!({ "success": false, "error": "Restore DLL is disabled." }))
 }
 
 /// Returns true only if the given directory contains at least one recognized
@@ -482,6 +470,8 @@ fn is_game_install_dir(client_dir: &str) -> bool {
     // game installation. This prevents clearing user project folders that
     // happen to share a parent with the intended install location.
     let sentinel_files = [
+        "Recroom_Release.exe",
+        "Recroom_Release_Data",
         "RecRoom.exe",
         "RecRoom_ScreenMode.bat",
         "RecRoom_VR.bat",
@@ -519,6 +509,10 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<()> {
     }
 
     let game_files = [
+        "Recroom_Release.exe",
+        "Recroom_Release_Data",
+        "GameAssembly.dll",
+        "steam_appid.txt",
         "RecRoom.exe",
         "UnityPlayer.dll",
         "UnityCrashHandler64.exe",

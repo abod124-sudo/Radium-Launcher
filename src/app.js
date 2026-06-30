@@ -56,6 +56,7 @@
     openUrl:    (url)  => open(url),
     getVersion: ()     => invoke('get_version'),
     checkSteam: ()     => invoke('check_steam'),
+    checkRequiredSteamApp: () => invoke('check_required_steam_app'),
     checkSmartAppControl: () => invoke('check_smart_app_control'),
 
     // Auto-update
@@ -238,7 +239,9 @@ function updateStyleBaseLocks(glassEnabled) {
   const modernRadio = $('styleBaseModern');
   const retroRadio = $('styleBaseRetro');
   const templateSelect = $('themeTemplateSelect');
-  const colorInputs = document.querySelectorAll('.theme-color-input');
+  // The glass background picker stays editable while glass is on — it's the one
+  // color that's specifically relevant in glass mode.
+  const colorInputs = document.querySelectorAll('.theme-color-input:not(#theme-glassBg)');
 
   if (glassEnabled) {
     if (modernRadio) {
@@ -346,7 +349,8 @@ async function loadConfig() {
     if ($('theme-text')) $('theme-text').value = colors.text || '#d4e0ce';
     if ($('theme-textMuted')) $('theme-textMuted').value = colors.textMuted || '#8da082';
     if ($('theme-statusOnline')) $('theme-statusOnline').value = colors.statusOnline || '#00ff00';
-    
+    if ($('theme-glassBg')) $('theme-glassBg').value = colors.glassBg || '#0b0c14';
+
     setBgImageUI(colors.bgImage);
     const glassOn = colors.glassEnabled === true;
     setToggle('tgl-glassEnabled', glassOn);
@@ -535,12 +539,20 @@ function applyTheme(theme) {
 
     // 3. Apple-style Liquid Glass overrides - MUST COME LAST to override modern layout solid styles
     if (colors.glassEnabled) {
+      // Sanitize the user-chosen glass background colour (hex only) to keep it
+      // safe to interpolate into the generated stylesheet.
+      const safeGlassBg = /^#[0-9a-fA-F]{3,8}$/.test(colors.glassBg || '') ? colors.glassBg : '#0b0c14';
       css += `
-        /* Specular, deeply blurred glass panels for that Apple Tahoe/visionOS feel */
+        /* Clean, highly-transparent Apple "Liquid Glass" surfaces */
         body.theme-custom-glass {
-          background: ${safeBgImage ? `linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)), url('${safeBgImage}') no-repeat center center fixed !important` : `radial-gradient(circle at center, #1a1c29 0%, #000000 100%) !important`};
+          background: ${safeBgImage ? `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('${safeBgImage}') no-repeat center center fixed !important` : `
+            radial-gradient(135% 135% at 14% -10%, color-mix(in srgb, ${safeGlassBg} 62%, #ffffff 38%), transparent 56%),
+            radial-gradient(130% 130% at 100% 8%, color-mix(in srgb, ${safeGlassBg} 70%, #8ab4ff 30%), transparent 55%),
+            radial-gradient(140% 140% at 92% 108%, color-mix(in srgb, ${safeGlassBg} 72%, #000000 28%), transparent 60%),
+            ${safeGlassBg} !important`};
           background-size: cover !important;
-          
+          background-attachment: fixed !important;
+
           /* Neutralize baseline colors (Steam Green, etc.) at the token/variable level */
           --bg-dark: transparent !important;
           --bg-main: transparent !important;
@@ -555,11 +567,11 @@ function applyTheme(theme) {
           --status-online: #ffffff !important;
         }
         body.theme-custom-glass .titlebar {
-          background: rgba(255, 255, 255, 0.05) !important;
-          backdrop-filter: blur(35px) saturate(210%) !important;
-          -webkit-backdrop-filter: blur(35px) saturate(210%) !important;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.25) !important;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.03) 100%) !important;
+          backdrop-filter: blur(28px) saturate(180%) brightness(1.08) !important;
+          -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.08) !important;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.18) !important;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32) !important;
           border-radius: 0 !important;
         }
 
@@ -690,30 +702,66 @@ function applyTheme(theme) {
         body.theme-custom-glass .settings-group,
         body.theme-custom-glass .modal-box,
         body.theme-custom-glass .tab-panel {
-          background: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 100%) !important;
-          backdrop-filter: blur(40px) saturate(210%) !important;
-          -webkit-backdrop-filter: blur(40px) saturate(210%) !important;
-          border: 1px solid rgba(255, 255, 255, 0.22) !important;
-          border-top-color: rgba(255, 255, 255, 0.35) !important;
-          border-left-color: rgba(255, 255, 255, 0.30) !important;
-          border-bottom-color: rgba(255, 255, 255, 0.15) !important;
-          border-right-color: rgba(255, 255, 255, 0.15) !important;
-          box-shadow: 
-            inset 0 1.5px 0 rgba(255, 255, 255, 0.35),
-            inset 1.5px 0 0 rgba(255, 255, 255, 0.15),
-            inset 0 -1px 0 rgba(0, 0, 0, 0.1),
-            0 12px 36px rgba(0, 0, 0, 0.35) !important;
+          position: relative !important;
+          /* Thin, highly-transparent tint so the background colour reads through cleanly */
+          background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.035) 45%, rgba(255, 255, 255, 0.012) 100%) !important;
+          /* Clean, smooth frost — no grain. Saturation/brightness make it pick up colour. */
+          backdrop-filter: blur(32px) saturate(185%) brightness(1.08) !important;
+          -webkit-backdrop-filter: blur(32px) saturate(185%) brightness(1.08) !important;
+          border: 1px solid rgba(255, 255, 255, 0.14) !important;
+          border-radius: 26px !important;
+          box-shadow:
+            /* crisp specular rim along the lit (top) edge */
+            inset 0 1px 0.5px rgba(255, 255, 255, 0.75),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+            /* soft inner glow from the top = glass thickness */
+            inset 0 18px 40px -30px rgba(255, 255, 255, 0.5),
+            /* darker inner shade at the bottom edge = depth */
+            inset 0 -1px 0.5px rgba(0, 0, 0, 0.22),
+            inset 0 -16px 32px -30px rgba(0, 0, 0, 0.35),
+            /* layered contact shadow so the panel floats */
+            0 2px 8px -3px rgba(0, 0, 0, 0.45),
+            0 16px 40px -14px rgba(0, 0, 0, 0.55) !important;
+        }
+
+        /* Specular sheen layer — the light catching the curved top of the glass.
+           Limited to non-scrolling panels so it never sits over scrolled content. */
+        body.theme-custom-glass .launch-panel::after,
+        body.theme-custom-glass .download-section::after,
+        body.theme-custom-glass .qs-card::after,
+        body.theme-custom-glass .settings-group::after,
+        body.theme-custom-glass .modal-box::after {
+          content: '' !important;
+          position: absolute !important;
+          inset: 0 !important;
+          border-radius: inherit !important;
+          pointer-events: none !important;
+          z-index: 0 !important;
+          background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.03) 14%, transparent 32%),
+            radial-gradient(120% 70% at 18% -20%, rgba(255, 255, 255, 0.14), transparent 50%) !important;
+          mix-blend-mode: screen !important;
+        }
+        /* Keep real content above the sheen layer. */
+        body.theme-custom-glass .launch-panel > *,
+        body.theme-custom-glass .download-section > *,
+        body.theme-custom-glass .qs-card > *,
+        body.theme-custom-glass .settings-group > *,
+        body.theme-custom-glass .modal-box > * {
+          position: relative !important;
+          z-index: 1 !important;
         }
 
         /* Docked Sidebar Glass Override (no double border/corners against window edge) */
         body.theme-custom-glass .sidebar {
-          background: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 100%) !important;
-          backdrop-filter: blur(40px) saturate(210%) !important;
-          -webkit-backdrop-filter: blur(40px) saturate(210%) !important;
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.025) 100%) !important;
+          backdrop-filter: blur(28px) saturate(180%) brightness(1.08) !important;
+          -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.08) !important;
           border: none !important;
-          border-right: 1px solid rgba(255, 255, 255, 0.22) !important;
+          border-right: 1px solid rgba(255, 255, 255, 0.18) !important;
           border-radius: 0 !important;
-          box-shadow: none !important;
+          box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.12), 4px 0 24px -8px rgba(0, 0, 0, 0.4) !important;
         }
 
         /* Glassmorphic input controls inside panels */
@@ -925,6 +973,49 @@ function applyTheme(theme) {
           font-weight: bold !important;
           color: #ffffff !important;
         }
+
+        /* Premium specular "shine sweep" that glides across buttons on hover */
+        html body.theme-custom-glass .btn-download-big,
+        html body.theme-custom-glass .btn-play,
+        html body.theme-custom-glass .btn-refresh,
+        html body.theme-custom-glass .btn-save,
+        html body.theme-custom-glass .btn-test-server,
+        html body.theme-custom-glass .modal-btn,
+        html body.theme-custom-glass .nav-btn,
+        html body.theme-custom-glass .btn-exclude-av {
+          position: relative !important;
+          overflow: hidden !important;
+        }
+        html body.theme-custom-glass .btn-download-big::after,
+        html body.theme-custom-glass .btn-play::after,
+        html body.theme-custom-glass .btn-refresh::after,
+        html body.theme-custom-glass .btn-save::after,
+        html body.theme-custom-glass .btn-test-server::after,
+        html body.theme-custom-glass .modal-btn::after,
+        html body.theme-custom-glass .nav-btn::after,
+        html body.theme-custom-glass .btn-exclude-av::after {
+          content: '' !important;
+          position: absolute !important;
+          top: 0 !important;
+          left: -160% !important;
+          width: 55% !important;
+          height: 100% !important;
+          background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.45) 50%, transparent 100%) !important;
+          transform: skewX(-22deg) !important;
+          transition: left 0.65s cubic-bezier(0.22, 1, 0.36, 1) !important;
+          pointer-events: none !important;
+          z-index: 3 !important;
+        }
+        html body.theme-custom-glass .btn-download-big:hover::after,
+        html body.theme-custom-glass .btn-play:hover::after,
+        html body.theme-custom-glass .btn-refresh:hover::after,
+        html body.theme-custom-glass .btn-save:hover::after,
+        html body.theme-custom-glass .btn-test-server:hover::after,
+        html body.theme-custom-glass .modal-btn:hover::after,
+        html body.theme-custom-glass .nav-btn:hover::after,
+        html body.theme-custom-glass .btn-exclude-av:hover::after {
+          left: 160% !important;
+        }
       `;
     }
 
@@ -1040,7 +1131,8 @@ function updateCustomThemeFromUI() {
     statusOnline: $('theme-statusOnline')?.value || '#00ff00',
     styleBase:    isModern ? 'modern' : 'retro',
     bgImage:      getBgImageUI(),
-    glassEnabled: getToggle('tgl-glassEnabled')
+    glassEnabled: getToggle('tgl-glassEnabled'),
+    glassBg:      $('theme-glassBg')?.value || '#0b0c14'
   };
   config.customTheme = customColors;
   config.baselineTheme = $('cfgTheme')?.value || 'steam-green';
@@ -1204,6 +1296,45 @@ const THEME_PRESETS = {
     text:        '#ffffff',
     textMuted:   '#888888',
     statusOnline:'#ffffff'
+  },
+  'steam2010': {
+    bgDark:      '#2b2b2b',
+    bgMain:      '#3a3a3a',
+    bgPanel:     '#46494d',
+    bgBtn:       '#54585d',
+    borderLight: '#5a5d61',
+    borderDark:  '#1d1d1d',
+    green:       '#8ab4cf',
+    greenDim:    '#6c93ab',
+    text:        '#d6d6d6',
+    textMuted:   '#8a8a8a',
+    statusOnline:'#8bc34a'
+  },
+  'macosaqua': {
+    bgDark:      '#d9d9d9',
+    bgMain:      '#ececec',
+    bgPanel:     '#ffffff',
+    bgBtn:       '#f2f2f2',
+    borderLight: '#ffffff',
+    borderDark:  '#9b9b9b',
+    green:       '#1f6feb',
+    greenDim:    '#2a6fd0',
+    text:        '#1a1a1a',
+    textMuted:   '#666666',
+    statusOnline:'#28c840'
+  },
+  'recroom': {
+    bgDark:      '#ffe9c6',
+    bgMain:      '#ffdfb0',
+    bgPanel:     '#fff6e6',
+    bgBtn:       '#ffffff',
+    borderLight: '#ffffff',
+    borderDark:  '#c9963f',
+    green:       '#ff7a1a',
+    greenDim:    '#e8650a',
+    text:        '#3a2a14',
+    textMuted:   '#8a6a3a',
+    statusOnline:'#33ab43'
   }
 };
 
@@ -1231,7 +1362,7 @@ $('themeTemplateSelect')?.addEventListener('change', () => {
 });
 
 // Bind color pickers input events for live preview
-['theme-bgDark', 'theme-bgMain', 'theme-bgPanel', 'theme-bgBtn', 'theme-borderLight', 'theme-borderDark', 'theme-green', 'theme-greenDim', 'theme-text', 'theme-textMuted', 'theme-statusOnline'].forEach(id => {
+['theme-bgDark', 'theme-bgMain', 'theme-bgPanel', 'theme-bgBtn', 'theme-borderLight', 'theme-borderDark', 'theme-green', 'theme-greenDim', 'theme-text', 'theme-textMuted', 'theme-statusOnline', 'theme-glassBg'].forEach(id => {
   $(id)?.addEventListener('input', () => {
     if (getToggle('tgl-customTheme')) {
       updateCustomThemeFromUI();
@@ -1310,7 +1441,8 @@ $('btnExportTheme')?.addEventListener('click', async () => {
     statusOnline: $('theme-statusOnline')?.value || '#00ff00',
     styleBase:    isModern ? 'modern' : 'retro',
     bgImage:      getBgImageUI(),
-    glassEnabled: getToggle('tgl-glassEnabled')
+    glassEnabled: getToggle('tgl-glassEnabled'),
+    glassBg:      $('theme-glassBg')?.value || '#0b0c14'
   };
   try {
     const jsonStr = JSON.stringify(customColors, null, 2);
@@ -1348,6 +1480,8 @@ $('btnImportTheme')?.addEventListener('click', async () => {
       const el = $('theme-' + k);
       if (el) el.value = colors[k];
     });
+
+    if ($('theme-glassBg') && colors.glassBg) $('theme-glassBg').value = colors.glassBg;
 
     setBgImageUI(colors.bgImage);
     const glassOn = colors.glassEnabled === true;
@@ -1404,10 +1538,12 @@ $('resetThemeConfirmBtn')?.addEventListener('click', async () => {
     statusOnline: '#00ff00',
     styleBase:    'retro',
     bgImage:      '',
-    glassEnabled: false
+    glassEnabled: false,
+    glassBg:      '#0b0c14'
   };
 
   // Set values to inputs
+  setValue('theme-glassBg', defaults.glassBg);
   setValue('theme-bgDark', defaults.bgDark);
   setValue('theme-bgMain', defaults.bgMain);
   setValue('theme-bgPanel', defaults.bgPanel);
@@ -1496,7 +1632,8 @@ async function autoSaveSettings() {
     statusOnline: $('theme-statusOnline')?.value || '#00ff00',
     styleBase:    isModern ? 'modern' : 'retro',
     bgImage:      getBgImageUI(),
-    glassEnabled: getToggle('tgl-glassEnabled')
+    glassEnabled: getToggle('tgl-glassEnabled'),
+    glassBg:      $('theme-glassBg')?.value || '#0b0c14'
   };
 
   const updated = {
@@ -1581,11 +1718,19 @@ async function checkInstall() {
       qscC.classList.remove('not-installed');
     }
     addLog('Game client found: ' + (result.exePath || 'client dir'), 'ok');
-    
+
     // Check if the game is already running on startup
     if (result?.isRunning) {
       setGameRunning(true);
       addLog('Game is already running.', 'ok');
+    }
+
+    // An outdated client (left over from a previous launcher version) must be
+    // re-downloaded to match the new Radium build.
+    if (result?.clientOutdated && !result?.isRunning) {
+      addLog('Installed client is outdated for this launcher version — update required.', 'info');
+      const m = $('clientUpdateModal');
+      if (m) m.style.display = 'flex';
     }
   } else {
     // Show download section, hide launch panel
@@ -1646,10 +1791,17 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
   if (etaEl)    etaEl.textContent    = eta >= 0 ? `ETA ${formatEta(eta)}` : '—';
 }
 
-$('btnDownload')?.addEventListener('click', async () => {
+async function runClientDownload() {
   if (isDownloading) return;
+
+  // Reveal the download/progress UI. When updating an already-installed client
+  // the launch panel is showing and the download section (which holds the
+  // progress block) is hidden, so the status would otherwise be invisible.
+  const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
+  const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
+
   setDownloadUI(true);
-  addLog('Starting download from cdn.recroomarchive.org...', 'info');
+  addLog('Starting download from recroom.baby...', 'info');
   toast('Download started!', 'info', 2500);
 
   let result = null;
@@ -1671,7 +1823,23 @@ $('btnDownload')?.addEventListener('click', async () => {
     const err = result?.error || 'Unknown error';
     addLog(`Download failed: ${err}`, 'error');
     toast(`Failed: ${err}`, 'error', 5000);
+    // Restore the correct panel (e.g. back to the launch panel if still installed).
+    await checkInstall();
   }
+}
+
+$('btnDownload')?.addEventListener('click', runClientDownload);
+
+// ─── Outdated-client (post-launcher-update) prompt ──────────────────────────
+const clientUpdateModal = $('clientUpdateModal');
+const closeClientUpdateModal = () => { if (clientUpdateModal) clientUpdateModal.style.display = 'none'; };
+$('clientUpdateLaterBtn')?.addEventListener('click', closeClientUpdateModal);
+$('clientUpdateModalClose')?.addEventListener('click', closeClientUpdateModal);
+$('clientUpdateModal')?.addEventListener('click', (e) => { if (e.target === clientUpdateModal) closeClientUpdateModal(); });
+$('clientUpdateNowBtn')?.addEventListener('click', () => {
+  closeClientUpdateModal();
+  switchTab('home');
+  runClientDownload();
 });
 
 $('btnCancelDl')?.addEventListener('click', () => {
@@ -2143,7 +2311,49 @@ $('steamModal')?.addEventListener('click', (e) => {
   }
 });
 
+// Final gate before launching: make sure the required Rec Room Steam app
+// (steam://install/92) is installed. If it already is, this is invisible.
 async function executeLaunch() {
+  if (config.disableWarnings !== true) {
+    let installed = true;
+    try {
+      installed = await window.radium?.checkRequiredSteamApp();
+    } catch (e) { /* on error, don't block launch */ }
+    if (installed === false) {
+      addLog('Required Rec Room Steam app (steam://install/92) is not installed. Prompting user...', 'info');
+      showSteamAppModal();
+      return;
+    }
+  }
+  await doLaunch();
+}
+
+function showSteamAppModal() {
+  const m = $('steamAppModal');
+  if (m) m.style.display = 'flex';
+}
+function hideSteamAppModal(cancelLaunch = true) {
+  const m = $('steamAppModal');
+  if (m) m.style.display = 'none';
+  if (cancelLaunch) isGameLaunching = false;
+}
+$('steamAppModalClose')?.addEventListener('click', () => hideSteamAppModal(true));
+$('steamAppCancelBtn')?.addEventListener('click', () => hideSteamAppModal(true));
+$('steamAppModal')?.addEventListener('click', (e) => {
+  if (e.target === $('steamAppModal')) hideSteamAppModal(true);
+});
+$('steamAppInstallBtn')?.addEventListener('click', () => {
+  addLog('Opening Steam to install the required app...', 'info');
+  toast('Opening Steam to install…', 'info', 3000);
+  window.radium?.openUrl('steam://install/92');
+  hideSteamAppModal(true);
+});
+$('steamAppAnywayBtn')?.addEventListener('click', () => {
+  hideSteamAppModal(false);
+  doLaunch();
+});
+
+async function doLaunch() {
   setGameRunning(true);
   addLog('Launching game...', 'info');
   toast('Launching Radium...', 'info', 2000);
@@ -2235,27 +2445,8 @@ $('btnPlay')?.addEventListener('click', async () => {
   if (isGameLaunching || !isInstalled) return;
   isGameLaunching = true;
 
-  const isCurrentlyExcluded = config.defenderExcluded === true;
-
-  if (!isCurrentlyExcluded) {
-    if (config.disableWarnings === true) {
-      addLog('Antivirus exclusion not set. Warning skipped (disabled by user).', 'info');
-      await proceedAfterAvCheck();
-    } else {
-      addLog('Antivirus exclusion not set. Prompting user...', 'info');
-      launchAfterExclusion = true;
-      // Detect third party AV
-      const avs = await window.radium?.detectAntivirus() || [];
-      const thirdPartyAvs = avs.filter(av => !av.isDefender);
-      if (thirdPartyAvs.length > 0) {
-        showThirdPartyAvModal(thirdPartyAvs);
-      } else {
-        showExcludeAvModal();
-      }
-    }
-  } else {
-    await proceedAfterAvCheck();
-  }
+  // AV-exclusion and DLL-restore checks are disabled — go straight to launch.
+  await checkSacAndLaunch();
 });
 
 function showSacModal() {
@@ -2599,7 +2790,7 @@ let peopleSearchQuery = '';
 let peopleSequenceId = 0;
 
 function escapeHtml(str) {
-  if (!str) return '';
+  if (str == null) return '';
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -2690,8 +2881,17 @@ async function loadRooms() {
         card.innerHTML = `
           <img class="room-card-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${thumbUrl}" alt="${escapeHtml(roomName)}" />
           <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
-          <div class="room-card-creator" onclick="event.stopPropagation(); showCreatorProfile('${escapeHtml(creatorUsername)}')" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
+          <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         `;
+        // Attach the creator click via a closure rather than inline onclick so a
+        // username containing quotes can't break out of the JS-string context.
+        const creatorEl = card.querySelector('.room-card-creator');
+        if (creatorEl) {
+          creatorEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showCreatorProfile(creatorUsername);
+          });
+        }
         gridEl.appendChild(card);
       });
     }
@@ -4041,12 +4241,21 @@ async function loadPlayerRooms(userId, append = false) {
       roomCard.innerHTML = `
         <img class="room-card-image image-loading-placeholder" src="${imgUrl}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" alt="${escapeHtml(roomName)}" />
         <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
-        <div class="room-card-creator" onclick="event.stopPropagation(); showCreatorProfile('${escapeHtml(creatorUsername)}')" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
+        <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         <div class="room-card-stats">
           <span>Cheers: <span class="room-card-cheers">...</span></span>
           <span>Visits: <span class="room-card-visits">...</span></span>
         </div>
       `;
+      // Attach the creator click via a closure rather than inline onclick so a
+      // username containing quotes can't break out of the JS-string context.
+      const creatorEl = roomCard.querySelector('.room-card-creator');
+      if (creatorEl) {
+        creatorEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showCreatorProfile(creatorUsername);
+        });
+      }
       roomCard.onclick = () => {
         switchTab('rooms');
         showRoomDetails(room);
@@ -4253,15 +4462,23 @@ lightboxModal?.addEventListener('click', (e) => {
     }
   });
 
-  // Global cleanup interval for image placeholders
-  // This catches images loaded from cache where onload might not fire, 
-  // or images that finished loading synchronously before handlers attach.
-  setInterval(() => {
-    document.querySelectorAll('.image-loading-placeholder').forEach(el => {
-      if (el.tagName === 'IMG' && el.complete && el.src && el.src !== 'data:,') {
-        el.classList.remove('image-loading-placeholder');
+  // Clear image placeholders for images that loaded from cache (where the inline
+  // onload may not fire). A MutationObserver reacts only when nodes are actually
+  // added, instead of polling the whole DOM every 500ms forever.
+  const clearIfLoaded = (el) => {
+    if (el.tagName === 'IMG' && el.complete && el.src && el.src !== 'data:,') {
+      el.classList.remove('image-loading-placeholder');
+    }
+  };
+  const imgPlaceholderObserver = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.classList?.contains('image-loading-placeholder')) clearIfLoaded(node);
+        node.querySelectorAll?.('.image-loading-placeholder').forEach(clearIfLoaded);
       }
-    });
-  }, 500);
+    }
+  });
+  imgPlaceholderObserver.observe(document.body, { childList: true, subtree: true });
 })();
 

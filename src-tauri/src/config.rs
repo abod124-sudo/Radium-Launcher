@@ -23,6 +23,7 @@ pub struct CustomThemeColors {
     pub style_base: String,
     pub bg_image: String,
     pub glass_enabled: bool,
+    pub glass_bg: String,
 }
 
 impl Default for CustomThemeColors {
@@ -42,6 +43,7 @@ impl Default for CustomThemeColors {
             style_base: "retro".to_string(),
             bg_image: String::new(),
             glass_enabled: false,
+            glass_bg: "#0b0c14".to_string(),
         }
     }
 }
@@ -68,6 +70,8 @@ pub struct Config {
     pub enable_animations: bool,
     pub disable_warnings: bool,
     pub custom_theme: Option<CustomThemeColors>,
+    /// Build id of the currently-installed client (see download::REQUIRED_CLIENT_BUILD).
+    pub client_build: String,
 }
 
 impl Default for Config {
@@ -87,6 +91,7 @@ impl Default for Config {
             enable_animations: true,
             disable_warnings: false,
             custom_theme: None,
+            client_build: String::new(),
         }
     }
 }
@@ -175,6 +180,10 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
 
     let config_path = get_config_path(app_handle);
 
+    // Tracks whether anything below modified the config, so we only write back
+    // to disk when there is an actual change (avoids redundant I/O on every read).
+    let mut changed = false;
+
     let mut config = if config_path.exists() {
         match fs::read_to_string(&config_path) {
             Ok(contents) => match serde_json::from_str::<Config>(&contents) {
@@ -182,18 +191,25 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
                 Err(_) => {
                     let backup_path = config_path.with_extension("json.bak");
                     let _ = fs::copy(&config_path, &backup_path);
+                    changed = true;
                     Config::default()
                 }
             },
-            Err(_) => Config::default(),
+            Err(_) => {
+                changed = true;
+                Config::default()
+            }
         }
     } else {
+        // No config file yet — create one with defaults.
+        changed = true;
         Config::default()
     };
 
     // Migrate old API URL to the current one.
     if config.api_url == "https://ns.radie.app" || config.api_url == "https://ns.radie.app/" {
         config.api_url = "https://api.radie.app/".to_string();
+        changed = true;
     }
 
     // Detect if client is/was installed in the old directory "%APPDATA%\radium-launcher\client"
@@ -216,12 +232,18 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
         );
 
         if settings_points_to_old || legacy_client_installed {
+            if !config.install_dir.is_empty() {
+                changed = true;
+            }
             config.install_dir = String::new();
         }
     }
 
-    // Persist the (potentially migrated) config back to disk.
-    let _ = save_config(app_handle, &config);
+    // Persist only when something actually changed, to avoid rewriting
+    // config.json on every command that reads the config.
+    if changed {
+        let _ = save_config(app_handle, &config);
+    }
 
     config
 }

@@ -24,5 +24,12 @@ logs/
 config.json
 .env
 
-# Lock files (optional)
-package-lock.json
+# Secrets / signing material — never commit private keys or certificates
+*.pfx
+*.pem
+*.key
+*.p12
+
+# Dev scratch / generated artifacts
+build_log.txt
+diff_*.txt

@@ -1,18 +1,22 @@
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 const USER_AGENT: &str = "Radium-Launcher";
 
+/// Process-wide reqwest client (connection pool reuse). Timeouts are applied
+/// per-request via `.timeout()` since callers want different limits.
+fn http() -> &'static Client {
+    static HTTP: OnceLock<Client> = OnceLock::new();
+    HTTP.get_or_init(|| Client::builder().build().unwrap_or_else(|_| Client::new()))
+}
+
 /// Shared GET helper with User-Agent header and 10s timeout.
 async fn http_get_json(url: &str) -> Result<Value, String> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let response = client
+    let response = http()
         .get(url)
+        .timeout(Duration::from_secs(10))
         .header("User-Agent", USER_AGENT)
         .send()
         .await
@@ -38,24 +42,12 @@ pub async fn ping_server(url: String) -> Value {
         return json!({ "online": false, "latency": -1, "error": "Untrusted URL. Only radie.app domains are allowed." });
     }
 
-    let client = match Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return json!({ "online": false, "latency": -1 }),
-    };
-
-    // For Radium API domains, hit /health; otherwise hit /
-    let ping_url = if url.contains("radie") || url.contains("radium") {
-        format!("{}/health", url.trim_end_matches('/'))
-    } else {
-        format!("{}/", url.trim_end_matches('/'))
-    };
+    // Host is already restricted to radie.app domains above, so always hit /health.
+    let ping_url = format!("{}/health", url.trim_end_matches('/'));
 
     let start = Instant::now();
 
-    match client.get(&ping_url).send().await {
+    match http().get(&ping_url).timeout(Duration::from_secs(5)).send().await {
         Ok(resp) => {
             let latency = start.elapsed().as_millis() as i64;
             let status = resp.status();
@@ -78,18 +70,11 @@ pub async fn ping_server(url: String) -> Value {
 /// Get the current online player count from the Radium API.
 #[tauri::command]
 pub async fn get_player_count() -> Value {
-    let client = match Client::builder()
-        .timeout(Duration::from_secs(60))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => return json!({ "success": false, "error": e.to_string() }),
-    };
-
     let url = "https://api.radie.app/api/players/v1/online";
 
-    match client
+    match http()
         .get(url)
+        .timeout(Duration::from_secs(60))
         .header("User-Agent", USER_AGENT)
         .send()
         .await
