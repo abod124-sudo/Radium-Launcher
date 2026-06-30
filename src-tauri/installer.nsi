@@ -30,19 +30,19 @@ ${StrLoc}
 
 !define MANUFACTURER "abod124-sudo"
 !define PRODUCTNAME "Radium Launcher"
-!define VERSION "3.0.2"
-!define VERSIONWITHBUILD "3.0.2.0"
+!define VERSION "3.5.1"
+!define VERSIONWITHBUILD "3.5.1.0"
 !define HOMEPAGE ""
 !define INSTALLMODE "currentUser"
 !define LICENSE ""
-!define INSTALLERICON ""
+!define INSTALLERICON "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\icons\icon.ico"
 !ifndef SIDEBARIMAGE
-  !define SIDEBARIMAGE ""
+  !define SIDEBARIMAGE "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\icons\nsis-sidebar.bmp"
 !endif
 !ifndef HEADERIMAGE
-  !define HEADERIMAGE ""
+  !define HEADERIMAGE "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\icons\nsis-header.bmp"
 !endif
-!define UNINSTALLERICON ""
+!define UNINSTALLERICON "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\icons\icon.ico"
 !define UNINSTALLERHEADERIMAGE ""
 !define MAINBINARYNAME "radium-launcher"
 !define MAINBINARYSRCPATH "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\target\x86_64-pc-windows-msvc\release\radium-launcher.exe"

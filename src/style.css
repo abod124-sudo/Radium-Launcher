@@ -5843,9 +5843,12 @@ body.theme-macosaqua .tb-ctrl {
   border: 1px solid rgba(0,0,0,0.25) !important;
   box-shadow: inset 0 1px 1px rgba(255,255,255,0.7) !important;
 }
-body.theme-macosaqua .tb-ctrl.cls { order: 1 !important; background: radial-gradient(circle at 50% 35%, #ff8a82, #ff5f57) !important; }
-body.theme-macosaqua .tb-ctrl.min { order: 2 !important; background: radial-gradient(circle at 50% 35%, #ffe08a, #febc2e) !important; }
-body.theme-macosaqua .tb-ctrl.max { order: 3 !important; background: radial-gradient(circle at 50% 35%, #7ee787, #28c840) !important; }
+/* Match the modern themes: controls stay on the right in
+   minimize → maximize → close order. */
+body.theme-macosaqua .titlebar-controls { margin-right: 8px !important; }
+body.theme-macosaqua .tb-ctrl.min { order: 1 !important; background: radial-gradient(circle at 50% 35%, #ffe08a, #febc2e) !important; }
+body.theme-macosaqua .tb-ctrl.max { order: 2 !important; background: radial-gradient(circle at 50% 35%, #7ee787, #28c840) !important; }
+body.theme-macosaqua .tb-ctrl.cls { order: 3 !important; background: radial-gradient(circle at 50% 35%, #ff8a82, #ff5f57) !important; }
 body.theme-macosaqua .tb-ctrl:hover { filter: brightness(1.08) !important; }
 body.theme-macosaqua .sidebar {
   background: linear-gradient(180deg, #e6ebf2 0%, #d4dbe6 100%) !important;

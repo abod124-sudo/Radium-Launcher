@@ -1,6 +1,6 @@
 {
   "name": "radium-launcher",
-  "version": "3.5.0",
+  "version": "3.5.1",
   "description": "Radium — Custom Rec Room Private Server Launcher",
   "private": true,
   "scripts": {
@@ -9,8 +9,5 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
-  },
-  "dependencies": {
-    "jimp": "^0.22.10"
   }
 }

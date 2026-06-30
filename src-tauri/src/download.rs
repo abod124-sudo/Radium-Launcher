@@ -456,37 +456,55 @@ pub async fn restore_dll(_app: tauri::AppHandle) -> Result<Value, String> {
     Ok(json!({ "success": false, "error": "Restore DLL is disabled." }))
 }
 
+/// Distinctive Rec Room game files. The presence of any one marks a directory
+/// as a game installation. Kept narrow (exe / data folders / launch scripts) so
+/// unrelated folders are never mistaken for an install.
+const SENTINEL_FILES: [&str; 7] = [
+    "Recroom_Release.exe",
+    "Recroom_Release_Data",
+    "RecRoom.exe",
+    "RecRoom_ScreenMode.bat",
+    "RecRoom_VR.bat",
+    "RecRoom_VRMode.bat",
+    "RecRoom_Data",
+];
+
+/// Returns true if `path` (or any subdirectory up to `depth` 4) contains a
+/// recognized Rec Room game file. The recursion mirrors `game::find_game_exe`,
+/// so a client that extracted into a nested subfolder is still detected.
+fn dir_contains_game_files(path: &Path, depth: u32) -> bool {
+    if depth > 4 || !path.is_dir() {
+        return false;
+    }
+
+    for file_name in &SENTINEL_FILES {
+        if path.join(file_name).exists() {
+            return true;
+        }
+    }
+
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() && dir_contains_game_files(&p, depth + 1) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Returns true only if the given directory contains at least one recognized
-/// Rec Room game file — ensuring we never accidentally clear a folder that
-/// isn't actually a game installation.
+/// Rec Room game file (at any depth) — ensuring we never accidentally clear a
+/// folder that isn't actually a game installation.
 fn is_game_install_dir(client_dir: &str) -> bool {
     let path = Path::new(client_dir);
     if !path.exists() {
         // Non-existent directories are safe to treat as empty install targets.
         return true;
     }
-
-    // At least one of these must exist for the directory to be considered a
-    // game installation. This prevents clearing user project folders that
-    // happen to share a parent with the intended install location.
-    let sentinel_files = [
-        "Recroom_Release.exe",
-        "Recroom_Release_Data",
-        "RecRoom.exe",
-        "RecRoom_ScreenMode.bat",
-        "RecRoom_VR.bat",
-        "RecRoom_VRMode.bat",
-        "RecRoom_Data",
-    ];
-
-    for file_name in &sentinel_files {
-        if path.join(file_name).exists() {
-            return true;
-        }
-    }
-
-    // Directory exists but contains none of the expected game files — skip.
-    false
+    dir_contains_game_files(path, 0)
 }
 
 /// Targeted cleanup function that deletes only Rec Room game client files and
@@ -536,6 +554,19 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<()> {
                 let _ = fs::remove_dir_all(&file_path);
             } else {
                 let _ = fs::remove_file(&file_path);
+            }
+        }
+    }
+
+    // Some client builds extract into a subfolder rather than directly into the
+    // client dir. Remove any immediate subdirectory that is itself a game
+    // installation, so uninstall/reinstall doesn't leave a stale nested copy
+    // behind. Subfolders with no game files are left untouched.
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let sub = entry.path();
+            if sub.is_dir() && dir_contains_game_files(&sub, 0) {
+                let _ = fs::remove_dir_all(&sub);
             }
         }
     }

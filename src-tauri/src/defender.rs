@@ -17,8 +17,15 @@ fn get_powershell_path() -> String {
 }
 
 fn is_path_safe(path: &str) -> bool {
-    // Whitelist approach: only allow safe alphanumeric characters and standard path separators
-    path.chars().all(|c| c.is_ascii_alphanumeric() || ['_', '-', '.', ' ', ':', '\\', '/'].contains(&c))
+    // Reject control characters and the few characters that could break out of
+    // the PowerShell command's quoting. Single quotes are handled separately by
+    // doubling them before interpolation, so they are allowed here. Everything
+    // else — parentheses, ampersands, '#', '$', etc., all legal in Windows
+    // paths — is permitted so users with folders like "Program Files (x86)" or
+    // "Rec'Room" can still add a Defender exclusion.
+    !path
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '"' | '<' | '>' | '|' | '\r' | '\n'))
 }
 
 /// Add the Rec Room client directory to the Windows Defender exclusion list.

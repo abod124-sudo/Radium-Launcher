@@ -38,12 +38,22 @@ pub async fn ping_server(url: String) -> Value {
         Err(_) => return json!({"error": "Invalid URL format"}),
     };
     let host = parsed.host_str().unwrap_or("");
-    if host != "api.radie.app" && host != "www.radie.app" && host != "launcher.radie.app" {
-        return json!({ "online": false, "latency": -1, "error": "Untrusted URL. Only radie.app domains are allowed." });
+    let is_cdn = host == "cdn.recroomarchive.org";
+    if host != "api.radie.app"
+        && host != "www.radie.app"
+        && host != "launcher.radie.app"
+        && !is_cdn
+    {
+        return json!({ "online": false, "latency": -1, "error": "Untrusted URL." });
     }
 
-    // Host is already restricted to radie.app domains above, so always hit /health.
-    let ping_url = format!("{}/health", url.trim_end_matches('/'));
+    // The radie.app API exposes a `/health` endpoint; the recroomarchive CDN does
+    // not, so ping its root instead and treat any HTTP response as reachable.
+    let ping_url = if is_cdn {
+        url.trim_end_matches('/').to_string()
+    } else {
+        format!("{}/health", url.trim_end_matches('/'))
+    };
 
     let start = Instant::now();
 
@@ -51,7 +61,9 @@ pub async fn ping_server(url: String) -> Value {
         Ok(resp) => {
             let latency = start.elapsed().as_millis() as i64;
             let status = resp.status();
-            let online = status.is_success();
+            // For the API a successful /health response means online; for the CDN
+            // any response at all means the host is reachable.
+            let online = if is_cdn { true } else { status.is_success() };
             json!({
                 "online": online,
                 "latency": latency,

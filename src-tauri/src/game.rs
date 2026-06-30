@@ -300,22 +300,27 @@ fn launch_game_impl(
     Ok(json!({ "success": true, "pid": pid }))
 }
 
-/// Forcibly kills all `RecRoom.exe` processes via `taskkill`.
+/// Forcibly kills every recognised game process via `taskkill`.
+///
+/// Covers both the current client (`Recroom_Release.exe`) and the legacy one
+/// (`RecRoom.exe`); see [`GAME_EXES`].
 #[tauri::command]
 pub fn kill_game() -> bool {
     #[cfg(target_os = "windows")]
     use std::os::windows::process::CommandExt;
 
-    #[cfg(target_os = "windows")]
-    let _ = Command::new("taskkill")
-        .args(["/F", "/IM", "RecRoom.exe"])
-        .creation_flags(0x08000000)
-        .output();
+    for image in GAME_EXES {
+        #[cfg(target_os = "windows")]
+        let _ = Command::new("taskkill")
+            .args(["/F", "/IM", image])
+            .creation_flags(0x08000000)
+            .output();
 
-    #[cfg(not(target_os = "windows"))]
-    let _ = Command::new("taskkill")
-        .args(["/F", "/IM", "RecRoom.exe"])
-        .output();
+        #[cfg(not(target_os = "windows"))]
+        let _ = Command::new("taskkill")
+            .args(["/F", "/IM", image])
+            .output();
+    }
     true
 }
 
