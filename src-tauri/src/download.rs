@@ -9,6 +9,7 @@ use tauri::Manager;
 
 use crate::config;
 use crate::game;
+use crate::scraper::unescape_html;
 
 /// Page that hosts the current client download links. The launcher fetches this
 /// at runtime and resolves the Windows build zip, so it stays correct when the
@@ -27,14 +28,53 @@ pub const REQUIRED_CLIENT_BUILD: &str = "recroom-baby-2016";
 /// Atomic flag used to signal cancellation of an in-progress download.
 static DOWNLOAD_CANCELLED: AtomicBool = AtomicBool::new(false);
 
-/// Fetch the download page and resolve the direct URL of the Windows client zip.
-async fn resolve_download_url() -> Result<String, String> {
+/// Resolve a possibly-relative link from the download page into an absolute URL.
+fn resolve_link(raw: &str) -> String {
+    if raw.starts_with("http") {
+        raw.to_string()
+    } else if let Some(stripped) = raw.strip_prefix("//") {
+        format!("https://{}", stripped)
+    } else if raw.starts_with('/') {
+        format!("https://recroom.baby{}", raw)
+    } else {
+        format!("https://recroom.baby/downloads/{}", raw)
+    }
+}
+
+/// Pull the `ETag` header (the CDN's content fingerprint for this exact file)
+/// out of a response, if present.
+fn extract_etag(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    headers
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
+/// HEAD the given URL and return its `ETag`, without downloading the body.
+/// Returns `None` on any failure (missing header, network error, method not
+/// allowed, etc.) — this is a best-effort secondary signal, not a hard error.
+async fn fetch_remote_etag(url: &str) -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+    let response = client
+        .head(url)
+        .header("User-Agent", BROWSER_UA)
+        .send()
+        .await
+        .ok()?;
+    extract_etag(response.headers())
+}
+
+/// Fetch the raw HTML of the downloads page.
+async fn fetch_download_page_html() -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let html = client
+    client
         .get(DOWNLOAD_PAGE)
         .header("User-Agent", BROWSER_UA)
         .send()
@@ -42,33 +82,194 @@ async fn resolve_download_url() -> Result<String, String> {
         .map_err(|e| format!("Failed to load download page: {}", e))?
         .text()
         .await
-        .map_err(|e| format!("Failed to read download page: {}", e))?;
+        .map_err(|e| format!("Failed to read download page: {}", e))
+}
 
-    let resolve = |raw: &str| -> String {
-        if raw.starts_with("http") {
-            raw.to_string()
-        } else if let Some(stripped) = raw.strip_prefix("//") {
-            format!("https://{}", stripped)
-        } else if raw.starts_with('/') {
-            format!("https://recroom.baby{}", raw)
-        } else {
-            format!("https://recroom.baby/downloads/{}", raw)
-        }
+/// Extract the Windows build's version string and download link from the
+/// downloads page's "Windows" card, e.g.
+/// `<h3>Windows</h3><p>0.9.2</p><p><a href="...windows.zip">Download</a></p>`.
+fn extract_windows_card(html: &str) -> Option<(String, String)> {
+    let re = regex::Regex::new(
+        r#"(?s)<h3>\s*Windows\s*</h3>\s*<p>([^<]+)</p>\s*<p><a href="([^"]+)""#,
+    )
+    .ok()?;
+    let c = re.captures(html)?;
+    Some((
+        c.get(1)?.as_str().trim().to_string(),
+        c.get(2)?.as_str().to_string(),
+    ))
+}
+
+/// Extract patch notes (version, date, bullet list) from the downloads page,
+/// newest first, as published on the site.
+fn extract_patch_notes(html: &str) -> Vec<Value> {
+    let block_re = regex::Regex::new(
+        r#"(?s)<div class="well patch-note"><h3>([^<]+)</h3><p class="muted">([^<]+)</p><ul>(.*?)</ul></div>"#,
+    );
+    let li_re = regex::Regex::new(r#"(?s)<li>(.*?)</li>"#);
+
+    let (Ok(block_re), Ok(li_re)) = (block_re, li_re) else {
+        return Vec::new();
     };
 
-    // Prefer the Windows build link; fall back to any .zip link on the page.
+    block_re
+        .captures_iter(html)
+        .take(10)
+        .map(|cap| {
+            let version = cap[1].trim().to_string();
+            let date = cap[2].trim().to_string();
+            let notes: Vec<String> = li_re
+                .captures_iter(&cap[3])
+                .map(|m| unescape_html(m[1].trim()))
+                .collect();
+            json!({ "version": version, "date": date, "notes": notes })
+        })
+        .collect()
+}
+
+/// Compare two dotted version strings (e.g. "0.9.2" or "v3.5.2"), returning
+/// true if `a` is greater than `b`. A leading 'v' is stripped from each side;
+/// non-numeric or missing segments are treated as 0.
+pub fn version_gt(a: &str, b: &str) -> bool {
+    let parse = |s: &str| -> Vec<u64> {
+        s.trim()
+            .trim_start_matches('v')
+            .split('.')
+            .map(|part| part.trim().parse::<u64>().unwrap_or(0))
+            .collect()
+    };
+
+    let a_parts = parse(a);
+    let b_parts = parse(b);
+    let max_len = a_parts.len().max(b_parts.len());
+
+    for i in 0..max_len {
+        let a_val = a_parts.get(i).copied().unwrap_or(0);
+        let b_val = b_parts.get(i).copied().unwrap_or(0);
+        if a_val > b_val {
+            return true;
+        }
+        if a_val < b_val {
+            return false;
+        }
+    }
+    false
+}
+
+/// Fetch the download page and resolve the version + direct URL of the
+/// Windows client zip. Falls back to a generic `.zip` link (with an unknown
+/// version) if the page layout doesn't match the expected "Windows" card.
+async fn resolve_download_info() -> Result<(String, String), String> {
+    let html = fetch_download_page_html().await?;
+
+    if let Some((version, raw_url)) = extract_windows_card(&html) {
+        return Ok((version, resolve_link(&raw_url)));
+    }
+
+    // Fallback: any .zip link on the page, version unknown.
     let win_re = regex::Regex::new(r#"href\s*=\s*["']([^"']*windows[^"']*\.zip)["']"#)
         .map_err(|e| e.to_string())?;
     if let Some(c) = win_re.captures(&html) {
-        return Ok(resolve(c.get(1).unwrap().as_str()));
+        return Ok((String::new(), resolve_link(c.get(1).unwrap().as_str())));
     }
     let zip_re = regex::Regex::new(r#"href\s*=\s*["']([^"']*\.zip)["']"#)
         .map_err(|e| e.to_string())?;
     if let Some(c) = zip_re.captures(&html) {
-        return Ok(resolve(c.get(1).unwrap().as_str()));
+        return Ok((String::new(), resolve_link(c.get(1).unwrap().as_str())));
     }
 
     Err("Could not find a Windows download link on the download page.".into())
+}
+
+/// Check recroom.baby for a newer client build than the one currently
+/// installed, returning version info and "what's new" patch notes for a
+/// Steam-style update prompt.
+#[tauri::command]
+pub async fn check_client_update(app: tauri::AppHandle) -> Value {
+    let cfg = config::ensure_config(&app);
+
+    if cfg.game_exe_path.is_empty() {
+        return json!({ "success": true, "hasUpdate": false });
+    }
+
+    let html = match fetch_download_page_html().await {
+        Ok(h) => h,
+        Err(e) => return json!({ "success": false, "error": e }),
+    };
+
+    let (latest_version, download_url) = match extract_windows_card(&html) {
+        Some((version, raw_url)) => (version, resolve_link(&raw_url)),
+        None => {
+            return json!({
+                "success": false,
+                "error": "Could not determine the latest client version."
+            });
+        }
+    };
+
+    let installed_version = cfg.client_version.clone();
+    let version_known = !installed_version.is_empty();
+    let version_is_newer = !latest_version.is_empty() && version_gt(&latest_version, &installed_version);
+
+    // Version numbers alone can miss a silent rebuild of the same version, so
+    // also compare the CDN's ETag (a real content fingerprint) against the one
+    // captured at download time. This is the authoritative "did the file
+    // actually change" check; the version string is just for display. Skip
+    // the extra network round-trip when the version comparison alone already
+    // proves an update exists.
+    let etag_changed = if version_known && !version_is_newer {
+        let remote_etag = fetch_remote_etag(&download_url).await;
+        !cfg.client_etag.is_empty()
+            && remote_etag
+                .as_deref()
+                .map(|e| e != cfg.client_etag)
+                .unwrap_or(false)
+    } else {
+        false
+    };
+
+    // Clients installed before live version tracking was added (or by an older
+    // launcher build) have no recorded version, so a direct comparison is
+    // impossible. Recommend a sync exactly once — persisted so this doesn't
+    // re-fire as a false "update available" on every single future check.
+    let has_update = if version_known {
+        version_is_newer || etag_changed
+    } else if cfg.client_build == REQUIRED_CLIENT_BUILD
+        && !latest_version.is_empty()
+        && !cfg.client_version_sync_prompted
+    {
+        let mut updated_cfg = cfg.clone();
+        updated_cfg.client_version_sync_prompted = true;
+        let _ = config::save_config(&app, &updated_cfg);
+        true
+    } else {
+        false
+    };
+
+    let patch_notes: Vec<Value> = if has_update {
+        extract_patch_notes(&html)
+            .into_iter()
+            .filter(|n| {
+                n.get("version")
+                    .and_then(|v| v.as_str())
+                    .map(|v| !version_known || v == latest_version || version_gt(v, &installed_version))
+                    .unwrap_or(false)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    json!({
+        "success": true,
+        "hasUpdate": has_update,
+        "versionKnown": version_known,
+        "sameVersionRebuilt": version_known && !version_is_newer && etag_changed,
+        "installedVersion": installed_version,
+        "latestVersion": latest_version,
+        "downloadUrl": download_url,
+        "patchNotes": patch_notes
+    })
 }
 
 // ─── Download + extract client ──────────────────────────────────────────────
@@ -123,8 +324,8 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
         "eta": -1
     }));
 
-    // Resolve the current Windows client zip from the download page.
-    let download_url = resolve_download_url().await?;
+    // Resolve the current Windows client zip (and its version) from the download page.
+    let (resolved_version, download_url) = resolve_download_info().await?;
 
     let http = reqwest::Client::builder()
         .build()
@@ -140,6 +341,10 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     if !response.status().is_success() {
         return Err(format!("HTTP error: {}", response.status()));
     }
+
+    // Capture the CDN's ETag for this build so future checks can detect a
+    // rebuilt zip even if the version number on the download page is unchanged.
+    let resolved_etag = extract_etag(response.headers());
 
     let total: u64 = response
         .content_length()
@@ -291,6 +496,12 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
             cfg.game_exe_path = bat_path.clone();
         }
         cfg.client_build = REQUIRED_CLIENT_BUILD.to_string();
+        // Always assign together so the two never desync: if the version
+        // couldn't be scraped this time, clear it rather than leaving a
+        // stale value paired with the newly-downloaded build's ETag.
+        cfg.client_version = resolved_version;
+        cfg.client_etag = resolved_etag.unwrap_or_default();
+        cfg.client_version_sync_prompted = false;
         let _ = config::save_config(&app, &cfg);
     }
 
@@ -404,7 +615,8 @@ pub async fn check_install(app: tauri::AppHandle) -> Result<Value, String> {
         "clientDir": client_dir,
         "isRunning": is_running,
         "dllMissing": dll_missing,
-        "clientOutdated": client_outdated
+        "clientOutdated": client_outdated,
+        "clientVersion": cfg.client_version
     }))
 }
 
@@ -572,4 +784,48 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod update_check_tests {
+    use super::*;
+
+    const SAMPLE_PAGE: &str = r#"<div class="row"><div class="span4"><div class="well text-center download-card"><p><img src="/_image?href=%2F_astro%2Fplatform-windows.png" alt loading="lazy" decoding="async" width="72" height="72"></p><h3>Windows</h3><p>0.9.2</p><p><a href="https://cdn.recroom.baby/builds/0.9.2/windows.zip" class="btn btn-primary" data-download-platform="windows" aria-label="Download for Windows">Download</a></p></div></div><div class="span4"><div class="well text-center download-card"><p><img src="/_image?href=%2F_astro%2Fplatform-linux.png"></p><h3>Linux</h3><p>0.9.0</p><p><a href="https://cdn.recroom.baby/builds/0.9.0/linux.zip" class="btn btn-primary" data-download-platform="linux" aria-label="Download for Linux">Download</a></p></div></div></div><section class="download-patch-notes"><div class="well patch-note"><h3>0.9.2</h3><p class="muted">6/30/2026</p><ul><li>Backported &#39;3D Charades&#39;</li><li>Added Push to Talk setting</li></ul></div><div class="well patch-note"><h3>0.9.1</h3><p class="muted">6/29/2026</p><ul><li>Fixed a bug related to players showing up naked</li></ul></div><div class="well patch-note"><h3>0.9.0</h3><p class="muted">6/28/2026</p><ul><li>Initial release</li></ul></div></section>"#;
+
+    #[test]
+    fn test_extract_windows_card() {
+        let (version, url) = extract_windows_card(SAMPLE_PAGE).expect("windows card should parse");
+        assert_eq!(version, "0.9.2");
+        assert_eq!(url, "https://cdn.recroom.baby/builds/0.9.2/windows.zip");
+    }
+
+    #[test]
+    fn test_extract_patch_notes() {
+        let notes = extract_patch_notes(SAMPLE_PAGE);
+        assert_eq!(notes.len(), 3);
+        assert_eq!(notes[0]["version"], "0.9.2");
+        assert_eq!(notes[0]["date"], "6/30/2026");
+        assert_eq!(notes[0]["notes"][0], "Backported '3D Charades'");
+        assert_eq!(notes[1]["version"], "0.9.1");
+        assert_eq!(notes[2]["version"], "0.9.0");
+    }
+
+    #[test]
+    fn test_version_gt() {
+        assert!(version_gt("0.9.2", "0.9.1"));
+        assert!(version_gt("0.10.0", "0.9.9"));
+        assert!(version_gt("1.0.0", "0.9.9"));
+        assert!(!version_gt("0.9.1", "0.9.1"));
+        assert!(!version_gt("0.9.0", "0.9.2"));
+        // 'v'-prefixed tags, as used by updater::check_for_update for launcher releases.
+        assert!(version_gt("v1.1.0", "v1.0.0"));
+        assert!(version_gt("v2.0.0", "1.9.9"));
+        assert!(!version_gt("v1.0.0", "v1.0.0"));
+        assert!(!version_gt("v1.0.0", "v1.0.1"));
+    }
+
+    #[test]
+    fn test_unescape_html_decimal_apostrophe() {
+        assert_eq!(unescape_html("&#39;3D Charades&#39; &amp; more"), "'3D Charades' & more");
+    }
 }

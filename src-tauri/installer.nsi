@@ -30,8 +30,8 @@ ${StrLoc}
 
 !define MANUFACTURER "abod124-sudo"
 !define PRODUCTNAME "Radium Launcher"
-!define VERSION "3.5.1"
-!define VERSIONWITHBUILD "3.5.1.0"
+!define VERSION "3.5.2"
+!define VERSIONWITHBUILD "3.5.2.0"
 !define HOMEPAGE ""
 !define INSTALLMODE "currentUser"
 !define LICENSE ""

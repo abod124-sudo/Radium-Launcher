@@ -36,6 +36,7 @@ pub fn run() {
             download::cancel_download,
             download::uninstall_client,
             download::check_install,
+            download::check_client_update,
             download::open_client_folder,
             download::select_folder,
             download::get_default_client_dir,

@@ -1841,6 +1841,7 @@ body.theme-custom-glass .btn-play.running:active {
 .quick-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  align-items: start;
   gap: 10px;
   padding-top: 10px;
 }
@@ -1858,11 +1859,14 @@ body.theme-custom-glass .btn-play.running:active {
 .qs-card.offline .qs-icon-indicator { background: #ff4444; }
 .qs-card.installed .qs-icon-indicator { background: var(--status-online); }
 .qs-card.not-installed .qs-icon-indicator { background: #ffaa00; }
+.qs-card.update-available .qs-icon-indicator { background: #ffaa00; }
 .qs-card.mode-vr .qs-icon-indicator { background: #00a2ff; }
 .qs-card.mode-screen .qs-icon-indicator { background: var(--green); }
 .qs-value { font-family: var(--font-mono); font-size: 12px; font-weight: bold; color: var(--text); }
 .qs-card.online .qs-value { color: var(--status-online); text-shadow: none; }
 .qs-card.offline .qs-value { color: #ff6666; text-shadow: none; }
+.qs-card.update-available .qs-value { color: #ffaa00; text-shadow: none; }
+.qs-update-btn { margin-top: 6px; width: 100%; font-size: 9px; padding: 3px 6px; }
 
 /* Connection logs panel */
 .panel-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--border-dark); padding-top: 6px; padding-bottom: 8px; margin-bottom: 8px; }

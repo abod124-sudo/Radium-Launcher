@@ -6,35 +6,6 @@ use std::process::Command;
 const GITHUB_OWNER: &str = "abod124-sudo";
 const GITHUB_REPO: &str = "Radium-Launcher";
 
-/// Compare two semver strings, returning true if `a` is greater than `b`.
-/// Leading 'v' characters are stripped before comparison.
-fn semver_gt(a: &str, b: &str) -> bool {
-    let a = a.trim_start_matches('v');
-    let b = b.trim_start_matches('v');
-
-    let parse = |s: &str| -> Vec<u64> {
-        s.split('.')
-            .map(|part| part.parse::<u64>().unwrap_or(0))
-            .collect()
-    };
-
-    let a_parts = parse(a);
-    let b_parts = parse(b);
-
-    let max_len = a_parts.len().max(b_parts.len());
-    for i in 0..max_len {
-        let a_val = a_parts.get(i).copied().unwrap_or(0);
-        let b_val = b_parts.get(i).copied().unwrap_or(0);
-        if a_val > b_val {
-            return true;
-        }
-        if a_val < b_val {
-            return false;
-        }
-    }
-    false
-}
-
 /// Check GitHub for a newer release of the launcher.
 ///
 /// Returns a JSON object with update information including whether an update
@@ -91,7 +62,7 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
         .unwrap_or("")
         .to_string();
 
-    let has_update = semver_gt(&latest_version, &current_version);
+    let has_update = crate::download::version_gt(&latest_version, &current_version);
 
     let release_url = release["html_url"]
         .as_str()
@@ -191,21 +162,4 @@ pub async fn download_update(app: tauri::AppHandle, url: String, place_on_deskto
 #[tauri::command]
 pub fn get_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_semver_gt() {
-        assert!(semver_gt("1.1.0", "1.0.0"));
-        assert!(semver_gt("2.0.0", "1.9.9"));
-        assert!(semver_gt("1.0.1", "1.0.0"));
-        assert!(semver_gt("v1.1.0", "v1.0.0"));
-        assert!(semver_gt("v2.0.0", "1.9.9"));
-        assert!(!semver_gt("1.0.0", "1.0.0"));
-        assert!(!semver_gt("1.0.0", "1.0.1"));
-        assert!(!semver_gt("0.9.0", "1.0.0"));
-    }
 }

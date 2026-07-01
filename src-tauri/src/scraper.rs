@@ -6,12 +6,13 @@ use std::time::Duration;
 // ---------------------------------------------------------------------------
 // Helper: unescape common HTML entities
 // ---------------------------------------------------------------------------
-fn unescape_html(s: &str) -> String {
+pub(crate) fn unescape_html(s: &str) -> String {
     s.replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&#x27;", "'")
+        .replace("&#39;", "'")
         .replace("&#x2F;", "/")
         .replace("&nbsp;", " ")
 }

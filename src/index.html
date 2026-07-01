@@ -171,6 +171,7 @@
               <span class="qs-icon-indicator"></span>
             </div>
             <div class="qs-value" id="qsInstalled">—</div>
+            <button class="btn-refresh qs-update-btn" id="btnClientUpdateAction" style="display:none"></button>
           </div>
         </div>
 
@@ -949,6 +950,36 @@
       <div class="modal-footer">
         <button class="modal-btn modal-btn-secondary" id="clientUpdateLaterBtn">Later</button>
         <button class="modal-btn modal-btn-primary" id="clientUpdateNowBtn">⬇ Update Client</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client Version Update Available Modal (Steam-style) -->
+  <div class="modal-overlay" id="clientVersionUpdateModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⬆ CLIENT UPDATE AVAILABLE</span>
+        <button class="modal-close-btn" id="clientVersionUpdateModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="update-version-row">
+          <div class="update-ver-block">
+            <div class="update-ver-label">INSTALLED</div>
+            <div class="update-ver-value" id="clientUpdateCurrentVer">—</div>
+          </div>
+          <div class="update-arrow">→</div>
+          <div class="update-ver-block new">
+            <div class="update-ver-label">NEW</div>
+            <div class="update-ver-value" id="clientUpdateLatestVer">—</div>
+          </div>
+        </div>
+        <div class="update-notes-label">WHAT'S NEW</div>
+        <div class="update-notes" id="clientUpdateNotes"></div>
+        <div class="update-status" id="clientUpdateStatus" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="clientVersionUpdateLaterBtn">Later</button>
+        <button class="modal-btn modal-btn-primary" id="clientVersionUpdateNowBtn">⬇ Update Now</button>
       </div>
     </div>
   </div>

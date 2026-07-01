@@ -30,6 +30,7 @@
 
     // Install
     checkInstall: () => invoke('check_install'),
+    checkClientUpdate: () => invoke('check_client_update'),
 
     // Download
     downloadClient:  () => invoke('download_client'),
@@ -1713,10 +1714,19 @@ async function checkInstall() {
     const ds = $('downloadSection'); if (ds) ds.style.display = 'none';
     const lp = $('launchPanel'); if (lp) lp.style.display = 'flex';
     const qi = $('qsInstalled'); if (qi) qi.textContent = 'INSTALLED';
+    // Reapply the last known update result (if any) instead of flashing back
+    // to "Check for Updates" and re-fetching — checkInstall() re-runs on
+    // every settings autosave, so re-checking every time would spam requests
+    // and flicker the button/card each time it resolves.
     if (qscC) {
       qscC.classList.add('installed');
-      qscC.classList.remove('not-installed');
+      qscC.classList.remove('not-installed', 'update-available');
+      if (clientUpdateInfo?.hasUpdate) {
+        qscC.classList.add('update-available');
+        const qi2 = $('qsInstalled'); if (qi2) qi2.textContent = `UPDATE: v${clientUpdateInfo.latestVersion}`;
+      }
     }
+    setClientUpdateButton(clientUpdateInfo?.hasUpdate ? 'update' : 'check', clientUpdateInfo);
     addLog('Game client found: ' + (result.exePath || 'client dir'), 'ok');
 
     // Check if the game is already running on startup
@@ -1731,6 +1741,11 @@ async function checkInstall() {
       addLog('Installed client is outdated for this launcher version — update required.', 'info');
       const m = $('clientUpdateModal');
       if (m) m.style.display = 'flex';
+    } else if (!result?.isRunning && !clientUpdateAutoChecked) {
+      // Live version check against recroom.baby (Steam-style update prompt).
+      // Only auto-run this once per session — the manual button handles re-checks.
+      clientUpdateAutoChecked = true;
+      checkForClientUpdate();
     }
   } else {
     // Show download section, hide launch panel
@@ -1739,8 +1754,13 @@ async function checkInstall() {
     const qi = $('qsInstalled'); if (qi) qi.textContent = 'NOT INSTALLED';
     if (qscC) {
       qscC.classList.add('not-installed');
-      qscC.classList.remove('installed');
+      qscC.classList.remove('installed', 'update-available');
     }
+    setClientUpdateButton('hidden');
+    // No client installed — clear any cached update state so a fresh
+    // install triggers a real re-check instead of reapplying stale info.
+    clientUpdateInfo = null;
+    clientUpdateAutoChecked = false;
     addLog('Game client not found — download required.', 'info');
   }
 }
@@ -1817,6 +1837,10 @@ async function runClientDownload() {
     addLog('Download & extraction complete!', 'ok');
     addLog(`Exe: ${result.exePath || 'Found in client dir'}`, 'ok');
     toast('Radium client installed!', 'ok', 4000);
+    // The client just changed — any cached "update available" state is now
+    // stale, so force a fresh check next time checkInstall() runs below.
+    clientUpdateInfo = null;
+    clientUpdateAutoChecked = false;
     await checkInstall();
   } else {
     setDownloadUI(false);
@@ -1841,6 +1865,123 @@ $('clientUpdateNowBtn')?.addEventListener('click', () => {
   switchTab('home');
   runClientDownload();
 });
+
+// ─── Live client version update (Steam-style "Update Available" prompt) ────
+let clientUpdateInfo = null;
+// checkInstall() re-runs after every settings autosave, game state change,
+// etc. — track whether we've already done the network-based version check
+// this session so we only reapply cached state (no flicker) instead of
+// re-fetching and resetting the button/card on every call.
+let clientUpdateAutoChecked = false;
+
+function formatPatchNotes(notes) {
+  if (!Array.isArray(notes) || notes.length === 0) return '(No patch notes available.)';
+  return notes
+    .map((n) => {
+      const header = n.date ? `${n.version} — ${n.date}` : n.version;
+      const bullets = (n.notes || []).map((item) => `• ${item}`).join('\n');
+      return bullets ? `${header}\n${bullets}` : header;
+    })
+    .join('\n\n');
+}
+
+// Manual update button embedded in the "Client Status" quick-stat card.
+// States: 'hidden' (no client installed), 'check' (installed, no known
+// update — click to re-check), 'checking' (check in progress),
+// 'update' (update available — click to install it).
+function setClientUpdateButton(state, info) {
+  const btn = $('btnClientUpdateAction');
+  if (!btn) return;
+  if (state === 'hidden') {
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = 'block';
+  btn.disabled = state === 'checking';
+  if (state === 'checking') {
+    btn.textContent = '⟳ Checking...';
+    btn.dataset.mode = 'checking';
+  } else if (state === 'update') {
+    btn.textContent = `⬇ Update to v${info?.latestVersion || '?'}`;
+    btn.dataset.mode = 'update';
+  } else {
+    btn.textContent = '⟳ Check for Updates';
+    btn.dataset.mode = 'check';
+  }
+}
+
+$('btnClientUpdateAction')?.addEventListener('click', () => {
+  const btn = $('btnClientUpdateAction');
+  if (btn?.dataset.mode === 'update') {
+    switchTab('home');
+    runClientDownload();
+    return;
+  }
+  if (btn?.dataset.mode === 'checking') return;
+  setClientUpdateButton('checking');
+  toast('Checking for client updates...', 'info', 2000);
+  checkForClientUpdate(true);
+});
+
+function showClientVersionUpdateModal(info) {
+  clientUpdateInfo = info;
+  const cv = $('clientUpdateCurrentVer'); if (cv) cv.textContent = info.versionKnown ? `v${info.installedVersion}` : 'Unknown';
+  const lv = $('clientUpdateLatestVer'); if (lv) lv.textContent = `v${info.latestVersion}`;
+  const notes = $('clientUpdateNotes');
+  if (notes) {
+    let preface = '';
+    if (!info.versionKnown) {
+      preface = `Your installed client's version couldn't be confirmed (it was installed before update tracking was added). Updating now will sync it to the latest build and enable accurate update checks going forward.\n\n`;
+    } else if (info.sameVersionRebuilt) {
+      preface = `The site rebuilt v${info.latestVersion} without changing the version number — your download doesn't match the current build fingerprint.\n\n`;
+    }
+    notes.textContent = preface + formatPatchNotes(info.patchNotes);
+  }
+  const status = $('clientUpdateStatus'); if (status) status.style.display = 'none';
+  const nowBtn = $('clientVersionUpdateNowBtn');
+  if (nowBtn) { nowBtn.disabled = false; nowBtn.textContent = '⬇ Update Now'; }
+  const m = $('clientVersionUpdateModal'); if (m) m.style.display = 'flex';
+
+  const qscC = $('qsc-client');
+  if (qscC) qscC.classList.add('update-available');
+  const qi = $('qsInstalled'); if (qi) qi.textContent = `UPDATE: v${info.latestVersion}`;
+  setClientUpdateButton('update', info);
+}
+
+const closeClientVersionUpdateModal = () => { const m = $('clientVersionUpdateModal'); if (m) m.style.display = 'none'; };
+$('clientVersionUpdateLaterBtn')?.addEventListener('click', closeClientVersionUpdateModal);
+$('clientVersionUpdateModalClose')?.addEventListener('click', closeClientVersionUpdateModal);
+$('clientVersionUpdateModal')?.addEventListener('click', (e) => { if (e.target === $('clientVersionUpdateModal')) closeClientVersionUpdateModal(); });
+$('clientVersionUpdateNowBtn')?.addEventListener('click', () => {
+  closeClientVersionUpdateModal();
+  switchTab('home');
+  runClientDownload();
+});
+
+async function checkForClientUpdate(manual = false) {
+  try {
+    const info = await window.radium?.checkClientUpdate();
+    if (!info?.success) {
+      if (manual) toast(`Update check failed: ${info?.error || 'Unknown error'}`, 'error', 4000);
+      setClientUpdateButton('check');
+      return;
+    }
+    if (!info.hasUpdate) {
+      if (manual) { addLog('Client is up to date.', 'ok'); toast('Client is up to date.', 'ok', 3000); }
+      setClientUpdateButton('check');
+      return;
+    }
+    const fromLabel = info.versionKnown ? `v${info.installedVersion}` : 'unknown version';
+    const changeNote = info.sameVersionRebuilt ? ' (same version, new build detected)' : '';
+    addLog(`Client update available: ${fromLabel} → v${info.latestVersion}${changeNote}`, 'ok');
+    toast('Client update available!', 'ok', 4000);
+    showClientVersionUpdateModal(info);
+  } catch (e) {
+    console.error('checkClientUpdate error:', e);
+    if (manual) toast('Update check failed.', 'error', 3000);
+    setClientUpdateButton('check');
+  }
+}
 
 $('btnCancelDl')?.addEventListener('click', () => {
   window.radium?.cancelDownload();
@@ -1977,6 +2118,10 @@ $('btnChangeFolder')?.addEventListener('click', async () => {
       } else {
         toast('Failed to save install location.', 'error');
       }
+      // The client at this new location may be a different install entirely —
+      // any cached update-check result is meaningless here, so force a fresh check.
+      clientUpdateInfo = null;
+      clientUpdateAutoChecked = false;
       await checkInstall();
     }
   } else {
@@ -1999,6 +2144,8 @@ $('btnResetFolder')?.addEventListener('click', async () => {
       } else {
         toast('Failed to save reset location.', 'error');
       }
+      clientUpdateInfo = null;
+      clientUpdateAutoChecked = false;
       await checkInstall();
     }
   }

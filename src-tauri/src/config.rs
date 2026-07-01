@@ -72,6 +72,19 @@ pub struct Config {
     pub custom_theme: Option<CustomThemeColors>,
     /// Build id of the currently-installed client (see download::REQUIRED_CLIENT_BUILD).
     pub client_build: String,
+    /// Real version string of the installed client (e.g. "0.9.2"), as published
+    /// on the recroom.baby downloads page. Used to detect live client updates,
+    /// separately from `client_build`'s launcher-compatibility marker.
+    pub client_version: String,
+    /// CDN ETag of the downloaded client zip, captured at download time. Lets
+    /// update checks catch a rebuilt zip even when the version number on the
+    /// download page hasn't changed.
+    pub client_etag: String,
+    /// Whether the one-time "your client predates version tracking, please
+    /// sync" nudge has already been shown. Without this, a client with no
+    /// recorded version would be flagged as needing an update on every single
+    /// check forever, since there's no version to compare against.
+    pub client_version_sync_prompted: bool,
 }
 
 impl Default for Config {
@@ -92,6 +105,9 @@ impl Default for Config {
             disable_warnings: false,
             custom_theme: None,
             client_build: String::new(),
+            client_version: String::new(),
+            client_etag: String::new(),
+            client_version_sync_prompted: false,
         }
     }
 }
