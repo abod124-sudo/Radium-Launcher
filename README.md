@@ -23,7 +23,7 @@ An **unofficial** custom launcher for playing on the Radium public Rec Room serv
 - **Photo Comments** — View photos along with user comments left on them.
 - **UI Skins & Custom Themes** — Toggle between 16 built-in themes (Rec Room, Steam 2003 Green, Steam 2010, Windows 98 Gray, Windows XP Blue, Windows 7 Aero, Mac OS X Aqua, Modern Dark, Black & White, etc.), or build your own custom JSON theme! Includes a stunning **Liquid Glass** effect for translucent backgrounds.
 - **In-App Client Download** — Downloads the Rec Room 2016 client directly inside the launcher with live speed & ETA progress, then auto-extracts it to `%APPDATA%\com.radium.launcher\client`. Outdated installs are detected and you're prompted to update.
-- **Live Client Update Checks** — Checks recroom.baby for a newer client build (by version number and CDN fingerprint) on startup and on demand from the Client Status card, with a Steam-style "what's new" prompt before you update.
+- **Live Client Update Checks** — Checks recroom.baby for a newer client build (by version number and CDN fingerprint) on startup and on demand from the Client Status card, with a "what's new" prompt before you update.
 - **Play Modes** — Launches the installed Rec Room client in Screen or VR mode.
 - **Server Status & Bug Reporting** — Checks the game API gateway and CDN on startup. Includes an advanced built-in bug reporter that gathers app logs and system diagnostics.
 - **Antivirus Detection** — Automatically detects third-party antivirus software and Windows Defender status to prevent false positive confusion during launch.
