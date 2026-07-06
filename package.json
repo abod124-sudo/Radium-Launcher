@@ -1,6 +1,6 @@
 {
   "name": "radium-launcher",
-  "version": "3.5.2",
+  "version": "3.5.3",
   "description": "Radium — Custom Rec Room Private Server Launcher",
   "private": true,
   "scripts": {

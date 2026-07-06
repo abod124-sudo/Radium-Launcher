@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -27,6 +27,18 @@ pub const REQUIRED_CLIENT_BUILD: &str = "recroom-baby-2016";
 
 /// Atomic flag used to signal cancellation of an in-progress download.
 static DOWNLOAD_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+/// Guards against two downloads running concurrently (e.g. cancel + immediate
+/// re-download), which would race on the same client.zip and client directory.
+static DOWNLOAD_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// RAII guard that clears `DOWNLOAD_IN_PROGRESS` on every exit path.
+struct DownloadGuard;
+impl Drop for DownloadGuard {
+    fn drop(&mut self) {
+        DOWNLOAD_IN_PROGRESS.store(false, Ordering::SeqCst);
+    }
+}
 
 /// Resolve a possibly-relative link from the download page into an absolute URL.
 fn resolve_link(raw: &str) -> String {
@@ -288,6 +300,14 @@ pub async fn download_client(app: tauri::AppHandle) -> Result<Value, String> {
 }
 
 async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
+    // Reject a second concurrent download — a cancelled download keeps running
+    // until its next chunk, so a quick re-click could otherwise start a second
+    // writer on the same client.zip.
+    if DOWNLOAD_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        return Err("A download is already in progress.".into());
+    }
+    let _guard = DownloadGuard;
+
     // Block if the game is already running.
     if game::check_game_running() {
         return Err("Cannot download or install while the game is running.".into());
@@ -353,6 +373,11 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     let mut downloaded: u64 = 0;
     let start_time = std::time::Instant::now();
 
+    // Throttle progress events: chunks can arrive hundreds of times per second,
+    // and each emit is an IPC round-trip to the webview.
+    const EMIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+    let mut last_emit = std::time::Instant::now() - EMIT_INTERVAL;
+
     // Stream the response body to disk.
     use futures_util::StreamExt;
     let mut stream = response.bytes_stream();
@@ -384,27 +409,33 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
 
         downloaded += chunk.len() as u64;
 
-        let elapsed = start_time.elapsed().as_secs_f64().max(0.001);
-        let speed = downloaded as f64 / elapsed; // bytes/sec
-        let pct = if total > 0 {
-            ((downloaded as f64 / total as f64) * 100.0).min(99.0) as i64
-        } else {
-            -1
-        };
-        let eta = if total > 0 && speed > 0.0 {
-            ((total - downloaded) as f64 / speed) as i64
-        } else {
-            -1
-        };
+        if last_emit.elapsed() >= EMIT_INTERVAL {
+            last_emit = std::time::Instant::now();
 
-        let _ = app.emit("download-progress", json!({
-            "phase": "download",
-            "pct": pct,
-            "downloaded": downloaded,
-            "total": total,
-            "speed": speed as u64,
-            "eta": eta
-        }));
+            let elapsed = start_time.elapsed().as_secs_f64().max(0.001);
+            let speed = downloaded as f64 / elapsed; // bytes/sec
+            let pct = if total > 0 {
+                ((downloaded as f64 / total as f64) * 100.0).min(99.0) as i64
+            } else {
+                -1
+            };
+            // saturating_sub: a server can deliver more bytes than Content-Length
+            // claimed, which would otherwise wrap to a huge ETA.
+            let eta = if total > 0 && speed > 0.0 {
+                (total.saturating_sub(downloaded) as f64 / speed) as i64
+            } else {
+                -1
+            };
+
+            let _ = app.emit("download-progress", json!({
+                "phase": "download",
+                "pct": pct,
+                "downloaded": downloaded,
+                "total": total,
+                "speed": speed as u64,
+                "eta": eta
+            }));
+        }
     }
 
     drop(file);
@@ -434,8 +465,17 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
         .map_err(|e| format!("Failed to read zip archive: {}", e))?;
 
     let entry_count = archive.len();
+    let mut was_cancelled = false;
+    last_emit = std::time::Instant::now() - EMIT_INTERVAL;
 
     for i in 0..entry_count {
+        // Honor cancellation during extraction too — previously Cancel only
+        // worked during the download phase.
+        if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
+            was_cancelled = true;
+            break;
+        }
+
         let mut entry = archive
             .by_index(i)
             .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
@@ -458,33 +498,32 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
             let mut out_file = fs::File::create(&out_path)
                 .map_err(|e| format!("Failed to create file {:?}: {}", out_path, e))?;
 
-            let mut buf = vec![0u8; 8192];
-            loop {
-                let n = entry
-                    .read(&mut buf)
-                    .map_err(|e| format!("Failed to read zip data: {}", e))?;
-                if n == 0 {
-                    break;
-                }
-                out_file
-                    .write_all(&buf[..n])
-                    .map_err(|e| format!("Failed to write extracted data: {}", e))?;
-            }
+            std::io::copy(&mut entry, &mut out_file)
+                .map_err(|e| format!("Failed to write extracted data: {}", e))?;
         }
 
-        // Emit extraction progress.
-        let pct = ((i + 1) as f64 / entry_count as f64 * 100.0) as i64;
-        let entry_name = entry.name().to_string();
-        let _ = app.emit("download-progress", json!({
-            "phase": "extract",
-            "pct": pct,
-            "status": format!("Extracting: {} ({}/{})", entry_name, i + 1, entry_count)
-        }));
+        // Emit extraction progress (throttled; a zip can hold thousands of entries).
+        if last_emit.elapsed() >= EMIT_INTERVAL || i + 1 == entry_count {
+            last_emit = std::time::Instant::now();
+            let pct = ((i + 1) as f64 / entry_count as f64 * 100.0) as i64;
+            let entry_name = entry.name().to_string();
+            let _ = app.emit("download-progress", json!({
+                "phase": "extract",
+                "pct": pct,
+                "status": format!("Extracting: {} ({}/{})", entry_name, i + 1, entry_count)
+            }));
+        }
     }
 
     // Cleanup zip file.
     drop(archive);
     let _ = fs::remove_file(&client_zip);
+
+    if was_cancelled {
+        // Remove the half-extracted client so it isn't detected as installed.
+        let _ = safe_clear_client_dir(&client_dir);
+        return Err("Cancelled".into());
+    }
 
     // Find RecRoom_ScreenMode.bat in the extracted files.
     let bat_path = game::find_game_exe(&client_dir).unwrap_or_default();
@@ -584,8 +623,14 @@ pub async fn check_install(app: tauri::AppHandle) -> Result<Value, String> {
         let is_inside = match (std::fs::canonicalize(exe), std::fs::canonicalize(client)) {
             (Ok(exe_canon), Ok(client_canon)) => exe_canon.starts_with(&client_canon),
             _ => {
+                // Append a trailing separator to the dir before the prefix check
+                // so "C:\client2\..." is not treated as inside "C:\client".
                 let normalize = |p: &str| p.replace('/', "\\").to_lowercase();
-                normalize(&exe_path).starts_with(&normalize(&client_dir))
+                let mut dir = normalize(&client_dir);
+                if !dir.ends_with('\\') {
+                    dir.push('\\');
+                }
+                normalize(&exe_path).starts_with(&dir)
             }
         };
 

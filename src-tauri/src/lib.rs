@@ -98,8 +98,14 @@ fn cmd_get_config(app: tauri::AppHandle) -> serde_json::Value {
 fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
     match serde_json::from_value::<config::Config>(config) {
         Ok(cfg) => {
+            // Only reject characters that are illegal in Windows paths anyway
+            // (plus control chars). Legal folder names like "Games & Mods" or
+            // "100%" must be saveable; the launch path is explicitly quoted at
+            // spawn time, so shell metacharacters in the path are inert.
             let dir = &cfg.install_dir;
-            if dir.contains('"') || dir.contains(';') || dir.contains('&') || dir.contains('|') || dir.contains('\r') || dir.contains('\n') || dir.contains('$') || dir.contains('%') || dir.contains('>') || dir.contains('<') || dir.contains('^') || dir.contains('`') {
+            if dir.chars().any(|c| c.is_control())
+                || dir.contains('"') || dir.contains('<') || dir.contains('>') || dir.contains('|')
+            {
                 return false;
             }
             let opt = &cfg.launch_options;

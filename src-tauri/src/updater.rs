@@ -119,10 +119,23 @@ pub async fn download_update(app: tauri::AppHandle, url: String, place_on_deskto
     let temp_dir = env::temp_dir();
     let installer_path = temp_dir.join("RadiumLauncherSetup_update.exe");
 
-    // Download the installer
-    let response = reqwest::get(&url)
+    // Download the installer. Without timeouts a stalled connection would
+    // leave the update modal stuck on "Downloading..." forever.
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .send()
         .await
         .map_err(|e| format!("Failed to download update: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Update download failed: HTTP {}", response.status()));
+    }
 
     let bytes = response
         .bytes()
