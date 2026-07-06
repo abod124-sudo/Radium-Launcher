@@ -77,12 +77,6 @@
     fetchPhotoWebDetails: (photoId) => invoke('fetch_photo_web_details', { photoId: String(photoId) }),
     fetchPhotoComments:   (photoId) => invoke('fetch_photo_comments', { photoId: String(photoId) }),
 
-    // Log URL events
-    onLogUrl: async (cb) => {
-      if (unlistenMap['log-url']) unlistenMap['log-url']();
-      unlistenMap['log-url'] = await listen('log-url', (event) => cb(event.payload));
-    },
-
     // Window state events
     onWindowMaximizedState: async (cb) => {
       if (unlistenMap['window-maximized-state']) unlistenMap['window-maximized-state']();
@@ -299,7 +293,6 @@ async function loadConfig() {
   if (!config.apiUrl)   config.apiUrl   = 'https://api.radie.app/';
   if (!config.playMode) config.playMode = 'screen';
 
-  setValue('cfgApiUrl', config.apiUrl);
   setValue('cfgLaunchOptions', config.launchOptions || '');
 
   setToggle('tgl-minimizeOnLaunch', config.minimizeOnLaunch !== false);
@@ -313,7 +306,6 @@ async function loadConfig() {
   setModeUI(playMode);
   updateQsMode();
 
-  // Theme
   // Theme
   const activeTheme = config.theme || 'steam-green';
   const customOn = activeTheme === 'custom';
@@ -1083,6 +1075,15 @@ async function autoSaveTheme(newTheme, customColors) {
   }
 }
 
+// Debounced variant for high-frequency sources (color pickers fire 'input'
+// continuously while dragging — each save is an IPC call + a config.json
+// write, so persisting on every tick would hammer the disk).
+let _themeSaveTimer = null;
+function debouncedAutoSaveTheme(newTheme, customColors) {
+  clearTimeout(_themeSaveTimer);
+  _themeSaveTimer = setTimeout(() => autoSaveTheme(newTheme, customColors), 800);
+}
+
 $('cfgTheme')?.addEventListener('change', () => {
   const selectedTheme = $('cfgTheme').value;
   applyTheme(selectedTheme);
@@ -1108,7 +1109,7 @@ $('tgl-customTheme')?.addEventListener('click', () => {
 
   if (customOn) {
     updateCustomThemeFromUI();
-    // autoSaveTheme is called inside updateCustomThemeFromUI via the debounce below
+    // persisting happens inside updateCustomThemeFromUI (debounced)
   } else {
     const selectedTheme = $('cfgTheme').value || 'steam-green';
     applyTheme(selectedTheme);
@@ -1137,8 +1138,8 @@ function updateCustomThemeFromUI() {
   };
   config.customTheme = customColors;
   config.baselineTheme = $('cfgTheme')?.value || 'steam-green';
-  applyTheme('custom');
-  autoSaveTheme('custom', customColors);
+  applyTheme('custom'); // live preview is immediate; only the persist is debounced
+  debouncedAutoSaveTheme('custom', customColors);
 }
 
 const THEME_PRESETS = {
@@ -1639,7 +1640,7 @@ async function autoSaveSettings() {
 
   const updated = {
     ...config,
-    apiUrl:           $('cfgApiUrl')?.value.trim() || config.apiUrl || 'https://api.radie.app/',
+    apiUrl:           config.apiUrl || 'https://api.radie.app/',
     minimizeOnLaunch: getToggle('tgl-minimizeOnLaunch'),
     closeOnLaunch:    getToggle('tgl-closeOnLaunch'),
     autoUpdate:       getToggle('tgl-autoUpdate'),
@@ -1690,7 +1691,6 @@ function debounceAutoSave() {
 
 // Wire up text inputs
 $('cfgLaunchOptions')?.addEventListener('input', debounceAutoSave);
-$('cfgApiUrl')?.addEventListener('input', debounceAutoSave);
 
 
 // Check client installation state
@@ -2880,11 +2880,6 @@ async function init() {
   // Disable default context menu
   document.addEventListener('contextmenu', e => e.preventDefault());
 
-  // Bind IPC log url notifications
-  window.radium?.onLogUrl((url) => {
-    addLog(`HTTP Request: ${url}`, 'info');
-  });
-
   // Global fix for Chromium/WebView2 scroll-trapping over overflow:hidden/auto elements
   document.addEventListener('wheel', (e) => {
     let target = e.target;
@@ -3026,7 +3021,7 @@ async function loadRooms() {
         const roomName = room.Name || room.name || 'Unknown Room';
         const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
         card.innerHTML = `
-          <img class="room-card-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${thumbUrl}" alt="${escapeHtml(roomName)}" />
+          <img class="room-card-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(roomName)}" />
           <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
           <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         `;
@@ -3110,7 +3105,7 @@ async function loadPeople() {
         };
         row.innerHTML = `
           <td>
-            <img class="people-avatar image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${avatarUrl}" alt="${escapeHtml(person.userName)}" />
+            <img class="people-avatar image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(person.userName)}" />
           </td>
           <td>
             <span class="status-dot ${person.isOnline ? 'online' : 'offline'}" title="${person.isOnline ? 'Online' : 'Offline'}"></span>
@@ -3445,13 +3440,13 @@ async function loadRoomPhotos(roomId, append = false) {
                   <span>in</span>
                   <span class="feed-post-room room-link">Loading...</span>
                   <span class="feed-post-dot">•</span>
-                  <span class="feed-post-time">${dateStr}</span>
+                  <span class="feed-post-time">${escapeHtml(dateStr)}</span>
                 </div>
               </div>
             </div>
             ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
             <div class="feed-post-image-wrap image-wrap">
-              <img class="feed-post-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png'}" />
+              <img class="feed-post-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${imgName ? escapeHtml(`https://img.radie.app/${imgName}?width=480`) : './images.png'}" />
             </div>
             <div class="feed-post-footer">
               <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
@@ -3640,13 +3635,13 @@ async function loadPlayerPhotos(userId, append = false) {
               <span>in</span>
               <span class="feed-post-room room-link">Loading...</span>
               <span class="feed-post-dot">•</span>
-              <span class="feed-post-time">${dateStr}</span>
+              <span class="feed-post-time">${escapeHtml(dateStr)}</span>
             </div>
           </div>
         </div>
         ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
         <div class="feed-post-image-wrap image-wrap">
-          <img class="feed-post-image image-loading-placeholder" src="${imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+          <img class="feed-post-image image-loading-placeholder" src="${imgName ? escapeHtml(`https://img.radie.app/${imgName}?width=480`) : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
         </div>
         <div class="feed-post-footer">
           <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
@@ -3961,8 +3956,8 @@ async function showRoomDetails(room) {
   list.classList.add('hidden');
   detail.classList.remove('hidden');
 
-  // Load scraped web details asynchronously
-  const webDetails = await window.radium?.fetchRoomWebDetails(room.Name);
+  // Load scraped web details asynchronously (handle both PascalCase and camelCase APIs)
+  const webDetails = await window.radium?.fetchRoomWebDetails(room.Name || room.name || '');
   if (webDetails && webDetails.success) {
     if (cheersEl) cheersEl.textContent = webDetails.cheers;
     if (favsEl) favsEl.textContent = webDetails.favorites;
@@ -4245,13 +4240,13 @@ async function loadPlayerFeeds(userId, append = false) {
               <span>in</span>
               <span class="feed-post-room room-link">Loading...</span>
               <span class="feed-post-dot">•</span>
-              <span class="feed-post-time">${dateStr}</span>
+              <span class="feed-post-time">${escapeHtml(dateStr)}</span>
             </div>
           </div>
         </div>
         ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
         <div class="feed-post-image-wrap image-wrap">
-          <img class="feed-post-image image-loading-placeholder" src="${imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
+          <img class="feed-post-image image-loading-placeholder" src="${imgName ? escapeHtml(`https://img.radie.app/${imgName}?width=480`) : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
         </div>
         <div class="feed-post-footer">
           <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
@@ -4386,7 +4381,7 @@ async function loadPlayerRooms(userId, append = false) {
       const roomName = room.Name || room.name || 'Unknown Room';
       const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
       roomCard.innerHTML = `
-        <img class="room-card-image image-loading-placeholder" src="${imgUrl}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" alt="${escapeHtml(roomName)}" />
+        <img class="room-card-image image-loading-placeholder" src="${escapeHtml(imgUrl)}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" alt="${escapeHtml(roomName)}" />
         <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
         <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         <div class="room-card-stats">
@@ -4608,10 +4603,13 @@ lightboxModal?.addEventListener('click', (e) => {
       btnSubmit.textContent = 'SUBMIT BUG REPORT';
     }
   });
+})();
 
-  // Clear image placeholders for images that loaded from cache (where the inline
-  // onload may not fire). A MutationObserver reacts only when nodes are actually
-  // added, instead of polling the whole DOM every 500ms forever.
+// Clear image placeholders for images that loaded from cache (where the inline
+// onload may not fire). A MutationObserver reacts only when nodes are actually
+// added, instead of polling the whole DOM every 500ms forever. Kept outside
+// setupBugReporter so it installs even if the bug-report UI is absent.
+(function setupImagePlaceholderObserver() {
   const clearIfLoaded = (el) => {
     if (el.tagName === 'IMG' && el.complete && el.src && el.src !== 'data:,') {
       el.classList.remove('image-loading-placeholder');

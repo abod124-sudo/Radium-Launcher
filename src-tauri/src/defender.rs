@@ -41,14 +41,18 @@ pub async fn add_defender_exclusion(app: tauri::AppHandle) -> Value {
         return json!({ "success": false, "error": "Invalid characters in client path." });
     }
 
-    // Escape single quotes for PowerShell by doubling them.
-    let escaped_path = client_dir.replace('\'', "''");
+    // The path sits inside TWO nesting levels of single-quoted PowerShell
+    // strings (the -ArgumentList string, and the inner -Command's path quotes),
+    // so each apostrophe must be doubled twice: ' -> ''''.
+    let escaped_path = client_dir.replace('\'', "''''");
 
     let powershell_path = get_powershell_path();
 
-    // Build the inner command that will run elevated.
+    // Build the inner command that will run elevated. -Wait + -PassThru let us
+    // propagate the elevated process's exit code, so a failed Add-MpPreference
+    // (or a declined UAC prompt) is reported as failure instead of success.
     let ps_command = format!(
-        "Start-Process '{}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command \"Add-MpPreference -ExclusionPath ''{}''\"' -Verb RunAs",
+        "$p = Start-Process '{}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command \"Add-MpPreference -ExclusionPath ''{}''\"' -Verb RunAs -Wait -PassThru; exit $p.ExitCode",
         powershell_path, escaped_path
     );
 
@@ -88,12 +92,13 @@ pub async fn remove_defender_exclusion(app: tauri::AppHandle) -> Value {
         return json!({ "success": false, "error": "Invalid characters in client path." });
     }
 
-    let escaped_path = client_dir.replace('\'', "''");
+    // See add_defender_exclusion for the escaping and -Wait/-PassThru rationale.
+    let escaped_path = client_dir.replace('\'', "''''");
 
     let powershell_path = get_powershell_path();
 
     let ps_command = format!(
-        "Start-Process '{}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command \"Remove-MpPreference -ExclusionPath ''{}''\"' -Verb RunAs",
+        "$p = Start-Process '{}' -ArgumentList '-NoProfile -WindowStyle Hidden -Command \"Remove-MpPreference -ExclusionPath ''{}''\"' -Verb RunAs -Wait -PassThru; exit $p.ExitCode",
         powershell_path, escaped_path
     );
 

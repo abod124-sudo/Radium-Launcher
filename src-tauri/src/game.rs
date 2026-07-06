@@ -72,23 +72,29 @@ pub fn find_game_exe(dir: &str) -> Option<String> {
     find_bat_in(dir, "RecRoom_ScreenMode.bat", 0)
 }
 
-/// Returns true if a process with the given image name is currently running.
+/// Returns true if any process with one of the given image names is running.
+/// One unfiltered `tasklist` call covers all names — cheaper than spawning a
+/// filtered `tasklist` per image (this runs every 2s in the game monitor).
 #[cfg(target_os = "windows")]
-fn is_process_running(image: &str) -> bool {
+fn any_process_running(images: &[&str]) -> bool {
     use std::os::windows::process::CommandExt;
     Command::new("tasklist")
-        .args(["/NH", "/FI", &format!("IMAGENAME eq {}", image)])
+        .arg("/NH")
         .creation_flags(0x08000000)
         .output()
         .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .to_lowercase()
-                .contains(&image.to_lowercase())
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            stdout.lines().any(|line| {
+                line.split_whitespace()
+                    .next()
+                    .map(|name| images.iter().any(|img| name.eq_ignore_ascii_case(img)))
+                    .unwrap_or(false)
+            })
         })
         .unwrap_or(false)
 }
 #[cfg(not(target_os = "windows"))]
-fn is_process_running(_image: &str) -> bool {
+fn any_process_running(_images: &[&str]) -> bool {
     false
 }
 
@@ -97,7 +103,7 @@ fn is_process_running(_image: &str) -> bool {
 /// Checks whether any recognised game executable is currently running.
 #[tauri::command]
 pub fn check_game_running() -> bool {
-    GAME_EXES.iter().any(|e| is_process_running(e))
+    any_process_running(&GAME_EXES)
 }
 
 /// Checks whether `steam.exe` is currently running via `tasklist`.
@@ -176,6 +182,37 @@ pub fn launch_game(
     }
 }
 
+/// Spawn a legacy `.bat` launch script via `cmd /c start`. The path is quoted
+/// explicitly (via `raw_arg`) so a client directory containing characters like
+/// `&` — legal in Windows folder names — can't break cmd's parsing. Launch
+/// options are already validated to exclude quotes and shell metacharacters.
+#[cfg(target_os = "windows")]
+fn spawn_bat(exe_path: &str, launch_opts: &str, work_dir: &str) -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+    let mut line = format!("start \"\" \"{}\"", exe_path);
+    for opt in launch_opts.split_whitespace() {
+        line.push(' ');
+        line.push_str(opt);
+    }
+    let mut cmd = Command::new("cmd.exe");
+    cmd.raw_arg("/c")
+        .raw_arg(line)
+        .current_dir(work_dir)
+        .creation_flags(0x00000008); // DETACHED_PROCESS
+    cmd.spawn()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn spawn_bat(exe_path: &str, launch_opts: &str, work_dir: &str) -> std::io::Result<std::process::Child> {
+    let mut cmd = Command::new("cmd.exe");
+    cmd.arg("/c").arg("start").arg("").arg(exe_path);
+    for opt in launch_opts.split_whitespace() {
+        cmd.arg(opt);
+    }
+    cmd.current_dir(work_dir);
+    cmd.spawn()
+}
+
 fn launch_game_impl(
     app: tauri::AppHandle,
     config: serde_json::Value,
@@ -241,16 +278,7 @@ fn launch_game_impl(
     use std::os::windows::process::CommandExt;
 
     let child = if file_lower.ends_with(".bat") {
-        // Legacy: run the launch script via cmd.
-        let mut cmd = Command::new("cmd.exe");
-        cmd.arg("/c").arg("start").arg("").arg(&exe_path);
-        for opt in launch_opts.split_whitespace() {
-            cmd.arg(opt);
-        }
-        cmd.current_dir(&work_dir);
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(0x00000008); // DETACHED_PROCESS
-        cmd.spawn()
+        spawn_bat(&exe_path, launch_opts, &work_dir)
             .map_err(|e| format!("Failed to launch batch file: {}", e))?
     } else {
         let mut cmd = Command::new(exe);
