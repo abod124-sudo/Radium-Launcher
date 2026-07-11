@@ -661,7 +661,11 @@ pub async fn check_install(app: tauri::AppHandle) -> Result<Value, String> {
         "isRunning": is_running,
         "dllMissing": dll_missing,
         "clientOutdated": client_outdated,
-        "clientVersion": cfg.client_version
+        "clientVersion": cfg.client_version,
+        // Surfaced so the frontend can log the concrete build mismatch behind an
+        // "outdated" verdict instead of an opaque message.
+        "clientBuild": cfg.client_build,
+        "requiredBuild": REQUIRED_CLIENT_BUILD
     }))
 }
 

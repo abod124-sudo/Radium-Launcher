@@ -102,6 +102,9 @@ let isInstalled           = false;
 let playMode              = 'screen';
 let launchAfterExclusion  = false;
 let sacWarnedThisSession  = false;
+// Last-known reachability from checkServerStatus(), surfaced in bug reports.
+// null = not checked yet this session.
+let lastServerStatus      = { apiOnline: null, cdnOnline: null };
 
 // Capped log buffer — captures up to 2000 log entries for bug reports.
 // The DOM viewer is capped at 120 for performance.
@@ -157,10 +160,19 @@ function toast(msg, type = 'info', ms = 3200) {
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, ms);
 }
 
+// Severity levels. The label is stamped into the plain-text line so that
+// copied/exported logs (e.g. pasted into a bug report) carry severity without
+// relying on colour; the key doubles as the CSS class for the coloured viewer.
+const LOG_LEVELS = { info: 'INFO', ok: 'OK', warn: 'WARN', error: 'ERROR' };
+
 // Append log entry to list
 function addLog(msg, type = 'info') {
+  const level = LOG_LEVELS[type] ? type : 'info';
   const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
-  const line = `[${ts}] ${msg}`;
+  // Pad the tag to a fixed width so the message column stays aligned in the
+  // monospaced viewer and in exported text. "[ERROR]" is the widest at 7 chars.
+  const tag = `[${LOG_LEVELS[level]}]`.padEnd(8);
+  const line = `[${ts}] ${tag}${msg}`;
 
   // Push to the full log buffer (capped at 2000 to prevent memory leaks)
   fullLogBuffer.push(line);
@@ -172,7 +184,7 @@ function addLog(msg, type = 'info') {
   const out = $('logOutput');
   if (!out) return;
   const el = document.createElement('div');
-  el.className = `log-entry ${type}`;
+  el.className = `log-entry ${level}`;
   el.textContent = line;
   out.appendChild(el);
   out.scrollTop = out.scrollHeight;
@@ -223,8 +235,10 @@ if (logoImg) {
 }
 
 // Fetch version tag
+let launcherVersion = '';
 async function loadVersion() {
   const v = await window.radium?.getVersion();
+  if (v) launcherVersion = v;
   const el = $('versionTag');
   if (el && v) el.textContent = `v${v}`;
 }
@@ -1727,7 +1741,9 @@ async function checkInstall() {
       }
     }
     setClientUpdateButton(clientUpdateInfo?.hasUpdate ? 'update' : 'check', clientUpdateInfo);
-    addLog('Game client found: ' + (result.exePath || 'client dir'), 'ok');
+    const verLabel = result?.clientVersion ? `v${result.clientVersion}` : 'unknown version';
+    const buildLabel = result?.clientBuild || 'unrecorded build';
+    addLog(`Game client found (${verLabel}, build ${buildLabel}): ${result.exePath || 'client dir'}`, 'ok');
 
     // Check if the game is already running on startup
     if (result?.isRunning) {
@@ -1738,7 +1754,7 @@ async function checkInstall() {
     // An outdated client (left over from a previous launcher version) must be
     // re-downloaded to match the new Radium build.
     if (result?.clientOutdated && !result?.isRunning) {
-      addLog('Installed client is outdated for this launcher version — update required.', 'info');
+      addLog(`Installed client is outdated — build '${result?.clientBuild || 'unrecorded'}' ≠ required '${result?.requiredBuild || 'unknown'}'. Update required.`, 'warn');
       const m = $('clientUpdateModal');
       if (m) m.style.display = 'flex';
     } else if (!result?.isRunning && !clientUpdateAutoChecked) {
@@ -1787,7 +1803,18 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
   const sizeEl   = $('dlSizeLabel');
   const etaEl    = $('dlEtaLabel');
 
-  if (fill)    fill.style.width = pct >= 0 ? `${pct}%` : '100%';
+  if (fill) {
+    if (pct >= 0) {
+      fill.classList.remove('indeterminate');
+      fill.style.width = `${pct}%`;
+    } else {
+      // Unknown total (server sent no Content-Length): show an animated
+      // indeterminate bar instead of a full one, which would wrongly read as
+      // "download complete".
+      fill.classList.add('indeterminate');
+      fill.style.width = '';
+    }
+  }
   if (pctEl)   pctEl.textContent = pct >= 0 ? `${pct}%` : '—';
 
   if (phase === 'extract') {
@@ -1821,9 +1848,10 @@ async function runClientDownload() {
   const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
 
   setDownloadUI(true);
-  addLog('Starting download from recroom.baby...', 'info');
+  addLog('Starting download from recroom.baby (downloads page)...', 'info');
   toast('Download started!', 'info', 2500);
 
+  const dlStart = Date.now();
   let result = null;
   try {
     result = await window.radium?.downloadClient();
@@ -1832,11 +1860,18 @@ async function runClientDownload() {
     result = { success: false, error: e.toString() };
   }
 
+  const elapsed = ((Date.now() - dlStart) / 1000).toFixed(1);
   if (result?.success) {
     setDownloadUI(false);
-    addLog('Download & extraction complete!', 'ok');
+    addLog(`Download & extraction complete in ${elapsed}s.`, 'ok');
     addLog(`Exe: ${result.exePath || 'Found in client dir'}`, 'ok');
     toast('Radium client installed!', 'ok', 4000);
+    // The download stamped a new client build id / version / ETag directly into
+    // config.json. Re-sync our in-memory copy from disk so the next settings
+    // autosave (which writes the whole config back) doesn't revert those to the
+    // stale values loaded at startup — which would flag the just-installed
+    // client as "outdated" and kick off an endless re-download loop.
+    config = (await window.radium?.getConfig()) || config;
     // The client just changed — any cached "update available" state is now
     // stale, so force a fresh check next time checkInstall() runs below.
     clientUpdateInfo = null;
@@ -1845,7 +1880,7 @@ async function runClientDownload() {
   } else {
     setDownloadUI(false);
     const err = result?.error || 'Unknown error';
-    addLog(`Download failed: ${err}`, 'error');
+    addLog(`Download failed after ${elapsed}s: ${err}`, 'error');
     toast(`Failed: ${err}`, 'error', 5000);
     // Restore the correct panel (e.g. back to the launch panel if still installed).
     await checkInstall();
@@ -1962,18 +1997,20 @@ async function checkForClientUpdate(manual = false) {
   try {
     const info = await window.radium?.checkClientUpdate();
     if (!info?.success) {
-      if (manual) toast(`Update check failed: ${info?.error || 'Unknown error'}`, 'error', 4000);
+      const reason = info?.error || 'Unknown error';
+      if (manual) { addLog(`Client update check failed: ${reason}`, 'error'); toast(`Update check failed: ${reason}`, 'error', 4000); }
       setClientUpdateButton('check');
       return;
     }
     if (!info.hasUpdate) {
-      if (manual) { addLog('Client is up to date.', 'ok'); toast('Client is up to date.', 'ok', 3000); }
+      const curLabel = info.versionKnown ? `v${info.installedVersion}` : 'unknown version';
+      if (manual) { addLog(`Client is up to date (${curLabel}, latest v${info.latestVersion || '—'}).`, 'ok'); toast('Client is up to date.', 'ok', 3000); }
       setClientUpdateButton('check');
       return;
     }
     const fromLabel = info.versionKnown ? `v${info.installedVersion}` : 'unknown version';
     const changeNote = info.sameVersionRebuilt ? ' (same version, new build detected)' : '';
-    addLog(`Client update available: ${fromLabel} → v${info.latestVersion}${changeNote}`, 'ok');
+    addLog(`Client update available: ${fromLabel} → v${info.latestVersion}${changeNote}`, 'warn');
     toast('Client update available!', 'ok', 4000);
     showClientVersionUpdateModal(info);
   } catch (e) {
@@ -2369,6 +2406,7 @@ async function checkServerStatus(silent = false) {
 
   const apiOnline = apiResult?.online ?? false;
   const cdnOnline = cdnResult?.online ?? false;
+  lastServerStatus = { apiOnline, cdnOnline };
 
   // Quick stats card on home tab
   if (qsS) qsS.textContent = apiOnline ? 'ONLINE' : 'OFFLINE';
@@ -2379,8 +2417,10 @@ async function checkServerStatus(silent = false) {
   }
 
   if (!silent) {
-    addLog(`API Gateway (${apiUrl}): ${apiOnline ? 'ONLINE' : 'OFFLINE'}`, apiOnline ? 'ok' : 'error');
-    addLog(`CDN Server (${cdnUrl}): ${cdnOnline ? 'ONLINE' : 'OFFLINE'}`, cdnOnline ? 'ok' : 'error');
+    // A server being unreachable is a status, not a launcher error — log it as a
+    // warning so genuine errors stay distinct in the log.
+    addLog(`API Gateway (${apiUrl}): ${apiOnline ? 'ONLINE' : 'OFFLINE'}`, apiOnline ? 'ok' : 'warn');
+    addLog(`CDN Server (${cdnUrl}): ${cdnOnline ? 'ONLINE' : 'OFFLINE'}`, cdnOnline ? 'ok' : 'warn');
   }
 }
 
@@ -2520,7 +2560,9 @@ async function doLaunch() {
     addLog(`Launch failed: ${err}`, 'error');
     toast(`Launch failed: ${err}`, 'error', 5000);
   } else {
-    addLog(`Game running (PID ${result.pid}) — mode: ${playMode}`, 'ok');
+    // .bat launches report no PID (the cmd.exe wrapper's PID is meaningless).
+    const pidPart = (result.pid !== null && result.pid !== undefined) ? ` (PID ${result.pid})` : '';
+    addLog(`Game running${pidPart} — mode: ${playMode}`, 'ok');
     toast(`Radium launched in ${playMode.toUpperCase()} mode!`, 'ok');
     if (config.closeOnLaunch === true) {
       addLog('Launcher configured to exit on game start. Exiting...', 'info');
@@ -2853,6 +2895,9 @@ async function init() {
   addLog('Radium Launcher started.', 'ok');
   await loadVersion();
   await loadConfig();
+
+  // Launcher/session identity up front so an exported log is self-describing.
+  addLog(`Launcher version: v${launcherVersion || 'unknown'} | platform: ${navigator.platform || 'unknown'}`, 'info');
 
   // Check for launcher updates first on startup (run in background, do not block initialization)
   checkForLauncherUpdate();
@@ -4577,7 +4622,12 @@ lightboxModal?.addEventListener('click', (e) => {
       launcherVersion: $('versionTag')?.textContent || 'unknown',
       isInstalled: isInstalled,
       isGameRunning: isGameRunning,
-      isDownloading: isDownloading
+      isDownloading: isDownloading,
+      // Last-known server reachability (null if not yet checked this session).
+      // The client build/version/outdated fields are read authoritatively from
+      // config on the backend, so they aren't duplicated here.
+      apiOnline: lastServerStatus.apiOnline,
+      cdnOnline: lastServerStatus.cdnOnline
     };
 
     try {

@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use serde_json::json;
+use serde_json::{json, Value};
 use tauri::Emitter;
 use tauri::Manager;
 
@@ -277,7 +277,8 @@ fn launch_game_impl(
     #[cfg(target_os = "windows")]
     use std::os::windows::process::CommandExt;
 
-    let child = if file_lower.ends_with(".bat") {
+    let is_bat = file_lower.ends_with(".bat");
+    let child = if is_bat {
         spawn_bat(&exe_path, launch_opts, &work_dir)
             .map_err(|e| format!("Failed to launch batch file: {}", e))?
     } else {
@@ -297,10 +298,22 @@ fn launch_game_impl(
             .map_err(|e| format!("Failed to launch game executable: {}", e))?
     };
 
-    let pid = child.id();
+    // A .bat launch goes through `cmd /c start`, so `child` is the transient
+    // cmd.exe wrapper (which exits immediately), not the game — its PID is
+    // meaningless. Only report a PID for a direct executable launch.
+    let pid_value = if is_bat { Value::Null } else { Value::from(child.id()) };
 
-    // 7. Emit game-state event
-    GAME_RUNNING_STATE.store(true, std::sync::atomic::Ordering::Relaxed);
+    // 7. Enter the post-launch "grace" state and mark the game as running.
+    //
+    // The background monitor must not report "closed" until the game process
+    // has actually appeared: a `.bat`/`start` launch (and slow first-time Unity
+    // startup) can take several seconds, during which `tasklist` shows nothing.
+    // Without this, the monitor's first poll would see no process, flip the
+    // state back to not-running, and fire a spurious "Game closed". See
+    // `start_game_monitor`.
+    GAME_SEEN_SINCE_LAUNCH.store(false, Ordering::SeqCst);
+    LAUNCH_GRACE_POLLS.store(GRACE_POLLS_AFTER_LAUNCH, Ordering::SeqCst);
+    GAME_RUNNING_STATE.store(true, Ordering::SeqCst);
     let _ = app.emit("game-state", json!({ "running": true }));
 
     // 8. Optionally minimize the launcher
@@ -325,7 +338,7 @@ fn launch_game_impl(
         app.exit(0);
     }
 
-    Ok(json!({ "success": true, "pid": pid }))
+    Ok(json!({ "success": true, "pid": pid_value }))
 }
 
 /// Forcibly kills every recognised game process via `taskkill`.
@@ -411,6 +424,40 @@ pub fn check_smart_app_control() -> serde_json::Value {
 /// Tracks the last known running state so the monitor only emits on transitions.
 static GAME_RUNNING_STATE: AtomicBool = AtomicBool::new(false);
 
+/// Whether the game process has been observed at least once since the last
+/// launch. Until it has, the monitor treats "not running" as "not started yet"
+/// rather than "closed" (see `LAUNCH_GRACE_POLLS`).
+static GAME_SEEN_SINCE_LAUNCH: AtomicBool = AtomicBool::new(false);
+
+/// Remaining monitor polls during which a premature "closed" is suppressed
+/// after a launch. Decremented once per poll; set by `launch_game`.
+static LAUNCH_GRACE_POLLS: AtomicU64 = AtomicU64::new(0);
+
+/// Length of the post-launch grace window, in monitor polls. At the 2s poll
+/// interval this is ~16s — enough for a slow `.bat`/`start` launch or a cold
+/// Unity start to make the game process appear in `tasklist`.
+const GRACE_POLLS_AFTER_LAUNCH: u64 = 8;
+
+/// Decide whether the monitor should emit a `game-state` transition this poll.
+///
+/// Returns `false` (no emit) when the state is unchanged, and also when a
+/// "closed" transition would fire prematurely — i.e. the process hasn't been
+/// seen yet and we're still inside the post-launch grace window.
+fn should_emit_game_state(
+    running: bool,
+    previous: bool,
+    seen_since_launch: bool,
+    grace_polls: u64,
+) -> bool {
+    if running == previous {
+        return false;
+    }
+    if !running && !seen_since_launch && grace_polls > 0 {
+        return false;
+    }
+    true
+}
+
 /// Spawns a background tokio task that polls `RecRoom.exe` every 2 seconds and
 /// emits `game-state` events to the frontend whenever the running state changes.
 pub fn start_game_monitor(app: tauri::AppHandle) {
@@ -424,12 +471,63 @@ pub fn start_game_monitor(app: tauri::AppHandle) {
             }
 
             let running = check_game_running();
-            let previous = GAME_RUNNING_STATE.load(Ordering::Relaxed);
+            if running {
+                GAME_SEEN_SINCE_LAUNCH.store(true, Ordering::SeqCst);
+            }
 
-            if running != previous {
-                GAME_RUNNING_STATE.store(running, Ordering::Relaxed);
+            // Consume one grace poll if we're inside the post-launch window.
+            let grace = LAUNCH_GRACE_POLLS.load(Ordering::SeqCst);
+            if grace > 0 {
+                LAUNCH_GRACE_POLLS.store(grace - 1, Ordering::SeqCst);
+            }
+
+            // Right after a launch the game process can take a few seconds to
+            // appear; don't flip to not-running until it's been seen at least
+            // once or the grace window has elapsed (see should_emit_game_state).
+            let previous = GAME_RUNNING_STATE.load(Ordering::SeqCst);
+            let seen = GAME_SEEN_SINCE_LAUNCH.load(Ordering::SeqCst);
+            if should_emit_game_state(running, previous, seen, grace) {
+                GAME_RUNNING_STATE.store(running, Ordering::SeqCst);
                 let _ = app.emit("game-state", json!({ "running": running }));
             }
         }
     });
+}
+
+#[cfg(test)]
+mod game_monitor_tests {
+    use super::should_emit_game_state;
+
+    #[test]
+    fn no_emit_when_state_unchanged() {
+        assert!(!should_emit_game_state(true, true, true, 0));
+        assert!(!should_emit_game_state(false, false, false, 0));
+    }
+
+    #[test]
+    fn suppresses_premature_close_during_grace() {
+        // Just launched: previous=running(true), process not seen yet, grace left.
+        // A "not running" poll must NOT emit "closed".
+        assert!(!should_emit_game_state(false, true, false, 8));
+    }
+
+    #[test]
+    fn emits_close_once_process_has_been_seen() {
+        // The process appeared earlier (seen=true), then genuinely exited: emit,
+        // even if grace polls remain.
+        assert!(should_emit_game_state(false, true, true, 5));
+    }
+
+    #[test]
+    fn emits_close_when_grace_elapsed_without_appearing() {
+        // Launch that never produced a process: after the grace window, report it.
+        assert!(should_emit_game_state(false, true, false, 0));
+    }
+
+    #[test]
+    fn emits_running_transition_immediately() {
+        // Process appearing is always emitted (grace only guards the close edge).
+        assert!(should_emit_game_state(true, false, false, 8));
+        assert!(should_emit_game_state(true, false, true, 0));
+    }
 }

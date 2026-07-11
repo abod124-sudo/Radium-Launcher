@@ -11,6 +11,17 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Enforce a single running instance. Must be registered before any other
+        // plugin. When the user launches the launcher again while one is already
+        // running, this fires in the existing process instead of opening a second
+        // window — we restore and focus the current window so it comes to front.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             // Config
@@ -97,7 +108,7 @@ fn cmd_get_config(app: tauri::AppHandle) -> serde_json::Value {
 #[tauri::command]
 fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
     match serde_json::from_value::<config::Config>(config) {
-        Ok(cfg) => {
+        Ok(mut cfg) => {
             // Only reject characters that are illegal in Windows paths anyway
             // (plus control chars). Legal folder names like "Games & Mods" or
             // "100%" must be saveable; the launch path is explicitly quoted at
@@ -112,6 +123,19 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             if opt.contains(';') || opt.contains('&') || opt.contains('|') || opt.contains('\r') || opt.contains('\n') || opt.contains('`') || opt.contains('$') || opt.contains('%') || opt.contains('>') || opt.contains('<') || opt.contains('^') {
                 return false;
             }
+
+            // Preserve backend-managed fields from the on-disk config. The
+            // settings UI keeps a full in-memory copy of the config and writes
+            // the whole thing back on every autosave, but it loads that copy
+            // once at startup and never learns about fields the backend writes
+            // afterwards (e.g. the client build id / version / ETag stamped in
+            // by a download, or the one-time version-sync flag). Without this,
+            // a stale settings save silently reverts those to their defaults —
+            // which reported a freshly-downloaded client as "outdated" on the
+            // very next check, causing an endless re-download loop.
+            let current = config::ensure_config(&app);
+            cfg.preserve_backend_managed_fields(&current);
+
             config::save_config(&app, &cfg).is_ok()
         }
         Err(_) => false,
@@ -200,6 +224,53 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static LAST_SUBMISSION_TIME: AtomicU64 = AtomicU64::new(0);
 
+/// Human-readable reachability for a tri-state ping result. `None` means the
+/// frontend hadn't polled yet, which must not be reported as OFFLINE.
+fn online_label(v: Option<bool>) -> &'static str {
+    match v {
+        Some(true) => "ONLINE",
+        Some(false) => "OFFLINE",
+        None => "Not checked",
+    }
+}
+
+/// Bug-report label for the installed client's build health. Mirrors
+/// `check_install`'s rule: a client whose recorded build id differs from the
+/// one this launcher requires is outdated and must be re-downloaded.
+fn client_status_label(is_installed: bool, client_build: &str) -> &'static str {
+    if !is_installed {
+        "Not installed"
+    } else if client_build != download::REQUIRED_CLIENT_BUILD {
+        "OUTDATED — re-download required"
+    } else {
+        "Up to date"
+    }
+}
+
+#[cfg(test)]
+mod bug_report_tests {
+    use super::*;
+
+    #[test]
+    fn online_label_is_tri_state() {
+        assert_eq!(online_label(Some(true)), "ONLINE");
+        assert_eq!(online_label(Some(false)), "OFFLINE");
+        // Not-yet-polled must never read as OFFLINE.
+        assert_eq!(online_label(None), "Not checked");
+    }
+
+    #[test]
+    fn client_status_reflects_build_health() {
+        assert_eq!(client_status_label(false, ""), "Not installed");
+        assert_eq!(client_status_label(false, download::REQUIRED_CLIENT_BUILD), "Not installed");
+        // Installed but with a stale/blank build id → flagged outdated.
+        assert_eq!(client_status_label(true, ""), "OUTDATED — re-download required");
+        assert_eq!(client_status_label(true, "recroom-baby-2015"), "OUTDATED — re-download required");
+        // Installed with the required build id → healthy.
+        assert_eq!(client_status_label(true, download::REQUIRED_CLIENT_BUILD), "Up to date");
+    }
+}
+
 #[tauri::command]
 async fn submit_bug_report(
     app: tauri::AppHandle,
@@ -248,6 +319,17 @@ async fn submit_bug_report(
     let is_installed = diagnostics.get("isInstalled").and_then(|v| v.as_bool()).unwrap_or(false);
     let is_game_running = diagnostics.get("isGameRunning").and_then(|v| v.as_bool()).unwrap_or(false);
     let is_downloading = diagnostics.get("isDownloading").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    // Server reachability comes from the frontend's last poll; a tri-state so a
+    // report made before the first poll doesn't misreport servers as OFFLINE.
+    let api_online = diagnostics.get("apiOnline").and_then(|v| v.as_bool());
+    let cdn_online = diagnostics.get("cdnOnline").and_then(|v| v.as_bool());
+
+    // Client build/version are read straight from config (authoritative) rather
+    // than trusted from the frontend.
+    let client_build = if cfg.client_build.is_empty() { "unrecorded".to_string() } else { cfg.client_build.clone() };
+    let client_version = if cfg.client_version.is_empty() { "unknown".to_string() } else { cfg.client_version.clone() };
+    let client_status = client_status_label(is_installed, &cfg.client_build);
 
     let category_name = match category.to_lowercase().as_str() {
         "general" => "General / Launcher Issue",
@@ -315,6 +397,22 @@ async fn submit_bug_report(
                         "inline": false
                     },
                     {
+                        "name": "Client Build",
+                        "value": format!(
+                            "Version: v{}\nBuild: {}\nRequired: {}\nStatus: {}",
+                            client_version, client_build, download::REQUIRED_CLIENT_BUILD, client_status
+                        ),
+                        "inline": false
+                    },
+                    {
+                        "name": "Server Status",
+                        "value": format!(
+                            "API Gateway: {}\nCDN Server: {}",
+                            online_label(api_online), online_label(cdn_online)
+                        ),
+                        "inline": true
+                    },
+                    {
                         "name": "Active Theme",
                         "value": format!("{} (Baseline: {})", cfg.theme, cfg.baseline_theme),
                         "inline": true
@@ -358,13 +456,42 @@ async fn submit_bug_report(
         .map_err(|e| format!("Mime type error: {}", e))?;
     form = form.part("payload_json", payload_part);
     
-    if !logs.is_empty() {
-        let logs_part = reqwest::multipart::Part::text(logs)
-            .file_name("logs.txt")
-            .mime_str("text/plain")
-            .map_err(|e| format!("Mime type error: {}", e))?;
-        form = form.part("files[0]", logs_part);
-    }
+    // Prepend a self-contained diagnostics header so logs.txt stands alone when
+    // read outside the Discord embed. The runtime log lines already carry their
+    // [INFO]/[WARN]/[ERROR] severity tags from the launcher's log formatter.
+    let log_header = format!(
+        "===== RADIUM LAUNCHER — BUG REPORT DIAGNOSTICS =====\n\
+         Launcher : v{}\n\
+         OS       : {} ({})\n\
+         Category : {}\n\
+         Severity : {}\n\
+         Client   : v{} (build {}) | required {} | {}\n\
+         Runtime  : installed={} running={} downloading={} mode={}\n\
+         Servers  : API {} | CDN {}\n\
+         Install  : {}\n\
+         Theme    : {} (baseline {})\n\
+         ====================================================\n\n",
+        launcher_version,
+        os_name, os_arch,
+        category_name, severity_name,
+        client_version, client_build, download::REQUIRED_CLIENT_BUILD, client_status,
+        is_installed, is_game_running, is_downloading, cfg.play_mode,
+        online_label(api_online), online_label(cdn_online),
+        if cfg.install_dir.is_empty() { "Default".to_string() } else { cfg.install_dir.clone() },
+        cfg.theme, cfg.baseline_theme,
+    );
+
+    // Always attach the file — even with no runtime logs the header is useful.
+    let log_body = if logs.is_empty() {
+        format!("{}(no runtime log lines captured this session)\n", log_header)
+    } else {
+        format!("{}{}", log_header, logs)
+    };
+    let logs_part = reqwest::multipart::Part::text(log_body)
+        .file_name("logs.txt")
+        .mime_str("text/plain")
+        .map_err(|e| format!("Mime type error: {}", e))?;
+    form = form.part("files[0]", logs_part);
 
     let response = client
         .post(url)

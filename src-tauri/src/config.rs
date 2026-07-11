@@ -87,6 +87,29 @@ pub struct Config {
     pub client_version_sync_prompted: bool,
 }
 
+impl Config {
+    /// Overwrite the backend-managed fields on `self` with the authoritative
+    /// values from `current` (the config currently on disk).
+    ///
+    /// These fields are written by backend commands — the client build id,
+    /// version and ETag are stamped in by a download; the version-sync flag by
+    /// the live update check; the exe path by download/uninstall — *after* the
+    /// settings UI loaded its in-memory copy of the config. That UI writes the
+    /// whole config back on every autosave, so without this a stale save would
+    /// silently revert these to the values it holds (typically the empty
+    /// defaults from startup). That is what made a freshly-downloaded client
+    /// read as "outdated" on the next check, triggering an endless re-download
+    /// loop. `defender_excluded` is deliberately *not* preserved: the AV-exclude
+    /// UI owns it and must be able to save changes to it.
+    pub fn preserve_backend_managed_fields(&mut self, current: &Config) {
+        self.client_build = current.client_build.clone();
+        self.client_version = current.client_version.clone();
+        self.client_etag = current.client_etag.clone();
+        self.client_version_sync_prompted = current.client_version_sync_prompted;
+        self.game_exe_path = current.game_exe_path.clone();
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -296,5 +319,83 @@ pub fn get_client_dir(app_handle: &tauri::AppHandle, config: &Config) -> String 
     } else {
         let app_data_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         app_data_dir.join("client").to_string_lossy().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::download::REQUIRED_CLIENT_BUILD;
+
+    /// Rebuild a Config the way `cmd_save_config` does: JSON from the frontend
+    /// is deserialized straight into a `Config`, so any field the frontend
+    /// omits (or holds a stale value for) lands as the serde default.
+    fn config_from_frontend_json(json: serde_json::Value) -> Config {
+        serde_json::from_value::<Config>(json).expect("frontend config should deserialize")
+    }
+
+    #[test]
+    fn stale_autosave_does_not_clobber_downloaded_build() {
+        // On disk after a successful download: build id + version + ETag stamped in.
+        let mut on_disk = Config::default();
+        on_disk.client_build = REQUIRED_CLIENT_BUILD.to_string();
+        on_disk.client_version = "0.9.2".to_string();
+        on_disk.client_etag = "\"etag-xyz\"".to_string();
+        on_disk.client_version_sync_prompted = true;
+        on_disk.game_exe_path = "C:/client/Recroom_Release.exe".to_string();
+
+        // What the settings UI actually sends on autosave: it was loaded at
+        // startup (before the download) so it carries no client fields, plus a
+        // genuine settings change the user just made.
+        let mut incoming = config_from_frontend_json(serde_json::json!({
+            "theme": "steam-green",
+            "minimizeOnLaunch": false,
+            "closeOnLaunch": true
+        }));
+        // Sanity: the stale copy really is missing the build id.
+        assert_eq!(incoming.client_build, "", "frontend copy should be stale/empty");
+
+        incoming.preserve_backend_managed_fields(&on_disk);
+
+        // The download's fields survive the save untouched...
+        assert_eq!(incoming.client_build, REQUIRED_CLIENT_BUILD);
+        assert_eq!(incoming.client_version, "0.9.2");
+        assert_eq!(incoming.client_etag, "\"etag-xyz\"");
+        assert!(incoming.client_version_sync_prompted);
+        assert_eq!(incoming.game_exe_path, "C:/client/Recroom_Release.exe");
+
+        // ...and the user's real settings change is still applied.
+        assert!(!incoming.minimize_on_launch);
+        assert!(incoming.close_on_launch);
+    }
+
+    #[test]
+    fn preserved_build_is_not_flagged_outdated() {
+        // The exact regression: check_install computes
+        // `client_outdated = client_build != REQUIRED_CLIENT_BUILD`.
+        let mut on_disk = Config::default();
+        on_disk.client_build = REQUIRED_CLIENT_BUILD.to_string();
+
+        let mut incoming = Config::default(); // stale: client_build == ""
+        let outdated_before = incoming.client_build != REQUIRED_CLIENT_BUILD;
+        assert!(outdated_before, "stale save alone would report outdated (the bug)");
+
+        incoming.preserve_backend_managed_fields(&on_disk);
+
+        let outdated_after = incoming.client_build != REQUIRED_CLIENT_BUILD;
+        assert!(!outdated_after, "after preserving, client is correctly up to date");
+    }
+
+    #[test]
+    fn defender_excluded_stays_frontend_owned() {
+        // The AV-exclude UI sets defender_excluded and saves it, so an incoming
+        // `true` must win over a stale `false` on disk (i.e. it is NOT preserved).
+        let on_disk = Config::default(); // defender_excluded == false
+        let mut incoming = Config::default();
+        incoming.defender_excluded = true;
+
+        incoming.preserve_backend_managed_fields(&on_disk);
+
+        assert!(incoming.defender_excluded, "frontend-owned field must not be reverted");
     }
 }

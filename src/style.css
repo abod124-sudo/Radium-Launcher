@@ -1686,6 +1686,18 @@ a:hover, .text-link:hover {
   box-shadow: none;
 }
 .dlp-bar-fill::after { display: none; } /* Disable modern shimmer */
+/* Indeterminate state: used when the download size is unknown (no
+   Content-Length). A partial bar slides across so it reads as "working"
+   rather than "finished". The !important width overrides the inline width
+   the JS sets during a normal, size-known download. */
+.dlp-bar-fill.indeterminate {
+  width: 35% !important;
+  animation: dlp-indeterminate 1.1s ease-in-out infinite;
+}
+@keyframes dlp-indeterminate {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(300%); }
+}
 .dlp-bottom { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); }
 .dlp-bottom span { flex: 1; }
 
@@ -1894,6 +1906,14 @@ body.theme-custom-glass .btn-play.running:active {
   padding: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--green-dim);
   line-height: 1.4; overflow-y: auto; flex: 1;
 }
+/* Per-severity colouring for log lines. Long lines (paths, URLs, detail
+   strings) wrap instead of being clipped, and the leading level tag keeps its
+   alignment spaces via pre-wrap. */
+.log-entry { white-space: pre-wrap; word-break: break-word; }
+.log-entry.info  { color: var(--green-dim); }
+.log-entry.ok    { color: var(--status-online); }
+.log-entry.warn  { color: #e6b23a; }
+.log-entry.error { color: #ff6666; }
 
 /* Settings tab view */
 .settings-body { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; }
@@ -6029,7 +6049,11 @@ body.theme-recroom .titlebar {
   backdrop-filter: blur(16px) saturate(150%) !important;
   -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
   border-bottom: 1px solid rgba(255,255,255,0.55) !important;
-  border-radius: 16px 16px 0 0 !important;
+  /* The window (body) is already rounded 16px with overflow:hidden, so it clips
+     the titlebar to that curve. Rounding the titlebar again here inset a second,
+     smaller arc within the body's corner — the visible "double corner". Keep the
+     titlebar square and let the body provide the single rounded corner. */
+  border-radius: 0 !important;
   padding: 0 12px !important;
 }
 body.theme-recroom .titlebar-app-name { color: #6b4a1e !important; font-weight: 800 !important; letter-spacing: .5px !important; text-shadow: 0 1px 0 rgba(255,255,255,0.6) !important; }
