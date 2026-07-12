@@ -244,6 +244,10 @@ async function loadVersion() {
 }
 
 // Helper to force modern style base and lock choices/color pickers when glass theme is active
+// Remembers the style base that was selected before glass forced "modern", so
+// toggling glass off restores the user's original Retro/Modern choice instead
+// of silently persisting "modern".
+let _styleBaseBeforeGlass = null;
 function updateStyleBaseLocks(glassEnabled) {
   const modernRadio = $('styleBaseModern');
   const retroRadio = $('styleBaseRetro');
@@ -253,6 +257,10 @@ function updateStyleBaseLocks(glassEnabled) {
   const colorInputs = document.querySelectorAll('.theme-color-input:not(#theme-glassBg)');
 
   if (glassEnabled) {
+    // Capture the current selection once, before it gets overridden below.
+    if (modernRadio && !modernRadio.disabled) {
+      _styleBaseBeforeGlass = modernRadio.checked ? 'modern' : 'retro';
+    }
     if (modernRadio) {
       modernRadio.checked = true;
       modernRadio.disabled = true;
@@ -276,6 +284,14 @@ function updateStyleBaseLocks(glassEnabled) {
       if (parent) { parent.style.opacity = '0.4'; parent.style.pointerEvents = 'none'; }
     });
   } else {
+    // Restore the selection glass mode overrode (only when we actually
+    // captured one — a plain unlock during config load must not clobber the
+    // radios that were just set from the saved config).
+    if (_styleBaseBeforeGlass !== null && modernRadio && retroRadio && modernRadio.disabled) {
+      modernRadio.checked = _styleBaseBeforeGlass === 'modern';
+      retroRadio.checked = _styleBaseBeforeGlass === 'retro';
+      _styleBaseBeforeGlass = null;
+    }
     if (modernRadio) {
       modernRadio.disabled = false;
       const lbl = modernRadio.closest('label');
@@ -1631,7 +1647,12 @@ async function autoSaveSettings() {
   const customActive  = getToggle('tgl-customTheme');
   const selectedTheme = $('cfgTheme')?.value || 'steam-green';
   const saveTheme     = customActive ? 'custom' : selectedTheme;
-  const customDir     = $('cfgInstallDir')?.textContent.trim() || '';
+  // The span normally holds the real path filled in by checkInstall(). If that
+  // never ran (e.g. backend error at startup) it still shows the literal
+  // "%APPDATA%\..." placeholder — persisting that would make the backend treat
+  // it as a real relative path, so fall back to the saved value instead.
+  let customDir = $('cfgInstallDir')?.textContent.trim() || '';
+  if (customDir.includes('%')) customDir = config.installDir || '';
   const isModern      = $('styleBaseModern')?.checked === true;
 
   const customColors = {
@@ -1880,8 +1901,14 @@ async function runClientDownload() {
   } else {
     setDownloadUI(false);
     const err = result?.error || 'Unknown error';
-    addLog(`Download failed after ${elapsed}s: ${err}`, 'error');
-    toast(`Failed: ${err}`, 'error', 5000);
+    if (err === 'Cancelled') {
+      // User-initiated cancel — the cancel handler already logged/toasted it,
+      // so don't also report it as a failure.
+      addLog(`Download stopped after ${elapsed}s (cancelled by user).`, 'info');
+    } else {
+      addLog(`Download failed after ${elapsed}s: ${err}`, 'error');
+      toast(`Failed: ${err}`, 'error', 5000);
+    }
     // Restore the correct panel (e.g. back to the launch panel if still installed).
     await checkInstall();
   }
@@ -2790,12 +2817,12 @@ $('updateNowBtn')?.addEventListener('click', async () => {
   }
   const nowBtn = $('updateNowBtn');
   const status = $('updateStatus');
-  const placeOnDesktop = $('updateDesktopShortcut')?.checked !== false;
   if (nowBtn) { nowBtn.disabled = true; nowBtn.textContent = '⬇ Downloading...'; }
   if (status) { status.style.display = 'block'; status.style.color = ''; status.textContent = 'Downloading update, please wait...'; }
   addLog(`Downloading update ${updateInfo.latestVersion}...`, 'info');
 
-  const result = await window.radium?.downloadUpdate(updateInfo.downloadUrl, placeOnDesktop);
+  // Desktop shortcut placement is always on now — the opt-out checkbox was removed.
+  const result = await window.radium?.downloadUpdate(updateInfo.downloadUrl, true);
   if (result?.success) {
     if (status) status.textContent = 'Update downloaded! Launching installer...';
     addLog('Launcher update started — restarting.', 'ok');
@@ -3460,8 +3487,10 @@ async function loadRoomPhotos(roomId, append = false) {
           card.className = 'feed-post-card';
           
           const photoId = photo.Id || photo.id;
-          const cheers = photo.CheerCount || photo.cheerCount || 0;
-          const comments = photo.CommentCount || photo.commentCount || 0;
+          // Coerce to numbers — these are interpolated into innerHTML, so a
+          // malicious/odd string from the API must never reach the DOM raw.
+          const cheers = Number(photo.CheerCount ?? photo.cheerCount) || 0;
+          const comments = Number(photo.CommentCount ?? photo.commentCount) || 0;
           const captionText = photo.Description || photo.description || '';
           
           let dateStr = '';
@@ -3655,8 +3684,9 @@ async function loadPlayerPhotos(userId, append = false) {
       card.className = 'feed-post-card';
       
       const photoId = photo.Id || photo.id;
-      const cheers = photo.CheerCount || photo.cheerCount || 0;
-      const comments = photo.CommentCount || photo.commentCount || 0;
+      // Coerced to numbers — interpolated into innerHTML below.
+      const cheers = Number(photo.CheerCount ?? photo.cheerCount) || 0;
+      const comments = Number(photo.CommentCount ?? photo.commentCount) || 0;
       const captionText = photo.Description || photo.description || '';
       
       let dateStr = '';
@@ -4260,8 +4290,9 @@ async function loadPlayerFeeds(userId, append = false) {
       card.className = 'feed-post-card';
       
       const photoId = photo.Id || photo.id;
-      const cheers = photo.CheerCount || photo.cheerCount || 0;
-      const comments = photo.CommentCount || photo.commentCount || 0;
+      // Coerced to numbers — interpolated into innerHTML below.
+      const cheers = Number(photo.CheerCount ?? photo.cheerCount) || 0;
+      const comments = Number(photo.CommentCount ?? photo.commentCount) || 0;
       const captionText = photo.Description || photo.description || '';
       
       let dateStr = '';

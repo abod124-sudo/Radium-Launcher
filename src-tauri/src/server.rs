@@ -195,7 +195,9 @@ pub async fn fetch_filters() -> Value {
 #[tauri::command]
 pub async fn fetch_user_photos(args: Value) -> Value {
     let user_id = match args.get("userId") {
-        Some(v) if v.is_number() => v.as_i64().unwrap().to_string(),
+        // v.to_string() renders any JSON number verbatim — as_i64().unwrap()
+        // would panic on a non-integer (e.g. float) userId.
+        Some(v) if v.is_number() => v.to_string(),
         Some(v) if v.is_string() => v.as_str().unwrap().to_string(),
         _ => return json!({ "success": false, "error": "userId is required" }),
     };
@@ -217,7 +219,9 @@ pub async fn fetch_user_photos(args: Value) -> Value {
 #[tauri::command]
 pub async fn fetch_user_rooms(args: Value) -> Value {
     let user_id = match args.get("userId") {
-        Some(v) if v.is_number() => v.as_i64().unwrap().to_string(),
+        // v.to_string() renders any JSON number verbatim — as_i64().unwrap()
+        // would panic on a non-integer (e.g. float) userId.
+        Some(v) if v.is_number() => v.to_string(),
         Some(v) if v.is_string() => v.as_str().unwrap().to_string(),
         _ => return json!({ "success": false, "error": "userId is required" }),
     };
@@ -239,7 +243,9 @@ pub async fn fetch_user_rooms(args: Value) -> Value {
 #[tauri::command]
 pub async fn fetch_user_feed(args: Value) -> Value {
     let user_id = match args.get("userId") {
-        Some(v) if v.is_number() => v.as_i64().unwrap().to_string(),
+        // v.to_string() renders any JSON number verbatim — as_i64().unwrap()
+        // would panic on a non-integer (e.g. float) userId.
+        Some(v) if v.is_number() => v.to_string(),
         Some(v) if v.is_string() => v.as_str().unwrap().to_string(),
         _ => return json!({ "success": false, "error": "userId is required" }),
     };

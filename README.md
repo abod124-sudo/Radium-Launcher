@@ -27,18 +27,18 @@ An **unofficial** custom launcher for playing on the Radium public Rec Room serv
 - **Play Modes** — Launches the installed Rec Room client in Screen or VR mode.
 - **Server Status & Bug Reporting** — Checks the game API gateway and CDN on startup. Includes an advanced built-in bug reporter that gathers app logs and system diagnostics.
 - **Antivirus Detection** — Automatically detects third-party antivirus software and Windows Defender status to prevent false positive confusion during launch.
-- **Auto-Update** — On startup the launcher checks GitHub for a newer version and lets you download & install it in one click. When updating you can choose whether to restore the desktop shortcut after the update.
+- **Auto-Update** — On startup the launcher checks GitHub for a newer version and lets you download & install it in one click, restoring the desktop shortcut after the update.
 - **Auto-Save Settings** — All settings save automatically the moment you change them. Toggles apply instantly; text fields save after a short delay. No Save button needed.
 
 ---
 
 ## Download
 
-Grab the latest build (**v3.5.4**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
+Grab the latest build (**v3.5.5**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
 
 | File | Description |
 |------|-------------|
-| [Radium.Launcher_3.5.4_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v3.5.4/Radium.Launcher_3.5.4_x64-setup.exe) | NSIS installer for Windows x64 |
+| [Radium.Launcher_3.5.5_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v3.5.5/Radium.Launcher_3.5.5_x64-setup.exe) | NSIS installer for Windows x64 |
 
 ---
 

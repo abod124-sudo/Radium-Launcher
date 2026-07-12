@@ -1554,7 +1554,10 @@ a:hover, .text-link:hover {
   position: relative;
 }
 .nav-btn:hover {
-  background: #6a7c61;
+  /* Theme-aware hover: derived from the button colour instead of the old
+     hardcoded olive green, which leaked into non-green retro themes
+     (Win95/98) that don't override this rule. */
+  background: color-mix(in srgb, var(--bg-btn) 82%, var(--text));
 }
 .nav-btn.active {
   background: var(--bg-dark);
@@ -1710,7 +1713,7 @@ a:hover, .text-link:hover {
   padding: 6px 16px; cursor: pointer; text-align: center;
 }
 .btn-download-big:hover, .btn-refresh:hover, .btn-save:hover, .btn-test-server:hover, .btn-cancel-dl:hover, .btn-kill:hover {
-  background: #6a7c61;
+  background: color-mix(in srgb, var(--bg-btn) 82%, var(--text));
 }
 .btn-download-big:active, .btn-refresh:active, .btn-save:active, .btn-test-server:active, .btn-cancel-dl:active, .btn-kill:active {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
@@ -1735,7 +1738,7 @@ a:hover, .text-link:hover {
   color: var(--text); font-family: var(--font-ui); font-size: 10px; font-weight: bold;
   padding: 3px 10px; cursor: pointer;
 }
-.btn-open-folder:hover, .btn-reinstall:hover, .btn-uninstall:hover { color: var(--text); background: #6a7c61; }
+.btn-open-folder:hover, .btn-reinstall:hover, .btn-uninstall:hover { color: var(--text); background: color-mix(in srgb, var(--bg-btn) 82%, var(--text)); }
 .btn-open-folder:active, .btn-reinstall:active, .btn-uninstall:active {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 4px 9px 2px 11px;
@@ -1809,7 +1812,7 @@ a:hover, .text-link:hover {
   cursor: pointer; text-align: center;
   display: flex; align-items: center; justify-content: center;
 }
-.btn-play:hover { background: #6a7c61; }
+.btn-play:hover { background: color-mix(in srgb, var(--bg-btn) 82%, var(--text)); }
 .btn-play:active {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding-top: 2px; padding-left: 2px;
@@ -2046,21 +2049,6 @@ body.theme-custom-glass .btn-play.running:active {
   border-top: 2px solid var(--border-dark);
   background: var(--bg-dark);
 }
-.update-desktop-option {
-  padding: 6px 16px 0;
-  background: var(--bg-dark);
-}
-.update-desktop-label {
-  display: flex; align-items: center; gap: 7px;
-  font-family: var(--font-ui); font-size: 11px;
-  color: var(--text-muted); cursor: pointer;
-  user-select: none;
-}
-.update-desktop-label input[type="checkbox"] {
-  accent-color: var(--green-dim);
-  width: 13px; height: 13px; cursor: pointer;
-}
-
 .modal-btn {
   font-family: var(--font-ui); font-size: 11px; font-weight: bold;
   padding: 5px 18px; cursor: pointer;
@@ -2093,7 +2081,7 @@ body.theme-custom-glass .btn-play.running:active {
   color: var(--text); font-family: var(--font-ui); font-size: 10px; font-weight: bold;
   padding: 3px 10px; cursor: pointer;
 }
-.btn-exclude-av:hover { color: var(--text); background: #6a7c61; }
+.btn-exclude-av:hover { color: var(--text); background: color-mix(in srgb, var(--bg-btn) 82%, var(--text)); }
 .btn-exclude-av:active {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 4px 9px 2px 11px;
@@ -6326,3 +6314,195 @@ body.theme-recroom .modal-box,
 body.theme-steam2010 .modal-box,
 body.theme-macosaqua .modal-box,
 body.theme-win7 .modal-box { overflow: hidden !important; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RETRO THEME POLISH PASS
+   Higher-fidelity period details for the classic desktop skins:
+   Win95/98 dithered widgets, Platinum Mac OS chrome, Luna/Aero progress bars.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Windows 98: sunken white content wells (Win9x edit/list controls) ──── */
+body.theme-win98 .log-output,
+body.theme-win98 .cfg-input,
+body.theme-win98 .cfg-path-display,
+body.theme-win98 .native-grid-container,
+body.theme-win98 .native-table-container {
+  background: #ffffff !important;
+  color: #000000 !important;
+}
+body.theme-win98 .server-pill {
+  background: #d4d0c8 !important;
+  color: #000000 !important;
+}
+
+/* ── Win95/98: no scanline texture — Win9x panels were flat button-face ── */
+body.theme-win95 .download-section::before,
+body.theme-win95 .launch-panel::before,
+body.theme-win98 .download-section::before,
+body.theme-win98 .launch-panel::before {
+  display: none;
+}
+
+/* ── Win95/98: etched group separators instead of dashed lines ─────────── */
+body.theme-win95 .sidebar-logo,
+body.theme-win98 .sidebar-logo {
+  border-bottom: 1px solid #808080;
+  box-shadow: 0 1px 0 #ffffff;
+}
+body.theme-win95 .sidebar-footer,
+body.theme-win98 .sidebar-footer {
+  border-top: 1px solid #ffffff;
+  box-shadow: 0 -1px 0 #808080;
+}
+body.theme-win95 .sg-title,
+body.theme-win98 .sg-title {
+  border-bottom: 1px solid #808080;
+  box-shadow: 0 1px 0 #ffffff;
+}
+
+/* ── Win95/98: classic 1px-checkerboard "pressed" state ────────────────── */
+body.theme-win95 .nav-btn.active,
+body.theme-win98 .nav-btn.active,
+body.theme-win95 .mode-btn.active,
+body.theme-win98 .mode-btn.active {
+  /* 2×2 white/transparent checker image over the button-face colour — a tiny
+     tiled image rasterizes far cheaper than a repeating gradient. */
+  background-color: var(--bg-btn);
+  background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEElEQVR4nGP4DwQMMADiAABHygf5KtE01AAAAABJRU5ErkJggg==");
+  background-size: 2px 2px;
+  color: #000000;
+  box-shadow: none;
+}
+body.theme-win95 .nav-btn.active,
+body.theme-win98 .nav-btn.active {
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+}
+
+/* ── Win95/98: authentic dither-track scrollbars ───────────────────────── */
+body.theme-win95 ::-webkit-scrollbar,
+body.theme-win98 ::-webkit-scrollbar {
+  width: 14px !important;
+  height: 14px !important;
+  background-color: #dfdcd4 !important;
+  background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEElEQVR4nGP4DwQMMADiAABHygf5KtE01AAAAABJRU5ErkJggg==") !important;
+  background-size: 2px 2px !important;
+  border-left: none !important;
+}
+body.theme-win95 ::-webkit-scrollbar {
+  background-color: #d4d4d4 !important;
+}
+body.theme-win95 ::-webkit-scrollbar-thumb,
+body.theme-win98 ::-webkit-scrollbar-thumb {
+  background: var(--bg-btn) !important;
+  border: 2px solid !important;
+  border-color: #ffffff #808080 #808080 #ffffff !important;
+  box-shadow: inset -1px -1px 0 #58554e, inset 1px 1px 0 var(--bg-btn) !important;
+}
+
+/* ── Win95/98: navy highlight on hovered table rows (classic selection) ── */
+body.theme-win95 .native-table tr:hover td,
+body.theme-win98 .native-table tr:hover td {
+  background: #000080 !important;
+  color: #ffffff !important;
+}
+body.theme-win95 .native-table tr:hover td a,
+body.theme-win98 .native-table tr:hover td a,
+body.theme-win95 .native-table tr:hover td .text-link,
+body.theme-win98 .native-table tr:hover td .text-link {
+  color: #ffffff !important;
+}
+
+/* ── Windows 95: hero title on the teal desktop needs to stay legible ──── */
+body.theme-win95 .hero-title { color: #000000; }
+body.theme-win95 .ds-main-title,
+body.theme-win95 .launch-band-title { color: #000080; }
+body.theme-win98 .ds-main-title,
+body.theme-win98 .launch-band-title { color: #000080; }
+
+/* ── Windows XP: Luna-green segmented progress bar ─────────────────────── */
+body.theme-winxp .dlp-bar-wrap {
+  background: #ffffff;
+  border: 1px solid #686868;
+  border-radius: 3px;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.15);
+}
+body.theme-winxp .dlp-bar-fill {
+  background: repeating-linear-gradient(
+    90deg,
+    #2bc148 0px,
+    #8ce89b 3px,
+    #2bc148 8px,
+    transparent 8px,
+    transparent 10px
+  );
+}
+
+/* ── Windows XP: white Luna inputs with the signature slate border ─────── */
+body.theme-winxp .cfg-input,
+body.theme-winxp .cfg-path-display,
+body.theme-winxp .log-output,
+body.theme-winxp .native-grid-container,
+body.theme-winxp .native-table-container {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid #7f9db9 !important;
+}
+
+/* ── Royale Noir: matching dark progress bar ───────────────────────────── */
+body.theme-royalenoir .dlp-bar-wrap {
+  background: #101010;
+  border: 1px solid #000000;
+  border-radius: 3px;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.6);
+}
+body.theme-royalenoir .dlp-bar-fill {
+  background: repeating-linear-gradient(
+    90deg,
+    #2f7fe0 0px,
+    #7db8ff 3px,
+    #2f7fe0 8px,
+    transparent 8px,
+    transparent 10px
+  );
+}
+
+/* ── Vista / Win7: glossy Aero-green progress bars ─────────────────────── */
+body.theme-winvista .dlp-bar-wrap,
+body.theme-win7 .dlp-bar-wrap {
+  background: #ffffff;
+  border: 1px solid #b0b8c0;
+  border-radius: 3px;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.12);
+}
+body.theme-winvista .dlp-bar-fill,
+body.theme-win7 .dlp-bar-fill {
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    #b8f0b8 0%,
+    #4fd44f 45%,
+    #12a812 55%,
+    #7ce87c 100%
+  );
+}
+
+/* ── Win7: white dialog inputs (Aero dialogs used plain white fields) ──── */
+body.theme-win7 .cfg-input,
+body.theme-win7 .cfg-path-display,
+body.theme-win7 .log-output {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid #a3b8cc !important;
+  border-radius: 2px !important;
+}
+
+/* ── Win95/98: period-correct toggle switches ───────────────────────────── */
+body.theme-win95 .toggle-wrap,
+body.theme-win98 .toggle-wrap {
+  background: #ffffff;
+}
+body.theme-win95 .toggle-wrap.on .tgl-knob,
+body.theme-win98 .toggle-wrap.on .tgl-knob {
+  background: #000080;
+  border-color: #000080;
+}
