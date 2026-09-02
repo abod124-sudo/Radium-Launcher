@@ -45,6 +45,8 @@ pub fn run() {
             // Download / Install
             download::download_client,
             download::cancel_download,
+            download::pause_download,
+            download::resumable_download_info,
             download::uninstall_client,
             download::check_install,
             download::check_client_update,

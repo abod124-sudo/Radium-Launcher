@@ -63,6 +63,11 @@ pub struct Config {
     pub auto_update: bool,
     pub install_dir: String,
     pub defender_excluded: bool,
+    /// Whether the user has opted out of the launch-time third-party antivirus
+    /// warning ("Don't warn me again"). Distinct from `defender_excluded`, which
+    /// tracks a real Windows Defender folder exclusion — a third-party AV can't
+    /// be auto-excluded, so this is a pure "stop warning me" acknowledgement.
+    pub third_party_av_acknowledged: bool,
     pub theme: String,
     pub baseline_theme: String,
     pub close_on_launch: bool,
@@ -120,6 +125,7 @@ impl Default for Config {
             auto_update: true,
             install_dir: String::new(),
             defender_excluded: false,
+            third_party_av_acknowledged: false,
             theme: "steam-green".to_string(),
             baseline_theme: "steam-green".to_string(),
             close_on_launch: false,

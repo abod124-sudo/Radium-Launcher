@@ -28,6 +28,12 @@ pub const REQUIRED_CLIENT_BUILD: &str = "recroom-baby-2016";
 /// Atomic flag used to signal cancellation of an in-progress download.
 static DOWNLOAD_CANCELLED: AtomicBool = AtomicBool::new(false);
 
+/// Atomic flag used to pause an in-progress download. Unlike cancellation, a
+/// pause leaves the partial file (and its resume metadata) on disk so the
+/// download can be continued later — either by clicking Resume, or by reopening
+/// the launcher after it was closed mid-download.
+static DOWNLOAD_PAUSED: AtomicBool = AtomicBool::new(false);
+
 /// Guards against two downloads running concurrently (e.g. cancel + immediate
 /// re-download), which would race on the same client.zip and client directory.
 static DOWNLOAD_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -38,6 +44,44 @@ impl Drop for DownloadGuard {
     fn drop(&mut self) {
         DOWNLOAD_IN_PROGRESS.store(false, Ordering::SeqCst);
     }
+}
+
+/// Metadata persisted next to a partial download (`client.zip.part.meta`) so an
+/// interrupted download can be validated and resumed later. Survives launcher
+/// restarts alongside the `.part` file itself.
+struct PartMeta {
+    url: String,
+    etag: String,
+    total: u64,
+}
+
+/// Read the sidecar resume metadata, if present and well-formed.
+fn read_part_meta(path: &Path) -> Option<PartMeta> {
+    let txt = fs::read_to_string(path).ok()?;
+    let v: Value = serde_json::from_str(&txt).ok()?;
+    Some(PartMeta {
+        url: v.get("url")?.as_str()?.to_string(),
+        etag: v.get("etag").and_then(|e| e.as_str()).unwrap_or("").to_string(),
+        total: v.get("total").and_then(|t| t.as_u64()).unwrap_or(0),
+    })
+}
+
+/// Persist the sidecar resume metadata (best-effort).
+fn write_part_meta(path: &Path, meta: &PartMeta) {
+    let v = json!({ "url": meta.url, "etag": meta.etag, "total": meta.total });
+    if let Ok(txt) = serde_json::to_string(&v) {
+        let _ = fs::write(path, txt);
+    }
+}
+
+/// Pull the true total size out of a `Content-Range: bytes start-end/total`
+/// header (the `Content-Length` of a 206 response is only the remaining bytes).
+fn parse_content_range_total(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    let v = headers
+        .get(reqwest::header::CONTENT_RANGE)?
+        .to_str()
+        .ok()?;
+    v.rsplit('/').next()?.trim().parse::<u64>().ok()
 }
 
 /// Resolve a possibly-relative link from the download page into an absolute URL.
@@ -172,6 +216,17 @@ pub fn version_gt(a: &str, b: &str) -> bool {
 /// Windows client zip. Falls back to a generic `.zip` link (with an unknown
 /// version) if the page layout doesn't match the expected "Windows" card.
 async fn resolve_download_info() -> Result<(String, String), String> {
+    // ─── TEMPORARY TEST OVERRIDE — REMOVE BEFORE RELEASE ───────────────────
+    // The tenwholeyears download page was shut down, so hardcode a known-good
+    // client zip on the recroomarchive CDN just so the download flow can be
+    // tested end-to-end. Delete this block to restore normal page resolution.
+    return Ok((
+        "test".to_string(),
+        "https://cdn.recroomarchive.org/radium/game-client/production/toukeh24kq6w2v4lndyc4z0pblvfyj75/windows/client.zip".to_string(),
+    ));
+    // ───────────────────────────────────────────────────────────────────────
+
+    #[allow(unreachable_code)]
     let html = fetch_download_page_html().await?;
 
     if let Some((version, raw_url)) = extract_windows_card(&html) {
@@ -313,8 +368,10 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
         return Err("Cannot download or install while the game is running.".into());
     }
 
-    // Reset cancellation flag.
+    // Reset cancellation/pause flags — this call either starts a fresh download
+    // or resumes a paused/interrupted one, so both must be cleared.
     DOWNLOAD_CANCELLED.store(false, Ordering::SeqCst);
+    DOWNLOAD_PAUSED.store(false, Ordering::SeqCst);
 
     let cfg = config::ensure_config(&app);
     let client_dir = config::get_client_dir(&app, &cfg);
@@ -328,8 +385,11 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     fs::create_dir_all(&client_dir).map_err(|e| e.to_string())?;
 
     let client_zip = user_data.join("client.zip");
+    let part_path = user_data.join("client.zip.part");
+    let meta_path = user_data.join("client.zip.part.meta");
 
-    // Remove leftover zip if present.
+    // A completed zip from a previous run is stale — remove it so we never
+    // extract an old build. (In-progress resume state lives in the .part file.)
     if client_zip.exists() {
         let _ = fs::remove_file(&client_zip);
     }
@@ -347,30 +407,84 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     // Resolve the current Windows client zip (and its version) from the download page.
     let (resolved_version, download_url) = resolve_download_info().await?;
 
+    // Resume support: if a partial download for this exact URL already exists,
+    // continue it with a byte-range request instead of starting over. The .part
+    // file and its sidecar metadata survive launcher restarts, so this resumes a
+    // download interrupted by a pause OR by closing the launcher entirely.
+    let existing_meta = read_part_meta(&meta_path);
+    let mut resume_from: u64 = 0;
+    if part_path.exists() {
+        if let Some(m) = &existing_meta {
+            if m.url == download_url {
+                resume_from = fs::metadata(&part_path).map(|md| md.len()).unwrap_or(0);
+            }
+        }
+    }
+    // A partial file we can't validate (missing/mismatched metadata) can't be
+    // trusted — discard it and start clean.
+    if resume_from == 0 {
+        let _ = fs::remove_file(&part_path);
+        let _ = fs::remove_file(&meta_path);
+    }
+
     let http = reqwest::Client::builder()
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = http
-        .get(&download_url)
-        .header("User-Agent", BROWSER_UA)
+    let mut req = http.get(&download_url).header("User-Agent", BROWSER_UA);
+    if resume_from > 0 {
+        req = req.header(reqwest::header::RANGE, format!("bytes={}-", resume_from));
+        // If-Range: the server returns 206 (continue) only if the file still
+        // matches this ETag, otherwise a full 200 — so we never stitch together
+        // bytes from two different builds.
+        if let Some(m) = &existing_meta {
+            if !m.etag.is_empty() {
+                req = req.header(reqwest::header::IF_RANGE, m.etag.clone());
+            }
+        }
+    }
+
+    let response = req
         .send()
         .await
         .map_err(|e| format!("Download request failed: {}", e))?;
 
-    if !response.status().is_success() {
-        return Err(format!("HTTP error: {}", response.status()));
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("HTTP error: {}", status));
+    }
+
+    // 206 Partial Content => our range was honored, append to the .part file.
+    // Anything else (200) => the server sent the whole file, so start over.
+    let is_resume = status == reqwest::StatusCode::PARTIAL_CONTENT && resume_from > 0;
+    if !is_resume {
+        resume_from = 0;
     }
 
     // Capture the CDN's ETag for this build so future checks can detect a
     // rebuilt zip even if the version number on the download page is unchanged.
     let resolved_etag = extract_etag(response.headers());
 
-    let total: u64 = response
-        .content_length()
-        .unwrap_or(0);
+    // For a 206 the Content-Length is only the *remaining* bytes, so derive the
+    // true total from Content-Range; fall back to the stored total if needed.
+    let total: u64 = if is_resume {
+        parse_content_range_total(response.headers())
+            .or_else(|| existing_meta.as_ref().map(|m| m.total).filter(|t| *t > 0))
+            .unwrap_or(0)
+    } else {
+        response.content_length().unwrap_or(0)
+    };
 
-    let mut downloaded: u64 = 0;
+    // Persist resume metadata up front, so even a hard close on the very next
+    // chunk leaves enough behind to continue from.
+    write_part_meta(&meta_path, &PartMeta {
+        url: download_url.clone(),
+        etag: resolved_etag.clone().unwrap_or_default(),
+        total,
+    });
+
+    let mut downloaded: u64 = resume_from;
+    let session_start_bytes = resume_from; // for a speed/ETA based on this run only
     let start_time = std::time::Instant::now();
 
     // Throttle progress events: chunks can arrive hundreds of times per second,
@@ -378,32 +492,57 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     const EMIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
     let mut last_emit = std::time::Instant::now() - EMIT_INTERVAL;
 
-    // Stream the response body to disk.
+    // Stream the response body to disk — append when resuming, otherwise create.
     use futures_util::StreamExt;
     let mut stream = response.bytes_stream();
-    let mut file = fs::File::create(&client_zip)
-        .map_err(|e| format!("Failed to create zip file: {}", e))?;
+    let mut file = if is_resume {
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&part_path)
+            .map_err(|e| format!("Failed to open partial file: {}", e))?
+    } else {
+        fs::File::create(&part_path)
+            .map_err(|e| format!("Failed to create partial file: {}", e))?
+    };
 
     while let Some(chunk_result) = stream.next().await {
-        // Check for cancellation between chunks.
+        // Cancellation wipes the partial file — the user wants to start fresh.
         if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
             drop(file);
-            let _ = fs::remove_file(&client_zip);
+            let _ = fs::remove_file(&part_path);
+            let _ = fs::remove_file(&meta_path);
             return Err("Cancelled".into());
+        }
+
+        // Pause stops the loop but keeps the .part file + metadata so it can be
+        // resumed (this session or after a restart). Report the paused state.
+        if DOWNLOAD_PAUSED.load(Ordering::SeqCst) {
+            drop(file);
+            let pct = if total > 0 {
+                ((downloaded as f64 / total as f64) * 100.0).min(99.0) as i64
+            } else {
+                -1
+            };
+            let _ = app.emit("download-progress", json!({
+                "phase": "paused",
+                "pct": pct,
+                "downloaded": downloaded,
+                "total": total
+            }));
+            return Err("Paused".into());
         }
 
         let chunk = match chunk_result {
             Ok(c) => c,
             Err(e) => {
+                // Keep the .part on a network error so it can be resumed later.
                 drop(file);
-                let _ = fs::remove_file(&client_zip);
                 return Err(format!("Download stream error: {}", e));
             }
         };
 
         if let Err(e) = file.write_all(&chunk) {
             drop(file);
-            let _ = fs::remove_file(&client_zip);
             return Err(format!("Failed to write chunk: {}", e));
         }
 
@@ -413,7 +552,8 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
             last_emit = std::time::Instant::now();
 
             let elapsed = start_time.elapsed().as_secs_f64().max(0.001);
-            let speed = downloaded as f64 / elapsed; // bytes/sec
+            // Speed/ETA reflect only bytes fetched this session (not resumed ones).
+            let speed = (downloaded - session_start_bytes) as f64 / elapsed; // bytes/sec
             let pct = if total > 0 {
                 ((downloaded as f64 / total as f64) * 100.0).min(99.0) as i64
             } else {
@@ -441,9 +581,16 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     drop(file);
 
     if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
-        let _ = fs::remove_file(&client_zip);
+        let _ = fs::remove_file(&part_path);
+        let _ = fs::remove_file(&meta_path);
         return Err("Cancelled".into());
     }
+
+    // Download finished — promote the completed .part to the real zip and drop
+    // the now-obsolete resume metadata.
+    fs::rename(&part_path, &client_zip)
+        .map_err(|e| format!("Failed to finalize download: {}", e))?;
+    let _ = fs::remove_file(&meta_path);
 
     // ── Phase 2: Extract ───────────────────────────────────────────────
     let _ = app.emit("download-progress", json!({
@@ -506,11 +653,21 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
         if last_emit.elapsed() >= EMIT_INTERVAL || i + 1 == entry_count {
             last_emit = std::time::Instant::now();
             let pct = ((i + 1) as f64 / entry_count as f64 * 100.0) as i64;
-            let entry_name = entry.name().to_string();
+            let entry_name = entry.name().trim_end_matches('/').to_string();
+            // Just the file/folder name (drop the archive path) for a compact,
+            // readable "current file" display.
+            let entry_base = entry_name
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or("")
+                .to_string();
             let _ = app.emit("download-progress", json!({
                 "phase": "extract",
                 "pct": pct,
-                "status": format!("Extracting: {} ({}/{})", entry_name, i + 1, entry_count)
+                "status": format!("Extracting: {} ({}/{})", entry_name, i + 1, entry_count),
+                "entry": entry_base,
+                "done": i + 1,
+                "totalEntries": entry_count
             }));
         }
     }
@@ -558,10 +715,58 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
 // ─── Cancel download ────────────────────────────────────────────────────────
 
 /// Signal cancellation of the current download. The download loop checks this
-/// flag between chunks and will abort if set.
+/// flag between chunks and will abort (deleting the partial file) if set.
+///
+/// If nothing is actively downloading — e.g. the user cancels a *paused*
+/// download — there is no loop to observe the flag, so the partial file and its
+/// resume metadata are removed here directly.
 #[tauri::command]
-pub fn cancel_download() {
+pub fn cancel_download(app: tauri::AppHandle) {
     DOWNLOAD_CANCELLED.store(true, Ordering::SeqCst);
+    DOWNLOAD_PAUSED.store(false, Ordering::SeqCst);
+    if !DOWNLOAD_IN_PROGRESS.load(Ordering::SeqCst) {
+        if let Ok(user_data) = app.path().app_data_dir() {
+            let _ = fs::remove_file(user_data.join("client.zip.part"));
+            let _ = fs::remove_file(user_data.join("client.zip.part.meta"));
+        }
+    }
+}
+
+/// Signal a pause of the current download. The loop checks this flag between
+/// chunks and stops, leaving the partial file in place so it can be resumed by
+/// calling `download_client` again.
+#[tauri::command]
+pub fn pause_download() {
+    DOWNLOAD_PAUSED.store(true, Ordering::SeqCst);
+}
+
+/// Report whether an interrupted download can be resumed (a valid `.part` file
+/// exists on disk), along with how many bytes are already downloaded and the
+/// expected total. Used on launcher startup to offer to continue a download that
+/// was in progress when the launcher was last closed.
+#[tauri::command]
+pub async fn resumable_download_info(app: tauri::AppHandle) -> Value {
+    let user_data = match app.path().app_data_dir() {
+        Ok(p) => p,
+        Err(_) => return json!({ "resumable": false }),
+    };
+    let part_path = user_data.join("client.zip.part");
+    let meta_path = user_data.join("client.zip.part.meta");
+
+    if !part_path.exists() {
+        return json!({ "resumable": false });
+    }
+    let downloaded = fs::metadata(&part_path).map(|m| m.len()).unwrap_or(0);
+    if downloaded == 0 {
+        return json!({ "resumable": false });
+    }
+    let total = read_part_meta(&meta_path).map(|m| m.total).unwrap_or(0);
+
+    json!({
+        "resumable": true,
+        "downloaded": downloaded,
+        "total": total
+    })
 }
 
 // ─── Uninstall client ───────────────────────────────────────────────────────

@@ -139,24 +139,26 @@ pub async fn detect_antivirus() -> Vec<AntivirusProduct> {
     #[cfg(target_os = "windows")]
     {
         let powershell_path = get_powershell_path();
+        // Emit one "displayName|productState" line per registered AV. productState
+        // is a hex bitmask whose middle byte encodes real-time-protection status
+        // ("00" = off); the Rust side uses it to drop disabled/stale entries.
         let ps_command = r#"
             $result = @()
             try {
                 $avs = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue
-                if ($avs) {
-                    foreach ($av in $avs) {
-                        $result += $av.displayName
-                    }
-                } else {
+                if (-not $avs) {
                     $avs = Get-WmiObject -Namespace root/SecurityCenter2 -Class AntiVirusProduct -ErrorAction SilentlyContinue
-                    foreach ($av in $avs) {
-                        $result += $av.displayName
-                    }
+                }
+                foreach ($av in $avs) {
+                    $name = "$($av.displayName)".Trim()
+                    if ([string]::IsNullOrWhiteSpace($name)) { continue }
+                    $state = '{0:x6}' -f [int]$av.productState
+                    $result += ($name + '|' + $state)
                 }
             } catch {}
             if ($result.Count -eq 0) {
                 if (Get-Service -Name WinDefend -ErrorAction SilentlyContinue) {
-                    $result += "Windows Defender"
+                    $result += "Windows Defender|001000"
                 }
             }
             $result | Write-Output
@@ -171,16 +173,47 @@ pub async fn detect_antivirus() -> Vec<AntivirusProduct> {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let mut products = Vec::new();
+                let mut seen = std::collections::HashSet::new();
                 for line in stdout.lines() {
-                    let name = line.trim();
-                    if !name.is_empty() {
-                        let lower_name = name.to_lowercase();
-                        let is_defender = lower_name.contains("defender") || lower_name.contains("microsoft security essentials");
-                        products.push(AntivirusProduct {
-                            name: name.to_string(),
-                            is_defender,
-                        });
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
                     }
+                    // Split "name|productState" from the right, since a display
+                    // name could (rarely) contain a '|' itself.
+                    let (name, state) = match line.rsplit_once('|') {
+                        Some((n, s)) => (n.trim(), s.trim()),
+                        None => (line, ""),
+                    };
+                    if name.is_empty() {
+                        continue;
+                    }
+
+                    // Skip products whose real-time protection is off ("00" in the
+                    // middle byte). This drops a passive Defender when a
+                    // third-party AV is active, plus disabled/stale entries.
+                    if state.len() == 6 && &state[2..4] == "00" {
+                        continue;
+                    }
+
+                    let lower_name = name.to_lowercase();
+
+                    // Dedup: SecurityCenter2 can list the same product more than once.
+                    if !seen.insert(lower_name.clone()) {
+                        continue;
+                    }
+
+                    // Match Microsoft Defender precisely. A bare `contains("defender")`
+                    // wrongly flags third-party products like *Bitdefender*, hiding
+                    // them from the third-party AV warning.
+                    let is_defender = lower_name.contains("windows defender")
+                        || lower_name.contains("microsoft defender")
+                        || lower_name.contains("microsoft security essentials");
+
+                    products.push(AntivirusProduct {
+                        name: name.to_string(),
+                        is_defender,
+                    });
                 }
                 if products.is_empty() {
                     products.push(AntivirusProduct {

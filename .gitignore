@@ -13,6 +13,12 @@ src-tauri/target/
 .DS_Store
 Thumbs.db
 
+# Editor / IDE / tooling
+.vs/
+.vscode/
+.idea/
+.claude/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

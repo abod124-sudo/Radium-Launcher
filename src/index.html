@@ -86,23 +86,49 @@
         <!-- Download Section (shown when not installed) -->
         <div class="download-section" id="downloadSection">
           <div class="ds-main">
-            <div class="ds-main-title">DOWNLOAD RADIUM CLIENT</div>
-            <button class="btn-download-big" id="btnDownload">⬇ DOWNLOAD</button>
+            <div class="ds-hero-icon" id="dsHeroIcon" aria-hidden="true">
+              <img src="logo.png" alt="" class="ds-hero-img" onerror="this.style.display='none';this.parentElement.classList.add('ds-hero-glyph');" />
+              <span class="ds-hero-fallback">⬇</span>
+            </div>
+            <div class="ds-hero-text">
+              <div class="ds-main-title">DOWNLOAD RADIUM CLIENT</div>
+            </div>
+            <div class="ds-hero-action">
+              <button class="btn-download-big" id="btnDownload">⬇ DOWNLOAD</button>
+            </div>
           </div>
 
           <!-- Progress (hidden until downloading) -->
           <div class="dl-progress-block" id="dlProgressBlock" style="display:none">
             <div class="dlp-top">
-              <span class="dlp-phase" id="dlPhaseLabel">Downloading...</span>
+              <div class="dlp-phase-wrap">
+                <span class="dlp-dot"></span>
+                <span class="dlp-phase" id="dlPhaseLabel">Downloading...</span>
+              </div>
               <span class="dlp-pct" id="dlPctLabel">0%</span>
             </div>
             <div class="dlp-bar-wrap">
               <div class="dlp-bar-fill" id="dlBarFill"></div>
             </div>
-            <div class="dlp-bottom">
-              <span id="dlSpeedLabel">—</span>
-              <span id="dlSizeLabel">—</span>
-              <span id="dlEtaLabel">—</span>
+            <div class="dlp-steps" id="dlSteps">
+              <div class="dlp-step active" data-step="download"><span class="dlp-step-idx">1</span>Download</div>
+              <div class="dlp-step" data-step="extract"><span class="dlp-step-idx">2</span>Extract</div>
+              <div class="dlp-step" data-step="done"><span class="dlp-step-idx">3</span>Done</div>
+            </div>
+            <div class="dlp-stats">
+              <div class="dlp-stat">
+                <span class="dlp-stat-label" id="dlSpeedStatLabel">Speed</span>
+                <span class="dlp-stat-val" id="dlSpeedLabel">—</span>
+              </div>
+              <div class="dlp-stat">
+                <span class="dlp-stat-label" id="dlSizeStatLabel">Transferred</span>
+                <span class="dlp-stat-val" id="dlSizeLabel">—</span>
+              </div>
+              <div class="dlp-stat">
+                <span class="dlp-stat-label" id="dlEtaStatLabel">ETA</span>
+                <span class="dlp-stat-val" id="dlEtaLabel">—</span>
+              </div>
+              <button class="btn-cancel-dl btn-pause-dl" id="btnPauseDl">⏸ Pause</button>
               <button class="btn-cancel-dl" id="btnCancelDl">Cancel</button>
             </div>
           </div>
@@ -120,8 +146,8 @@
           <div class="launch-controls-row">
             <!-- Left: mode toggle + secondary actions -->
             <div class="launch-left">
-              <div class="launch-label" style="display:none">PLAY MODE</div>
-              <div class="mode-row" style="display:none">
+              <div class="launch-label">PLAY MODE</div>
+              <div class="mode-row">
                 <div class="mode-toggle-wrap">
                   <div class="mode-slider" id="modeSlider"></div>
                   <button class="mode-btn active" id="modeScreen" data-mode="screen">SCREEN</button>
@@ -132,7 +158,7 @@
                 <button class="btn-open-folder" id="btnOpenFolder" title="Open client folder">Open Folder</button>
                 <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
                 <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
-                <button class="btn-exclude-av" id="btnExcludeAv" title="Add Windows Defender exclusion for the client folder" style="display:none">Exclude AV</button>
+                <button class="btn-exclude-av" id="btnExcludeAv" title="Add Windows Defender exclusion for the client folder">Exclude AV</button>
               </div>
             </div>
 
@@ -1066,6 +1092,10 @@
           <code id="tpClientFolderPath" style="font-size: 11px; word-break: break-all; color: var(--accent); max-width: 80%; font-family: monospace;">[Client Folder Path]</code>
           <button class="modal-btn" id="btnCopyTpPath" style="padding: 4px 8px; font-size: 11px; min-width: 50px;">Copy</button>
         </div>
+        <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--text); cursor: pointer;">
+          <input type="checkbox" id="tpDontWarnAgain" style="cursor: pointer;" />
+          Don't warn me again on launch
+        </label>
       </div>
       <div class="modal-footer">
         <button class="modal-btn modal-btn-secondary" id="btnThirdPartyAvCancel">Cancel</button>

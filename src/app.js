@@ -35,6 +35,8 @@
     // Download
     downloadClient:  () => invoke('download_client'),
     cancelDownload:  () => invoke('cancel_download'),
+    pauseDownload:   () => invoke('pause_download'),
+    resumableDownloadInfo: () => invoke('resumable_download_info'),
     uninstallClient: () => invoke('uninstall_client'),
     openClientFolder: () => invoke('open_client_folder'),
     selectFolder:     () => invoke('select_folder'),
@@ -98,6 +100,7 @@ let config                = {};
 let isGameRunning         = false;
 let isGameLaunching       = false;
 let isDownloading         = false;
+let isPaused              = false;
 let isInstalled           = false;
 let playMode              = 'screen';
 let launchAfterExclusion  = false;
@@ -775,6 +778,69 @@ function applyTheme(theme) {
           position: relative !important;
           z-index: 1 !important;
         }
+
+        /* ── Download progress panel — glass treatment ─────────────────
+           The base rules colour the phase-step badges with var(--bg-dark)
+           for the number, but glass sets --bg-dark to transparent, which
+           makes the active/done step numbers invisible. Restyle the whole
+           progress panel with explicit glass tokens instead. */
+        body.theme-custom-glass .dl-progress-block {
+          background: rgba(255, 255, 255, 0.045) !important;
+          border: 1px solid rgba(255, 255, 255, 0.14) !important;
+          border-radius: 16px !important;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
+        }
+        body.theme-custom-glass .dlp-phase { color: #ffffff !important; }
+        body.theme-custom-glass .dlp-pct { color: #ffffff !important; }
+        body.theme-custom-glass .dlp-dot {
+          background: #ffffff !important;
+          border-radius: 50% !important;
+          box-shadow: 0 0 9px rgba(255, 255, 255, 0.85) !important;
+          animation: dlp-pulse 1s ease-in-out infinite !important;
+        }
+        body.theme-custom-glass .dlp-bar-wrap {
+          background: rgba(0, 0, 0, 0.22) !important;
+          border: 1px solid rgba(255, 255, 255, 0.14) !important;
+          border-radius: 8px !important;
+        }
+        /* Smooth liquid fill instead of the retro dashed bar */
+        body.theme-custom-glass .dlp-bar-fill {
+          background: linear-gradient(90deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.65)) !important;
+          border-radius: 6px !important;
+          box-shadow: 0 0 10px rgba(255, 255, 255, 0.4) !important;
+        }
+        body.theme-custom-glass .dlp-step,
+        body.theme-custom-glass .dlp-stat {
+          background: rgba(255, 255, 255, 0.06) !important;
+          border: 1px solid rgba(255, 255, 255, 0.12) !important;
+          border-radius: 10px !important;
+        }
+        body.theme-custom-glass .dlp-step { opacity: 0.6 !important; }
+        body.theme-custom-glass .dlp-step.active,
+        body.theme-custom-glass .dlp-step.done { opacity: 1 !important; }
+        body.theme-custom-glass .dlp-step.active {
+          color: #ffffff !important;
+          background: rgba(255, 255, 255, 0.13) !important;
+          border-color: rgba(255, 255, 255, 0.4) !important;
+        }
+        body.theme-custom-glass .dlp-step.done { color: rgba(255, 255, 255, 0.85) !important; }
+        body.theme-custom-glass .dlp-step-idx {
+          background: rgba(255, 255, 255, 0.16) !important;
+          color: rgba(255, 255, 255, 0.85) !important;
+          border: 1px solid rgba(255, 255, 255, 0.22) !important;
+        }
+        body.theme-custom-glass .dlp-step.active .dlp-step-idx {
+          background: #ffffff !important;
+          color: #1c2a44 !important;
+          border-color: #ffffff !important;
+        }
+        body.theme-custom-glass .dlp-step.done .dlp-step-idx {
+          background: rgba(255, 255, 255, 0.6) !important;
+          color: #1c2a44 !important;
+          border-color: rgba(255, 255, 255, 0.6) !important;
+        }
+        body.theme-custom-glass .dlp-stat-label { color: rgba(255, 255, 255, 0.55) !important; }
+        body.theme-custom-glass .dlp-stat-val { color: #ffffff !important; }
 
         /* Docked Sidebar Glass Override (no double border/corners against window edge) */
         body.theme-custom-glass .sidebar {
@@ -1802,21 +1868,103 @@ async function checkInstall() {
   }
 }
 
-// In-app client download downloader state
-function setDownloadUI(downloading) {
-  isDownloading = downloading;
-  const btn = $('btnDownload');
-  const block = $('dlProgressBlock');
-  if (downloading) {
-    if (btn)   { btn.disabled = true; btn.textContent = '⬇ DOWNLOADING...'; }
-    if (block) block.style.display = 'block';
-  } else {
-    if (btn)   { btn.disabled = false; btn.textContent = '⬇ DOWNLOAD'; }
-    if (block) block.style.display = 'none';
-  }
+// Advance the Download → Extract → Done phase stepper. Steps before the
+// active one are marked 'done'; the active one 'active'; later ones idle.
+function setDlStep(active) {
+  const order = ['download', 'extract', 'done'];
+  const activeIdx = order.indexOf(active);
+  document.querySelectorAll('#dlSteps .dlp-step').forEach((el) => {
+    const idx = order.indexOf(el.dataset.step);
+    el.classList.remove('active', 'done');
+    if (idx < activeIdx) el.classList.add('done');
+    else if (idx === activeIdx) el.classList.add('active');
+  });
 }
 
-function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0, eta = -1, status }) {
+// In-app client download downloader state
+// Sync the Download / Pause button labels to the current state.
+function updateDlButtons() {
+  const dlBtn = $('btnDownload');
+  const pauseBtn = $('btnPauseDl');
+  if (dlBtn) {
+    dlBtn.disabled = isDownloading || isPaused;
+    dlBtn.textContent = isDownloading ? '⬇ DOWNLOADING...'
+                      : isPaused      ? '⬇ PAUSED'
+                      :                 '⬇ DOWNLOAD';
+  }
+  if (pauseBtn) pauseBtn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
+}
+
+// `opts.resuming` keeps the current bar position instead of snapping back to 0%,
+// so continuing a paused/interrupted download doesn't visibly flash to zero.
+function setDownloadUI(downloading, opts = {}) {
+  isDownloading = downloading;
+  if (downloading) isPaused = false;
+  const block = $('dlProgressBlock');
+  const pauseBtn = $('btnPauseDl');
+  if (downloading) {
+    if (block) block.style.display = 'block';
+    if (pauseBtn) pauseBtn.style.display = '';
+    setStatLabels('Speed', 'Transferred', 'ETA');
+    setDlStep('download');
+    if (!opts.resuming) {
+      const fill = $('dlBarFill'); if (fill) { fill.classList.remove('indeterminate'); fill.style.width = '0%'; }
+      const pctEl = $('dlPctLabel'); if (pctEl) pctEl.textContent = '0%';
+    }
+  } else if (!isPaused) {
+    // Fully idle — hide the panel. (A paused download keeps its panel visible;
+    // see setPausedUI.)
+    if (block) block.style.display = 'none';
+  }
+  updateDlButtons();
+}
+
+// Show the panel frozen in a paused/resumable state. `info` may carry
+// { downloaded, total } (e.g. a resume offered on launcher startup) so the bar
+// reflects real progress before the download is running again.
+function setPausedUI(info = {}) {
+  isDownloading = false;
+  isPaused = true;
+  const block = $('dlProgressBlock');
+  if (block) block.style.display = 'block';
+  const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = '';
+  setStatLabels('Speed', 'Transferred', 'ETA');
+  const phaseEl = $('dlPhaseLabel'); if (phaseEl) phaseEl.textContent = 'Paused';
+  const speedEl = $('dlSpeedLabel'); if (speedEl) speedEl.textContent = '—';
+  const etaEl   = $('dlEtaLabel');   if (etaEl)   etaEl.textContent   = '—';
+  if (typeof info.total === 'number' && info.total > 0 && typeof info.downloaded === 'number') {
+    const pct = Math.min(99, Math.floor((info.downloaded / info.total) * 100));
+    const fill = $('dlBarFill'); if (fill) { fill.classList.remove('indeterminate'); fill.style.width = `${pct}%`; }
+    const pctEl = $('dlPctLabel'); if (pctEl) pctEl.textContent = `${pct}%`;
+    const sizeEl = $('dlSizeLabel'); if (sizeEl) sizeEl.textContent = `${formatBytes(info.downloaded)} / ${formatBytes(info.total)}`;
+  }
+  setDlStep('download');
+  updateDlButtons();
+}
+
+// Relabel the three stat cards (they show download stats vs. extraction stats
+// depending on the phase).
+function setStatLabels(a, b, c) {
+  const l1 = $('dlSpeedStatLabel'), l2 = $('dlSizeStatLabel'), l3 = $('dlEtaStatLabel');
+  if (l1) l1.textContent = a;
+  if (l2) l2.textContent = b;
+  if (l3) l3.textContent = c;
+}
+
+function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0, eta = -1, status, entry = '', done = 0, totalEntries = 0 }) {
+  // Paused: freeze the panel at the current progress with a Resume button.
+  if (phase === 'paused') {
+    setPausedUI({ downloaded, total });
+    return;
+  }
+  // Pure "initializing" ping emitted before the download URL is resolved. It
+  // carries no real numbers, so don't let it snap a resumed bar back to 0%.
+  if (phase === 'download' && downloaded === 0 && total === 0) {
+    setDlStep('download');
+    const ph = $('dlPhaseLabel'); if (ph) ph.textContent = 'Downloading...';
+    return;
+  }
+
   const fill  = $('dlBarFill');
   const pctEl = $('dlPctLabel');
   const phase_el = $('dlPhaseLabel');
@@ -1839,19 +1987,35 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
   if (pctEl)   pctEl.textContent = pct >= 0 ? `${pct}%` : '—';
 
   if (phase === 'extract') {
+    setDlStep('extract');
     if (phase_el) phase_el.textContent = 'Extracting...';
-    if (speedEl)  speedEl.textContent  = '';
-    if (sizeEl)   sizeEl.textContent   = status || 'Please wait...';
-    if (etaEl)    etaEl.textContent    = '';
+    // Speed/ETA are meaningless while unzipping — repurpose the three cards to
+    // show extraction progress instead of leaving them as empty dashes.
+    setStatLabels('Files', 'Current File', 'Progress');
+    if (speedEl) speedEl.textContent = totalEntries > 0 ? `${done} / ${totalEntries}` : '—';
+    if (sizeEl)  sizeEl.textContent  = entry
+      || (status ? status.replace(/^Extracting:\s*/, '') : 'Preparing…');
+    if (etaEl)   etaEl.textContent   = pct >= 0 ? `${pct}%` : 'Working…';
+    // Pause applies only during the download phase.
+    const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = 'none';
     return;
   }
 
   if (phase === 'done') {
+    setDlStep('done');
     if (phase_el) phase_el.textContent = 'Complete!';
+    setStatLabels('Files', 'Current File', 'Progress');
+    if (speedEl) speedEl.textContent = totalEntries > 0 ? `${totalEntries} / ${totalEntries}` : '—';
+    if (sizeEl)  sizeEl.textContent  = 'Done';
+    if (etaEl)   etaEl.textContent   = '100%';
+    const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = 'none';
     return;
   }
 
+  setDlStep('download');
   if (phase_el) phase_el.textContent = 'Downloading...';
+  setStatLabels('Speed', 'Transferred', 'ETA');
+  const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = '';
   if (speedEl)  speedEl.textContent  = speed > 0 ? `${formatBytes(speed)}/s` : '—';
   if (sizeEl)   sizeEl.textContent   = total > 0
     ? `${formatBytes(downloaded)} / ${formatBytes(total)}`
@@ -1859,7 +2023,7 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
   if (etaEl)    etaEl.textContent    = eta >= 0 ? `ETA ${formatEta(eta)}` : '—';
 }
 
-async function runClientDownload() {
+async function runClientDownload({ resuming = false } = {}) {
   if (isDownloading) return;
 
   // Reveal the download/progress UI. When updating an already-installed client
@@ -1868,9 +2032,14 @@ async function runClientDownload() {
   const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
   const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
 
-  setDownloadUI(true);
-  addLog('Starting download from recroom.baby (downloads page)...', 'info');
-  toast('Download started!', 'info', 2500);
+  setDownloadUI(true, { resuming });
+  if (resuming) {
+    addLog('Resuming download...', 'info');
+    toast('Resuming download...', 'info', 2500);
+  } else {
+    addLog('Starting download from recroom.baby (downloads page)...', 'info');
+    toast('Download started!', 'info', 2500);
+  }
 
   const dlStart = Date.now();
   let result = null;
@@ -1899,8 +2068,17 @@ async function runClientDownload() {
     clientUpdateAutoChecked = false;
     await checkInstall();
   } else {
-    setDownloadUI(false);
     const err = result?.error || 'Unknown error';
+    if (err === 'Paused') {
+      // Paused by the user — keep the panel visible and frozen so it can be
+      // resumed. The partial file is preserved on disk by the backend.
+      isDownloading = false;
+      isPaused = true;
+      setPausedUI();
+      addLog(`Download paused at ${elapsed}s. Click Resume to continue.`, 'info');
+      return; // don't run checkInstall — the download isn't finished or gone
+    }
+    setDownloadUI(false);
     if (err === 'Cancelled') {
       // User-initiated cancel — the cancel handler already logged/toasted it,
       // so don't also report it as a failure.
@@ -1914,7 +2092,30 @@ async function runClientDownload() {
   }
 }
 
-$('btnDownload')?.addEventListener('click', runClientDownload);
+$('btnDownload')?.addEventListener('click', () => runClientDownload());
+
+// On startup, offer to continue a download that was interrupted last session
+// (paused, or the launcher was closed mid-download). The partial file + resume
+// metadata persist on disk, so the backend can pick up exactly where it left off.
+async function offerResumeIfAny() {
+  if (isDownloading || isPaused || isInstalled) return;
+  let info = null;
+  try {
+    info = await window.radium?.resumableDownloadInfo();
+  } catch (e) {
+    console.error('resumableDownloadInfo error:', e);
+    return;
+  }
+  if (!info?.resumable) return;
+
+  const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
+  const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
+  setPausedUI({ downloaded: info.downloaded, total: info.total });
+
+  const pctTxt = info.total > 0 ? ` (${Math.floor((info.downloaded / info.total) * 100)}%)` : '';
+  addLog(`Found an interrupted download${pctTxt}. Click Resume to continue.`, 'info');
+  toast('Resume your interrupted download', 'info', 4500);
+}
 
 // ─── Outdated-client (post-launcher-update) prompt ──────────────────────────
 const clientUpdateModal = $('clientUpdateModal');
@@ -2048,10 +2249,32 @@ async function checkForClientUpdate(manual = false) {
 }
 
 $('btnCancelDl')?.addEventListener('click', () => {
+  const wasPaused = isPaused;
   window.radium?.cancelDownload();
+  isPaused = false;
   setDownloadUI(false);
   addLog('Download cancelled.', 'info');
   toast('Download cancelled.', 'info');
+  // A cancelled *active* download's checkInstall() runs when its promise
+  // rejects; a cancelled *paused* download has no pending promise, so restore
+  // the view here.
+  if (wasPaused) checkInstall();
+});
+
+// Pause / Resume toggle.
+$('btnPauseDl')?.addEventListener('click', () => {
+  if (isPaused) {
+    // Resume — re-invoke the download, which continues from the .part file
+    // (whether it was paused this session or left over from a previous run).
+    runClientDownload({ resuming: true });
+  } else if (isDownloading) {
+    // Pause — the backend stops the loop and keeps the partial file. The UI
+    // flips to the paused state when the 'paused' event / Paused result lands;
+    // update the label now so the click feels responsive.
+    window.radium?.pauseDownload();
+    addLog('Pausing download...', 'info');
+    const b = $('btnPauseDl'); if (b) b.textContent = '▶ Resume';
+  }
 });
 
 // Reinstall logic with Modal
@@ -2283,7 +2506,8 @@ function showThirdPartyAvModal(thirdPartyAvs) {
 
   const avNames = $('detectedAvNames');
   if (avNames) {
-    avNames.textContent = thirdPartyAvs.map(av => av.name).join(', ');
+    // Dedup names defensively (the backend already dedups).
+    avNames.textContent = [...new Set(thirdPartyAvs.map(av => av.name))].join(', ');
   }
 
   const clientPathCode = $('tpClientFolderPath');
@@ -2291,6 +2515,16 @@ function showThirdPartyAvModal(thirdPartyAvs) {
     const clientPath = $('cfgInstallDir')?.textContent.trim() || config.installDir || '';
     clientPathCode.textContent = clientPath;
   }
+
+  // The primary button doubles as "continue to launch" (from the Play flow) and
+  // "acknowledge" (from the manual Exclude AV button). Only say "Launch Anyway"
+  // when a launch is actually pending.
+  const anywayBtn = $('btnThirdPartyAvAnyway');
+  if (anywayBtn) anywayBtn.textContent = launchAfterExclusion ? 'Launch Anyway' : 'OK, Got It';
+
+  // Reflect the saved "don't warn again on launch" choice.
+  const dontWarn = $('tpDontWarnAgain');
+  if (dontWarn) dontWarn.checked = config.thirdPartyAvAcknowledged === true;
 
   m.style.display = 'flex';
 }
@@ -2330,13 +2564,17 @@ $('btnThirdPartyAvAnyway')?.addEventListener('click', async () => {
   const m = $('thirdPartyAvModal');
   if (m) m.style.display = 'none';
 
-  config.defenderExcluded = true;
+  // Persist only the "don't warn again on launch" choice. We intentionally do
+  // NOT set defenderExcluded — a third-party AV can't be auto-excluded, so the
+  // Exclude AV button must stay "Exclude AV" (guidance-only), never flip to
+  // "UNExclude AV" and never trigger a Defender removal.
+  const dontWarn = $('tpDontWarnAgain');
+  config.thirdPartyAvAcknowledged = !!(dontWarn && dontWarn.checked);
   await window.radium?.saveConfig(config);
 
-  const btn = $('btnExcludeAv');
-  if (btn) btn.textContent = 'UNExclude AV';
-
-  addLog('Third-party AV manual exclusion acknowledged by user.', 'ok');
+  addLog(config.thirdPartyAvAcknowledged
+    ? 'Third-party AV acknowledged — launch warning disabled.'
+    : 'Third-party AV warning dismissed.', 'info');
 
   if (launchAfterExclusion) {
     launchAfterExclusion = false;
@@ -2357,6 +2595,29 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
   const isCurrentlyExcluded = config.defenderExcluded === true;
 
   if (isCurrentlyExcluded) {
+    // The "excluded" flag covers two different situations:
+    //  • a real Windows Defender exclusion was added (Defender-only machine), or
+    //  • a third-party AV was merely acknowledged (nothing was added to Defender).
+    // Only the first case has a Defender exclusion to remove. For a third-party
+    // AV there is nothing to Remove-MpPreference, so skip the pointless UAC
+    // prompt and just clear the acknowledgement locally.
+    let avs = [];
+    try {
+      avs = await window.radium?.detectAntivirus() || [];
+    } catch (e) {
+      console.error('detectAntivirus error:', e);
+    }
+    const hasThirdParty = avs.some(av => !av.isDefender);
+
+    if (hasThirdParty) {
+      config.defenderExcluded = false;
+      await window.radium?.saveConfig(config);
+      btn.textContent = 'Exclude AV';
+      toast('AV acknowledgement cleared.', 'ok');
+      addLog('Third-party AV acknowledgement cleared (no Defender exclusion to remove).', 'info');
+      return;
+    }
+
     addLog('Requesting Windows Defender exclusion removal for client folder...', 'info');
     toast('Please approve the Administrator prompt...', 'info');
     const result = await window.radium?.removeDefenderExclusion();
@@ -2653,6 +2914,56 @@ async function proceedAfterAvCheck() {
   await checkSacAndLaunch();
 }
 
+// Launch-time antivirus check: offer to exclude the client folder from
+// Windows Defender (or warn about a third-party AV) before launching, so the
+// game's patched files aren't quarantined. Flows into the DLL check, then the
+// Smart App Control check, then the Steam check, then the actual launch.
+async function checkAvAndLaunch() {
+  if (config.disableWarnings === true) {
+    addLog('AV exclusion check skipped (disabled by user).', 'info');
+    await proceedAfterAvCheck();
+    return;
+  }
+
+  let avs = [];
+  try {
+    avs = await window.radium?.detectAntivirus() || [];
+  } catch (e) {
+    console.error('detectAntivirus error:', e);
+  }
+
+  const thirdPartyAvs = avs.filter(av => !av.isDefender);
+  if (thirdPartyAvs.length > 0) {
+    // Third-party AV can't be auto-excluded — only a manual folder exclusion in
+    // the AV itself helps. Warn (with a manual guide) unless the user opted out.
+    if (config.thirdPartyAvAcknowledged === true) {
+      addLog('Third-party AV present; launch warning suppressed by user.', 'info');
+      await proceedAfterAvCheck();
+      return;
+    }
+    addLog('Third-party antivirus detected. Prompting user...', 'info');
+    launchAfterExclusion = true;
+    showThirdPartyAvModal(thirdPartyAvs);
+    return;
+  }
+
+  // Windows Defender path — this one CAN be auto-excluded.
+  if (config.defenderExcluded === true) {
+    await proceedAfterAvCheck();
+    return;
+  }
+  if (avs.some(av => av.isDefender)) {
+    addLog('Windows Defender active and folder not excluded. Prompting user...', 'info');
+    launchAfterExclusion = true;
+    showExcludeAvModal();
+    return;
+  }
+
+  // No antivirus detected — nothing to exclude.
+  addLog('No antivirus requiring exclusion detected.', 'ok');
+  await proceedAfterAvCheck();
+}
+
 $('btnPlay')?.addEventListener('click', async () => {
   if (isGameRunning) {
     showStopGameModal();
@@ -2661,8 +2972,9 @@ $('btnPlay')?.addEventListener('click', async () => {
   if (isGameLaunching || !isInstalled) return;
   isGameLaunching = true;
 
-  // AV-exclusion and DLL-restore checks are disabled — go straight to launch.
-  await checkSacAndLaunch();
+  // Full pre-launch safety chain: AV exclusion → DLL restore → Smart App
+  // Control → Steam → launch.
+  await checkAvAndLaunch();
 });
 
 function showSacModal() {
@@ -2934,6 +3246,9 @@ async function init() {
 
   // Check install first (determines which panel to show)
   await checkInstall();
+
+  // If a download was interrupted last session, offer to resume it.
+  await offerResumeIfAny();
 
   // Check server on startup (show results in log), then silently every 60s
   await checkServerStatus(false);

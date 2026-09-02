@@ -1617,7 +1617,7 @@ a:hover, .text-link:hover {
 #tab-rooms, #tab-people, #tab-photo-detail { overflow: hidden; gap: 0; }
 
 
-/* Download Section — clean minimal single row */
+/* ─── Download Section — polished hero card ─────────────────────────── */
 .download-section {
   background: var(--bg-panel);
   border: 2px solid;
@@ -1634,17 +1634,52 @@ a:hover, .text-link:hover {
   background: repeating-linear-gradient(45deg, rgba(0,0,0,0.08), rgba(0,0,0,0.08) 4px, transparent 4px, transparent 8px);
   pointer-events: none; z-index: 0;
 }
-/* Main row — title left, button right */
+/* Hero row — icon · text · action */
 .ds-main {
   position: relative; z-index: 1;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 22px 24px;
-  gap: 16px;
+  display: flex; align-items: center;
+  padding: 20px 22px;
+  gap: 18px;
 }
+/* Icon medallion (recessed inset) */
+.ds-hero-icon {
+  flex-shrink: 0;
+  width: 60px; height: 60px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-dark);
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  overflow: hidden;
+}
+.ds-hero-img { width: 100%; height: 100%; object-fit: contain; }
+.ds-hero-fallback { display: none; font-size: 26px; line-height: 1; color: var(--green); }
+.ds-hero-icon.ds-hero-glyph .ds-hero-fallback { display: block; }
+
+.ds-hero-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .ds-main-title {
-  font-family: var(--font-mono); font-size: 14px; font-weight: bold;
-  color: var(--green); letter-spacing: 2px;
+  font-family: var(--font-mono); font-size: 15px; font-weight: bold;
+  color: var(--green); letter-spacing: 1.5px; line-height: 1.1;
 }
+.ds-hero-sub {
+  font-family: var(--font-ui); font-size: 11.5px; line-height: 1.4;
+  color: var(--text-muted);
+}
+.ds-hero-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
+.ds-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 9px; font-weight: bold;
+  letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--green-dim);
+  background: var(--bg-dark);
+  border: 1px solid var(--border-dark);
+  padding: 2px 7px;
+}
+.ds-chip-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--status-online); box-shadow: 0 0 5px var(--status-online);
+}
+.ds-hero-action { flex-shrink: 0; display: flex; align-items: center; }
+
 /* Leftover legacy selectors kept so nothing else breaks */
 .ds-top-header { display: none; }
 .ds-action-row { display: none; }
@@ -1657,22 +1692,38 @@ a:hover, .text-link:hover {
 .inline-dot.online { background: var(--status-online); }
 
 
-/* Retro Inset Input and Progress Blocks */
+/* ─── Download progress panel (inset) ───────────────────────────────── */
 .dl-progress-block {
   position: relative; z-index: 1;
   margin: 0 12px 12px;
   background: var(--bg-dark);
   border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  padding: 10px;
+  padding: 12px 14px;
 }
-.dlp-top { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; margin-bottom: 6px; }
-.dlp-pct { color: var(--green); font-weight: bold; }
+.dlp-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.dlp-phase-wrap { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* Retro pixel indicator LED: a hard-edged square that blinks on/off like a
+   CRT status light, instead of a round softly-pulsing glow. Modern-family
+   and glass themes override this back to the round glow further below. */
+.dlp-dot {
+  width: 8px; height: 8px; flex-shrink: 0; border-radius: 0;
+  background: var(--green);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 25%, transparent);
+  image-rendering: pixelated;
+  animation: dlp-blink 1s steps(1, end) infinite;
+}
+/* Hard on/off blink (no smooth fade) — the 49%→50% flip is effectively
+   instant, so with steps() it reads as a crisp retro flicker. */
+@keyframes dlp-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
+@keyframes dlp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.dlp-phase { font-family: var(--font-mono); font-size: 11px; font-weight: bold; color: var(--text); letter-spacing: 0.5px; }
+.dlp-pct { font-family: var(--font-mono); font-size: 17px; line-height: 1; color: var(--green); font-weight: bold; }
 .dlp-bar-wrap {
   height: 18px;
   background: var(--bg-dark);
   border: 2px solid;
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  margin-bottom: 6px;
+  margin-bottom: 10px;
   overflow: hidden;
   padding: 2px;
 }
@@ -1686,6 +1737,7 @@ a:hover, .text-link:hover {
     transparent 8px,
     transparent 10px
   );
+  transition: width 0.25s ease;
   box-shadow: none;
 }
 .dlp-bar-fill::after { display: none; } /* Disable modern shimmer */
@@ -1701,8 +1753,120 @@ a:hover, .text-link:hover {
   0%   { transform: translateX(-110%); }
   100% { transform: translateX(300%); }
 }
+
+/* Phase stepper: Download → Extract → Done */
+.dlp-steps { display: flex; gap: 6px; margin-bottom: 10px; }
+.dlp-step {
+  flex: 1; display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 9px; font-weight: bold;
+  letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dark);
+  padding: 4px 8px;
+  opacity: 0.55;
+  transition: opacity 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.dlp-step-idx {
+  width: 15px; height: 15px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-dark); border: 1px solid var(--border-dark);
+  color: var(--text-muted); font-size: 9px;
+}
+.dlp-step.active { opacity: 1; color: var(--green); border-color: var(--green-dim); }
+.dlp-step.active .dlp-step-idx { background: var(--green); color: var(--bg-dark); border-color: var(--green); }
+.dlp-step.done { opacity: 1; color: var(--green-dim); }
+.dlp-step.done .dlp-step-idx { background: var(--green-dim); color: var(--bg-dark); border-color: var(--green-dim); }
+
+/* Live stats: Speed · Transferred · ETA + Cancel */
+.dlp-stats { display: flex; align-items: stretch; gap: 8px; }
+.dlp-stat {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dark);
+  padding: 5px 8px;
+}
+.dlp-stat-label {
+  font-family: var(--font-mono); font-size: 8px; font-weight: bold;
+  letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted);
+}
+.dlp-stat-val {
+  font-family: var(--font-mono); font-size: 11px; font-weight: bold;
+  color: var(--green-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dlp-stats .btn-cancel-dl { flex-shrink: 0; align-self: stretch; white-space: nowrap; }
+.dlp-stats .btn-pause-dl { flex-shrink: 0; align-self: stretch; white-space: nowrap; }
+
+/* legacy layout kept so old references don't break */
 .dlp-bottom { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); }
 .dlp-bottom span { flex: 1; }
+
+/* ─── Modern themes: sleek download progress panel ──────────────────────
+   The retro dashed bar + square bevelled insets clash with the modern
+   themes' rounded cards. Give the progress panel a smooth accent-gradient
+   bar and rounded surfaces that match. */
+body.theme-moderndark .dl-progress-block,
+body.theme-moderngreen .dl-progress-block,
+body.theme-modernlight .dl-progress-block,
+body.theme-blackandwhite .dl-progress-block,
+body.theme-blackandwhite-inverted .dl-progress-block {
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  background: var(--bg-dark);
+}
+body.theme-moderndark .dlp-bar-wrap,
+body.theme-moderngreen .dlp-bar-wrap,
+body.theme-modernlight .dlp-bar-wrap,
+body.theme-blackandwhite .dlp-bar-wrap,
+body.theme-blackandwhite-inverted .dlp-bar-wrap {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 3px;
+}
+/* Smooth accent-gradient fill instead of the retro dashes */
+body.theme-moderndark .dlp-bar-fill,
+body.theme-moderngreen .dlp-bar-fill,
+body.theme-modernlight .dlp-bar-fill,
+body.theme-blackandwhite .dlp-bar-fill,
+body.theme-blackandwhite-inverted .dlp-bar-fill {
+  background: linear-gradient(90deg, var(--green-dim), var(--green));
+  border-radius: 5px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--green) 55%, transparent);
+}
+/* Modern-family themes keep the round, softly-pulsing glow dot. */
+body.theme-moderndark .dlp-dot,
+body.theme-moderngreen .dlp-dot,
+body.theme-modernlight .dlp-dot,
+body.theme-blackandwhite .dlp-dot,
+body.theme-blackandwhite-inverted .dlp-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  box-shadow: 0 0 6px var(--green);
+  animation: dlp-pulse 1s ease-in-out infinite;
+}
+body.theme-moderndark .dlp-step,
+body.theme-moderngreen .dlp-step,
+body.theme-modernlight .dlp-step,
+body.theme-blackandwhite .dlp-step,
+body.theme-blackandwhite-inverted .dlp-step,
+body.theme-moderndark .dlp-stat,
+body.theme-moderngreen .dlp-stat,
+body.theme-modernlight .dlp-stat,
+body.theme-blackandwhite .dlp-stat,
+body.theme-blackandwhite-inverted .dlp-stat {
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}
+/* Active step highlight uses the accent tint */
+body.theme-moderndark .dlp-step.active,
+body.theme-moderngreen .dlp-step.active,
+body.theme-modernlight .dlp-step.active,
+body.theme-blackandwhite .dlp-step.active,
+body.theme-blackandwhite-inverted .dlp-step.active {
+  background: color-mix(in srgb, var(--green) 14%, var(--bg-panel));
+  border-color: color-mix(in srgb, var(--green) 45%, transparent);
+}
 
 /* Buttons Outset Win2000 style */
 .btn-download-big, .btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill, .btn-open-folder, .btn-reinstall, .btn-uninstall {
@@ -1718,6 +1882,27 @@ a:hover, .text-link:hover {
 .btn-download-big:active, .btn-refresh:active, .btn-save:active, .btn-test-server:active, .btn-cancel-dl:active, .btn-kill:active {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 7px 15px 5px 17px;
+}
+/* Prominent hero download CTA (order beats the grouped rule above) */
+.btn-download-big {
+  font-size: 14px;
+  padding: 12px 30px;
+  letter-spacing: 1px;
+  min-width: 160px;
+}
+.btn-download-big:active {
+  padding: 13px 29px 11px 31px;
+}
+/* Modern themes force a small button padding with !important — restore the
+   hero size there too (equal specificity, later in the file → wins). */
+body.theme-moderndark .btn-download-big,
+body.theme-moderngreen .btn-download-big,
+body.theme-modernlight .btn-download-big,
+body.theme-blackandwhite .btn-download-big,
+body.theme-blackandwhite-inverted .btn-download-big {
+  padding: 12px 30px !important;
+  font-size: 14px !important;
+  min-width: 160px !important;
 }
 /* Auto-save indicator shown in settings header */
 .autosave-indicator {
