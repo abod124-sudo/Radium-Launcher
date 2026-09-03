@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Logo" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: url(#Radeon);
+      }
+
+      .cls-2 {
+        fill: #fff;
+      }
+
+      .cls-3 {
+        mask: url(#mask);
+      }
+
+      .cls-4, .cls-5 {
+        fill: none;
+      }
+
+      .cls-5 {
+        stroke: #fff;
+        stroke-miterlimit: 10;
+        stroke-width: 6px;
+      }
+
+      .cls-6 {
+        clip-path: url(#clippath);
+      }
+    </style>
+    <clipPath id="clippath">
+      <rect class="cls-4" x="8" y="8" width="48" height="48" rx="3.28" ry="3.28"/>
+    </clipPath>
+    <mask id="mask" x="0" y="0" width="64" height="64" maskUnits="userSpaceOnUse">
+      <g>
+        <g id="Bracket">
+          <polygon class="cls-2" points="50 0 50 12 62 0 50 0"/>
+          <polygon class="cls-2" points="0 62 12 50 0 50 0 62"/>
+          <path class="cls-5" d="M3,50V11C3,6.58,6.58,3,11,3h39"/>
+        </g>
+        <g id="Bracket-2" data-name="Bracket">
+          <polygon class="cls-2" points="14 64 14 52 2 64 14 64"/>
+          <polygon class="cls-2" points="64 2 52 14 64 14 64 2"/>
+          <path class="cls-5" d="M61,14v39c0,4.42-3.58,8-8,8H14"/>
+        </g>
+        <g id="Face">
+          <g class="cls-6">
+            <g>
+              <path class="cls-5" d="M6,41c3.35,2.28,12.71,8,26,8,4.05,0,15.01-.53,26-8"/>
+              <line class="cls-5" x1="6" y1="19" x2="58" y2="19"/>
+              <line class="cls-5" x1="42" y1="36" x2="42" y2="22"/>
+              <line class="cls-5" x1="22" y1="36" x2="22" y2="22"/>
+            </g>
+          </g>
+        </g>
+      </g>
+    </mask>
+    <linearGradient id="Radeon" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset=".1" stop-color="#5eff00"/>
+      <stop offset=".9" stop-color="#00ba4b"/>
+    </linearGradient>
+  </defs>
+  <g id="Radium">
+    <g class="cls-3">
+      <rect class="cls-1" width="64" height="64"/>
+    </g>
+  </g>
+</svg>

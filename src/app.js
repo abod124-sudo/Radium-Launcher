@@ -401,8 +401,14 @@ async function loadConfig() {
 }
 
 function applyTheme(theme) {
-  document.body.className = document.body.className.split(' ').filter(c => c === 'animations-enabled').join(' ');
-  document.body.classList.remove('theme-custom-retro', 'theme-custom-modern', 'theme-custom-glass');
+  // Strip only the theme classes. This used to whitelist 'animations-enabled'
+  // and drop everything else, which silently wiped unrelated state classes on
+  // <body> (e.g. 'client-installed', which gates the PLAY button and the
+  // Manage Client panel) every time the theme changed.
+  document.body.className = document.body.className
+    .split(' ')
+    .filter(c => c && !c.startsWith('theme-'))
+    .join(' ');
 
   // Remove existing custom style block if any
   const existingStyle = document.getElementById('custom-theme-style');
@@ -1813,7 +1819,7 @@ async function checkInstall() {
   if (isInstalled) {
     // Show launch panel, hide download section
     const ds = $('downloadSection'); if (ds) ds.style.display = 'none';
-    const lp = $('launchPanel'); if (lp) lp.style.display = 'flex';
+    document.body.classList.add('client-installed');
     const qi = $('qsInstalled'); if (qi) qi.textContent = 'INSTALLED';
     // Reapply the last known update result (if any) instead of flashing back
     // to "Check for Updates" and re-fetching — checkInstall() re-runs on
@@ -1824,7 +1830,7 @@ async function checkInstall() {
       qscC.classList.remove('not-installed', 'update-available');
       if (clientUpdateInfo?.hasUpdate) {
         qscC.classList.add('update-available');
-        const qi2 = $('qsInstalled'); if (qi2) qi2.textContent = `UPDATE: v${clientUpdateInfo.latestVersion}`;
+        const qi2 = $('qsInstalled'); if (qi2) qi2.textContent = `v${clientUpdateInfo.latestVersion}`;
       }
     }
     setClientUpdateButton(clientUpdateInfo?.hasUpdate ? 'update' : 'check', clientUpdateInfo);
@@ -1853,7 +1859,7 @@ async function checkInstall() {
   } else {
     // Show download section, hide launch panel
     const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
-    const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
+    document.body.classList.remove('client-installed');
     const qi = $('qsInstalled'); if (qi) qi.textContent = 'NOT INSTALLED';
     if (qscC) {
       qscC.classList.add('not-installed');
@@ -2030,7 +2036,7 @@ async function runClientDownload({ resuming = false } = {}) {
   // the launch panel is showing and the download section (which holds the
   // progress block) is hidden, so the status would otherwise be invisible.
   const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
-  const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
+  document.body.classList.remove('client-installed');
 
   setDownloadUI(true, { resuming });
   if (resuming) {
@@ -2109,7 +2115,7 @@ async function offerResumeIfAny() {
   if (!info?.resumable) return;
 
   const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
-  const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
+  document.body.classList.remove('client-installed');
   setPausedUI({ downloaded: info.downloaded, total: info.total });
 
   const pctTxt = info.total > 0 ? ` (${Math.floor((info.downloaded / info.total) * 100)}%)` : '';
@@ -2165,10 +2171,10 @@ function setClientUpdateButton(state, info) {
     btn.textContent = '⟳ Checking...';
     btn.dataset.mode = 'checking';
   } else if (state === 'update') {
-    btn.textContent = `⬇ Update to v${info?.latestVersion || '?'}`;
+    btn.textContent = '⬇ Update';
     btn.dataset.mode = 'update';
   } else {
-    btn.textContent = '⟳ Check for Updates';
+    btn.textContent = '⟳ Check';
     btn.dataset.mode = 'check';
   }
 }
@@ -2207,7 +2213,7 @@ function showClientVersionUpdateModal(info) {
 
   const qscC = $('qsc-client');
   if (qscC) qscC.classList.add('update-available');
-  const qi = $('qsInstalled'); if (qi) qi.textContent = `UPDATE: v${info.latestVersion}`;
+  const qi = $('qsInstalled'); if (qi) qi.textContent = `v${info.latestVersion}`;
   setClientUpdateButton('update', info);
 }
 
@@ -2309,7 +2315,7 @@ $('btnReinstall')?.addEventListener('click', () => {
 $('reinstallConfirmBtn')?.addEventListener('click', () => {
   closeReinstallModal();
   const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
-  const lp = $('launchPanel'); if (lp) lp.style.display = 'none';
+  document.body.classList.remove('client-installed');
   isInstalled = false;
   addLog('Reinstall initiated.', 'info');
   toast('Starting reinstall...', 'info');

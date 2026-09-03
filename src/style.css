@@ -872,7 +872,6 @@ body.theme-blackandwhite .titlebar,
 body.theme-blackandwhite-inverted .titlebar {
   height: 38px !important;
   border-bottom: 1px solid var(--border-light) !important;
-  border-radius: 12px 12px 0 0 !important;
   padding: 0 12px !important;
 }
 body.theme-moderndark .titlebar { background: #16181f !important; }
@@ -1929,73 +1928,54 @@ body.theme-blackandwhite-inverted .btn-download-big {
   padding: 4px 9px 2px 11px;
 }
 
-/* Launch Panel */
-.launch-panel {
-  background: var(--bg-panel);
+/* ── Home: hero ────────────────────────────────────────────────────────
+   Fixed brand art -- deliberately NOT themed, the way a store header image
+   stays on-brand whatever skin is applied. */
+.home-hero {
+  position: relative;
+  height: 232px;
+  margin-bottom: 10px;
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  display: flex; flex-direction: column;
-  position: relative; overflow: hidden;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
 }
-/* Same subtle texture as download section */
-.launch-panel::before {
-  content: '';
+.home-hero-art {
   position: absolute; inset: 0;
-  background: repeating-linear-gradient(45deg, rgba(0,0,0,0.08), rgba(0,0,0,0.08) 4px, transparent 4px, transparent 8px);
-  pointer-events: none; z-index: 0;
+  background: url('assets/brand-pattern.png') center / cover no-repeat;
 }
-/* Compact label strip at top */
-.launch-header-band {
-  position: relative; z-index: 1;
-  background: var(--bg-dark);
-  border-bottom: 2px solid var(--border-dark);
-  padding: 8px 20px;
-  display: flex; align-items: center; gap: 10px;
+.home-hero-mark {
+  position: relative;
+  width: 348px; max-width: 62%; height: 68px;
+  margin-bottom: 38px;
+  background-color: #0d1410;
+  -webkit-mask: url('assets/wordmark.png') center / contain no-repeat;
+  mask: url('assets/wordmark.png') center / contain no-repeat;
+  filter: drop-shadow(0 3px 10px rgba(0,0,0,0.30));
 }
-.launch-band-title {
-  font-family: var(--font-mono); font-size: 11px; font-weight: bold;
-  color: var(--green); letter-spacing: 3px;
+/* Scrim strip carrying the primary action. Dark regardless of theme so the
+   controls stay legible over the bright pattern. */
+.home-hero-bar {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(6,10,7,0) 0%, rgba(6,10,7,0.80) 42%, rgba(6,10,7,0.94) 100%);
 }
-.launch-band-sub { display: none; }
-/* Controls row */
-.launch-controls-row {
-  position: relative; z-index: 1;
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 18px 24px; gap: 16px;
+.hero-mode { display: flex; flex-direction: column; gap: 4px; }
+.hero-mode-label {
+  font-family: var(--font-mono); font-size: 9px; font-weight: bold;
+  letter-spacing: 1px; color: rgba(255,255,255,0.72);
 }
-.launch-left {
-  display: flex; flex-direction: column; gap: 10px; flex: 1;
-}
-.launch-label { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); font-weight: bold; letter-spacing: 1px; }
-.mode-row { display: flex; align-items: center; gap: 8px; }
-.mode-label { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); }
-.mode-toggle-wrap { display: flex; border: 2px solid var(--border-dark); }
-.mode-slider { display: none; }
-.mode-btn {
-  background: var(--bg-btn);
-  border: none;
-  border-right: 1px solid var(--border-dark);
-  color: var(--text); font-family: var(--font-ui); font-size: 10px; font-weight: bold;
-  padding: 4px 14px; cursor: pointer;
-}
-.mode-btn:last-child { border-right: none; }
-.mode-btn.active {
-  background: var(--bg-dark);
-  color: var(--green);
-  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.4);
-}
-.launch-secondary-actions { display: flex; gap: 6px; }
-.launch-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
 
-/* Large prominent PLAY button */
+/* Primary action */
 .btn-play {
   background: var(--bg-btn);
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
   color: var(--text); font-family: var(--font-ui); font-weight: bold;
-  width: 120px; height: 68px;
+  min-width: 148px; height: 44px; flex-shrink: 0;
   cursor: pointer; text-align: center;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center; gap: 9px;
 }
 .btn-play:hover { background: color-mix(in srgb, var(--bg-btn) 82%, var(--text)); }
 .btn-play:active {
@@ -2003,6 +1983,32 @@ body.theme-blackandwhite-inverted .btn-download-big {
   padding-top: 2px; padding-left: 2px;
 }
 .btn-play.running { background: var(--bg-dark); color: var(--green); }
+.play-triangle { font-size: 16px; line-height: 1; }
+.play-text { font-size: 15px; font-weight: bold; letter-spacing: 2px; }
+
+/* Play-mode toggle */
+.mode-toggle-wrap { display: flex; border: 2px solid var(--border-dark); flex-shrink: 0; }
+.mode-slider { display: none; }
+.mode-label { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); }
+.mode-btn {
+  background: var(--bg-btn);
+  border: none;
+  border-right: 1px solid var(--border-dark);
+  color: var(--text); font-family: var(--font-ui); font-size: 10px; font-weight: bold;
+  padding: 5px 16px; cursor: pointer;
+}
+.mode-btn:last-child { border-right: none; }
+.mode-btn.active {
+  background: var(--bg-dark);
+  color: var(--green);
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.4);
+}
+
+/* Install-gated pieces. Gated from <body> rather than from one container, so
+   they can sit wherever the layout wants them. */
+.installed-only { display: none; }
+body.client-installed .installed-only { display: flex; }
+
 body.theme-moderndark .btn-play.running,
 body.theme-moderngreen .btn-play.running,
 body.theme-modernlight .btn-play.running,
@@ -2033,28 +2039,27 @@ body.theme-custom-glass .btn-play.running:hover {
 body.theme-custom-glass .btn-play.running:active {
   transform: scale(0.97) !important;
 }
-.play-inner { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.play-triangle { font-size: 22px; line-height: 1; }
-.play-text { font-size: 13px; font-weight: bold; letter-spacing: 2px; }
 
-/* Quick Status telemetry slots */
+/* ── Home: status cards ───────────────────────────────────────────────── */
 .quick-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  align-items: start;
+  align-items: stretch;
   gap: 10px;
-  padding-top: 10px;
+  margin-top: 10px;
 }
 .qs-card {
   background: var(--bg-panel);
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
   padding: 8px 12px;
+  min-width: 0;
+  display: flex; flex-direction: column; gap: 6px;
 }
 .qs-card::before { display: none; } /* Disable top neon lines */
-.qs-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.qs-header-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .qs-label { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); font-weight: bold; }
-.qs-icon-indicator { width: 6px; height: 6px; background: #555; }
+.qs-icon-indicator { width: 6px; height: 6px; background: #555; flex-shrink: 0; }
 .qs-card.online .qs-icon-indicator { background: var(--status-online); }
 .qs-card.offline .qs-icon-indicator { background: #ff4444; }
 .qs-card.installed .qs-icon-indicator { background: var(--status-online); }
@@ -2062,11 +2067,40 @@ body.theme-custom-glass .btn-play.running:active {
 .qs-card.update-available .qs-icon-indicator { background: #ffaa00; }
 .qs-card.mode-vr .qs-icon-indicator { background: #00a2ff; }
 .qs-card.mode-screen .qs-icon-indicator { background: var(--green); }
-.qs-value { font-family: var(--font-mono); font-size: 12px; font-weight: bold; color: var(--text); }
+.qs-value {
+  font-family: var(--font-mono); font-size: 12px; font-weight: bold; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .qs-card.online .qs-value { color: var(--status-online); text-shadow: none; }
 .qs-card.offline .qs-value { color: #ff6666; text-shadow: none; }
 .qs-card.update-available .qs-value { color: #ffaa00; text-shadow: none; }
-.qs-update-btn { margin-top: 6px; width: 100%; font-size: 9px; padding: 3px 6px; }
+/* Update control sits beside the status value rather than under it; it drops
+   to its own line only if the card gets too narrow to hold both. */
+.qs-value-row {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-top: auto;
+}
+.qs-value-row .qs-value { min-width: 0; }
+.qs-update-btn { width: auto; font-size: 9px; padding: 3px 7px; margin-left: auto; white-space: nowrap; }
+
+/* ── Home: client management ──────────────────────────────────────────── */
+.manage-panel {
+  background: var(--bg-panel);
+  border: 2px solid;
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  flex-direction: column; gap: 8px;
+  padding: 10px 14px;
+  margin-top: 10px;
+}
+.manage-title {
+  font-family: var(--font-mono); font-size: 9px; font-weight: bold;
+  letter-spacing: 1px; color: var(--green-dim);
+  padding-bottom: 6px; border-bottom: 1px dashed var(--border-dark);
+}
+/* Wraps by design: four buttons on a narrow window flow onto a second line
+   instead of forcing the window to scroll sideways. */
+.manage-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.manage-actions .btn-uninstall { margin-left: auto; }
 
 /* Connection logs panel */
 .panel-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--border-dark); padding-top: 6px; padding-bottom: 8px; margin-bottom: 8px; }
@@ -2111,8 +2145,10 @@ body.theme-custom-glass .btn-play.running:active {
   padding: 12px; display: flex; flex-direction: column; gap: 6px;
 }
 .sg-title { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); font-weight: bold; padding-bottom: 4px; border-bottom: 1px dashed var(--border-dark); }
-.sg-row { display: flex; align-items: center; gap: 10px; }
-.sg-row label { font-size: 11px; font-weight: bold; width: 140px; }
+/* Wraps rather than overflowing: the fixed-width label plus a path field and
+   three buttons cannot fit a narrow window on one line. */
+.sg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sg-row label { font-size: 11px; font-weight: bold; width: 140px; flex-shrink: 0; }
 .cfg-input {
   flex: 1; background: var(--bg-dark);
   border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
@@ -2122,6 +2158,8 @@ body.theme-custom-glass .btn-play.running:active {
   font-family: var(--font-mono); font-size: 9px; color: var(--green-dim);
   background: var(--bg-dark); border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 4px 6px; flex: 1;
+  /* A long install path must not set the row's minimum width. */
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .test-result { font-family: var(--font-mono); font-size: 10px; color: var(--green-dim); }
 .test-result.ok { color: var(--status-online); }
@@ -3072,10 +3110,6 @@ body.theme-winxp .download-section::before,
 body.theme-winxp .launch-panel::before {
   display: none !important;
 }
-body.theme-winxp .launch-header-band {
-  background: #ece9d8 !important;
-  border-bottom: 1px solid #aca899 !important;
-}
 body.theme-winxp .launch-label {
   color: #225ad7 !important;
 }
@@ -3172,10 +3206,6 @@ body.theme-royalenoir .qs-card {
 body.theme-royalenoir .download-section::before,
 body.theme-royalenoir .launch-panel::before {
   display: none !important;
-}
-body.theme-royalenoir .launch-header-band {
-  background: #3a3a3a !important;
-  border-bottom: 1px solid #141414 !important;
 }
 body.theme-royalenoir .launch-label {
   color: #3b93ff !important;
@@ -3274,10 +3304,6 @@ body.theme-winvista .download-section::before,
 body.theme-winvista .launch-panel::before {
   display: none !important;
 }
-body.theme-winvista .launch-header-band {
-  background: linear-gradient(180deg, #edf3fb 0%, #dbe9f6 100%) !important;
-  border-bottom: 1px solid #708090 !important;
-}
 body.theme-winvista .launch-label {
   color: #1a2a3a !important;
 }
@@ -3359,10 +3385,6 @@ body.theme-win7 .qs-card {
 body.theme-win7 .download-section::before,
 body.theme-win7 .launch-panel::before {
   display: none !important;
-}
-body.theme-win7 .launch-header-band {
-  background: linear-gradient(180deg, #fbfbfb 0%, #edf2f9 100%) !important;
-  border-bottom: 1px solid #b8c7d9 !important;
 }
 body.theme-win7 .launch-label {
   color: #1e395b !important;
@@ -4516,54 +4538,14 @@ body.theme-modernlight .launch-panel {
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08) !important;
 }
 
-/* 2. Header Band inside Launch Panel */
-body.theme-moderndark .launch-header-band,
-body.theme-moderngreen .launch-header-band,
-body.theme-modernlight .launch-header-band,
-body.theme-blackandwhite .launch-header-band,
-body.theme-blackandwhite-inverted .launch-header-band {
-  background: transparent !important;
-  border-bottom: 1px solid var(--border-light) !important;
-  padding: 12px 24px !important;
-}
-
-body.theme-moderndark .launch-band-title,
-body.theme-moderngreen .launch-band-title,
-body.theme-modernlight .launch-band-title,
-body.theme-blackandwhite .launch-band-title,
-body.theme-blackandwhite-inverted .launch-band-title {
-  font-family: 'Orbitron', var(--font-mono) !important;
-  font-size: 13px !important;
-  font-weight: 800 !important;
-  letter-spacing: 4px !important;
-  color: var(--green) !important;
-  text-shadow: 0 0 10px rgba(255, 0, 127, 0.2) !important;
-}
-
-body.theme-moderngreen .launch-band-title {
-  text-shadow: 0 0 10px rgba(16, 185, 129, 0.2) !important;
-}
-
-body.theme-modernlight .launch-band-title {
-  text-shadow: 0 0 10px rgba(79, 70, 229, 0.2) !important;
-}
-
-body.theme-blackandwhite .launch-band-title {
-  text-shadow: 0 0 10px rgba(255, 255, 255, 0.2) !important;
-}
-
-body.theme-blackandwhite-inverted .launch-band-title {
-  text-shadow: 0 0 10px rgba(0, 0, 0, 0.1) !important;
-}
-
-/* 3. Controls Row inside Launch Panel */
-body.theme-moderndark .launch-controls-row,
-body.theme-moderngreen .launch-controls-row,
-body.theme-modernlight .launch-controls-row,
-body.theme-blackandwhite .launch-controls-row,
-body.theme-blackandwhite-inverted .launch-controls-row {
-  padding: 24px !important;
-  gap: 24px !important;
+/* 3. Action bar inside Launch Panel */
+body.theme-moderndark .launch-panel,
+body.theme-moderngreen .launch-panel,
+body.theme-modernlight .launch-panel,
+body.theme-blackandwhite .launch-panel,
+body.theme-blackandwhite-inverted .launch-panel {
+  padding: 14px 20px !important;
+  gap: 18px !important;
 }
 
 /* 4. Play Mode Slide Capsule Switch */
@@ -4720,8 +4702,6 @@ body.theme-modernlight .btn-play {
   border: none !important;
   border-radius: 12px !important;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  width: 120px !important;
-  height: 68px !important;
 }
 
 body.theme-moderndark .btn-play {
@@ -4777,7 +4757,7 @@ body.theme-modernlight .qs-card {
   border: 1px solid var(--border-light) !important;
   border-left: 4px solid var(--border-light) !important;
   background: var(--bg-panel) !important;
-  padding: 12px 16px !important;
+  padding: 8px 12px !important;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
 }
@@ -5885,7 +5865,6 @@ body.theme-steam2010 .titlebar {
   height: 34px !important;
   background: linear-gradient(180deg, #4c4c4c 0%, #2f2f2f 100%) !important;
   border-bottom: 1px solid #161616 !important;
-  border-radius: 6px 6px 0 0 !important;
   padding: 0 10px !important;
 }
 body.theme-steam2010 .titlebar-app-name { color: #cfcfcf !important; text-shadow: 0 1px 1px #000 !important; font-weight: 700 !important; letter-spacing: .5px !important; }
@@ -5934,7 +5913,6 @@ body.theme-steam2010 .log-output {
   background: #1e1e1e !important; border: 1px solid #1d1d1d !important; border-radius: 3px !important;
 }
 body.theme-steam2010 .panel-header { border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
-body.theme-steam2010 .launch-header-band { background: linear-gradient(180deg, #53575c, #34373b) !important; border-bottom: 1px solid #1d1d1d !important; }
 body.theme-steam2010 .mode-toggle-wrap { border: 1px solid #1d1d1d !important; border-radius: 3px !important; overflow: hidden !important; }
 body.theme-steam2010 .mode-btn {
   background: linear-gradient(180deg, #5a5e63 0%, #44474b 100%) !important;
@@ -6029,7 +6007,6 @@ body.theme-macosaqua .titlebar {
     repeating-linear-gradient(0deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 1px, transparent 1px, transparent 3px),
     linear-gradient(180deg, #f6f6f6 0%, #d8d8d8 50%, #cfcfcf 100%) !important;
   border-bottom: 1px solid #9b9b9b !important;
-  border-radius: 9px 9px 0 0 !important;
   padding: 0 10px !important;
 }
 body.theme-macosaqua .titlebar-app-name { color: #3a3a3a !important; text-shadow: 0 1px 0 rgba(255,255,255,0.8) !important; font-weight: 600 !important; }
@@ -6083,7 +6060,6 @@ body.theme-macosaqua .modal-box {
 }
 body.theme-macosaqua .modal-box { border-radius: 10px !important; box-shadow: 0 18px 50px rgba(0,0,0,0.4) !important; }
 body.theme-macosaqua .panel-header { border-bottom: 1px solid #d0d0d0 !important; }
-body.theme-macosaqua .launch-header-band { background: linear-gradient(180deg, #fbfbfb, #e9e9e9) !important; border-bottom: 1px solid #cccccc !important; }
 body.theme-macosaqua .mode-toggle-wrap { border: 1px solid #b0b0b0 !important; border-radius: 14px !important; overflow: hidden !important; }
 body.theme-macosaqua .mode-btn { background: #f0f0f0 !important; color: #555 !important; border-right: 1px solid #c8c8c8 !important; }
 body.theme-macosaqua .mode-btn.active { background: linear-gradient(180deg, #7ab0f0, #2f7bdc) !important; color: #fff !important; }
@@ -6322,11 +6298,6 @@ body.theme-recroom .log-output {
   color: #e8eef5 !important;
 }
 body.theme-recroom .panel-header { border-bottom: 1px solid rgba(150,110,50,0.25) !important; }
-body.theme-recroom .launch-header-band {
-  background: linear-gradient(90deg, #ff8a3c 0%, #ff5e9e 100%) !important;
-  border-bottom: none !important; border-radius: 16px 16px 0 0 !important;
-}
-body.theme-recroom .launch-header-band .launch-band-title { color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.25) !important; }
 
 /* Colourful watch-style stat tiles */
 body.theme-recroom .qs-card {
@@ -6600,9 +6571,7 @@ body.theme-win98 .native-table tr:hover td .text-link {
 /* ── Windows 95: hero title on the teal desktop needs to stay legible ──── */
 body.theme-win95 .hero-title { color: #000000; }
 body.theme-win95 .ds-main-title,
-body.theme-win95 .launch-band-title { color: #000080; }
 body.theme-win98 .ds-main-title,
-body.theme-win98 .launch-band-title { color: #000080; }
 
 /* ── Windows XP: Luna-green segmented progress bar ─────────────────────── */
 body.theme-winxp .dlp-bar-wrap {
