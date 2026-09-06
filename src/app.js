@@ -1,3 +1,47 @@
+// ─── Uncaught fault capture ───────────────────────────────────────────────────
+// Registered before anything else in this file. Startup is when the launcher is
+// most likely to break (missing runtime, bad config, denied permissions), and a
+// failure there used to leave no trace at all — the bug report would arrive
+// describing a dead launcher with an empty log. `var` is deliberate: it has no
+// temporal dead zone, so these are usable this early.
+var startupFaults = [];          // faults raised before the log helpers exist
+var seenFaults    = new Set();
+
+function recordFault(label, message, where) {
+  // Deduped: a fault inside a render or polling loop would otherwise flood the
+  // buffer and push out the history that explains it.
+  const key = `${label}|${message}|${where || ''}`;
+  if (seenFaults.has(key)) return;
+  if (seenFaults.size > 50) seenFaults.clear();
+  seenFaults.add(key);
+
+  const text = `${label}: ${message}${where ? ` (${where})` : ''}`;
+  try {
+    // Normal path once the logging helpers have initialised.
+    addLog(text, 'error');
+  } catch {
+    // Thrown only when this fires before those are ready, which is exactly the
+    // startup case worth capturing. Keep it for the bug report instead.
+    const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+    startupFaults.push(`[${ts}] [ERROR] ${text}  <during startup>`);
+  }
+}
+
+window.addEventListener('error', (e) => {
+  // Failed <img>/<script> loads fire this too, with the element as the target.
+  // The UI has its own onerror fallbacks for those, so they are noise here.
+  if (e && e.target && e.target !== window && e.target.tagName) return;
+  const file = e && e.filename ? e.filename.split('/').pop() : '';
+  const where = file ? `${file}:${e.lineno}:${e.colno}` : '';
+  recordFault('Uncaught error', (e && e.message) || String((e && e.error) || 'unknown'), where);
+});
+
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e && e.reason;
+  const msg = (r && (r.message || (typeof r === 'string' ? r : r.toString()))) || 'unknown';
+  recordFault('Unhandled promise rejection', msg);
+});
+
 // ─── Tauri v2 Compatibility Shim ───────────────────────────────────────────────
 // Recreates the window.radium API from the Electron preload bridge using Tauri APIs.
 // This allows the rest of app.js to remain unchanged.
@@ -100,6 +144,11 @@ let config                = {};
 let isGameRunning         = false;
 let isGameLaunching       = false;
 let isDownloading         = false;
+// Cancel requested, but the backend loop only aborts at its next chunk and
+// holds a global "download in progress" guard until it exits. Re-enabling
+// Download before then makes the next click fail with "A download is already
+// in progress.", so the button stays disabled through this window.
+let isCancelling          = false;
 let isPaused              = false;
 let isInstalled           = false;
 let playMode              = 'screen';
@@ -1893,8 +1942,9 @@ function updateDlButtons() {
   const dlBtn = $('btnDownload');
   const pauseBtn = $('btnPauseDl');
   if (dlBtn) {
-    dlBtn.disabled = isDownloading || isPaused;
-    dlBtn.textContent = isDownloading ? '⬇ DOWNLOADING...'
+    dlBtn.disabled = isDownloading || isPaused || isCancelling;
+    dlBtn.textContent = isCancelling  ? '⬇ CANCELLING...'
+                      : isDownloading ? '⬇ DOWNLOADING...'
                       : isPaused      ? '⬇ PAUSED'
                       :                 '⬇ DOWNLOAD';
   }
@@ -1905,7 +1955,7 @@ function updateDlButtons() {
 // so continuing a paused/interrupted download doesn't visibly flash to zero.
 function setDownloadUI(downloading, opts = {}) {
   isDownloading = downloading;
-  if (downloading) isPaused = false;
+  if (downloading) { isPaused = false; isCancelling = false; extractEta = null; }
   const block = $('dlProgressBlock');
   const pauseBtn = $('btnPauseDl');
   if (downloading) {
@@ -1914,7 +1964,7 @@ function setDownloadUI(downloading, opts = {}) {
     setStatLabels('Speed', 'Transferred', 'ETA');
     setDlStep('download');
     if (!opts.resuming) {
-      const fill = $('dlBarFill'); if (fill) { fill.classList.remove('indeterminate'); fill.style.width = '0%'; }
+      const fill = $('dlBarFill'); if (fill) { fill.classList.remove('indeterminate'); applyBarFill(fill, 0); }
       const pctEl = $('dlPctLabel'); if (pctEl) pctEl.textContent = '0%';
     }
   } else if (!isPaused) {
@@ -1940,13 +1990,63 @@ function setPausedUI(info = {}) {
   const etaEl   = $('dlEtaLabel');   if (etaEl)   etaEl.textContent   = '—';
   if (typeof info.total === 'number' && info.total > 0 && typeof info.downloaded === 'number') {
     const pct = Math.min(99, Math.floor((info.downloaded / info.total) * 100));
-    const fill = $('dlBarFill'); if (fill) { fill.classList.remove('indeterminate'); fill.style.width = `${pct}%`; }
+    const fill = $('dlBarFill'); if (fill) { fill.classList.remove('indeterminate'); applyBarFill(fill, pct); }
     const pctEl = $('dlPctLabel'); if (pctEl) pctEl.textContent = `${pct}%`;
     const sizeEl = $('dlSizeLabel'); if (sizeEl) sizeEl.textContent = `${formatBytes(info.downloaded)} / ${formatBytes(info.total)}`;
   }
   setDlStep('download');
   updateDlButtons();
 }
+
+// The retro-family themes draw the progress bar as discrete blocks, via a
+// repeating gradient with a 10px period (8px block + 2px gap). A plain
+// percentage width slices the final block mid-cube, so snap the fill to whole
+// blocks. Themes that paint a solid bar (the modern family, Vista/7) are
+// detected from the computed background and keep the exact percentage.
+function applyBarFill(fill, pct) {
+  // Must match the repeating-gradient period in .dlp-bar-fill (8px block + 2px gap).
+  const SEGMENT_PX = 10;
+  if (!fill) return;
+  fill.dataset.pct = String(pct);
+  const wrap = fill.parentElement;
+  const segmented = getComputedStyle(fill).backgroundImage.includes('repeating-linear-gradient');
+  if (!segmented || !wrap) { fill.style.width = `${pct}%`; return; }
+
+  const ws = getComputedStyle(wrap);
+  const track = wrap.clientWidth - parseFloat(ws.paddingLeft || 0) - parseFloat(ws.paddingRight || 0);
+  if (!(track > 0)) { fill.style.width = `${pct}%`; return; }
+
+  // 100% must fill the track exactly, even when it isn't a whole number of
+  // blocks, or the bar would stop just short of the end.
+  if (pct >= 100) { fill.style.width = '100%'; return; }
+  let blocks = Math.floor((track * pct / 100) / SEGMENT_PX);
+  if (pct > 0 && blocks < 1) blocks = 1;   // any progress shows at least one block
+  fill.style.width = `${blocks * SEGMENT_PX}px`;
+}
+
+// A snapped width is in pixels, so it goes stale when the window resizes or a
+// theme swaps the bar between segmented and solid. Re-apply on both.
+if (typeof ResizeObserver !== 'undefined') {
+  const ro = new ResizeObserver(() => {
+    const fill = $('dlBarFill');
+    if (fill && !fill.classList.contains('indeterminate') && fill.dataset.pct != null) {
+      applyBarFill(fill, Number(fill.dataset.pct));
+    }
+  });
+  const startBarObserver = () => {
+    const wrap = $('dlBarFill')?.parentElement;
+    if (wrap) ro.observe(wrap);
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startBarObserver);
+  } else {
+    startBarObserver();
+  }
+}
+
+// Extraction ETA state. The backend reports only done/total entries for this
+// phase, so the estimate is derived from the rate entries are being written at.
+let extractEta = null;   // { t0, done0 }
 
 // Relabel the three stat cards (they show download stats vs. extraction stats
 // depending on the phase).
@@ -1955,6 +2055,24 @@ function setStatLabels(a, b, c) {
   if (l1) l1.textContent = a;
   if (l2) l2.textContent = b;
   if (l3) l3.textContent = c;
+}
+
+// Estimate remaining extraction time from the entries-per-second rate observed
+// since extraction started. Needs a moment of data before it can say anything.
+function extractEtaText(done, totalEntries) {
+  if (!(totalEntries > 0)) return 'Working…';
+  const now = Date.now();
+  // First sample, or the counter went backwards (a new extraction began).
+  if (!extractEta || done < extractEta.done0) {
+    extractEta = { t0: now, done0: done };
+    return 'Estimating…';
+  }
+  const remaining = totalEntries - done;
+  if (remaining <= 0) return '0s';
+  const elapsed   = (now - extractEta.t0) / 1000;
+  const processed = done - extractEta.done0;
+  if (elapsed < 1 || processed <= 0) return 'Estimating…';
+  return formatEta(remaining / (processed / elapsed));
 }
 
 function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0, eta = -1, status, entry = '', done = 0, totalEntries = 0 }) {
@@ -1981,7 +2099,7 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
   if (fill) {
     if (pct >= 0) {
       fill.classList.remove('indeterminate');
-      fill.style.width = `${pct}%`;
+      applyBarFill(fill, pct);
     } else {
       // Unknown total (server sent no Content-Length): show an animated
       // indeterminate bar instead of a full one, which would wrongly read as
@@ -1997,11 +2115,11 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
     if (phase_el) phase_el.textContent = 'Extracting...';
     // Speed/ETA are meaningless while unzipping — repurpose the three cards to
     // show extraction progress instead of leaving them as empty dashes.
-    setStatLabels('Files', 'Current File', 'Progress');
+    setStatLabels('Files', 'Current File', 'ETA');
     if (speedEl) speedEl.textContent = totalEntries > 0 ? `${done} / ${totalEntries}` : '—';
     if (sizeEl)  sizeEl.textContent  = entry
       || (status ? status.replace(/^Extracting:\s*/, '') : 'Preparing…');
-    if (etaEl)   etaEl.textContent   = pct >= 0 ? `${pct}%` : 'Working…';
+    if (etaEl)   etaEl.textContent   = extractEtaText(done, totalEntries);
     // Pause applies only during the download phase.
     const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = 'none';
     return;
@@ -2010,15 +2128,17 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
   if (phase === 'done') {
     setDlStep('done');
     if (phase_el) phase_el.textContent = 'Complete!';
-    setStatLabels('Files', 'Current File', 'Progress');
+    setStatLabels('Files', 'Current File', 'ETA');
     if (speedEl) speedEl.textContent = totalEntries > 0 ? `${totalEntries} / ${totalEntries}` : '—';
     if (sizeEl)  sizeEl.textContent  = 'Done';
-    if (etaEl)   etaEl.textContent   = '100%';
+    if (etaEl)   etaEl.textContent   = '0s';
+    extractEta = null;
     const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = 'none';
     return;
   }
 
   setDlStep('download');
+  extractEta = null;
   if (phase_el) phase_el.textContent = 'Downloading...';
   setStatLabels('Speed', 'Transferred', 'ETA');
   const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = '';
@@ -2055,6 +2175,10 @@ async function runClientDownload({ resuming = false } = {}) {
     console.error('downloadClient error:', e);
     result = { success: false, error: e.toString() };
   }
+
+  // The backend call has unwound, so its download guard is released and a new
+  // download may start again.
+  isCancelling = false;
 
   const elapsed = ((Date.now() - dlStart) / 1000).toFixed(1);
   if (result?.success) {
@@ -2174,10 +2298,35 @@ function setClientUpdateButton(state, info) {
     btn.textContent = '⬇ Update';
     btn.dataset.mode = 'update';
   } else {
-    btn.textContent = '⟳ Check';
     btn.dataset.mode = 'check';
+    fitUpdateLabel();
   }
 }
+
+// The Client Status card is one equal third of the stats row, and the update
+// button shares a line with the status value, so the full wording only fits on
+// a reasonably wide window. Use the longest label that actually fits rather
+// than permanently shortening it for everyone.
+const UPDATE_CHECK_LABELS = ['⟳ Check for Updates', '⟳ Check Updates', '⟳ Check'];
+
+function fitUpdateLabel() {
+  const btn = $('btnClientUpdateAction');
+  if (!btn || btn.dataset.mode !== 'check' || btn.style.display === 'none') return;
+  const card = $('qsc-client');
+  const val  = $('qsInstalled');
+  if (!card || !val) { btn.textContent = UPDATE_CHECK_LABELS[UPDATE_CHECK_LABELS.length - 1]; return; }
+  const cs = getComputedStyle(card);
+  const inner = card.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0);
+  for (const label of UPDATE_CHECK_LABELS) {
+    btn.textContent = label;
+    if (!(inner > 0)) return;   // not laid out yet; leave the longest and re-fit on resize
+    const need = val.getBoundingClientRect().width + 6 + btn.getBoundingClientRect().width;
+    if (need <= inner) return;
+  }
+  // none fit — the loop leaves the shortest label in place
+}
+
+window.addEventListener('resize', fitUpdateLabel);
 
 $('btnClientUpdateAction')?.addEventListener('click', () => {
   const btn = $('btnClientUpdateAction');
@@ -2256,9 +2405,22 @@ async function checkForClientUpdate(manual = false) {
 
 $('btnCancelDl')?.addEventListener('click', () => {
   const wasPaused = isPaused;
+  const wasActive = isDownloading;
   window.radium?.cancelDownload();
   isPaused = false;
-  setDownloadUI(false);
+  if (wasActive) {
+    // The backend is still mid-chunk and won't release its download guard
+    // until it unwinds. Hold the panel in a "cancelling" state so Download
+    // can't be re-clicked into a rejection; runClientDownload() clears this
+    // as soon as the in-flight call actually settles.
+    isCancelling = true;
+    isDownloading = false;
+    const phaseEl = $('dlPhaseLabel'); if (phaseEl) phaseEl.textContent = 'Cancelling...';
+    const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = 'none';
+    updateDlButtons();
+  } else {
+    setDownloadUI(false);
+  }
   addLog('Download cancelled.', 'info');
   toast('Download cancelled.', 'info');
   // A cancelled *active* download's checkInstall() runs when its promise
@@ -4968,13 +5130,26 @@ lightboxModal?.addEventListener('click', (e) => {
 
     // Use the full unbounded log buffer (not the capped DOM viewer)
     // This ensures early startup logs are always included in bug reports.
-    const fullLogs = fullLogBuffer.join('\n');
+    // Faults raised before the logger existed are prepended — they precede
+    // everything else chronologically and are usually the actual cause.
+    const fullLogs = [...startupFaults, ...fullLogBuffer].join('\n');
 
     const diagnostics = {
       launcherVersion: $('versionTag')?.textContent || 'unknown',
       isInstalled: isInstalled,
       isGameRunning: isGameRunning,
       isDownloading: isDownloading,
+      // A single "downloading" bool couldn't distinguish a stalled download
+      // from a paused or cancelling one — states a report is most likely to be
+      // filed during. Reported as one field so the phase is unambiguous.
+      downloadState: isCancelling  ? 'cancelling'
+                   : isPaused      ? 'paused'
+                   : isDownloading ? 'downloading'
+                   :                 'idle',
+      // How many errors the session logged, so triage can tell "one glitch"
+      // from "everything is failing" without reading the whole attachment.
+      errorCount: startupFaults.length
+        + fullLogBuffer.reduce((n, l) => n + (l.includes('[ERROR]') ? 1 : 0), 0),
       // Last-known server reachability (null if not yet checked this session).
       // The client build/version/outdated fields are read authoritatively from
       // config on the backend, so they aren't duplicated here.

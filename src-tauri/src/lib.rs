@@ -321,6 +321,13 @@ async fn submit_bug_report(
     let is_installed = diagnostics.get("isInstalled").and_then(|v| v.as_bool()).unwrap_or(false);
     let is_game_running = diagnostics.get("isGameRunning").and_then(|v| v.as_bool()).unwrap_or(false);
     let is_downloading = diagnostics.get("isDownloading").and_then(|v| v.as_bool()).unwrap_or(false);
+    // Phase of the download, so a paused or cancelling launcher isn't reported
+    // as simply "not downloading". Older frontends omit it; fall back to the bool.
+    let download_state = diagnostics
+        .get("downloadState")
+        .and_then(|v| v.as_str())
+        .unwrap_or(if is_downloading { "downloading" } else { "idle" });
+    let error_count = diagnostics.get("errorCount").and_then(|v| v.as_u64()).unwrap_or(0);
 
     // Server reachability comes from the frontend's last poll; a tri-state so a
     // report made before the first poll doesn't misreport servers as OFFLINE.
@@ -390,11 +397,12 @@ async fn submit_bug_report(
                     {
                         "name": "Game Status",
                         "value": format!(
-                            "Installed: {}\nRunning: {}\nDownloading: {}\nPlay Mode: {}",
+                            "Installed: {}\nRunning: {}\nDownload: {}\nPlay Mode: {}\nErrors logged: {}",
                             if is_installed { "Yes" } else { "No" },
                             if is_game_running { "Yes" } else { "No" },
-                            if is_downloading { "Yes" } else { "No" },
-                            cfg.play_mode
+                            download_state,
+                            cfg.play_mode,
+                            error_count
                         ),
                         "inline": false
                     },
@@ -468,7 +476,8 @@ async fn submit_bug_report(
          Category : {}\n\
          Severity : {}\n\
          Client   : v{} (build {}) | required {} | {}\n\
-         Runtime  : installed={} running={} downloading={} mode={}\n\
+         Runtime  : installed={} running={} download={} mode={}\n\
+         Errors   : {} logged this session\n\
          Servers  : API {} | CDN {}\n\
          Install  : {}\n\
          Theme    : {} (baseline {})\n\
@@ -477,7 +486,8 @@ async fn submit_bug_report(
         os_name, os_arch,
         category_name, severity_name,
         client_version, client_build, download::REQUIRED_CLIENT_BUILD, client_status,
-        is_installed, is_game_running, is_downloading, cfg.play_mode,
+        is_installed, is_game_running, download_state, cfg.play_mode,
+        error_count,
         online_label(api_online), online_label(cdn_online),
         if cfg.install_dir.is_empty() { "Default".to_string() } else { cfg.install_dir.clone() },
         cfg.theme, cfg.baseline_theme,

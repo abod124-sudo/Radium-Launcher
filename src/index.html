@@ -104,25 +104,20 @@
               </div>
             </div>
           </div>
+          <!-- Same scrim, no client installed: DOWNLOAD takes PLAY's place so
+               both states read identically. The hero above already carries the
+               branding, so no icon or title is repeated here. -->
+          <div class="home-hero-bar not-installed-only">
+            <button class="btn-download-big" id="btnDownload">⬇ DOWNLOAD</button>
+          </div>
         </div>
 
-        <!-- Download Section (shown when not installed) -->
-        <div class="download-section" id="downloadSection">
-          <div class="ds-main">
-            <div class="ds-hero-icon" id="dsHeroIcon" aria-hidden="true">
-              <img src="logo.png" alt="" class="ds-hero-img" onerror="this.style.display='none';this.parentElement.classList.add('ds-hero-glyph');" />
-              <span class="ds-hero-fallback">⬇</span>
-            </div>
-            <div class="ds-hero-text">
-              <div class="ds-main-title">DOWNLOAD RADIUM CLIENT</div>
-            </div>
-            <div class="ds-hero-action">
-              <button class="btn-download-big" id="btnDownload">⬇ DOWNLOAD</button>
-            </div>
-          </div>
+        <!-- Download slot. Holds only the progress panel now that the CTA
+             lives on the hero, so it renders nothing until a download starts. -->
+        <div id="downloadSection">
 
           <!-- Progress (hidden until downloading) -->
-          <div class="dl-progress-block" id="dlProgressBlock" style="display:none">
+          <div class="download-section dl-progress-block" id="dlProgressBlock" style="display:none">
             <div class="dlp-top">
               <div class="dlp-phase-wrap">
                 <span class="dlp-dot"></span>

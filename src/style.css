@@ -1633,51 +1633,6 @@ a:hover, .text-link:hover {
   background: repeating-linear-gradient(45deg, rgba(0,0,0,0.08), rgba(0,0,0,0.08) 4px, transparent 4px, transparent 8px);
   pointer-events: none; z-index: 0;
 }
-/* Hero row — icon · text · action */
-.ds-main {
-  position: relative; z-index: 1;
-  display: flex; align-items: center;
-  padding: 20px 22px;
-  gap: 18px;
-}
-/* Icon medallion (recessed inset) */
-.ds-hero-icon {
-  flex-shrink: 0;
-  width: 60px; height: 60px;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--bg-dark);
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  overflow: hidden;
-}
-.ds-hero-img { width: 100%; height: 100%; object-fit: contain; }
-.ds-hero-fallback { display: none; font-size: 26px; line-height: 1; color: var(--green); }
-.ds-hero-icon.ds-hero-glyph .ds-hero-fallback { display: block; }
-
-.ds-hero-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.ds-main-title {
-  font-family: var(--font-mono); font-size: 15px; font-weight: bold;
-  color: var(--green); letter-spacing: 1.5px; line-height: 1.1;
-}
-.ds-hero-sub {
-  font-family: var(--font-ui); font-size: 11.5px; line-height: 1.4;
-  color: var(--text-muted);
-}
-.ds-hero-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 3px; }
-.ds-chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-family: var(--font-mono); font-size: 9px; font-weight: bold;
-  letter-spacing: 0.5px; text-transform: uppercase;
-  color: var(--green-dim);
-  background: var(--bg-dark);
-  border: 1px solid var(--border-dark);
-  padding: 2px 7px;
-}
-.ds-chip-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--status-online); box-shadow: 0 0 5px var(--status-online);
-}
-.ds-hero-action { flex-shrink: 0; display: flex; align-items: center; }
 
 /* Leftover legacy selectors kept so nothing else breaks */
 .ds-top-header { display: none; }
@@ -1692,13 +1647,16 @@ a:hover, .text-link:hover {
 
 
 /* ─── Download progress panel (inset) ───────────────────────────────── */
+/* JS shows the slot with display:flex; column direction makes the progress
+   panel stretch to full width instead of shrinking to its content. */
+#downloadSection { flex-direction: column; }
 .dl-progress-block {
   position: relative; z-index: 1;
-  margin: 0 12px 12px;
-  background: var(--bg-dark);
-  border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  margin-top: 10px;
   padding: 12px 14px;
 }
+/* Keep the panel's texture pseudo-element behind the progress content. */
+.dl-progress-block > * { position: relative; z-index: 1; }
 .dlp-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .dlp-phase-wrap { display: flex; align-items: center; gap: 8px; min-width: 0; }
 /* Retro pixel indicator LED: a hard-edged square that blinks on/off like a
@@ -1736,7 +1694,10 @@ a:hover, .text-link:hover {
     transparent 8px,
     transparent 10px
   );
-  transition: width 0.25s ease;
+  /* No width animation: the retro bar should tick over one whole block at a
+     time, the way a Win9x progress bar does, rather than sliding smoothly.
+     The solid-bar themes below opt back into the smooth fill. */
+  transition: none;
   box-shadow: none;
 }
 .dlp-bar-fill::after { display: none; } /* Disable modern shimmer */
@@ -1833,6 +1794,7 @@ body.theme-blackandwhite-inverted .dlp-bar-fill {
   background: linear-gradient(90deg, var(--green-dim), var(--green));
   border-radius: 5px;
   box-shadow: 0 0 10px color-mix(in srgb, var(--green) 55%, transparent);
+  transition: width 0.25s ease;
 }
 /* Modern-family themes keep the round, softly-pulsing glow dot. */
 body.theme-moderndark .dlp-dot,
@@ -2008,6 +1970,16 @@ body.theme-blackandwhite-inverted .btn-download-big {
    they can sit wherever the layout wants them. */
 .installed-only { display: none; }
 body.client-installed .installed-only { display: flex; }
+.not-installed-only { display: none; }
+body:not(.client-installed) .not-installed-only { display: flex; }
+
+/* DOWNLOAD sits where PLAY does, at the same size, so the two states of the
+   hero are visually interchangeable. */
+.home-hero-bar .btn-download-big {
+  min-width: 148px; height: 44px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  font-size: 15px; letter-spacing: 2px;
+}
 
 body.theme-moderndark .btn-play.running,
 body.theme-moderngreen .btn-play.running,
@@ -6322,14 +6294,52 @@ body.theme-recroom #qsc-status  { background: linear-gradient(180deg, #6fe07a 0%
 body.theme-recroom #qsc-players { background: linear-gradient(180deg, #5cb3ff 0%, #1f7fe0 100%) !important; }
 body.theme-recroom #qsc-client  { background: linear-gradient(180deg, #ffc24a 0%, #f08a1f 100%) !important; }
 body.theme-recroom .qs-card .qs-label,
-body.theme-recroom .qs-card .qs-value { color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.22) !important; }
+body.theme-recroom .qs-card .qs-value {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.38) !important;
+}
+body.theme-recroom .qs-card .qs-label { letter-spacing: .4px !important; opacity: .95 !important; }
+/* The status dot is a white pip on the tile rather than a coloured square. */
+body.theme-recroom .qs-card .qs-icon-indicator {
+  border-radius: 50% !important;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.55) !important;
+}
+/* Section headings read as labels on the warm background, not dim mono text. */
+body.theme-recroom .manage-title {
+  color: #7a4a12 !important;
+  font-weight: 800 !important;
+  border-bottom-color: rgba(150,110,50,0.28) !important;
+}
 
 /* Mode toggle pill */
 body.theme-recroom .mode-toggle-wrap { background: rgba(255,255,255,0.5) !important; border: 1px solid rgba(255,255,255,0.6) !important; border-radius: 20px !important; overflow: hidden !important; }
 body.theme-recroom .mode-btn { background: transparent !important; color: #7a5a2a !important; border: none !important; font-weight: 700 !important; }
 body.theme-recroom .mode-btn.active { background: linear-gradient(180deg, #ff9a3c, #f0731a) !important; color: #fff !important; border-radius: 18px !important; }
 
-/* Secondary buttons — white glossy pills */
+/* Progress bar — a soft rounded capsule rather than the retro block ticker,
+   which suits this theme and matches the watch's rounded language. Being a
+   solid fill, applyBarFill() gives it exact percentages instead of snapping
+   to whole blocks. */
+body.theme-recroom .dlp-bar-wrap {
+  background: rgba(255,255,255,0.55) !important;
+  border: 1px solid rgba(255,255,255,0.7) !important;
+  border-radius: 999px !important;
+  overflow: hidden !important;
+  box-shadow: inset 0 2px 4px rgba(120,80,30,0.18) !important;
+}
+body.theme-recroom .dlp-bar-fill {
+  background: linear-gradient(180deg, #ffb04a 0%, #f0731a 100%) !important;
+  border-radius: 999px !important;
+  transition: width 0.25s ease !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55) !important;
+}
+
+/* Secondary buttons — colour-coded watch-menu tiles.
+   The in-game menu never uses neutral buttons: every action is a saturated
+   tile with a bold white label, a light rim, an extruded bottom edge and a
+   press that pushes the tile down into its own shadow. Each action borrows
+   the hue of its closest counterpart on the watch. */
 body.theme-recroom .btn-refresh,
 body.theme-recroom .btn-save,
 body.theme-recroom .btn-test-server,
@@ -6341,11 +6351,41 @@ body.theme-recroom .btn-kill,
 body.theme-recroom .btn-exclude-av,
 body.theme-recroom .modal-btn,
 body.theme-recroom .launch-secondary-actions button {
-  background: rgba(255,255,255,0.9) !important;
-  border: 1px solid rgba(120,80,30,0.22) !important; border-radius: 14px !important;
-  color: #5a3a12 !important; font-weight: 700 !important;
-  box-shadow: inset 0 1px 0 #ffffff, 0 2px 7px -2px rgba(120,70,20,0.35) !important;
+  --rr-top:  #a684ff;
+  --rr-face: #7a3fe0;
+  --rr-edge: #5a27b5;
+  background: linear-gradient(180deg, var(--rr-top) 0%, var(--rr-face) 100%) !important;
+  border: 1px solid rgba(255,255,255,0.45) !important;
+  border-radius: 16px !important;
+  color: #ffffff !important; font-weight: 800 !important;
+  letter-spacing: .3px !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.32) !important;
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,0.55),
+    inset 0 -6px 10px rgba(0,0,0,0.20),
+    0 4px 0 var(--rr-edge),
+    0 10px 15px -6px rgba(40,25,5,0.5) !important;
+  transition: transform .1s ease, box-shadow .1s ease, filter .12s ease !important;
 }
+/* Per-action hues, mirroring the watch-menu tile colours. Qualified with
+   `button` so these match the specificity of the `.launch-secondary-actions
+   button` selector above and win on source order — without it the group
+   default repaints every manage-panel button purple. */
+body.theme-recroom button.btn-open-folder { --rr-top:#3fd0c9; --rr-face:#1d9b96; --rr-edge:#15736f; }
+body.theme-recroom button.btn-reinstall   { --rr-top:#5cb3ff; --rr-face:#1f7fe0; --rr-edge:#1660ab; }
+body.theme-recroom button.btn-exclude-av  { --rr-top:#a684ff; --rr-face:#7a3fe0; --rr-edge:#5a27b5; }
+body.theme-recroom button.btn-test-server { --rr-top:#6fe07a; --rr-face:#33ab43; --rr-edge:#248232; }
+body.theme-recroom button.btn-uninstall,
+body.theme-recroom button.btn-cancel-dl,
+body.theme-recroom button.btn-kill,
+body.theme-recroom button.modal-btn-danger { --rr-top:#ff7d72; --rr-face:#e2392f; --rr-edge:#ab2620; }
+/* The update button sits on the orange Client Status tile, where another
+   saturated colour would fight it — white reads cleanly instead. */
+body.theme-recroom button.qs-update-btn {
+  --rr-top:#ffffff; --rr-face:#fff1de; --rr-edge:#d79a3f;
+  color:#7a4a12 !important; text-shadow:none !important;
+}
+
 body.theme-recroom .btn-refresh:hover,
 body.theme-recroom .btn-save:hover,
 body.theme-recroom .btn-test-server:hover,
@@ -6357,8 +6397,30 @@ body.theme-recroom .btn-kill:hover,
 body.theme-recroom .btn-exclude-av:hover,
 body.theme-recroom .modal-btn:hover,
 body.theme-recroom .launch-secondary-actions button:hover {
-  background: #ffffff !important; border-color: #ff7a1a !important; color: #c2560a !important;
-  box-shadow: inset 0 1px 0 #ffffff, 0 0 10px rgba(255,150,70,0.5) !important;
+  transform: translateY(-2px) !important;
+  filter: brightness(1.06) !important;
+  box-shadow:
+    inset 0 2px 1px rgba(255,255,255,0.6),
+    inset 0 -6px 10px rgba(0,0,0,0.20),
+    0 6px 0 var(--rr-edge),
+    0 14px 20px -6px rgba(40,25,5,0.55) !important;
+}
+body.theme-recroom .btn-refresh:active,
+body.theme-recroom .btn-save:active,
+body.theme-recroom .btn-test-server:active,
+body.theme-recroom .btn-cancel-dl:active,
+body.theme-recroom .btn-open-folder:active,
+body.theme-recroom .btn-reinstall:active,
+body.theme-recroom .btn-uninstall:active,
+body.theme-recroom .btn-kill:active,
+body.theme-recroom .btn-exclude-av:active,
+body.theme-recroom .modal-btn:active,
+body.theme-recroom .launch-secondary-actions button:active {
+  transform: translateY(3px) !important;
+  box-shadow:
+    inset 0 2px 6px rgba(0,0,0,0.3),
+    0 1px 0 var(--rr-edge),
+    0 4px 9px -3px rgba(40,25,5,0.5) !important;
 }
 
 /* Primary buttons — vibrant green candy gel */
@@ -6367,7 +6429,7 @@ body.theme-recroom .btn-download-big,
 body.theme-recroom .modal-btn-primary {
   background: linear-gradient(180deg, #74e57f 0%, #2faa3e 100%) !important;
   border: 1px solid #238a31 !important; border-radius: 16px !important;
-  color: #06310d !important; font-weight: 800 !important; text-shadow: 0 1px 0 rgba(255,255,255,0.35) !important;
+  color: #ffffff !important; font-weight: 800 !important; text-shadow: 0 1px 3px rgba(0,60,15,0.45) !important;
   box-shadow:
     inset 0 2px 1px rgba(255,255,255,0.7),
     inset 0 -7px 11px rgba(0,80,20,0.3),
@@ -6570,8 +6632,6 @@ body.theme-win98 .native-table tr:hover td .text-link {
 
 /* ── Windows 95: hero title on the teal desktop needs to stay legible ──── */
 body.theme-win95 .hero-title { color: #000000; }
-body.theme-win95 .ds-main-title,
-body.theme-win98 .ds-main-title,
 
 /* ── Windows XP: Luna-green segmented progress bar ─────────────────────── */
 body.theme-winxp .dlp-bar-wrap {
@@ -6630,6 +6690,7 @@ body.theme-win7 .dlp-bar-wrap {
 }
 body.theme-winvista .dlp-bar-fill,
 body.theme-win7 .dlp-bar-fill {
+  transition: width 0.25s ease;
   border-radius: 2px;
   background: linear-gradient(
     180deg,
