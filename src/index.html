@@ -809,52 +809,67 @@
         <div class="bevel-inset flex-1 p-4 overflow-y-auto" style="background: var(--bg-dark); min-height: 0;">
           <div class="flex flex-col gap-4 items-center w-full">
             
-            <!-- Large Image Container -->
-            <div class="photo-detail-img-wrap" style="width: 100%; border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark); background: var(--bg-panel); overflow: hidden;">
-              <img id="photoDetailImage" class="image-loading-placeholder" src="data:," alt="Photo" style="width: 100%; height: auto; display: block; object-fit: contain; max-height: 400px;" />
+            <!-- Large Image Container. Click to open the full-size lightbox. -->
+            <div class="photo-detail-img-wrap" title="Click to view full size">
+              <img id="photoDetailImage" class="image-loading-placeholder" src="data:," alt="Photo" />
+              <span class="photo-detail-zoom-hint" aria-hidden="true">⤢ FULL SIZE</span>
             </div>
 
             <!-- Details Block -->
-            <div id="photoDetailInfoBlock" class="bevel-inset" style="background: var(--bg-panel); padding: 12px; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; box-sizing: border-box;">
+            <div id="photoDetailInfoBlock" class="bevel-inset">
               <!-- Creator Inset Box -->
-              <div class="bevel-inset" style="grid-column: span 1; background: var(--bg-dark); padding: 8px; display: flex; align-items: center; gap: 8px; box-sizing: border-box; min-height: 52px;">
-                <img id="photoDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" style="width: 34px; height: 34px; border-radius: 5px; object-fit: cover; border: 1px solid var(--border-dark);" />
-                <div id="photoDetailCreatorLink" class="flex flex-col leading-tight cursor-pointer" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <span id="photoDetailCreatorName" style="font-weight: bold; font-size: 11.5px; color: var(--text);">Loading...</span>
-                  <span id="photoDetailCreatorHandle" style="font-size: 10.5px; color: var(--text-muted);">@...</span>
+              <div class="bevel-inset photo-detail-box photo-detail-creator">
+                <!-- Inert until showPhotoDetails() sets the active network's own
+                     placeholder; a hardcoded CDN URL here flashed a Radium
+                     avatar on Vanilla. No data-fallback: `data:,` fails to
+                     decode, and the shared handler spends a fallback on first
+                     error, so it is armed at assignment time instead. -->
+                <img id="photoDetailCreatorAvatar" src="data:," alt="Creator Avatar" />
+                <div id="photoDetailCreatorLink" class="cursor-pointer photo-detail-creator-text">
+                  <span id="photoDetailCreatorName">Loading...</span>
+                  <span id="photoDetailCreatorHandle">@...</span>
                 </div>
               </div>
 
               <!-- Room Inset Box -->
-              <div class="bevel-inset" style="grid-column: span 1; background: var(--bg-dark); padding: 8px; display: flex; align-items: center; justify-content: center; min-height: 52px; box-sizing: border-box;">
-                <div id="photoDetailRoomLink" class="cursor-pointer font-mono" style="font-size: 11px; color: var(--green); text-decoration: underline; display: none; text-align: center; width: 100%; word-break: break-word;">
-                  Room: <span id="photoDetailRoomName" style="font-weight: bold;">—</span>
+              <div class="bevel-inset photo-detail-box photo-detail-room">
+                <div id="photoDetailRoomLink" class="cursor-pointer font-mono" hidden>
+                  <span class="photo-detail-room-label">ROOM</span>
+                  <span id="photoDetailRoomName">—</span>
                 </div>
-                <div id="photoDetailNoRoom" style="font-size: 11px; color: var(--text-muted); text-align: center;">No Room Link</div>
+                <div id="photoDetailNoRoom" class="photo-detail-empty">No Room Link</div>
               </div>
 
               <!-- Caption (Full Width Inset) -->
-              <div class="bevel-inset" style="grid-column: span 2; background: var(--bg-dark); padding: 10px; box-sizing: border-box;">
+              <div class="bevel-inset photo-detail-box photo-detail-span">
                 <div class="caption-header">CAPTION</div>
-                <p id="photoDetailCaption" style="font-size: 12px; color: var(--text); line-height: 1.4; margin: 0; min-height: 20px; font-style: italic; word-break: break-word; white-space: pre-wrap;">
-                  Loading photo caption...
-                </p>
+                <p id="photoDetailCaption">Loading photo caption...</p>
               </div>
 
-              <!-- Stats & Date Grid -->
-              <div class="bevel-inset" style="grid-column: span 2; display: grid; grid-template-columns: 1fr 1fr; background: var(--bg-dark); text-align: center; font-size: 11px; box-sizing: border-box;">
-                <div style="border-right: 1px solid var(--border-dark); padding: 6px;">
-                  <div id="photoDetailCheers" style="font-weight: bold; color: var(--text); font-size: 13px;">0</div>
-                  <div style="color: var(--text-muted); font-size: 9px; font-weight: bold; margin-top: 2px;">CHEERS</div>
+              <!-- Everyone else in the shot. Hidden when the network doesn't
+                   report tags, or when the uploader is the only one in it. -->
+              <div id="photoDetailTaggedBox" class="bevel-inset photo-detail-box photo-detail-span" hidden>
+                <div class="caption-header">IN THIS PHOTO</div>
+                <div id="photoDetailTagged" class="photo-detail-tagged"></div>
+              </div>
+
+              <!-- Stats & Date. A flex row rather than a fixed grid so hiding
+                   the comment stat on a network that has none closes the gap. -->
+              <div class="bevel-inset photo-detail-span photo-detail-stats">
+                <div class="photo-detail-stat">
+                  <div id="photoDetailCheers" class="photo-detail-stat-value">0</div>
+                  <div class="photo-detail-stat-label">CHEERS</div>
                 </div>
-                <div style="padding: 6px; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-                  <div id="photoDetailCreatedAt" style="font-weight: bold; color: var(--text); font-size: 11px;">—</div>
-                  <div style="color: var(--text-muted); font-size: 9px; font-weight: bold; margin-top: 2px;">CREATED AT</div>
+                <div id="photoDetailCommentsStat" class="photo-detail-stat" hidden>
+                  <div id="photoDetailComments" class="photo-detail-stat-value">0</div>
+                  <div class="photo-detail-stat-label">COMMENTS</div>
+                </div>
+                <div class="photo-detail-stat">
+                  <div id="photoDetailCreatedAt" class="photo-detail-stat-value photo-detail-stat-date">—</div>
+                  <div class="photo-detail-stat-label">CREATED AT</div>
                 </div>
               </div>
             </div>
-
-            <!-- Comments Section Removed as requested -->
 
           </div>
         </div>

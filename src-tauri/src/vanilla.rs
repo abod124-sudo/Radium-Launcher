@@ -6,26 +6,36 @@
 //! camelCase people fields). Keeping the translation on this side means
 //! `loadRooms()` / `loadPeople()` and the detail views stay network-agnostic.
 //!
-//! Three things Vanilla's API does *not* have, and how they're handled:
+//! ## Two ways in, and why both exist
 //!
-//! * **No `skip`.** Every list endpoint takes `count` only, so pagination is
-//!   emulated by over-fetching `skip + take + 1` and slicing. The extra row is
-//!   what tells us whether a "next page" exists.
-//! * **No creator name on room rows.** Rooms carry only `creatorPlayerId`, so a
-//!   page of rooms costs one extra batched `players?ids=` lookup — the same
-//!   thing vanillarec.net's own site does.
-//! * **No browse-all-players.** `players/search` needs a query of at least two
-//!   characters, so the unfiltered People list is seeded from the creators of
-//!   the currently popular rooms.
+//! `api.vanillarec.net` sits behind a Cloudflare rule that is an *allowlist of
+//! paths*, not a header check: `/ws/*` and `/images/*` answer any client, while
+//! everything else — `/api/website/*`, and even `/` — is blocked outright for
+//! anything that isn't a browser. Measured 2026-09-07: a request carrying a
+//! perfect `Referer` and `Origin` is refused just the same, so no combination
+//! of headers opens it. `/ws/` is exempt because the game client uses it.
+//!
+//! So rooms and players come from the two bulk `/ws` endpoints, which hand back
+//! the whole public set in one response and are cached here (see
+//! [`rooms_snapshot`] and [`players_snapshot`]). Searching, sorting, paging and
+//! the tag rail are then exact and local, instead of guesses layered over an
+//! API with no `skip`, no sort parameter and no totals.
+//!
+//! Photos have no `/ws` equivalent, so they still go through the site's own
+//! `vanillarec.net/api.php?path=...` proxy ([`api_get_json`]) — as does the
+//! per-page staff-badge lookup, because the bulk player dump carries
+//! `Developer` but not the moderator or community-team flags.
 
+use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
-use std::sync::{Mutex, OnceLock};
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::server::{http, USER_AGENT};
 
-/// Image and player-count host. Both are served directly to any client.
+/// Image, player-count and bulk-dump host. Those paths are served to any client.
 const API_BASE: &str = "https://api.vanillarec.net";
 
 /// Vanilla's website, which fronts the same API at `/api.php?path=...`.
@@ -34,40 +44,25 @@ const SITE_BASE: &str = "https://vanillarec.net";
 /// Sent with proxied requests; the proxy only answers when it is present.
 const SITE_REFERER: &str = "https://vanillarec.net/";
 
-/// Vanilla rejects a search of fewer than this many characters with a 400
-/// (`{"error":"query_too_short"}`), so we short-circuit instead.
+/// Vanilla rejects a proxied search of fewer than this many characters with a
+/// 400 (`{"error":"query_too_short"}`), so we short-circuit instead. It applies
+/// only to what still goes through the proxy — searching the cached room and
+/// player sets is local and has no such floor.
 const MIN_QUERY_LEN: usize = 2;
 
 /// Ceiling on a single over-fetch, so deep paging can't ask for a huge page.
 const MAX_FETCH_COUNT: i64 = 500;
 
-/// `rooms/popular` and `rooms/search` both cap their response at 100 rows no
-/// matter what `count` asks for, so this is the real size of the set a sort can
-/// order.
-const ROOM_FETCH_CAP: i64 = 100;
-
-/// `players?ids=` returns at most 20 rows per request, which bounds the People
-/// page size when the list is being enumerated by id.
+/// `players?ids=` returns at most 20 rows per request, which bounds how many
+/// ids one proxied lookup can resolve.
 const PLAYERS_BATCH_CAP: i64 = 20;
-
-/// How many popular rooms to sample when deriving the tag vocabulary. Their
-/// details are fetched concurrently, so this is one round trip, not N.
-const TAG_SAMPLE_ROOMS: usize = 40;
-
-/// How long a derived tag vocabulary stays fresh. Tags change when creators
-/// retag rooms, which is far slower than a launcher session.
-const TAG_CACHE_TTL: Duration = Duration::from_secs(30 * 60);
 
 /// GET a `/api/website/...` path as JSON through Vanilla's own site proxy.
 ///
-/// The `api.vanillarec.net` host sits behind a Cloudflare bot rule that answers
-/// 403 to every non-browser client whatever headers it sends, so the direct
-/// route is closed to the launcher. Their website reaches the same public data
-/// through `vanillarec.net/api.php?path=...`, which accepts this launcher's own
-/// User-Agent as long as a Referer naming their site is present.
-///
-/// The two endpoints the launcher uses directly — `/ws/getplrcount` and
-/// `/images/...` — are not behind that rule and are fetched from the API host.
+/// The direct host is closed to non-browsers (see the module docs), but their
+/// website reaches the same public data through `vanillarec.net/api.php`, which
+/// accepts this launcher's own User-Agent as long as a Referer naming their
+/// site is present.
 async fn api_get_json(path: &str) -> Result<Value, String> {
     let url = format!("{}/api.php?path={}", SITE_BASE, urlencoding(path));
 
@@ -117,6 +112,25 @@ fn image_url(rel: Option<&str>) -> Option<String> {
     Some(format!("{}{}", API_BASE, rel))
 }
 
+/// Absolute URL for an image named by a bulk row's `ImageName` or
+/// `ProfileImageName`.
+///
+/// The bulk dumps carry the bare name where the website API carries a path, and
+/// `/images/<name>` is exactly what that path expands to — checked against the
+/// website's own `imageUrl` for the same rooms and players, which matched on
+/// every row. Cachebusters are part of the name (`95_webso?1779688409249`) and
+/// are kept.
+///
+/// Empty rather than a guessed default when there is no name: the frontend
+/// substitutes each network's own placeholder.
+fn image_for_name(name: &str) -> String {
+    let name = name.trim();
+    if name.is_empty() {
+        return String::new();
+    }
+    format!("{}/images/{}", API_BASE, name)
+}
+
 fn str_field<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v.get(key).and_then(|x| x.as_str())
 }
@@ -131,11 +145,14 @@ struct Page {
     total: i64,
     /// False when `total` is a running estimate rather than a real count.
     ///
-    /// Vanilla never reports the size of a result set. When we have provably
-    /// fetched all of it, `total` is exact and the UI can say "Page 2 of 5".
-    /// When rows might still be waiting behind the API's row cap, any total we
-    /// invent would be a lie that grows as the user pages, so the UI drops the
-    /// "of N" instead of printing a number that keeps moving.
+    /// The proxied photo endpoints never report the size of a result set. When
+    /// we have provably fetched all of it, `total` is exact and the UI can say
+    /// "Page 2 of 5". When rows might still be waiting behind the API's row
+    /// cap, any total we invent would be a lie that grows as the user pages, so
+    /// the UI drops the "of N" rather than print a number that keeps moving.
+    ///
+    /// Rooms and people are served from the cached bulk sets, where the whole
+    /// result set is in hand and the total is always exact.
     total_known: bool,
 }
 
@@ -223,72 +240,404 @@ pub fn ping_url() -> String {
     format!("{}/ws/getplrcount", API_BASE)
 }
 
+// ─── Bulk snapshots (`/ws/getrooms`, `/ws/getplayers`) ────────────────────
+//
+// Both endpoints return the entire set with no parameters — there is nothing to
+// page, filter or sort server-side, and no ETag to revalidate against. They are
+// large but compress well (measured 2026-09-07: rooms 11.4 MB → 1.0 MB brotli,
+// players 51.6 MB → 5.3 MB), so each is downloaded at most once per TTL and
+// every query afterwards is answered from memory.
+//
+// The two are cached independently and fetched only when something needs them:
+// browsing rooms must not pay for the much larger player dump, so the Rooms tab
+// resolves the handful of creators on the visible page through the proxy
+// instead, and the player set is downloaded when the People tab first asks.
+
+/// How long a downloaded set is served before it is fetched again.
+const BULK_TTL: Duration = Duration::from_secs(10 * 60);
+
+/// Timeout for a bulk download. Generous because these are megabytes, not the
+/// kilobytes the other calls move.
+const BULK_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Tag kind on a room. Vanilla publishes three, and only one is worth browsing:
+///
+/// * `0` — chosen by the room's creator (`fun`, `hangout`, `artistic`, `pvp`).
+/// * `1` — applied by the server. `community` alone is on 6,697 of 7,042 rooms,
+///   so offering it as a filter would be a button that changes nothing.
+/// * `2` — curation (`rrstudio`, `recroomoriginal`), a handful of rooms each.
+///
+/// The rail is built from kind 0; clicking one still matches the tag by name
+/// whatever kind carries it.
+const TAG_KIND_CREATOR: u8 = 0;
+
+/// How many tags the Filters rail shows.
+const TAG_RAIL_LEN: usize = 14;
+
+// ── Wire shapes ──
+//
+// Deserialized into narrow structs rather than `Value`: serde drops the fields
+// we don't name without allocating them, which is what keeps a 51 MB response
+// from becoming a 51 MB tree of `Value`s. Every field is optional so one odd
+// row can't fail the whole parse.
+
+#[derive(Deserialize)]
+struct RawRoomRecord {
+    #[serde(rename = "Room")]
+    room: Option<RawRoom>,
+    /// Live aggregate. Zero on most rooms (4,161 of 7,042), so it cannot be
+    /// used on its own — see [`RoomRow::from_raw`].
+    #[serde(rename = "CheerCount", default)]
+    cheer_count: Option<i64>,
+    #[serde(rename = "FavoriteCount", default)]
+    favorite_count: Option<i64>,
+    /// The only place a visit count appears; the inner room has none.
+    #[serde(rename = "VisitCount", default)]
+    visit_count: Option<i64>,
+    #[serde(rename = "Tags", default)]
+    tags: Option<Vec<RawTag>>,
+}
+
+#[derive(Deserialize)]
+struct RawTag {
+    #[serde(rename = "Tag", default)]
+    tag: Option<String>,
+    #[serde(rename = "Type", default)]
+    kind: Option<u8>,
+}
+
+#[derive(Deserialize)]
+struct RawRoom {
+    #[serde(rename = "RoomId", default)]
+    room_id: Option<i64>,
+    #[serde(rename = "Name", default)]
+    name: Option<String>,
+    #[serde(rename = "Description", default)]
+    description: Option<String>,
+    #[serde(rename = "ImageName", default)]
+    image_name: Option<String>,
+    #[serde(rename = "CreatorPlayerId", default)]
+    creator_player_id: Option<i64>,
+    #[serde(rename = "CreatedAt", default)]
+    created_at: Option<String>,
+    /// Denormalized counter kept on the room itself. This is what the website
+    /// displays; see [`RoomRow::from_raw`].
+    #[serde(rename = "CheerCount", default)]
+    cheer_count: Option<i64>,
+    #[serde(rename = "FavoriteCount", default)]
+    favorite_count: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct RawPlayer {
+    #[serde(rename = "Id", default)]
+    id: Option<i64>,
+    #[serde(rename = "Username", default)]
+    username: Option<String>,
+    #[serde(rename = "DisplayName", default)]
+    display_name: Option<String>,
+    #[serde(rename = "Bio", default)]
+    bio: Option<String>,
+    #[serde(rename = "ProfileImageName", default)]
+    profile_image_name: Option<String>,
+    #[serde(rename = "Developer", default)]
+    developer: Option<bool>,
+    #[serde(rename = "PlayerReputation", default)]
+    reputation: Option<RawReputation>,
+}
+
+#[derive(Deserialize)]
+struct RawReputation {
+    /// The same number the website API calls `followerCount` — checked player
+    /// by player against the proxied records, and identical on every one.
+    #[serde(rename = "SubscriberCount", default)]
+    subscriber_count: Option<i64>,
+}
+
+// ── Cached shapes ──
+
+struct RoomTag {
+    name: String,
+    kind: u8,
+}
+
+struct RoomRow {
+    id: i64,
+    name: String,
+    /// Lowercased once at load so a search doesn't re-fold 7,000 strings per
+    /// keystroke.
+    name_lc: String,
+    description: String,
+    description_lc: String,
+    image_name: String,
+    creator_id: i64,
+    cheers: i64,
+    favorites: i64,
+    visits: i64,
+    created_at: String,
+    tags: Vec<RoomTag>,
+}
+
+impl RoomRow {
+    fn from_raw(raw: RawRoomRecord) -> Option<RoomRow> {
+        let room = raw.room?;
+        let id = room.room_id?;
+
+        let name = room.name.unwrap_or_default();
+        let description = room.description.unwrap_or_default();
+
+        // Cheers and favourites appear twice and disagree. Compared against the
+        // website's own numbers for 100 rooms: the room's own counter matched
+        // 99 times and the outer aggregate 19, but the larger of the two
+        // matched all 100 — the aggregate reads 0 on cloned rooms, and the
+        // counter lags by a few on very busy ones. So take whichever is ahead,
+        // which is the number Vanilla's site is showing.
+        let cheers = room.cheer_count.unwrap_or(0).max(raw.cheer_count.unwrap_or(0));
+        let favorites = room
+            .favorite_count
+            .unwrap_or(0)
+            .max(raw.favorite_count.unwrap_or(0));
+
+        Some(RoomRow {
+            id,
+            name_lc: name.to_lowercase(),
+            name,
+            description_lc: description.to_lowercase(),
+            description,
+            image_name: room.image_name.unwrap_or_default(),
+            creator_id: room.creator_player_id.unwrap_or(0),
+            cheers,
+            favorites,
+            visits: raw.visit_count.unwrap_or(0),
+            created_at: room.created_at.unwrap_or_default(),
+            tags: raw
+                .tags
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|t| {
+                    let name = t.tag?.trim().to_lowercase();
+                    if name.is_empty() {
+                        return None;
+                    }
+                    Some(RoomTag { name, kind: t.kind.unwrap_or(TAG_KIND_CREATOR) })
+                })
+                .collect(),
+        })
+    }
+
+    /// Whether the room's creator tagged it with `tag`.
+    ///
+    /// Creator tags only, matching how the rail is built. Several names exist
+    /// as both kinds — `community` is a creator tag on 61 rooms and a
+    /// server-applied one on 6,697 — so matching every kind would hand back
+    /// 6,697 rooms for a button the rail justified with 61.
+    fn has_tag(&self, tag: &str) -> bool {
+        self.tags
+            .iter()
+            .any(|t| t.kind == TAG_KIND_CREATOR && t.name == tag)
+    }
+
+    /// Whether every word of a search appears somewhere in this room.
+    ///
+    /// Vanilla's own `rooms/search` matches names, descriptions and tags but
+    /// takes a single word — a two-word query matches nothing there. Matching
+    /// locally means each word can land in a different field, so "horror quest"
+    /// finds a horror room tagged quest.
+    fn matches(&self, terms: &[String]) -> bool {
+        terms.iter().all(|term| {
+            self.name_lc.contains(term.as_str())
+                || self.description_lc.contains(term.as_str())
+                || self.tags.iter().any(|t| t.name.contains(term.as_str()))
+        })
+    }
+}
+
+struct PlayerRow {
+    id: i64,
+    username: String,
+    username_lc: String,
+    display_name: String,
+    display_name_lc: String,
+    bio: String,
+    image_name: String,
+    subscribers: i64,
+    developer: bool,
+}
+
+impl PlayerRow {
+    fn from_raw(raw: RawPlayer) -> Option<PlayerRow> {
+        let id = raw.id?;
+        let username = raw.username.unwrap_or_default();
+        let display_name = raw.display_name.unwrap_or_default();
+
+        Some(PlayerRow {
+            id,
+            username_lc: username.to_lowercase(),
+            username,
+            display_name_lc: display_name.to_lowercase(),
+            display_name,
+            bio: raw.bio.unwrap_or_default(),
+            image_name: raw.profile_image_name.unwrap_or_default(),
+            subscribers: raw
+                .reputation
+                .and_then(|r| r.subscriber_count)
+                .unwrap_or(0),
+            developer: raw.developer.unwrap_or(false),
+        })
+    }
+}
+
+struct RoomsSnapshot {
+    rooms: Vec<RoomRow>,
+    fetched: Instant,
+}
+
+struct PlayersSnapshot {
+    /// Sorted by id ascending, so browsing without a search reads as join
+    /// order — oldest accounts first — and a page is a plain slice.
+    players: Vec<PlayerRow>,
+    fetched: Instant,
+}
+
+static ROOMS_CACHE: OnceLock<AsyncMutex<Option<Arc<RoomsSnapshot>>>> = OnceLock::new();
+static PLAYERS_CACHE: OnceLock<AsyncMutex<Option<Arc<PlayersSnapshot>>>> = OnceLock::new();
+
+/// Download a `/ws` bulk endpoint and parse it into `T`.
+///
+/// Read as bytes and parsed with `from_slice` rather than `Response::json`, so
+/// the body is never materialized as a `String` on top of everything else.
+async fn ws_get<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String> {
+    let url = format!("{}{}", API_BASE, path);
+
+    let response = http()
+        .get(&url)
+        .timeout(BULK_TIMEOUT)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("HTTP error: {}", status));
+    }
+
+    let body = response.bytes().await.map_err(|e| e.to_string())?;
+    serde_json::from_slice::<T>(&body)
+        .map_err(|e| format!("Unexpected response from {}: {}", path, e))
+}
+
+/// Every public room, cached.
+///
+/// Callers are serialized on the lock, so a burst of requests during startup
+/// downloads once and the rest wait for that result rather than each starting
+/// their own copy.
+async fn rooms_snapshot() -> Result<Arc<RoomsSnapshot>, String> {
+    let cell = ROOMS_CACHE.get_or_init(|| AsyncMutex::new(None));
+    let mut guard = cell.lock().await;
+
+    if let Some(snap) = guard.as_ref() {
+        if snap.fetched.elapsed() < BULK_TTL {
+            return Ok(snap.clone());
+        }
+    }
+
+    match ws_get::<Vec<RawRoomRecord>>("/ws/getrooms").await {
+        Ok(raw) => {
+            let snap = Arc::new(RoomsSnapshot {
+                rooms: raw.into_iter().filter_map(RoomRow::from_raw).collect(),
+                fetched: Instant::now(),
+            });
+            *guard = Some(snap.clone());
+            Ok(snap)
+        }
+        // A refresh that fails is no reason to throw away a list we already
+        // have: serving it a while longer beats emptying the Rooms tab.
+        Err(e) => guard.as_ref().cloned().ok_or(e),
+    }
+}
+
+/// Every registered player, cached. See [`rooms_snapshot`].
+async fn players_snapshot() -> Result<Arc<PlayersSnapshot>, String> {
+    let cell = PLAYERS_CACHE.get_or_init(|| AsyncMutex::new(None));
+    let mut guard = cell.lock().await;
+
+    if let Some(snap) = guard.as_ref() {
+        if snap.fetched.elapsed() < BULK_TTL {
+            return Ok(snap.clone());
+        }
+    }
+
+    match ws_get::<Vec<RawPlayer>>("/ws/getplayers").await {
+        Ok(raw) => {
+            let mut players: Vec<PlayerRow> =
+                raw.into_iter().filter_map(PlayerRow::from_raw).collect();
+            // The dump arrives in no useful order. Sorting once here is what
+            // lets every later page be a slice.
+            players.sort_by_key(|p| p.id);
+
+            let snap = Arc::new(PlayersSnapshot { players, fetched: Instant::now() });
+            *guard = Some(snap.clone());
+            Ok(snap)
+        }
+        Err(e) => guard.as_ref().cloned().ok_or(e),
+    }
+}
+
 // ─── Normalizers ──────────────────────────────────────────────────────────
 
-/// Reshape a Vanilla room into the PascalCase shape the room grid and detail
-/// view read. `creators` resolves `creatorPlayerId` when known.
-fn normalize_room(room: &Value, creators: Option<&CreatorMap>) -> Value {
-    let creator_id = num_field(room, "creatorPlayerId");
-
-    // A room detail response embeds the full creator object; list rows don't,
-    // hence the batched lookup that fills `creators`.
-    let embedded_creator = room.get("creator");
-    let looked_up = creators.and_then(|m| m.get(&creator_id));
-
-    let creator_username = embedded_creator
-        .and_then(|c| str_field(c, "username"))
-        .map(|s| s.to_string())
-        .or_else(|| {
-            looked_up
-                .map(|c| c.username.clone())
-                .filter(|u| !u.is_empty())
-        })
-        .unwrap_or_else(|| "Unknown".to_string());
-
-    let creator_avatar = embedded_creator
-        .and_then(|c| image_url(str_field(c, "profileImageUrl")))
-        .or_else(|| looked_up.map(|c| c.avatar.clone()).filter(|a| !a.is_empty()))
-        .unwrap_or_default();
+/// Reshape a cached room into the PascalCase shape the room grid and detail
+/// view read. `creators` resolves `CreatorPlayerId` when known.
+fn room_row_json(r: &RoomRow, creators: Option<&CreatorMap>) -> Value {
+    let creator = creators.and_then(|m| m.get(&r.creator_id));
 
     json!({
-        "RoomId": room.get("roomId").cloned().unwrap_or(Value::Null),
-        "Name": str_field(room, "name").unwrap_or(""),
-        "Description": str_field(room, "description").unwrap_or(""),
-        "ImageName": str_field(room, "imageName").unwrap_or(""),
-        "ThumbUrl": image_url(str_field(room, "imageUrl")).unwrap_or_default(),
-        "CreatorUsername": creator_username,
-        "CreatorPlayerId": creator_id,
-        "CreatorAvatarUrl": creator_avatar,
-        "CheerCount": num_field(room, "cheerCount"),
-        "FavoriteCount": num_field(room, "favoriteCount"),
-        "VisitCount": num_field(room, "visitCount"),
-        "ActivePlayerCount": num_field(room, "activePlayerCount"),
-        "CreatedAt": room.get("createdAt").cloned().unwrap_or(Value::Null),
-        "Accessibility": str_field(room, "accessibility").unwrap_or(""),
+        "RoomId": r.id,
+        "Name": r.name,
+        "Description": r.description,
+        "ImageName": r.image_name,
+        "ThumbUrl": image_for_name(&r.image_name),
+        "CreatorUsername": creator
+            .map(|c| c.username.as_str())
+            .filter(|u| !u.is_empty())
+            .unwrap_or("Unknown"),
+        "CreatorPlayerId": r.creator_id,
+        "CreatorAvatarUrl": creator.map(|c| c.avatar.clone()).unwrap_or_default(),
+        "CheerCount": r.cheers,
+        "FavoriteCount": r.favorites,
+        "VisitCount": r.visits,
+        // Vanilla reports no per-room presence anywhere, bulk or proxied.
+        "ActivePlayerCount": 0,
+        "CreatedAt": r.created_at,
+        // Every row in the dump is public — there are no private or dorm rooms
+        // in it — so there is no accessibility distinction to pass on.
+        "Accessibility": "",
     })
 }
 
-/// Reshape a Vanilla player into the camelCase shape the people table reads.
+/// Reshape a cached player into the camelCase shape the people table reads.
+///
+/// `staff` carries the moderator and community-team flags, which exist only on
+/// the proxied record; without it those badges are simply absent rather than
+/// asserted false-by-omission in some louder way.
 ///
 /// `isOnline` is deliberately `null`: Vanilla exposes no presence, and
 /// reporting everyone as offline would be a lie the UI would render as a dot.
-fn normalize_person(p: &Value) -> Value {
+fn player_row_json(p: &PlayerRow, staff: Option<&CreatorInfo>) -> Value {
     json!({
-        "id": p.get("id").cloned().unwrap_or(Value::Null),
-        "userName": str_field(p, "username").unwrap_or(""),
-        "displayName": str_field(p, "displayName").unwrap_or(""),
-        "bio": str_field(p, "bio").unwrap_or(""),
-        "profileImage": str_field(p, "profileImageName").unwrap_or(""),
-        "AvatarUrl": image_url(str_field(p, "profileImageUrl")).unwrap_or_default(),
+        "id": p.id,
+        "userName": p.username,
+        "displayName": p.display_name,
+        "bio": p.bio,
+        "profileImage": p.image_name,
+        "AvatarUrl": image_for_name(&p.image_name),
         "isOnline": Value::Null,
-        "followerCount": num_field(p, "followerCount"),
-        // Staff flags. vanillarec.net drives its own badges off a hardcoded
-        // list in badgeConfig.js, but these booleans are the server's own
-        // answer and can't drift out of date, so the launcher uses them.
-        "isDeveloper": p.get("isDeveloper").cloned().unwrap_or(Value::Bool(false)),
-        "isModerator": p.get("isModerator").cloned().unwrap_or(Value::Bool(false)),
-        "isCommunityTeam": p.get("isCommunityTeam").cloned().unwrap_or(Value::Bool(false)),
-        "createdAt": p.get("createdAt").cloned().unwrap_or(Value::Null),
+        "followerCount": p.subscribers,
+        // The dump carries `Developer`; the other two staff flags come from the
+        // proxied lookup when it answered.
+        "isDeveloper": p.developer || staff.map(|s| s.is_developer).unwrap_or(false),
+        "isModerator": staff.map(|s| s.is_moderator).unwrap_or(false),
+        "isCommunityTeam": staff.map(|s| s.is_community_team).unwrap_or(false),
     })
 }
 
@@ -347,26 +696,34 @@ fn normalize_photo(p: &Value) -> Value {
     })
 }
 
-// ─── Batched creator lookup ───────────────────────────────────────────────
+// ─── Batched player lookup (proxied) ──────────────────────────────────────
 
-/// A player as far as a room or photo card needs them.
+/// A player as far as a room card, photo card or staff badge needs them.
 #[derive(Clone, Default)]
 struct CreatorInfo {
     username: String,
     avatar: String,
+    is_developer: bool,
+    is_moderator: bool,
+    is_community_team: bool,
 }
 
-type CreatorMap = std::collections::HashMap<i64, CreatorInfo>;
+type CreatorMap = HashMap<i64, CreatorInfo>;
 
-/// Resolve player ids to usernames and avatars.
+/// Resolve player ids to names, avatars and staff flags through the proxy.
 ///
-/// Room and photo rows carry only a `creatorPlayerId`, so a page's worth of
-/// them is looked up in one go — the same batching vanillarec.net's own site
-/// does. `players?ids=` caps at [`PLAYERS_BATCH_CAP`] rows, so larger sets are
-/// split into chunks issued concurrently.
+/// Two callers need this even though the bulk player set exists:
 ///
-/// Failures are swallowed: an unresolved creator degrades one card to
-/// "Unknown", which beats failing the whole page over it.
+/// * Room and photo rows carry only a creator id, and the Rooms and FEED tabs
+///   would otherwise have to download the 5 MB player dump to print a name.
+/// * The dump has no moderator or community-team flag, so a page of people is
+///   enriched with the badges for just the rows on screen.
+///
+/// `players?ids=` caps at [`PLAYERS_BATCH_CAP`] rows, so larger sets are split
+/// into chunks issued concurrently.
+///
+/// Failures are swallowed: an unresolved player degrades one card to "Unknown"
+/// or drops a badge, which beats failing the whole page over it.
 async fn resolve_creators(ids: &BTreeSet<i64>) -> CreatorMap {
     let mut map = CreatorMap::new();
     if ids.is_empty() {
@@ -396,6 +753,9 @@ async fn resolve_creators(ids: &BTreeSet<i64>) -> CreatorMap {
                 CreatorInfo {
                     username: str_field(&p, "username").unwrap_or_default().to_string(),
                     avatar: image_url(str_field(&p, "profileImageUrl")).unwrap_or_default(),
+                    is_developer: p["isDeveloper"].as_bool().unwrap_or(false),
+                    is_moderator: p["isModerator"].as_bool().unwrap_or(false),
+                    is_community_team: p["isCommunityTeam"].as_bool().unwrap_or(false),
                 },
             );
         }
@@ -429,344 +789,251 @@ async fn attach_photo_creators(photos: &mut [Value]) {
 
 // ─── Rooms ────────────────────────────────────────────────────────────────
 
-/// Order a room list in place to match one of the launcher's sort buttons.
-///
-/// Vanilla's API has no `sortBy`, but every field the buttons sort on is present
-/// on each list row, so the ordering is applied here over the whole fetched set
-/// (see `ROOM_FETCH_CAP`) rather than page by page — sorting only the visible
-/// page would reorder within a page while leaving the pages themselves wrong.
-///
-/// Sort 0 ("Hot") is the API's own popularity order, so it is left untouched.
-fn sort_rooms(rooms: &mut Vec<Value>, sort_by: i64) {
-    let key = match sort_by {
-        1 => "createdAt",
-        2 => "visitCount",
-        3 => "cheerCount",
-        4 => "favoriteCount",
-        _ => return,
-    };
+/// Split a search box into lowercase words.
+fn search_terms(query: &str) -> Vec<String> {
+    query
+        .to_lowercase()
+        .split_whitespace()
+        .map(|w| w.to_string())
+        .collect()
+}
 
-    if key == "createdAt" {
+/// Order rooms in place to match one of the launcher's sort buttons.
+///
+/// Sort 0 is "Hot", which used to mean "whatever order `rooms/popular` returned".
+/// That order turns out to be cheer count descending — checked over 100 rooms,
+/// where it was monotonic in cheers and in nothing else — so Hot and "Most
+/// Cheered" are one ordering, and it is Vanilla's own.
+///
+/// Every comparison falls back to room id so that two rooms with equal counts
+/// keep a fixed position between pages instead of swapping under the user.
+fn sort_rooms(rooms: &mut [&RoomRow], sort_by: i64) {
+    match sort_by {
         // Timestamps are RFC 3339 from one source, so lexical order is
         // chronological order; newest first.
-        rooms.sort_by(|a, b| {
-            str_field(b, key)
-                .unwrap_or("")
-                .cmp(str_field(a, key).unwrap_or(""))
-        });
-    } else {
-        rooms.sort_by(|a, b| num_field(b, key).cmp(&num_field(a, key)));
+        1 => rooms.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(a.id.cmp(&b.id))),
+        2 => rooms.sort_by(|a, b| b.visits.cmp(&a.visits).then(a.id.cmp(&b.id))),
+        4 => rooms.sort_by(|a, b| b.favorites.cmp(&a.favorites).then(a.id.cmp(&b.id))),
+        _ => rooms.sort_by(|a, b| b.cheers.cmp(&a.cheers).then(a.id.cmp(&b.id))),
     }
 }
 
 pub async fn fetch_rooms(skip: i64, take: i64, query: &str, tag: &str, sort_by: i64) -> Value {
-    let query = query.trim();
-    let tag = tag.trim();
-
-    // Vanilla's search matches names, descriptions AND tags in one `q`, and a
-    // multi-word `q` matches nothing, so the two can't be combined. A typed
-    // search wins; the frontend clears the tag selection to match.
-    let term = if !query.is_empty() { query } else { tag };
-
-    // A one-character query would 400; show an empty page instead of an error.
-    if !term.is_empty() && term.chars().count() < MIN_QUERY_LEN {
-        return json!({
-            "success": true,
-            "data": { "Results": [], "TotalResults": 0 }
-        });
-    }
-
-    // Sorting has to see the whole result set to be correct, so when a sort is
-    // active fetch up to the API's ceiling instead of just this page's window.
-    let count = if sort_by == 0 {
-        fetch_count(skip, take)
-    } else {
-        ROOM_FETCH_CAP
-    };
-
-    let path = if term.is_empty() {
-        format!("/api/website/rooms/popular?count={}", count)
-    } else {
-        format!(
-            "/api/website/rooms/search?q={}&count={}",
-            urlencoding(term),
-            count
-        )
-    };
-
-    let data = match api_get_json(&path).await {
-        Ok(d) => d,
+    let snap = match rooms_snapshot().await {
+        Ok(s) => s,
         Err(e) => return json!({ "success": false, "error": e }),
     };
 
-    let mut rows = results_of(&data);
-    sort_rooms(&mut rows, sort_by);
-    // Fewer rows than we asked for means the API gave us the entire result set,
-    // so the page count that follows is a real one rather than a guess.
-    let complete = (rows.len() as i64) < count;
-    let page = paginate(rows, skip, take, complete);
+    let terms = search_terms(query);
+    let tag = tag.trim().to_lowercase();
 
-    let ids: BTreeSet<i64> = page
-        .rows
+    // A tag and a search now compose. Against Vanilla's own API they could not:
+    // its single `q` matches tags as well as names, so the two collapsed into
+    // one field and the frontend had to clear whichever the user touched last.
+    let mut matched: Vec<&RoomRow> = snap
+        .rooms
         .iter()
-        .map(|r| num_field(r, "creatorPlayerId"))
-        .filter(|id| *id != 0)
+        .filter(|r| tag.is_empty() || r.has_tag(&tag))
+        .filter(|r| terms.is_empty() || r.matches(&terms))
         .collect();
+
+    sort_rooms(&mut matched, sort_by);
+
+    // The whole result set is in hand, so this is a real count, not an estimate
+    // that grows as the user pages.
+    let total = matched.len() as i64;
+    let page: Vec<&RoomRow> = matched
+        .into_iter()
+        .skip(skip.max(0) as usize)
+        .take(take.max(1) as usize)
+        .collect();
+
+    let ids: BTreeSet<i64> = page.iter().map(|r| r.creator_id).filter(|id| *id != 0).collect();
     let creators = resolve_creators(&ids).await;
 
-    let rooms: Vec<Value> = page.rows.iter().map(|r| normalize_room(r, Some(&creators))).collect();
+    let rooms: Vec<Value> = page.iter().map(|r| room_row_json(r, Some(&creators))).collect();
 
     json!({
         "success": true,
-        "data": {
-            "Results": rooms,
-            "TotalResults": page.total,
-            "TotalKnown": page.total_known
-        }
+        "data": { "Results": rooms, "TotalResults": total, "TotalKnown": true }
     })
 }
 
-// ─── Room tags (the Filters rail) ─────────────────────────────────────────
-
-/// Cached tag vocabulary: when it was derived, and the filter payload.
-static TAG_CACHE: OnceLock<Mutex<Option<(Instant, Value)>>> = OnceLock::new();
-
 /// The filter list the Rooms rail renders, in Radium's `fetch_filters` shape.
 ///
-/// Vanilla publishes no tag or filter endpoint, but every room *detail* carries
-/// a `tags` array and `rooms/search` matches tags as well as names. So the
-/// vocabulary is derived: sample the popular rooms, fetch their details
-/// concurrently, and rank the tags by how many of those rooms carry them.
-/// Cached for [`TAG_CACHE_TTL`] so the rail costs one burst per session.
+/// Vanilla publishes no tag or filter endpoint, but every room in the bulk set
+/// carries its tags, so the vocabulary is the exact tally over all of them —
+/// where it used to be inferred from a sample of 40 popular rooms.
 pub async fn fetch_filters() -> Value {
-    if let Some(cached) = TAG_CACHE
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .ok()
-        .and_then(|g| match &*g {
-            Some((at, v)) if at.elapsed() < TAG_CACHE_TTL => Some(v.clone()),
-            _ => None,
-        })
-    {
-        return cached;
-    }
-
-    let value = match derive_tags().await {
-        Ok(tags) => json!({
-            "success": true,
-            // Vanilla has no notion of a pinned tag, so everything lands in
-            // PopularFilters and the rail renders it after "All Rooms".
-            "data": { "PinnedFilters": [], "PopularFilters": tags }
-        }),
+    let Ok(snap) = rooms_snapshot().await else {
         // An empty set is a valid answer; the rail just shows "All Rooms".
-        Err(_) => json!({
+        return json!({
             "success": true,
             "data": { "PinnedFilters": [], "PopularFilters": [] }
-        }),
+        });
     };
 
-    if let Ok(mut guard) = TAG_CACHE.get_or_init(|| Mutex::new(None)).lock() {
-        *guard = Some((Instant::now(), value.clone()));
-    }
-    value
-}
-
-async fn derive_tags() -> Result<Vec<String>, String> {
-    let popular = api_get_json(&format!(
-        "/api/website/rooms/popular?count={}",
-        TAG_SAMPLE_ROOMS
-    ))
-    .await?;
-
-    let ids: Vec<i64> = results_of(&popular)
-        .iter()
-        .filter_map(|r| r.get("roomId").and_then(|v| v.as_i64()))
-        .take(TAG_SAMPLE_ROOMS)
-        .collect();
-    if ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // One round trip rather than N sequential ones.
-    let details = futures_util::future::join_all(
-        ids.into_iter()
-            .map(|id| async move { api_get_json(&format!("/api/website/rooms/{}", id)).await }),
-    )
-    .await;
-
-    let mut tally: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for room in details.into_iter().flatten() {
-        if let Some(tags) = room.get("tags").and_then(|t| t.as_array()) {
-            for entry in tags {
-                if let Some(tag) = str_field(entry, "tag") {
-                    let tag = tag.trim();
-                    // A one-character tag can't be searched (see MIN_QUERY_LEN),
-                    // so offering it as a filter would produce an empty page.
-                    if tag.chars().count() >= MIN_QUERY_LEN {
-                        *tally.entry(tag.to_string()).or_insert(0) += 1;
-                    }
-                }
-            }
+    let mut tally: HashMap<&str, usize> = HashMap::new();
+    for room in &snap.rooms {
+        for tag in room.tags.iter().filter(|t| t.kind == TAG_KIND_CREATOR) {
+            *tally.entry(tag.name.as_str()).or_insert(0) += 1;
         }
     }
 
-    let mut ranked: Vec<(String, usize)> = tally.into_iter().collect();
+    let mut ranked: Vec<(&str, usize)> = tally.into_iter().collect();
     // Count first, then alphabetically so the rail doesn't reshuffle between
     // refreshes when several tags are tied.
-    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
 
-    Ok(ranked
+    let tags: Vec<&str> = ranked
         .into_iter()
         // Drop the long tail of tags only one room uses — they'd fill the rail
         // with dead ends.
         .filter(|(_, n)| *n > 1)
         .map(|(tag, _)| tag)
-        .take(14)
-        .collect())
+        .take(TAG_RAIL_LEN)
+        .collect();
+
+    json!({
+        "success": true,
+        // Vanilla has no notion of a pinned tag, so everything lands in
+        // PopularFilters and the rail renders it after "All Rooms".
+        "data": { "PinnedFilters": [], "PopularFilters": tags }
+    })
+}
+
+/// Resolve one room's creator and render it.
+async fn one_room_json(room: &RoomRow) -> Value {
+    let ids: BTreeSet<i64> = [room.creator_id].into_iter().filter(|id| *id != 0).collect();
+    let creators = resolve_creators(&ids).await;
+    room_row_json(room, Some(&creators))
 }
 
 /// Room detail by numeric id.
 pub async fn fetch_room_details(room_id: &str) -> Value {
-    let path = format!("/api/website/rooms/{}", room_id);
-    match api_get_json(&path).await {
-        Ok(d) => json!({ "success": true, "data": normalize_room(&d, None) }),
-        Err(e) => json!({ "success": false, "error": e }),
-    }
-}
-
-/// Room stats by *name*, matching the scraper-backed Radium command the room
-/// detail view calls. Resolves the name through search, preferring an exact
-/// case-insensitive match.
-pub async fn room_web_details(name: &str) -> Value {
-    let name = name.trim();
-    if name.chars().count() < MIN_QUERY_LEN {
-        return json!({ "success": false, "error": "Room name too short to look up." });
-    }
-
-    let path = format!("/api/website/rooms/search?q={}&count=20", urlencoding(name));
-    let data = match api_get_json(&path).await {
-        Ok(d) => d,
+    let snap = match rooms_snapshot().await {
+        Ok(s) => s,
         Err(e) => return json!({ "success": false, "error": e }),
     };
 
-    let results = results_of(&data);
-    let room = results
-        .iter()
-        .find(|r| str_field(r, "name").map(|n| n.eq_ignore_ascii_case(name)).unwrap_or(false))
-        .or_else(|| results.first());
+    let Ok(id) = room_id.trim().parse::<i64>() else {
+        return json!({ "success": false, "error": "Invalid room id." });
+    };
 
-    let Some(room) = room else {
+    match snap.rooms.iter().find(|r| r.id == id) {
+        Some(room) => json!({ "success": true, "data": one_room_json(room).await }),
+        None => json!({ "success": false, "error": "Room not found." }),
+    }
+}
+
+/// Find a room by name, preferring an exact case-insensitive match over the
+/// first room whose name merely contains it.
+fn find_room_by_name<'a>(snap: &'a RoomsSnapshot, name: &str) -> Option<&'a RoomRow> {
+    let wanted = name.trim().to_lowercase();
+    if wanted.is_empty() {
+        return None;
+    }
+    snap.rooms
+        .iter()
+        .find(|r| r.name_lc == wanted)
+        .or_else(|| snap.rooms.iter().find(|r| r.name_lc.contains(&wanted)))
+}
+
+/// Room stats by *name*, matching the scraper-backed Radium command the room
+/// detail view calls.
+pub async fn room_web_details(name: &str) -> Value {
+    let snap = match rooms_snapshot().await {
+        Ok(s) => s,
+        Err(e) => return json!({ "success": false, "error": e }),
+    };
+
+    let Some(room) = find_room_by_name(&snap, name) else {
         return json!({ "success": false, "error": "Room not found." });
     };
 
-    // Re-fetch by id so the embedded creator (and their avatar) comes back.
-    let detailed = match room.get("roomId").and_then(|v| v.as_i64()) {
-        Some(id) => api_get_json(&format!("/api/website/rooms/{}", id))
-            .await
-            .unwrap_or_else(|_| room.clone()),
-        None => room.clone(),
-    };
-
-    let creator_avatar = detailed
-        .get("creator")
-        .and_then(|c| image_url(str_field(c, "profileImageUrl")))
+    let ids: BTreeSet<i64> = [room.creator_id].into_iter().filter(|id| *id != 0).collect();
+    let creator_avatar = resolve_creators(&ids)
+        .await
+        .get(&room.creator_id)
+        .map(|c| c.avatar.clone())
         .unwrap_or_default();
 
     json!({
         "success": true,
-        "cheers": num_field(&detailed, "cheerCount").to_string(),
-        "favorites": num_field(&detailed, "favoriteCount").to_string(),
-        "visits": num_field(&detailed, "visitCount").to_string(),
-        "description": str_field(&detailed, "description").unwrap_or(""),
+        "cheers": room.cheers.to_string(),
+        "favorites": room.favorites.to_string(),
+        "visits": room.visits.to_string(),
+        "description": room.description,
         "creatorAvatar": creator_avatar,
     })
 }
 
 // ─── People ───────────────────────────────────────────────────────────────
 
-pub async fn fetch_people(skip: i64, take: i64, query: &str) -> Value {
-    let query = query.trim();
-
-    if !query.is_empty() && query.chars().count() < MIN_QUERY_LEN {
-        return json!({
-            "success": true,
-            "data": { "Results": [], "TotalResults": 0 }
-        });
+/// How well a player matches a search, lowest first.
+///
+/// The roster is browsed in join order, but a search should put the person you
+/// typed at the top rather than whoever registered earliest among the matches.
+fn match_rank(p: &PlayerRow, query: &str) -> u8 {
+    if p.username_lc == query || p.display_name_lc == query {
+        0
+    } else if p.username_lc.starts_with(query) || p.display_name_lc.starts_with(query) {
+        1
+    } else {
+        2
     }
-
-    // Searching returns one fixed page of matches; browsing walks the whole
-    // roster and so pages differently. See `browse_players`.
-    if query.is_empty() {
-        return browse_players(skip, take).await;
-    }
-
-    let path = format!("/api/website/players/search?q={}", urlencoding(query));
-    let rows = match api_get_json(&path).await {
-        Ok(d) => results_of(&d),
-        Err(e) => return json!({ "success": false, "error": e }),
-    };
-
-    // A search returns one fixed batch, so its size is the true total.
-    let page = paginate(rows, skip, take, true);
-    let people: Vec<Value> = page.rows.iter().map(normalize_person).collect();
-
-    json!({
-        "success": true,
-        "data": {
-            "Results": people,
-            "TotalResults": page.total,
-            "TotalKnown": page.total_known
-        }
-    })
 }
 
-/// Page through every registered Vanilla player.
-///
-/// There is no browse-all endpoint, but player ids are dense sequential
-/// integers starting at 1 and `players?ids=` takes an explicit list, so a page
-/// is just the id window `skip+1 ..= skip+take`. Ids are handed out at signup,
-/// so this reads as "members in join order" — the earliest accounts first.
-///
-/// Only the window's own ids are requested (never 1..=skip+take), both because
-/// the endpoint caps at [`PLAYERS_BATCH_CAP`] rows and because a fixed-size
-/// request keeps deep pages exactly as cheap as the first.
-async fn browse_players(skip: i64, take: i64) -> Value {
-    let skip = skip.max(0);
-    let take = take.clamp(1, PLAYERS_BATCH_CAP);
-
-    let ids: Vec<String> = (skip + 1..=skip + take).map(|i| i.to_string()).collect();
-    let path = format!("/api/website/players?ids={}", ids.join(","));
-
-    let rows = match api_get_json(&path).await {
-        Ok(d) => results_of(&d),
+pub async fn fetch_people(skip: i64, take: i64, query: &str) -> Value {
+    let snap = match players_snapshot().await {
+        Ok(s) => s,
         Err(e) => return json!({ "success": false, "error": e }),
     };
 
-    // Ids come back in whatever order the API chooses; sort so paging forward
-    // reads continuously rather than reshuffling each page.
-    let mut rows = rows;
-    rows.sort_by_key(|p| p.get("id").and_then(|v| v.as_i64()).unwrap_or(i64::MAX));
+    let query = query.trim().to_lowercase();
 
-    // Deleted accounts leave gaps, so a short page does not mean the end of the
-    // roster — only an entirely empty one does. Report one page further than
-    // we've shown until that happens, which is what keeps Next enabled. The
-    // roster's real size is unknowable from here, so it is never claimed: the
-    // UI shows "Page N" rather than an "of N" that would grow as you page.
-    let exhausted = rows.is_empty();
-    let total = if exhausted { skip } else { skip + take + 1 };
+    let mut matched: Vec<&PlayerRow> = if query.is_empty() {
+        snap.players.iter().collect()
+    } else {
+        snap.players
+            .iter()
+            .filter(|p| p.username_lc.contains(&query) || p.display_name_lc.contains(&query))
+            .collect()
+    };
 
-    let people: Vec<Value> = rows.iter().map(normalize_person).collect();
+    if !query.is_empty() {
+        // Stable within a rank, so equally-good matches stay in join order.
+        matched.sort_by_key(|p| match_rank(p, &query));
+    }
+
+    let total = matched.len() as i64;
+    let page: Vec<&PlayerRow> = matched
+        .into_iter()
+        .skip(skip.max(0) as usize)
+        .take(take.max(1) as usize)
+        .collect();
+
+    // The bulk record has no moderator or community-team flag, so the rows on
+    // screen — and only those — get them from the proxied lookup.
+    let ids: BTreeSet<i64> = page.iter().map(|p| p.id).collect();
+    let staff = resolve_creators(&ids).await;
+
+    let people: Vec<Value> = page
+        .iter()
+        .map(|p| player_row_json(p, staff.get(&p.id)))
+        .collect();
+
     json!({
         "success": true,
-        "data": {
-            "Results": people,
-            "TotalResults": total,
-            "TotalKnown": exhausted
-        }
+        "data": { "Results": people, "TotalResults": total, "TotalKnown": true }
     })
 }
 
 /// Player stats by *username*, matching the scraper-backed Radium command.
+///
+/// Still proxied rather than read from the bulk set: a profile is often opened
+/// without ever visiting the People tab, and one small lookup beats downloading
+/// the whole roster to render one header.
 pub async fn user_web_details(username: &str) -> Value {
     let username = username.trim();
     if username.chars().count() < MIN_QUERY_LEN {
@@ -825,24 +1092,42 @@ pub async fn fetch_user_photos(user_id: &str, skip: i64, take: i64) -> Value {
     }
 }
 
+/// The rooms a player created.
+///
+/// Served from the cached room set: `players/{id}/rooms` returns the same rooms
+/// but one page has to come back before we know how many there are, and this
+/// way a creator with 200 rooms pages properly. Co-owned rooms are not counted
+/// here, matching what the endpoint it replaces returned.
 pub async fn fetch_user_rooms(user_id: &str, skip: i64, take: i64) -> Value {
-    let path = format!("/api/website/players/{}/rooms", user_id);
-    match api_get_json(&path).await {
-        Ok(d) => {
-            let page = paginate(results_of(&d), skip, take, true);
-            let ids: BTreeSet<i64> = page
-                .rows
-                .iter()
-                .map(|r| num_field(r, "creatorPlayerId"))
-                .filter(|id| *id != 0)
-                .collect();
-            let creators = resolve_creators(&ids).await;
-            let rooms: Vec<Value> = page.rows.iter().map(|r| normalize_room(r, Some(&creators))).collect();
-            json!({ "success": true, "data": {
-                "Results": rooms, "TotalResults": page.total, "TotalKnown": page.total_known } })
-        }
-        Err(e) => json!({ "success": false, "error": e }),
-    }
+    let snap = match rooms_snapshot().await {
+        Ok(s) => s,
+        Err(e) => return json!({ "success": false, "error": e }),
+    };
+
+    let Ok(id) = user_id.trim().parse::<i64>() else {
+        return json!({ "success": false, "error": "Invalid player id." });
+    };
+
+    let mut matched: Vec<&RoomRow> = snap.rooms.iter().filter(|r| r.creator_id == id).collect();
+    sort_rooms(&mut matched, 0);
+
+    let total = matched.len() as i64;
+    let page: Vec<&RoomRow> = matched
+        .into_iter()
+        .skip(skip.max(0) as usize)
+        .take(take.max(1) as usize)
+        .collect();
+
+    // One creator, so the avatar and name are a single lookup for the page.
+    let ids: BTreeSet<i64> = [id].into_iter().collect();
+    let creators = resolve_creators(&ids).await;
+
+    let rooms: Vec<Value> = page.iter().map(|r| room_row_json(r, Some(&creators))).collect();
+
+    json!({
+        "success": true,
+        "data": { "Results": rooms, "TotalResults": total, "TotalKnown": true }
+    })
 }
 
 /// Recent photo feed. Also backs the room-photos view, which filters this feed
@@ -887,6 +1172,30 @@ fn urlencoding(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// A bulk room record as `/ws/getrooms` publishes it.
+    fn raw_room(id: i64, name: &str, cheers: i64, favs: i64, visits: i64, created: &str) -> Value {
+        json!({
+            "Room": {
+                "RoomId": id, "Name": name, "Description": "",
+                "ImageName": format!("vnlaroom_{}", id), "CreatorPlayerId": 42,
+                "CreatedAt": created, "CheerCount": cheers, "FavoriteCount": favs
+            },
+            "CheerCount": cheers, "FavoriteCount": favs, "VisitCount": visits,
+            "Tags": []
+        })
+    }
+
+    fn room_row(id: i64, name: &str, cheers: i64, favs: i64, visits: i64, created: &str) -> RoomRow {
+        RoomRow::from_raw(
+            serde_json::from_value(raw_room(id, name, cheers, favs, visits, created)).unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn names<'a>(rooms: &[&'a RoomRow]) -> Vec<&'a str> {
+        rooms.iter().map(|r| r.name.as_str()).collect()
+    }
+
     #[test]
     fn image_url_keeps_existing_cachebuster() {
         // Avatar URLs come back with a query already attached; rebuilding from
@@ -897,6 +1206,220 @@ mod tests {
         );
         assert_eq!(image_url(Some("")), None);
         assert_eq!(image_url(None), None);
+    }
+
+    #[test]
+    fn image_for_name_matches_the_website_url() {
+        // The bulk dumps name the image; the website API spells out the path.
+        // Both must land on the same URL or every thumbnail 404s.
+        assert_eq!(
+            image_for_name("95_webso?1779688409249"),
+            "https://api.vanillarec.net/images/95_webso?1779688409249"
+        );
+        assert_eq!(image_for_name(""), "");
+        assert_eq!(image_for_name("   "), "");
+    }
+
+    #[test]
+    fn room_takes_the_higher_of_the_two_cheer_counts() {
+        // The outer aggregate reads 0 on cloned rooms while the room's own
+        // counter holds the real number; on busy rooms it is the counter that
+        // lags. Taking the larger is what matched Vanilla's site on all 100
+        // rooms compared.
+        let cloned: RawRoomRecord = serde_json::from_value(json!({
+            "Room": { "RoomId": 1, "CheerCount": 310, "FavoriteCount": 890 },
+            "CheerCount": 0, "FavoriteCount": 4, "VisitCount": 1073
+        }))
+        .unwrap();
+        let row = RoomRow::from_raw(cloned).unwrap();
+        assert_eq!(row.cheers, 310);
+        assert_eq!(row.favorites, 890);
+
+        let busy: RawRoomRecord = serde_json::from_value(json!({
+            "Room": { "RoomId": 13, "CheerCount": 499, "FavoriteCount": 1309 },
+            "CheerCount": 504, "FavoriteCount": 1314, "VisitCount": 223197
+        }))
+        .unwrap();
+        let row = RoomRow::from_raw(busy).unwrap();
+        assert_eq!(row.cheers, 504);
+        assert_eq!(row.favorites, 1314);
+    }
+
+    #[test]
+    fn room_record_without_a_room_is_skipped_not_fatal() {
+        // One malformed row must not empty the Rooms tab.
+        let raw: RawRoomRecord = serde_json::from_value(json!({ "CheerCount": 3 })).unwrap();
+        assert!(RoomRow::from_raw(raw).is_none());
+    }
+
+    #[test]
+    fn search_matches_words_across_different_fields() {
+        // Vanilla's own search takes one word and matches nothing for two. The
+        // point of doing it locally is that "horror quest" can find a room
+        // named for one and tagged with the other.
+        let raw: RawRoomRecord = serde_json::from_value(json!({
+            "Room": { "RoomId": 7, "Name": "HorrorHouse", "Description": "spooky" },
+            "Tags": [{ "Tag": "quest", "Type": 0 }]
+        }))
+        .unwrap();
+        let row = RoomRow::from_raw(raw).unwrap();
+
+        assert!(row.matches(&search_terms("horror quest")));
+        assert!(row.matches(&search_terms("SPOOKY")), "matching is case-insensitive");
+        assert!(!row.matches(&search_terms("horror pinball")));
+        assert!(row.matches(&search_terms("")), "an empty search excludes nothing");
+    }
+
+    #[test]
+    fn tag_match_is_exact_not_a_substring() {
+        // "pvp" must not be dragged in by a room tagged "pvparena", or the
+        // filter quietly widens.
+        let raw: RawRoomRecord = serde_json::from_value(json!({
+            "Room": { "RoomId": 8, "Name": "Arena" },
+            "Tags": [{ "Tag": "PvPArena", "Type": 0 }]
+        }))
+        .unwrap();
+        let row = RoomRow::from_raw(raw).unwrap();
+        assert!(row.has_tag("pvparena"), "tags are folded to lowercase");
+        assert!(!row.has_tag("pvp"));
+    }
+
+    #[test]
+    fn sort_hot_and_cheered_are_the_same_order() {
+        // Measured: `rooms/popular` is descending cheer count and nothing else,
+        // so "Hot" is not a separate ranking we'd be discarding.
+        let a = room_row(1, "low", 1, 1, 1, "2020-01-01T00:00:00Z");
+        let b = room_row(2, "high", 9, 9, 9, "2026-01-01T00:00:00Z");
+
+        let mut hot = vec![&a, &b];
+        sort_rooms(&mut hot, 0);
+        assert_eq!(names(&hot), ["high", "low"]);
+
+        let mut cheered = vec![&a, &b];
+        sort_rooms(&mut cheered, 3);
+        assert_eq!(names(&cheered), ["high", "low"]);
+    }
+
+    #[test]
+    fn sort_orders_by_each_counter_descending() {
+        let low = room_row(1, "low", 1, 20, 300, "2021-05-01T00:00:00Z");
+        let high = room_row(2, "high", 500, 5, 2, "2020-01-01T00:00:00Z");
+        let mid = room_row(3, "mid", 50, 900, 40, "2026-09-01T00:00:00Z");
+        let base = || vec![&low, &high, &mid];
+
+        let mut r = base();
+        sort_rooms(&mut r, 1); // Newest
+        assert_eq!(names(&r), ["mid", "low", "high"]);
+
+        let mut r = base();
+        sort_rooms(&mut r, 2); // Most Visited
+        assert_eq!(names(&r), ["low", "mid", "high"]);
+
+        let mut r = base();
+        sort_rooms(&mut r, 3); // Most Cheered
+        assert_eq!(names(&r), ["high", "mid", "low"]);
+
+        let mut r = base();
+        sort_rooms(&mut r, 4); // Most Favorited
+        assert_eq!(names(&r), ["mid", "low", "high"]);
+    }
+
+    #[test]
+    fn sort_breaks_ties_by_id_so_pages_dont_shuffle() {
+        // Two rooms on the same count must not swap between page 1 and page 2,
+        // which would drop one room and repeat the other.
+        let a = room_row(9, "nine", 5, 5, 5, "2026-01-01T00:00:00Z");
+        let b = room_row(4, "four", 5, 5, 5, "2026-01-01T00:00:00Z");
+
+        let mut asc = vec![&a, &b];
+        sort_rooms(&mut asc, 3);
+        let mut desc = vec![&b, &a];
+        sort_rooms(&mut desc, 3);
+        assert_eq!(names(&asc), names(&desc), "order must not depend on input order");
+        assert_eq!(names(&asc), ["four", "nine"]);
+    }
+
+    #[test]
+    fn room_without_creator_lookup_degrades_to_unknown() {
+        let row = room_row(5, "RecCenter", 0, 0, 0, "2026-01-01T00:00:00Z");
+        let out = room_row_json(&row, None);
+        assert_eq!(out["CreatorUsername"], "Unknown");
+        assert_eq!(out["Name"], "RecCenter");
+        assert_eq!(out["ThumbUrl"], "https://api.vanillarec.net/images/vnlaroom_5");
+    }
+
+    #[test]
+    fn room_uses_the_looked_up_creator_when_there_is_one() {
+        let row = room_row(5, "RecCenter", 0, 0, 0, "2026-01-01T00:00:00Z");
+        let mut map = CreatorMap::new();
+        map.insert(
+            42,
+            CreatorInfo {
+                username: "Nilla".into(),
+                avatar: "https://api.vanillarec.net/images/42".into(),
+                ..Default::default()
+            },
+        );
+        let out = room_row_json(&row, Some(&map));
+        assert_eq!(out["CreatorUsername"], "Nilla");
+        assert_eq!(out["CreatorAvatarUrl"], "https://api.vanillarec.net/images/42");
+    }
+
+    fn player(id: i64, username: &str, display: &str) -> PlayerRow {
+        PlayerRow::from_raw(
+            serde_json::from_value(json!({
+                "Id": id, "Username": username, "DisplayName": display,
+                "Bio": "hi", "ProfileImageName": format!("{}", id),
+                "Developer": false,
+                "PlayerReputation": { "SubscriberCount": 7 }
+            }))
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn person_online_state_is_unknown_not_offline() {
+        // Vanilla has no presence API. Reporting `false` would render everyone
+        // with an "offline" dot, which asserts something we don't know.
+        let out = player_row_json(&player(2, "Nilla", "Nilla"), None);
+        assert!(out["isOnline"].is_null());
+        assert_eq!(out["userName"], "Nilla");
+        assert_eq!(out["followerCount"], 7);
+        assert_eq!(out["AvatarUrl"], "https://api.vanillarec.net/images/2");
+    }
+
+    #[test]
+    fn staff_badges_come_from_the_proxied_lookup() {
+        // The bulk dump has `Developer` and nothing else, so a moderator shows
+        // no MOD badge until the per-page lookup fills it in — and the absence
+        // of that lookup must not turn a developer into a non-developer.
+        let p = player(3, "Mod", "Mod");
+        let bare = player_row_json(&p, None);
+        assert_eq!(bare["isModerator"], false);
+
+        let staff = CreatorInfo {
+            is_developer: true,
+            is_moderator: true,
+            is_community_team: false,
+            ..Default::default()
+        };
+        let enriched = player_row_json(&p, Some(&staff));
+        assert_eq!(enriched["isModerator"], true);
+        assert_eq!(enriched["isDeveloper"], true);
+        assert_eq!(enriched["isCommunityTeam"], false);
+    }
+
+    #[test]
+    fn search_puts_the_exact_name_first() {
+        let exact = player(1, "nilla", "nilla");
+        let prefix = player(2, "nillabean", "nillabean");
+        let middle = player(3, "notnilla", "notnilla");
+
+        let mut rows = vec![&middle, &prefix, &exact];
+        rows.sort_by_key(|p| match_rank(p, "nilla"));
+        let got: Vec<&str> = rows.iter().map(|p| p.username.as_str()).collect();
+        assert_eq!(got, ["nilla", "nillabean", "notnilla"]);
     }
 
     #[test]
@@ -946,98 +1469,6 @@ mod tests {
         assert_eq!(fetch_count(0, 12), 13);
         assert_eq!(fetch_count(24, 12), 37);
         assert_eq!(fetch_count(10_000, 12), MAX_FETCH_COUNT);
-    }
-
-    #[test]
-    fn room_without_creator_lookup_degrades_to_unknown() {
-        let room = json!({ "roomId": 5, "name": "RecCenter", "creatorPlayerId": 42 });
-        let out = normalize_room(&room, None);
-        assert_eq!(out["CreatorUsername"], "Unknown");
-        assert_eq!(out["Name"], "RecCenter");
-    }
-
-    #[test]
-    fn room_prefers_embedded_creator_over_lookup() {
-        let mut map = CreatorMap::new();
-        map.insert(
-            42,
-            CreatorInfo { username: "FromLookup".into(), avatar: String::new() },
-        );
-        let room = json!({
-            "roomId": 5,
-            "creatorPlayerId": 42,
-            "creator": { "username": "Embedded", "profileImageUrl": "/images/42" }
-        });
-        let out = normalize_room(&room, Some(&map));
-        assert_eq!(out["CreatorUsername"], "Embedded");
-        assert_eq!(out["CreatorAvatarUrl"], "https://api.vanillarec.net/images/42");
-    }
-
-    #[test]
-    fn person_online_state_is_unknown_not_offline() {
-        // Vanilla has no presence API. Reporting `false` would render everyone
-        // with an "offline" dot, which asserts something we don't know.
-        let out = normalize_person(&json!({ "id": 2, "username": "Nilla" }));
-        assert!(out["isOnline"].is_null());
-        assert_eq!(out["userName"], "Nilla");
-    }
-
-    fn room(name: &str, cheers: i64, visits: i64, favs: i64, created: &str) -> Value {
-        json!({
-            "name": name, "cheerCount": cheers, "visitCount": visits,
-            "favoriteCount": favs, "createdAt": created
-        })
-    }
-
-    fn names(rooms: &[Value]) -> Vec<&str> {
-        rooms.iter().map(|r| r["name"].as_str().unwrap()).collect()
-    }
-
-    #[test]
-    fn sort_hot_is_left_in_the_api_order() {
-        // Vanilla's own popularity ranking is what "Hot" means; re-ordering it
-        // would replace their ranking with a worse one.
-        let mut rooms = vec![
-            room("A", 1, 1, 1, "2020-01-01T00:00:00Z"),
-            room("B", 9, 9, 9, "2026-01-01T00:00:00Z"),
-        ];
-        sort_rooms(&mut rooms, 0);
-        assert_eq!(names(&rooms), ["A", "B"]);
-    }
-
-    #[test]
-    fn sort_orders_by_each_counter_descending() {
-        let base = || {
-            vec![
-                room("low", 1, 300, 20, "2021-05-01T00:00:00Z"),
-                room("high", 500, 2, 5, "2020-01-01T00:00:00Z"),
-                room("mid", 50, 40, 900, "2026-09-01T00:00:00Z"),
-            ]
-        };
-
-        let mut r = base();
-        sort_rooms(&mut r, 1); // Newest
-        assert_eq!(names(&r), ["mid", "low", "high"]);
-
-        let mut r = base();
-        sort_rooms(&mut r, 2); // Most Visited
-        assert_eq!(names(&r), ["low", "mid", "high"]);
-
-        let mut r = base();
-        sort_rooms(&mut r, 3); // Most Cheered
-        assert_eq!(names(&r), ["high", "mid", "low"]);
-
-        let mut r = base();
-        sort_rooms(&mut r, 4); // Most Favorited
-        assert_eq!(names(&r), ["mid", "low", "high"]);
-    }
-
-    #[test]
-    fn sort_tolerates_missing_fields() {
-        // A row without the sort key must not panic or jump the queue.
-        let mut rooms = vec![json!({ "name": "bare" }), room("full", 10, 10, 10, "2026-01-01T00:00:00Z")];
-        sort_rooms(&mut rooms, 3);
-        assert_eq!(names(&rooms), ["full", "bare"]);
     }
 
     #[test]
@@ -1096,5 +1527,185 @@ mod tests {
         assert_eq!(urlencoding("rec room"), "rec%20room");
         assert_eq!(urlencoding("a&b=c"), "a%26b%3Dc");
         assert_eq!(urlencoding("Nilla-1_2.3~"), "Nilla-1_2.3~");
+    }
+
+    // ── Live endpoint checks ──
+    //
+    // Ignored by default: these hit Vanilla over the network, so they are not
+    // part of a normal `cargo test`. Run them with
+    // `cargo test --lib -- --ignored --nocapture` when Rooms or People break —
+    // they are what tells apart "their payload changed shape" from a bug here.
+
+    #[tokio::test]
+    #[ignore = "hits api.vanillarec.net"]
+    async fn live_room_dump_still_parses() {
+        let snap = rooms_snapshot().await.expect("/ws/getrooms should answer");
+
+        assert!(snap.rooms.len() > 1000, "only {} rooms parsed", snap.rooms.len());
+        assert!(
+            snap.rooms.iter().all(|r| r.id != 0),
+            "a room came through without an id"
+        );
+        assert!(
+            snap.rooms.iter().filter(|r| !r.name.is_empty()).count() * 10 > snap.rooms.len() * 9,
+            "most rooms should have a name; the field may have been renamed"
+        );
+        assert!(
+            snap.rooms.iter().any(|r| r.visits > 0),
+            "VisitCount is the one counter with no fallback — it must arrive"
+        );
+        assert!(
+            snap.rooms
+                .iter()
+                .any(|r| r.tags.iter().any(|t| t.kind == TAG_KIND_CREATOR)),
+            "no creator tags found, so the Filters rail would be empty"
+        );
+
+        // The Rec Center is room 2 on every Rec Room revival and is the one row
+        // safe to assert by name.
+        let hub = snap.rooms.iter().find(|r| r.id == 2).expect("room 2 should exist");
+        assert!(hub.cheers > 0 && hub.favorites > 0 && hub.visits > 0);
+        println!(
+            "rooms: {} parsed; room 2 = {:?} ({} cheers, {} visits)",
+            snap.rooms.len(),
+            hub.name,
+            hub.cheers,
+            hub.visits
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "hits api.vanillarec.net"]
+    async fn live_player_dump_still_parses() {
+        let snap = players_snapshot().await.expect("/ws/getplayers should answer");
+
+        assert!(snap.players.len() > 1000, "only {} players parsed", snap.players.len());
+        assert!(
+            snap.players.windows(2).all(|w| w[0].id <= w[1].id),
+            "the roster must be sorted by id or paging is not a slice"
+        );
+        assert!(
+            snap.players.iter().filter(|p| !p.username.is_empty()).count() * 10
+                > snap.players.len() * 9,
+            "most players should have a username"
+        );
+        assert!(
+            snap.players.iter().any(|p| p.subscribers > 0),
+            "SubscriberCount is nested under PlayerReputation; a rename would zero every profile"
+        );
+        assert!(
+            snap.players.iter().any(|p| p.developer),
+            "no developer flag anywhere, so the DEV badge would never show"
+        );
+        println!("players: {} parsed", snap.players.len());
+    }
+
+    /// Everything the Rooms and People tabs actually call, against live data.
+    #[tokio::test]
+    #[ignore = "hits api.vanillarec.net"]
+    async fn live_commands_return_usable_pages() {
+        let hot = fetch_rooms(0, 12, "", "", 0).await;
+        assert_eq!(hot["success"], true, "fetch_rooms failed: {}", hot);
+        let rows = hot["data"]["Results"].as_array().unwrap();
+        assert_eq!(rows.len(), 12);
+        assert_eq!(hot["data"]["TotalKnown"], true, "the room total is now exact");
+        assert!(hot["data"]["TotalResults"].as_i64().unwrap() > 1000);
+        assert!(
+            !rows[0]["ThumbUrl"].as_str().unwrap().is_empty(),
+            "a room card with no thumbnail URL"
+        );
+        assert_ne!(
+            rows[0]["CreatorUsername"], "Unknown",
+            "the per-page creator lookup did not resolve"
+        );
+        println!(
+            "hot page 1: {} of {}, first = {} by {}",
+            rows.len(),
+            hot["data"]["TotalResults"],
+            rows[0]["Name"],
+            rows[0]["CreatorUsername"]
+        );
+
+        // Page 2 must not repeat page 1, and the total must not move.
+        let next = fetch_rooms(12, 12, "", "", 0).await;
+        assert_eq!(
+            next["data"]["TotalResults"], hot["data"]["TotalResults"],
+            "the total moved between pages"
+        );
+        assert_ne!(next["data"]["Results"][0]["RoomId"], rows[0]["RoomId"]);
+
+        // The two-word search that matched nothing against their own API.
+        let combo = fetch_rooms(0, 12, "rec center", "", 0).await;
+        assert_eq!(combo["success"], true);
+        assert!(
+            combo["data"]["TotalResults"].as_i64().unwrap() > 0,
+            "a multi-word search still finds nothing"
+        );
+
+        // A tag and a search together — impossible before.
+        let both = fetch_rooms(0, 12, "arena", "pvp", 0).await;
+        assert_eq!(both["success"], true, "tag + query failed: {}", both);
+
+        let filters = fetch_filters().await;
+        let tags = filters["data"]["PopularFilters"].as_array().unwrap();
+        assert!(!tags.is_empty(), "the Filters rail came back empty");
+        println!("filters: {:?}", tags);
+
+        // Every tag the rail offers must lead somewhere, and nowhere near
+        // everywhere: `community` is a creator tag on ~61 rooms but a
+        // server-applied one on 6,697, and clicking it must mean the former.
+        for tag in tags {
+            let tag = tag.as_str().unwrap();
+            let page = fetch_rooms(0, 12, "", tag, 0).await;
+            let hits = page["data"]["TotalResults"].as_i64().unwrap();
+            assert!(hits > 0, "the rail offers {tag:?} but it matches no rooms");
+            assert!(
+                hits < 5000,
+                "{tag:?} matched {hits} rooms — a server-applied tag has leaked into the filter"
+            );
+        }
+
+        let people = fetch_people(0, 12, "").await;
+        assert_eq!(people["success"], true, "fetch_people failed: {}", people);
+        let rows = people["data"]["Results"].as_array().unwrap();
+        assert_eq!(rows.len(), 12);
+        assert_eq!(people["data"]["TotalKnown"], true, "the roster total is now exact");
+        assert!(rows[0]["isOnline"].is_null(), "presence must stay tri-state");
+
+        // Searching the roster at all is new; it had no browse-all endpoint.
+        let found = fetch_people(0, 12, "nilla").await;
+        assert!(
+            found["data"]["TotalResults"].as_i64().unwrap() > 0,
+            "player search found nobody"
+        );
+        println!(
+            "people: {} total, search hit = {}",
+            people["data"]["TotalResults"], found["data"]["Results"][0]["userName"]
+        );
+    }
+
+    /// The bulk set and the proxied record must agree, because the launcher
+    /// shows them side by side: the People row comes from the dump and the
+    /// badges on that same row come from the proxy.
+    #[tokio::test]
+    #[ignore = "hits api.vanillarec.net"]
+    async fn live_bulk_and_proxied_players_agree() {
+        let snap = players_snapshot().await.expect("/ws/getplayers should answer");
+
+        let sample: Vec<&PlayerRow> = snap.players.iter().take(10).collect();
+        let ids: BTreeSet<i64> = sample.iter().map(|p| p.id).collect();
+        let proxied = resolve_creators(&ids).await;
+        assert!(!proxied.is_empty(), "the proxy answered nothing; check the Referer gate");
+
+        for p in sample {
+            let Some(info) = proxied.get(&p.id) else { continue };
+            assert_eq!(info.username, p.username, "username disagrees for id {}", p.id);
+            assert_eq!(
+                info.avatar,
+                image_for_name(&p.image_name),
+                "avatar URL disagrees for id {} — thumbnails would 404",
+                p.id
+            );
+        }
     }
 }

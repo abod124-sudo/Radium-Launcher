@@ -9,9 +9,20 @@ pub(crate) const USER_AGENT: &str = "Radium-Launcher";
 
 /// Process-wide reqwest client (connection pool reuse). Timeouts are applied
 /// per-request via `.timeout()` since callers want different limits.
+///
+/// Compression is negotiated on every request. It costs nothing on the small
+/// JSON calls and is what makes Vanilla's bulk `/ws` endpoints usable at all:
+/// its room dump is 11.4 MB of JSON that arrives as 1.0 MB of brotli, and the
+/// player dump 51.6 MB as 5.3 MB.
 pub(crate) fn http() -> &'static Client {
     static HTTP: OnceLock<Client> = OnceLock::new();
-    HTTP.get_or_init(|| Client::builder().build().unwrap_or_else(|_| Client::new()))
+    HTTP.get_or_init(|| {
+        Client::builder()
+            .gzip(true)
+            .brotli(true)
+            .build()
+            .unwrap_or_else(|_| Client::new())
+    })
 }
 
 /// Shared GET helper with User-Agent header and 10s timeout.
@@ -147,8 +158,9 @@ pub async fn fetch_rooms(args: Value) -> Value {
         .to_string();
 
     if network_of(&args) == Network::Vanilla {
-        // Vanilla has no server-side tag or sort parameter; both are applied
-        // inside the module (tags via search, sorting over the fetched set).
+        // Vanilla has no server-side search, tag, sort or skip parameter. Its
+        // whole public room set is cached in the module instead, so all four
+        // are applied there over every room rather than over one API page.
         return vanilla::fetch_rooms(skip, take, &query, &tag, sort_by).await;
     }
 
@@ -215,8 +227,8 @@ pub async fn fetch_people(args: Value) -> Value {
 #[tauri::command]
 pub async fn fetch_filters(network: Option<String>) -> Value {
     if Network::parse(network.as_deref()) == Network::Vanilla {
-        // Vanilla publishes no filter endpoint, so the tag list is derived from
-        // the rooms themselves and cached. See vanilla::fetch_filters.
+        // Vanilla publishes no filter endpoint, so the tag list is tallied from
+        // the cached room set. See vanilla::fetch_filters.
         return vanilla::fetch_filters().await;
     }
 

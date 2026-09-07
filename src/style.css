@@ -863,6 +863,35 @@ body.theme-blackandwhite-inverted ::-webkit-scrollbar-thumb {
   border-radius: 4px !important;
   border: none !important;
 }
+/* The modern skins set `background` with !important, so the base hover can't
+   reach them — they need their own. Kept as a plain opacity step rather than
+   the accent colour: --bg-btn *is* the accent here, and an accent-coloured
+   scrollbar competes with the buttons for attention. */
+body.theme-moderndark ::-webkit-scrollbar-thumb:hover,
+body.theme-moderngreen ::-webkit-scrollbar-thumb:hover,
+body.theme-blackandwhite ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+}
+body.theme-moderndark ::-webkit-scrollbar-thumb:active,
+body.theme-moderngreen ::-webkit-scrollbar-thumb:active,
+body.theme-blackandwhite ::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.34) !important;
+}
+body.theme-modernlight ::-webkit-scrollbar-thumb:hover,
+body.theme-blackandwhite-inverted ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.24) !important;
+}
+body.theme-modernlight ::-webkit-scrollbar-thumb:active,
+body.theme-blackandwhite-inverted ::-webkit-scrollbar-thumb:active {
+  background: rgba(0, 0, 0, 0.36) !important;
+}
+body.theme-moderndark ::-webkit-scrollbar-corner,
+body.theme-moderngreen ::-webkit-scrollbar-corner,
+body.theme-modernlight ::-webkit-scrollbar-corner,
+body.theme-blackandwhite ::-webkit-scrollbar-corner,
+body.theme-blackandwhite-inverted ::-webkit-scrollbar-corner {
+  background: var(--bg-dark) !important;
+}
 
 /* Titlebar & Controls */
 body.theme-moderndark .titlebar,
@@ -1476,6 +1505,27 @@ a:hover, .text-link:hover {
   background: var(--bg-panel);
   border: 1px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  /* An infinite feed otherwise shrinks the thumb to a few pixels you can't
+     grab. Deliberately set here and nowhere else: no theme overrides
+     min-height, so every skin inherits the floor while keeping its own look. */
+  min-height: 32px;
+}
+/* Base-theme feedback only. The skins that already draw their own thumb
+   (win7, winxp, vista, aqua, steam, royale, recroom) declare these too, and
+   win95/98 deliberately go without — a Win9x scrollbar does not light up. */
+::-webkit-scrollbar-thumb:hover {
+  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
+  filter: brightness(1.25);
+}
+::-webkit-scrollbar-thumb:active {
+  /* Bevel inverted, the way a pressed control reads in this skin. */
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  filter: brightness(0.9);
+}
+/* Where a vertical and a horizontal bar meet — the rooms and people tables
+   scroll both ways, and this square was rendering as a bright gap. */
+::-webkit-scrollbar-corner {
+  background: var(--bg-dark);
 }
 ::-webkit-scrollbar-button {
   display: none !important;
@@ -3807,6 +3857,198 @@ html body.theme-win7 ::-webkit-scrollbar-thumb:hover {
   padding-bottom: 2px;
 }
 
+/* An author `display` rule beats the UA sheet's `[hidden] { display: none }`
+   whatever its specificity, so any flex/grid element toggled with the `hidden`
+   attribute stays visible. That has now caught us twice (the network menu, then
+   the photo-detail stats), so it is settled once here for the whole app. */
+[hidden] { display: none !important; }
+
+/* ── Photo detail ─────────────────────────────────────────────────────────
+   These were inline styles on the elements, which meant no theme could touch
+   them and no state (hover, hidden) could be expressed. Everything below is
+   deliberately built from the same tokens the rest of the app uses, so the 18
+   skins restyle it for free — and the boxes keep their `bevel-inset` class,
+   which is what the per-theme `#tab-photo-detail .bevel-inset` rules hook. */
+
+.photo-detail-img-wrap {
+  position: relative;
+  width: 100%;
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  background: var(--bg-panel);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-in;
+}
+#photoDetailImage {
+  /* Capping height alone while forcing width:100% squashed the box and left
+     object-fit to letterbox it. Capping both dimensions and letting the
+     other be auto keeps the real aspect ratio with no bars. The viewport
+     unit means a maximized window shows a genuinely bigger photo. */
+  max-width: 100%;
+  max-height: min(52vh, 560px);
+  width: auto;
+  height: auto;
+  display: block;
+}
+.photo-detail-zoom-hint {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  padding: 3px 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.photo-detail-img-wrap:hover .photo-detail-zoom-hint { opacity: 1; }
+
+#photoDetailInfoBlock {
+  background: var(--bg-panel);
+  padding: 12px;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  box-sizing: border-box;
+}
+/* Narrow windows: the creator and room boxes stop fitting side by side long
+   before the caption does. */
+@media (max-width: 620px) {
+  #photoDetailInfoBlock { grid-template-columns: 1fr; }
+}
+
+.photo-detail-box {
+  background: var(--bg-dark);
+  padding: 8px;
+  box-sizing: border-box;
+}
+.photo-detail-span { grid-column: 1 / -1; }
+
+.photo-detail-creator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+}
+.photo-detail-creator img {
+  width: 34px;
+  height: 34px;
+  border-radius: 5px;
+  object-fit: cover;
+  border: 1px solid var(--border-dark);
+  flex-shrink: 0;
+}
+.photo-detail-creator-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  overflow: hidden;
+  min-width: 0;
+}
+.photo-detail-creator-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#photoDetailCreatorName { font-weight: bold; font-size: 11.5px; color: var(--text); }
+#photoDetailCreatorHandle { font-size: 10.5px; color: var(--text-muted); }
+.photo-detail-creator-text:hover #photoDetailCreatorName { text-decoration: underline; }
+
+.photo-detail-room {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  text-align: center;
+}
+#photoDetailRoomLink {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  width: 100%;
+  font-size: 11.5px;
+  color: var(--green);
+  word-break: break-word;
+}
+#photoDetailRoomLink:hover { text-decoration: underline; }
+.photo-detail-room-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: bold;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+#photoDetailRoomName { font-weight: bold; }
+.photo-detail-empty { font-size: 11px; color: var(--text-muted); text-align: center; }
+
+#photoDetailCaption {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+  margin: 0;
+  min-height: 20px;
+  font-style: italic;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.photo-detail-tagged {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.photo-detail-tagged-name {
+  font-size: 11px;
+  color: var(--green);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dark);
+  border-radius: 3px;
+  padding: 2px 6px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.photo-detail-tagged-name:hover { text-decoration: underline; filter: brightness(1.2); }
+
+.photo-detail-stats {
+  display: flex;
+  background: var(--bg-dark);
+  text-align: center;
+  font-size: 11px;
+  box-sizing: border-box;
+}
+.photo-detail-stat {
+  flex: 1;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+}
+.photo-detail-stat + .photo-detail-stat { border-left: 1px solid var(--border-dark); }
+.photo-detail-stat-value { font-weight: bold; color: var(--text); font-size: 13px; }
+.photo-detail-stat-date { font-size: 11px; }
+.photo-detail-stat-label {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: bold;
+  margin-top: 2px;
+}
+
 .modal-btn-danger {
   background: #e63946 !important;
   color: #ffffff !important;
@@ -3826,10 +4068,18 @@ html body.theme-win7 ::-webkit-scrollbar-thumb:hover {
 }
 
 /* Photo List Vertical (Social feed layout) */
+/* Was a centred single column, which on a maximized window left the feed as a
+   narrow ribbon with most of the panel empty — a 16:9 card can only usefully
+   grow so wide, so widening it alone never fills a 1920 screen.
+   `auto-fill` + `minmax` keys the column count to the *container*, not the
+   viewport, which matters because this same list also renders inside the
+   narrower room- and profile-photo panels: those stay one column on their own
+   merits instead of needing a breakpoint each. */
 .photo-list-vertical {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(440px, 100%), 1fr));
+  align-items: start;
+  justify-items: center;
   gap: 16px;
   width: 100%;
 }
@@ -3849,7 +4099,10 @@ html body.theme-win7 ::-webkit-scrollbar-thumb:hover {
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
   border-radius: 4px;
   width: 100%;
-  max-width: 500px;
+  /* Was a flat 500px. The grid column now decides the width; this is only a
+     ceiling so a lone card in a very wide single-column panel doesn't stretch
+     a 16:9 photo across the whole screen. */
+  max-width: 820px;
   display: flex;
   flex-direction: column;
   padding: 12px;
@@ -5144,6 +5397,22 @@ body.theme-modernlight .room-card-image {
   border: none !important;
 }
 
+/* Same accent-fill problem as .room-creator-box, one click away: the base
+   `.room-card:hover` fills with --bg-btn, which put the room name at 1.00
+   contrast in both black-and-white skins. Tint instead, and let the accent
+   show as the border. */
+body.theme-moderndark .room-card:hover,
+body.theme-moderngreen .room-card:hover,
+body.theme-blackandwhite .room-card:hover {
+  background: rgba(255, 255, 255, 0.10) !important;
+  border-color: var(--green) !important;
+}
+body.theme-modernlight .room-card:hover,
+body.theme-blackandwhite-inverted .room-card:hover {
+  background: rgba(15, 23, 42, 0.06) !important;
+  border-color: var(--green) !important;
+}
+
 body.theme-moderndark .room-card-name,
 body.theme-moderngreen .room-card-name,
 body.theme-modernlight .room-card-name {
@@ -5222,6 +5491,115 @@ body.animations-enabled.theme-modernlight .room-card:hover {
 }
 body.animations-enabled.theme-modernlight .room-card:hover {
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* ── Network switcher motion ──────────────────────────────────────────────
+   The switcher changes what every other tab is showing, so it earns more
+   feedback than a plain button: the caret turns to face the open menu, the
+   menu drops in instead of blinking into place, and the button itself pulses
+   once when the network actually changes.
+
+   Written with :is() rather than the five-line selector lists used above —
+   this block would otherwise need the theme list repeated seven times. It also
+   deliberately covers the two black-and-white skins, which every other rule in
+   this section leaves out: they are the same modern family, and a skin that
+   silently opts out of animations while the setting is on reads as a bug. */
+/* The base rule sets `transition: none` so the retro skins snap. */
+:is(body.animations-enabled.theme-moderndark,
+    body.animations-enabled.theme-moderngreen,
+    body.animations-enabled.theme-modernlight,
+    body.animations-enabled.theme-blackandwhite,
+    body.animations-enabled.theme-blackandwhite-inverted) .logo-caret {
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+:is(body.animations-enabled.theme-moderndark,
+    body.animations-enabled.theme-moderngreen,
+    body.animations-enabled.theme-modernlight,
+    body.animations-enabled.theme-blackandwhite,
+    body.animations-enabled.theme-blackandwhite-inverted) #networkSwitcher.active .logo-caret {
+  transform: rotate(180deg);
+}
+
+/* Runs when `hidden` is removed, which is the only moment the menu appears.
+   There is no matching exit: the attribute hides it instantly, and faking a
+   close would mean holding the menu open past the click that dismissed it. */
+:is(body.animations-enabled.theme-moderndark,
+    body.animations-enabled.theme-moderngreen,
+    body.animations-enabled.theme-modernlight,
+    body.animations-enabled.theme-blackandwhite,
+    body.animations-enabled.theme-blackandwhite-inverted) .network-menu:not([hidden]) {
+  animation: networkMenuDrop 0.20s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top center;
+}
+
+/* `backwards` so each option holds its start frame through the delay rather
+   than flashing at full opacity first. */
+:is(body.animations-enabled.theme-moderndark,
+    body.animations-enabled.theme-moderngreen,
+    body.animations-enabled.theme-modernlight,
+    body.animations-enabled.theme-blackandwhite,
+    body.animations-enabled.theme-blackandwhite-inverted) .network-menu:not([hidden]) .network-option {
+  animation: networkOptionIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+body.animations-enabled .network-menu:not([hidden]) .network-option:nth-of-type(1) { animation-delay: 0.04s; }
+body.animations-enabled .network-menu:not([hidden]) .network-option:nth-of-type(2) { animation-delay: 0.09s; }
+
+/* The switch itself. A ring drawn on a pseudo-element rather than an animated
+   box-shadow colour, so it needs no colour-mixing to fade out — it just uses
+   the theme's own accent and scales away. --green is white in the
+   black-and-white skin and black in the inverted one, which is exactly right. */
+:is(body.animations-enabled.theme-moderndark,
+    body.animations-enabled.theme-moderngreen,
+    body.animations-enabled.theme-modernlight,
+    body.animations-enabled.theme-blackandwhite,
+    body.animations-enabled.theme-blackandwhite-inverted) #networkSwitcher.network-just-switched {
+  /* Anchors the ring. The menu is positioned against .sidebar-logo, not this
+     button, so this does not move it. */
+  position: relative;
+}
+:is(body.animations-enabled.theme-moderndark,
+    body.animations-enabled.theme-moderngreen,
+    body.animations-enabled.theme-modernlight,
+    body.animations-enabled.theme-blackandwhite,
+    body.animations-enabled.theme-blackandwhite-inverted) #networkSwitcher.network-just-switched::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--green);
+  border-radius: inherit;
+  pointer-events: none;
+  animation: networkSwitchedRing 0.5s ease-out forwards;
+}
+/* The logo src swaps mid-switch, so turning it over sells the change rather
+   than letting one brand mark pop into another. */
+:is(body.animations-enabled.theme-moderndark,
+    body.animations-enabled.theme-moderngreen,
+    body.animations-enabled.theme-modernlight,
+    body.animations-enabled.theme-blackandwhite,
+    body.animations-enabled.theme-blackandwhite-inverted) #networkSwitcher.network-just-switched img {
+  animation: networkLogoSwap 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes networkMenuDrop {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes networkOptionIn {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes networkSwitchedRing {
+  from { opacity: 0.9; transform: scale(1); }
+  to   { opacity: 0; transform: scale(1.07); }
+}
+
+@keyframes networkLogoSwap {
+  0%   { transform: rotateY(-90deg) scale(0.85); opacity: 0.3; }
+  60%  { transform: rotateY(0deg) scale(1.06); opacity: 1; }
+  100% { transform: none; }
 }
 
 /* Smooth active button click compression scaling */
@@ -5335,10 +5713,21 @@ body.theme-modernlight .room-creator-box {
   transition: all 0.2s ease !important;
 }
 
+/* Tinted, not filled. `--bg-btn` is a neutral button surface in the retro
+   skins but the *accent* colour in these, so filling a box full of text with
+   it wrecks the labels inside: measured on hover, the creator name sat at
+   2.42 contrast on moderngreen and at 1.00 on both black-and-white skins —
+   where `--bg-btn` and `--text` are literally the same value, so the name
+   disappeared. These themes already solved exactly this for table rows with a
+   translucent tint; the accent stays as the border, which is what makes the
+   hover read. */
 body.theme-moderndark .room-creator-box:hover,
-body.theme-moderngreen .room-creator-box:hover,
+body.theme-moderngreen .room-creator-box:hover {
+  background: rgba(255, 255, 255, 0.10) !important;
+  border-color: var(--green) !important;
+}
 body.theme-modernlight .room-creator-box:hover {
-  background: var(--bg-btn) !important;
+  background: rgba(15, 23, 42, 0.06) !important;
   border-color: var(--green) !important;
 }
 
@@ -5865,9 +6254,14 @@ body.theme-blackandwhite-inverted .room-creator-box {
   border-radius: 8px !important;
   transition: all 0.2s ease !important;
 }
-body.theme-blackandwhite .room-creator-box:hover,
+/* See the modern-theme rule above: --bg-btn and --text are both #ffffff here
+   (and both #000000 inverted), so the accent fill made the name invisible. */
+body.theme-blackandwhite .room-creator-box:hover {
+  background: rgba(255, 255, 255, 0.10) !important;
+  border-color: var(--green) !important;
+}
 body.theme-blackandwhite-inverted .room-creator-box:hover {
-  background: var(--bg-btn) !important;
+  background: rgba(0, 0, 0, 0.06) !important;
   border-color: var(--green) !important;
 }
 
@@ -5914,30 +6308,41 @@ body.theme-blackandwhite-inverted .modal-box {
   overflow: hidden !important;
 }
 
-/* Modern replacement for retro images.png/logo.png placeholders */
-body.theme-moderndark img[src="./images.png"],
-body.theme-moderndark img[src="images.png"] {
-  content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='270'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%231e1b4b'/%3E%3Cstop offset='100%25' stop-color='%233b0764'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='240' cy='135' r='30' fill='none' stroke='rgba(255,255,255,0.15)' stroke-width='2'/%3E%3Cpath d='M235 123l15 12-15 12z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E") !important;
-}
+/* ── "No picture" placeholder ─────────────────────────────────────────────
+   `roomThumbUrl()` / `photoImageUrl()` fall back to ./images.png when a room
+   or photo has no image, and the shared error handler swaps to it when a load
+   fails — so this is what you see whenever a picture can't be shown, including
+   every thumbnail at once while the network is down.
 
-body.theme-moderngreen img[src="./images.png"],
-body.theme-moderngreen img[src="images.png"] {
-  content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='270'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23022c22'/%3E%3Cstop offset='100%25' stop-color='%23064e3b'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='240' cy='135' r='30' fill='none' stroke='rgba(255,255,255,0.15)' stroke-width='2'/%3E%3Cpath d='M235 123l15 12-15 12z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E") !important;
-}
+   It used to be five near-identical rules that swapped in a per-theme SVG with
+   hardcoded hex stops and a *play button* glyph, which said "video" on things
+   that are rooms and people, stayed the same in custom themes, and left the
+   raw green Radium logo showing in the other thirteen skins.
 
-body.theme-modernlight img[src="./images.png"],
-body.theme-modernlight img[src="images.png"] {
-  content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='270'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23e2e8f0'/%3E%3Cstop offset='100%25' stop-color='%23cbd5e1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='240' cy='135' r='30' fill='none' stroke='rgba(0,0,0,0.1)' stroke-width='2'/%3E%3Cpath d='M235 123l15 12-15 12z' fill='rgba(0,0,0,0.2)'/%3E%3C/svg%3E") !important;
-}
+   One rule now, painted from the theme's own tokens so every skin — including
+   the runtime-generated custom ones — gets a placeholder that matches it. The
+   transparent `content` is what replaces the bitmap; the background behind it
+   is the part you actually see.
 
-body.theme-blackandwhite img[src="./images.png"],
-body.theme-blackandwhite img[src="images.png"] {
-  content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='270'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23111111'/%3E%3Cstop offset='100%25' stop-color='%23222222'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='240' cy='135' r='30' fill='none' stroke='rgba(255,255,255,0.15)' stroke-width='2'/%3E%3Cpath d='M235 123l15 12-15 12z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E") !important;
-}
-
-body.theme-blackandwhite-inverted img[src="./images.png"],
-body.theme-blackandwhite-inverted img[src="images.png"] {
-  content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='270'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23eeeeee'/%3E%3Cstop offset='100%25' stop-color='%23cccccc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='240' cy='135' r='30' fill='none' stroke='rgba(0,0,0,0.1)' stroke-width='2'/%3E%3Cpath d='M235 123l15 12-15 12z' fill='rgba(0,0,0,0.2)'/%3E%3C/svg%3E") !important;
+   Specificity note: several skins set `background` on these very elements with
+   !important (e.g. `body.theme-blackandwhite .room-thumbnail-image`, which is
+   0-2-1), so this needs two classes' worth of its own to win — hence the
+   `body` and `[src]` qualifiers rather than a bare class. */
+body img[src="./images.png"][src],
+body img[src="images.png"][src],
+body img.image-unavailable[src] {
+  content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'/%3E") !important;
+  background-color: var(--bg-dark) !important;
+  /* Drawn from --text-muted rather than a border token: the border colours are
+     near-invisible against their own background in half the skins (white at 8%
+     on near-black, dark at 6% on near-white), whereas the muted text colour is
+     by definition legible against the panel it sits on. */
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--text-muted) 16%, transparent) 6px 7px
+  ) !important;
+  border: 1px solid var(--border-dark) !important;
 }
 
 /* Modern User Avatar placeholder SVG (Dark version) */

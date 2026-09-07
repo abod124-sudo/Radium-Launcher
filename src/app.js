@@ -52,8 +52,8 @@ window.addEventListener('unhandledrejection', (e) => {
 let activeNetwork = 'radium';
 
 // Per-network descriptors. `capabilities` records what a network's API can
-// actually do — Vanilla has no room tags, no sort dimension, no activity feed
-// and no presence — so the UI hides controls rather than showing dead ones.
+// actually do — Vanilla has no activity feed and no presence — so the UI hides
+// controls rather than showing dead ones.
 const NETWORKS = {
   radium: {
     label: 'RADIUM',
@@ -77,8 +77,12 @@ const NETWORKS = {
     site: 'https://vanillarec.net/',
     downloadPage: 'https://vanillarec.net/download/',
     imageBase: '',
-    hasFilters: false,
-    hasSort: false,
+    // Both true since rooms moved to the bulk /ws set: filtering and sorting
+    // happen over the whole room list in the backend, so a tag and a typed
+    // search compose instead of overwriting each other, and a sort orders every
+    // room rather than the first page the API happened to return.
+    hasFilters: true,
+    hasSort: true,
     hasFeed: false,
     hasPresence: false,
     hasPhotoFeed: true,
@@ -1051,8 +1055,6 @@ function applyTheme(theme) {
 
     // 1. Layout-specific overrides (font matching)
     if (styleBase === 'modern') {
-      const stopColor1 = encodeURIComponent(colors.bgDark);
-      const stopColor2 = encodeURIComponent(colors.bgPanel);
       const avatarBgStart = encodeURIComponent(colors.bgDark);
       const avatarBgEnd = encodeURIComponent(colors.bgMain);
 
@@ -1060,11 +1062,11 @@ function applyTheme(theme) {
         body.theme-custom-modern, body.theme-custom-modern * {
           font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif !important;
         }
-        /* Modern assets (logo & image replacements) for custom theme */
-        body.theme-custom-modern img[src="./images.png"],
-        body.theme-custom-modern img[src="images.png"] {
-          content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='270'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='${stopColor1}'/%3E%3Cstop offset='100%25' stop-color='${stopColor2}'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='240' cy='135' r='30' fill='none' stroke='rgba(255,255,255,0.1)' stroke-width='2'/%3E%3Cpath d='M235 123l15 12-15 12z' fill='rgba(255,255,255,0.2)'/%3E%3C/svg%3E") !important;
-        }
+        /* No image placeholder: none here on purpose. It used to be a copy of
+           the same play-button SVG the built-in skins carried, baked with this
+           theme's two darkest colours. The shared rule in style.css paints it
+           from --bg-dark / --text-muted instead, which this theme also defines,
+           so a custom theme now gets a placeholder that matches it for free. */
         body.theme-custom-modern .creator-avatar[src="./logo.png"],
         body.theme-custom-modern .feed-post-avatar[src="./logo.png"],
         body.theme-custom-modern .people-avatar[src="./logo.png"],
@@ -3988,6 +3990,27 @@ function applyNetworkUI(name) {
   updateDownloadCta();
 }
 
+/// Mark the switcher as just-changed for one animation.
+///
+/// Only on a real switch, not on the startup branding pass, so the sidebar
+/// doesn't flash every launch. The class is removed when the animation ends
+/// (and on a timer as a backstop, since `animationend` never fires when the
+/// active theme defines no animation for it) so a second switch replays it.
+function pulseNetworkSwitcher() {
+  const btn = $('networkSwitcher');
+  if (!btn) return;
+
+  btn.classList.remove('network-just-switched');
+  // Forces the class removal to take effect before it is re-added, otherwise
+  // the browser coalesces both into no change at all and nothing replays.
+  void btn.offsetWidth;
+  btn.classList.add('network-just-switched');
+
+  const clear = () => btn.classList.remove('network-just-switched');
+  btn.addEventListener('animationend', clear, { once: true });
+  setTimeout(clear, 1200);
+}
+
 function closeNetworkMenu() {
   const menu = $('networkMenu');
   const btn = $('networkSwitcher');
@@ -4035,6 +4058,7 @@ async function setNetwork(name) {
 
   closeNetworkMenu();
   applyNetworkUI(name);
+  pulseNetworkSwitcher();
   addLog(`Switched network to ${networkInfo().label} (${networkInfo().site}).`, 'ok');
 
   // Persist. Written directly rather than through autoSaveSettings() so the
@@ -4914,15 +4938,54 @@ async function showPhotoDetails(photo, backToView) {
     imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.classList.remove('image-loading-placeholder'); imgEl.onerror = null; };
     imgEl.src = photoImageUrl(photo, 720);
   }
-  
+
+  // The page shows the photo scaled to fit; the lightbox is how you actually
+  // look at it. Assigned rather than added, so reopening the panel doesn't
+  // stack a listener per visit.
+  const imgWrapEl = document.querySelector('.photo-detail-img-wrap');
+  if (imgWrapEl) {
+    imgWrapEl.onclick = () => showLightbox(photoImageUrl(photo, 1920));
+  }
+
   const captionEl = $('photoDetailCaption');
   if (captionEl) {
     captionEl.textContent = photo.Description || photo.description || 'No description.';
   }
-  
+
   const cheersEl = $('photoDetailCheers');
   if (cheersEl) cheersEl.textContent = photo.CheerCount || photo.cheerCount || '0';
-  
+
+  // Comments, only where the network has them. Vanilla reports no count at
+  // all, and a hardcoded "0 COMMENTS" would read as "nobody commented" rather
+  // than "this network has no comments" — the same rule the feed card follows.
+  const commentCount = photo.CommentCount ?? photo.commentCount;
+  const commentsStatEl = $('photoDetailCommentsStat');
+  if (commentsStatEl) {
+    commentsStatEl.hidden = commentCount == null;
+    const commentsEl = $('photoDetailComments');
+    if (commentsEl) commentsEl.textContent = Number(commentCount) || 0;
+  }
+
+  // Everyone else in the shot, matching the feed card. Names are attached as
+  // elements rather than interpolated markup so a display name containing
+  // quotes can't break out of a string context.
+  const taggedBoxEl = $('photoDetailTaggedBox');
+  const taggedEl = $('photoDetailTagged');
+  if (taggedBoxEl && taggedEl) {
+    const tagged = (photo.TaggedPlayers || [])
+      .filter(p => p.userName && p.userName !== photo.CreatorUsername);
+    taggedEl.innerHTML = '';
+    taggedBoxEl.hidden = tagged.length === 0;
+    tagged.forEach(p => {
+      const link = document.createElement('span');
+      link.className = 'photo-detail-tagged-name';
+      link.textContent = p.displayName || p.userName;
+      link.title = `@${p.userName}`;
+      link.addEventListener('click', () => showCreatorProfile(p.userName));
+      taggedEl.appendChild(link);
+    });
+  }
+
   const createdEl = $('photoDetailCreatedAt');
   if (createdEl) {
     createdEl.textContent = '—';
@@ -4944,12 +5007,16 @@ async function showPhotoDetails(photo, backToView) {
   const creatorAvatarEl = $('photoDetailCreatorAvatar');
   if (creatorAvatarEl) {
     creatorAvatarEl.classList.add('image-loading-placeholder');
+    // Re-armed on every visit: the shared handler consumes `data-fallback` the
+    // first time an image fails, so a panel opened twice would otherwise have
+    // no fallback left the second time.
+    creatorAvatarEl.dataset.fallback = './images.png';
     creatorAvatarEl.src = defaultAvatarUrl(34);
   }
   const roomLinkEl = $('photoDetailRoomLink');
-  if (roomLinkEl) roomLinkEl.style.display = 'none';
+  if (roomLinkEl) roomLinkEl.hidden = true;
   const noRoomEl = $('photoDetailNoRoom');
-  if (noRoomEl) noRoomEl.style.display = 'block';
+  if (noRoomEl) noRoomEl.hidden = false;
   const creatorLinkEl = $('photoDetailCreatorLink');
   if (creatorLinkEl) creatorLinkEl.onclick = null;
   
@@ -4972,6 +5039,7 @@ async function showPhotoDetails(photo, backToView) {
       const avatarSrc = res.creatorAvatar || (await getUserWebDetails(creatorUsername))?.avatar;
       if (avatarSrc && creatorAvatarEl) {
         creatorAvatarEl.classList.add('image-loading-placeholder');
+        creatorAvatarEl.dataset.fallback = './images.png';
         creatorAvatarEl.src = avatarSrc;
       } else if (creatorAvatarEl) {
         creatorAvatarEl.classList.remove('image-loading-placeholder');
@@ -4985,13 +5053,13 @@ async function showPhotoDetails(photo, backToView) {
       const roomNameEl = $('photoDetailRoomName');
       if (roomNameEl) roomNameEl.textContent = roomName;
       if (roomLinkEl) {
-        roomLinkEl.style.display = 'block';
+        roomLinkEl.hidden = false;
         roomLinkEl.onclick = (e) => {
           e.stopPropagation();
           showRoomByName(roomName);
         };
       }
-      if (noRoomEl) noRoomEl.style.display = 'none';
+      if (noRoomEl) noRoomEl.hidden = true;
     }
   } else {
     if (creatorNameEl) creatorNameEl.textContent = 'Unknown';
@@ -4999,27 +5067,37 @@ async function showPhotoDetails(photo, backToView) {
   }
 }
 
+/// Where the photo detail's Back button returns to, keyed by the view that
+/// opened the photo. Every grid passes its own key to `buildPhotoCard()`.
+///
+/// A map rather than a chain of `if`s because the chain had no entry for the
+/// FEED tab, so backing out of a feed photo dropped the user on Home. A key
+/// that isn't listed here still falls back to Home — but adding a photo grid
+/// now means adding a line here, in one obvious place.
+const PHOTO_BACK_TARGETS = {
+  'feed':          { tab: 'feed' },
+  'rooms-detail':  { tab: 'rooms',  list: 'roomsListView',  detail: 'roomsDetailView' },
+  'people-detail': { tab: 'people', list: 'peopleListView', detail: 'peopleDetailView' }
+};
+
 $('btnPhotoDetailBack')?.addEventListener('click', () => {
   $('tab-photo-detail').classList.remove('active');
-  
-  if (currentBackToView === 'rooms-detail') {
-    switchTab('rooms');
-    const list = $('roomsListView');
-    const detail = $('roomsDetailView');
-    if (list && detail) {
-      list.classList.add('hidden');
-      detail.classList.remove('hidden');
-    }
-  } else if (currentBackToView === 'people-detail') {
-    switchTab('people');
-    const list = $('peopleListView');
-    const detail = $('peopleDetailView');
-    if (list && detail) {
-      list.classList.add('hidden');
-      detail.classList.remove('hidden');
-    }
-  } else {
+
+  const target = PHOTO_BACK_TARGETS[currentBackToView];
+  if (!target) {
     switchTab('home');
+    return;
+  }
+
+  switchTab(target.tab);
+
+  // Tabs that show a list and a detail pane need the detail put back, since
+  // switching tabs alone would land on the list the user had already left.
+  const list = target.list && $(target.list);
+  const detail = target.detail && $(target.detail);
+  if (list && detail) {
+    list.classList.add('hidden');
+    detail.classList.remove('hidden');
   }
 });
 
