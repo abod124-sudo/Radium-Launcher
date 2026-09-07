@@ -5,6 +5,7 @@ pub mod game;
 pub mod scraper;
 pub mod server;
 pub mod updater;
+pub mod vanilla;
 
 use tauri::Manager;
 

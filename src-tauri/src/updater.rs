@@ -116,8 +116,21 @@ pub async fn download_update(app: tauri::AppHandle, url: String, place_on_deskto
         return Err("Untrusted update download URL.".into());
     }
 
+    // Unique per run. A fixed name here is a file another process running as
+    // this user can replace in the window between writing the installer and
+    // executing it — and what gets executed is an installer, elevated by NSIS.
+    // The nanosecond clock plus the pid is enough to make the target
+    // unpredictable without pulling in a rand dependency.
+    let unique = format!(
+        "{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
     let temp_dir = env::temp_dir();
-    let installer_path = temp_dir.join("RadiumLauncherSetup_update.exe");
+    let installer_path = temp_dir.join(format!("RadiumLauncherSetup_update_{}.exe", unique));
 
     // Download the installer. Without timeouts a stalled connection would
     // leave the update modal stuck on "Downloading..." forever.

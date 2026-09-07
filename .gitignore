@@ -39,3 +39,6 @@ config.json
 # Dev scratch / generated artifacts
 build_log.txt
 diff_*.txt
+
+# Local screenshot/preview harness (generated, never shipped)
+src/__preview*

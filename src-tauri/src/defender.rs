@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::config;
+use crate::download;
 
 /// Resolve the full path to `powershell.exe`.
 /// Prefers the well-known System32 location; falls back to the bare name
@@ -39,6 +40,19 @@ pub async fn add_defender_exclusion(app: tauri::AppHandle) -> Value {
 
     if !is_path_safe(&client_dir) {
         return json!({ "success": false, "error": "Invalid characters in client path." });
+    }
+
+    // Refuse to hand Defender a directory broad enough that excluding it would
+    // disable real-time protection for most of the disk. The install folder is
+    // user-chosen through a folder picker, so "C:\\" is two clicks away.
+    if download::is_overly_broad_dir(&client_dir) {
+        return json!({
+            "success": false,
+            "error": format!(
+                "Refusing to change antivirus settings for '{}': that folder is too broad.                  Point the client install folder at a dedicated directory first.",
+                client_dir
+            )
+        });
     }
 
     // The path sits inside TWO nesting levels of single-quoted PowerShell
@@ -90,6 +104,19 @@ pub async fn remove_defender_exclusion(app: tauri::AppHandle) -> Value {
 
     if !is_path_safe(&client_dir) {
         return json!({ "success": false, "error": "Invalid characters in client path." });
+    }
+
+    // Refuse to hand Defender a directory broad enough that excluding it would
+    // disable real-time protection for most of the disk. The install folder is
+    // user-chosen through a folder picker, so "C:\\" is two clicks away.
+    if download::is_overly_broad_dir(&client_dir) {
+        return json!({
+            "success": false,
+            "error": format!(
+                "Refusing to change antivirus settings for '{}': that folder is too broad.                  Point the client install folder at a dedicated directory first.",
+                client_dir
+            )
+        });
     }
 
     // See add_defender_exclusion for the escaping and -Wait/-PassThru rationale.

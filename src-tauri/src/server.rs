@@ -1,19 +1,21 @@
+use crate::config::Network;
+use crate::vanilla;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-const USER_AGENT: &str = "Radium-Launcher";
+pub(crate) const USER_AGENT: &str = "Radium-Launcher";
 
 /// Process-wide reqwest client (connection pool reuse). Timeouts are applied
 /// per-request via `.timeout()` since callers want different limits.
-fn http() -> &'static Client {
+pub(crate) fn http() -> &'static Client {
     static HTTP: OnceLock<Client> = OnceLock::new();
     HTTP.get_or_init(|| Client::builder().build().unwrap_or_else(|_| Client::new()))
 }
 
 /// Shared GET helper with User-Agent header and 10s timeout.
-async fn http_get_json(url: &str) -> Result<Value, String> {
+pub(crate) async fn http_get_json(url: &str) -> Result<Value, String> {
     let response = http()
         .get(url)
         .timeout(Duration::from_secs(10))
@@ -30,6 +32,14 @@ async fn http_get_json(url: &str) -> Result<Value, String> {
     response.json::<Value>().await.map_err(|e| e.to_string())
 }
 
+/// Which network an incoming `args` object is asking about.
+///
+/// Absent or unrecognised means Radium, so an older frontend (or a command
+/// invoked without the field) keeps its existing behaviour.
+fn network_of(args: &Value) -> Network {
+    Network::parse(args.get("network").and_then(|v| v.as_str()))
+}
+
 /// Ping a server and return its online status, latency, and HTTP status code.
 #[tauri::command]
 pub async fn ping_server(url: String) -> Value {
@@ -39,17 +49,23 @@ pub async fn ping_server(url: String) -> Value {
     };
     let host = parsed.host_str().unwrap_or("");
     let is_cdn = host == "cdn.recroomarchive.org";
+    let is_vanilla = host == "api.vanillarec.net" || host == "vanillarec.net";
     if host != "api.radie.app"
         && host != "www.radie.app"
         && host != "launcher.radie.app"
         && !is_cdn
+        && !is_vanilla
     {
         return json!({ "online": false, "latency": -1, "error": "Untrusted URL." });
     }
 
     // The radie.app API exposes a `/health` endpoint; the recroomarchive CDN does
     // not, so ping its root instead and treat any HTTP response as reachable.
-    let ping_url = if is_cdn {
+    // Vanilla has no health route either — its player-count endpoint is the
+    // cheapest thing that proves the API is serving, not merely resolving.
+    let ping_url = if is_vanilla {
+        vanilla::ping_url()
+    } else if is_cdn {
         url.trim_end_matches('/').to_string()
     } else {
         format!("{}/health", url.trim_end_matches('/'))
@@ -64,6 +80,7 @@ pub async fn ping_server(url: String) -> Value {
             // For the API a successful /health response means online; for the CDN
             // any response at all means the host is reachable.
             let online = if is_cdn { true } else { status.is_success() };
+            let _ = is_vanilla;
             json!({
                 "online": online,
                 "latency": latency,
@@ -81,7 +98,11 @@ pub async fn ping_server(url: String) -> Value {
 
 /// Get the current online player count from the Radium API.
 #[tauri::command]
-pub async fn get_player_count() -> Value {
+pub async fn get_player_count(network: Option<String>) -> Value {
+    if Network::parse(network.as_deref()) == Network::Vanilla {
+        return vanilla::get_player_count().await;
+    }
+
     let url = "https://api.radie.app/api/players/v1/online";
 
     match http()
@@ -125,6 +146,12 @@ pub async fn fetch_rooms(args: Value) -> Value {
         .unwrap_or("")
         .to_string();
 
+    if network_of(&args) == Network::Vanilla {
+        // Vanilla has no server-side tag or sort parameter; both are applied
+        // inside the module (tags via search, sorting over the fetched set).
+        return vanilla::fetch_rooms(skip, take, &query, &tag, sort_by).await;
+    }
+
     let mut url = match reqwest::Url::parse("https://launcher.radie.app/api/rooms/v1/") {
         Ok(u) => u,
         Err(e) => return json!({ "success": false, "error": e.to_string() }),
@@ -160,6 +187,10 @@ pub async fn fetch_people(args: Value) -> Value {
         .unwrap_or("")
         .to_string();
 
+    if network_of(&args) == Network::Vanilla {
+        return vanilla::fetch_people(skip, take, &query).await;
+    }
+
     let mut url = match reqwest::Url::parse("https://launcher.radie.app/api/user/v1") {
         Ok(u) => u,
         Err(e) => return json!({ "success": false, "error": e.to_string() }),
@@ -182,7 +213,13 @@ pub async fn fetch_people(args: Value) -> Value {
 
 /// Fetch available room filters (tags / categories).
 #[tauri::command]
-pub async fn fetch_filters() -> Value {
+pub async fn fetch_filters(network: Option<String>) -> Value {
+    if Network::parse(network.as_deref()) == Network::Vanilla {
+        // Vanilla publishes no filter endpoint, so the tag list is derived from
+        // the rooms themselves and cached. See vanilla::fetch_filters.
+        return vanilla::fetch_filters().await;
+    }
+
     let url = "https://api.radie.app/api/rooms/v1/filters";
 
     match http_get_json(url).await {
@@ -203,6 +240,10 @@ pub async fn fetch_user_photos(args: Value) -> Value {
     };
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(40);
+
+    if network_of(&args) == Network::Vanilla {
+        return vanilla::fetch_user_photos(&user_id, skip, take).await;
+    }
 
     let url = format!(
         "https://launcher.radie.app/api/user/v1/{}/photos?skip={}&take={}",
@@ -228,6 +269,10 @@ pub async fn fetch_user_rooms(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(20);
 
+    if network_of(&args) == Network::Vanilla {
+        return vanilla::fetch_user_rooms(&user_id, skip, take).await;
+    }
+
     let url = format!(
         "https://launcher.radie.app/api/user/v1/{}/rooms?skip={}&take={}",
         user_id, skip, take
@@ -252,6 +297,15 @@ pub async fn fetch_user_feed(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(40);
 
+    if network_of(&args) == Network::Vanilla {
+        // Vanilla publishes no activity feed. The UI hides the FEEDS tab, so
+        // this is only reachable defensively.
+        return json!({
+            "success": true,
+            "data": { "Results": [], "TotalResults": 0 }
+        });
+    }
+
     let url = format!(
         "https://launcher.radie.app/api/user/v1/{}/feed?skip={}&take={}",
         user_id, skip, take
@@ -268,6 +322,10 @@ pub async fn fetch_user_feed(args: Value) -> Value {
 pub async fn fetch_recent_photos(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(100);
+
+    if network_of(&args) == Network::Vanilla {
+        return vanilla::fetch_recent_photos(skip, take).await;
+    }
 
     let url = format!(
         "https://launcher.radie.app/api/photos/v1/feed?skip={}&take={}",

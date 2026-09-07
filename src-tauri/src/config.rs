@@ -48,6 +48,72 @@ impl Default for CustomThemeColors {
     }
 }
 
+/// Which revival network the launcher is currently pointed at.
+///
+/// The launcher speaks to one network at a time. Radium is the historical
+/// default and owns the flat `Config` fields; Vanilla's install state lives in
+/// [`VanillaState`] so existing configs keep working with no migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Network {
+    Radium,
+    Vanilla,
+}
+
+impl Network {
+    /// Parse a network name from config/IPC. Anything unrecognised (including
+    /// `None`) falls back to Radium, so a corrupt value can never strand the
+    /// user on a network they can't leave.
+    pub fn parse(name: Option<&str>) -> Self {
+        match name.unwrap_or("") {
+            "vanilla" => Network::Vanilla,
+            _ => Network::Radium,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Network::Radium => "radium",
+            Network::Vanilla => "vanilla",
+        }
+    }
+}
+
+/// Vanilla-specific install state.
+///
+/// Mirrors the flat Radium fields on [`Config`] so the two clients can be
+/// installed side by side without either one's paths, version or ETag
+/// standing in for the other's.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct VanillaState {
+    pub install_dir: String,
+    pub game_exe_path: String,
+    /// Where to download the Vanilla client zip from. Empty until Vanilla
+    /// actually ships a build - vanillarec.net currently lists every platform
+    /// as "coming soon" with no download link, so the UI falls back to opening
+    /// their download page instead.
+    pub client_url: String,
+    pub client_version: String,
+    pub client_etag: String,
+    pub client_build: String,
+    pub defender_excluded: bool,
+}
+
+impl Default for VanillaState {
+    fn default() -> Self {
+        Self {
+            install_dir: String::new(),
+            game_exe_path: String::new(),
+            client_url: String::new(),
+            client_version: String::new(),
+            client_etag: String::new(),
+            client_build: String::new(),
+            defender_excluded: false,
+        }
+    }
+}
+
 /// Application configuration for the Radium Launcher.
 ///
 /// Fields are serialized as camelCase to match the existing config.json format
@@ -90,6 +156,10 @@ pub struct Config {
     /// recorded version would be flagged as needing an update on every single
     /// check forever, since there's no version to compare against.
     pub client_version_sync_prompted: bool,
+    /// Active network name: "radium" | "vanilla". See [`Network`].
+    pub network: String,
+    /// Install state for the Vanilla network. The flat fields above stay Radium's.
+    pub vanilla: VanillaState,
 }
 
 impl Config {
@@ -112,6 +182,103 @@ impl Config {
         self.client_etag = current.client_etag.clone();
         self.client_version_sync_prompted = current.client_version_sync_prompted;
         self.game_exe_path = current.game_exe_path.clone();
+        // Vanilla's install state is written by the same backend commands and is
+        // just as absent from a stale frontend copy, so it needs the identical
+        // treatment. `vanilla.client_url` and `vanilla.defender_excluded` are
+        // deliberately NOT preserved - the settings and AV-exclude UIs own those.
+        self.vanilla.client_build = current.vanilla.client_build.clone();
+        self.vanilla.client_version = current.vanilla.client_version.clone();
+        self.vanilla.client_etag = current.vanilla.client_etag.clone();
+        self.vanilla.game_exe_path = current.vanilla.game_exe_path.clone();
+    }
+
+    /// The currently selected network.
+    pub fn network(&self) -> Network {
+        Network::parse(Some(self.network.as_str()))
+    }
+
+    /// User-chosen install directory for `network`, or "" to use the default.
+    pub fn install_dir_for(&self, network: Network) -> &str {
+        match network {
+            Network::Radium => &self.install_dir,
+            Network::Vanilla => &self.vanilla.install_dir,
+        }
+    }
+
+    /// Recorded game executable path for `network`.
+    pub fn game_exe_for(&self, network: Network) -> &str {
+        match network {
+            Network::Radium => &self.game_exe_path,
+            Network::Vanilla => &self.vanilla.game_exe_path,
+        }
+    }
+
+    /// Build id recorded for `network`'s installed client.
+    pub fn client_build_for(&self, network: Network) -> &str {
+        match network {
+            Network::Radium => &self.client_build,
+            Network::Vanilla => &self.vanilla.client_build,
+        }
+    }
+
+    /// Installed client version for `network`.
+    pub fn client_version_for(&self, network: Network) -> &str {
+        match network {
+            Network::Radium => &self.client_version,
+            Network::Vanilla => &self.vanilla.client_version,
+        }
+    }
+
+    /// ETag of the zip `network`'s installed client came from.
+    pub fn client_etag_for(&self, network: Network) -> &str {
+        match network {
+            Network::Radium => &self.client_etag,
+            Network::Vanilla => &self.vanilla.client_etag,
+        }
+    }
+
+    /// Record the results of a successful download for `network`.
+    pub fn set_client_install(
+        &mut self,
+        network: Network,
+        exe_path: String,
+        build: String,
+        version: String,
+        etag: String,
+    ) {
+        match network {
+            Network::Radium => {
+                self.game_exe_path = exe_path;
+                self.client_build = build;
+                self.client_version = version;
+                self.client_etag = etag;
+                self.client_version_sync_prompted = false;
+            }
+            Network::Vanilla => {
+                self.vanilla.game_exe_path = exe_path;
+                self.vanilla.client_build = build;
+                self.vanilla.client_version = version;
+                self.vanilla.client_etag = etag;
+            }
+        }
+    }
+
+    /// Clear the recorded install for `network` (used by uninstall).
+    pub fn clear_client_install(&mut self, network: Network) {
+        match network {
+            Network::Radium => {
+                self.game_exe_path = String::new();
+                self.client_build = String::new();
+                self.client_version = String::new();
+                self.client_etag = String::new();
+            }
+            Network::Vanilla => {
+                self.vanilla.game_exe_path = String::new();
+                self.vanilla.client_build = String::new();
+                self.vanilla.client_version = String::new();
+                self.vanilla.client_etag = String::new();
+            }
+        }
     }
 }
 
@@ -137,6 +304,8 @@ impl Default for Config {
             client_version: String::new(),
             client_etag: String::new(),
             client_version_sync_prompted: false,
+            network: "radium".to_string(),
+            vanilla: VanillaState::default(),
         }
     }
 }
@@ -315,17 +484,35 @@ pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(),
     Ok(())
 }
 
-/// Returns the game client directory.
+/// Returns the game client directory for `network`.
 ///
-/// If `config.install_dir` is non-empty it is used as-is; otherwise the
-/// default location (`<app_data_dir>/client`) is returned.
-pub fn get_client_dir(app_handle: &tauri::AppHandle, config: &Config) -> String {
-    if !config.install_dir.is_empty() {
-        config.install_dir.clone()
-    } else {
-        let app_data_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        app_data_dir.join("client").to_string_lossy().to_string()
+/// If that network's configured install dir is non-empty it is used as-is;
+/// otherwise the default location is returned. The two networks default to
+/// separate folders (`client` and `client-vanilla`) so both clients can be
+/// installed at once without one uninstall wiping the other.
+pub fn get_client_dir_for(
+    app_handle: &tauri::AppHandle,
+    config: &Config,
+    network: Network,
+) -> String {
+    let configured = config.install_dir_for(network);
+    if !configured.is_empty() {
+        return configured.to_string();
     }
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let folder = match network {
+        Network::Radium => "client",
+        Network::Vanilla => "client-vanilla",
+    };
+    app_data_dir.join(folder).to_string_lossy().to_string()
+}
+
+/// Backwards-compatible wrapper: the client directory for the active network.
+pub fn get_client_dir(app_handle: &tauri::AppHandle, config: &Config) -> String {
+    get_client_dir_for(app_handle, config, config.network())
 }
 
 #[cfg(test)]
@@ -390,6 +577,77 @@ mod tests {
 
         let outdated_after = incoming.client_build != REQUIRED_CLIENT_BUILD;
         assert!(!outdated_after, "after preserving, client is correctly up to date");
+    }
+
+    #[test]
+    fn stale_autosave_does_not_clobber_vanilla_install() {
+        // Same hazard as the Radium case: a Vanilla download stamps its exe
+        // path, build and ETag into the nested `vanilla` object, and a settings
+        // autosave that was loaded beforehand would otherwise revert them.
+        let mut on_disk = Config::default();
+        on_disk.vanilla.game_exe_path = "C:/client-vanilla/RecRoom.exe".to_string();
+        on_disk.vanilla.client_build = REQUIRED_CLIENT_BUILD.to_string();
+        on_disk.vanilla.client_version = "1.2.3".to_string();
+        on_disk.vanilla.client_etag = "\"vanilla-etag\"".to_string();
+        on_disk.vanilla.client_url = "https://example.invalid/old.zip".to_string();
+
+        // The settings UI sends the whole config, including a *new* client URL
+        // the user just typed, but a stale (empty) copy of everything the
+        // backend owns.
+        let mut incoming = config_from_frontend_json(serde_json::json!({
+            "network": "vanilla",
+            "vanilla": { "clientUrl": "https://example.invalid/new.zip" }
+        }));
+        assert_eq!(incoming.vanilla.client_build, "", "frontend copy should be stale");
+
+        incoming.preserve_backend_managed_fields(&on_disk);
+
+        // Backend-owned Vanilla fields survive...
+        assert_eq!(incoming.vanilla.game_exe_path, "C:/client-vanilla/RecRoom.exe");
+        assert_eq!(incoming.vanilla.client_build, REQUIRED_CLIENT_BUILD);
+        assert_eq!(incoming.vanilla.client_version, "1.2.3");
+        assert_eq!(incoming.vanilla.client_etag, "\"vanilla-etag\"");
+        // ...while the URL the settings UI owns is the one the user just set.
+        assert_eq!(incoming.vanilla.client_url, "https://example.invalid/new.zip");
+        assert_eq!(incoming.network(), Network::Vanilla);
+    }
+
+    #[test]
+    fn networks_keep_separate_install_state() {
+        // The whole point of the nested object: uninstalling one network must
+        // not disturb the other's recorded install.
+        let mut cfg = Config::default();
+        cfg.set_client_install(
+            Network::Radium,
+            "C:/client/Recroom_Release.exe".into(),
+            REQUIRED_CLIENT_BUILD.into(),
+            "0.9.2".into(),
+            "r-etag".into(),
+        );
+        cfg.set_client_install(
+            Network::Vanilla,
+            "C:/client-vanilla/RecRoom.exe".into(),
+            REQUIRED_CLIENT_BUILD.into(),
+            "1.2.3".into(),
+            "v-etag".into(),
+        );
+
+        cfg.clear_client_install(Network::Vanilla);
+
+        assert_eq!(cfg.game_exe_for(Network::Radium), "C:/client/Recroom_Release.exe");
+        assert_eq!(cfg.client_version_for(Network::Radium), "0.9.2");
+        assert_eq!(cfg.game_exe_for(Network::Vanilla), "");
+        assert_eq!(cfg.client_version_for(Network::Vanilla), "");
+    }
+
+    #[test]
+    fn unknown_network_name_falls_back_to_radium() {
+        // A corrupt or future value must never strand the user on a network the
+        // launcher can't talk to.
+        assert_eq!(Network::parse(None), Network::Radium);
+        assert_eq!(Network::parse(Some("")), Network::Radium);
+        assert_eq!(Network::parse(Some("nonsense")), Network::Radium);
+        assert_eq!(Network::parse(Some("vanilla")), Network::Vanilla);
     }
 
     #[test]

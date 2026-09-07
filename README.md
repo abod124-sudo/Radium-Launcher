@@ -1,6 +1,11 @@
 # Radium Launcher
 
-An **unofficial** custom launcher for playing on the Radium public Rec Room server.
+An **unofficial** launcher for Rec Room revival servers.
+
+| Server | Site |
+| :--- | :--- |
+| **Radium** | [radie.app](https://www.radie.app/) |
+| **Vanilla** | [vanillarec.net](https://vanillarec.net/) |
 
 ## Showcase
 
@@ -18,39 +23,55 @@ An **unofficial** custom launcher for playing on the Radium public Rec Room serv
 
 ## Features
 
-- **Rooms Tab** — Browse, search, and sort custom rooms, with infinite scrolling/pagination to explore in-game content.
-- **People Tab** — Search and view detailed player profiles, bios, and statistics.
-- **Photo Comments** — View photos along with user comments left on them.
-- **UI Skins & Custom Themes** — Toggle between 16 built-in themes (Rec Room, Steam 2003 Green, Steam 2010, Windows 98 Gray, Windows XP Blue, Windows 7 Aero, Mac OS X Aqua, Modern Dark, Black & White, etc.), or build your own custom JSON theme! Includes a stunning **Liquid Glass** effect for translucent backgrounds.
-- **In-App Client Download** — Downloads the Rec Room 2016 client directly inside the launcher with live speed & ETA progress, then auto-extracts it to `%APPDATA%\com.radium.launcher\client`. Outdated installs are detected and you're prompted to update.
-- **Live Client Update Checks** — Checks recroom.baby for a newer client build (by version number and CDN fingerprint) on startup and on demand from the Client Status card, with a "what's new" prompt before you update.
-- **Play Modes** — Launches the installed Rec Room client in Screen or VR mode.
-- **Server Status & Bug Reporting** — Checks the game API gateway and CDN on startup. Includes an advanced built-in bug reporter that gathers app logs and system diagnostics.
-- **Antivirus Detection** — Automatically detects third-party antivirus software and Windows Defender status to prevent false positive confusion during launch.
-- **Auto-Update** — On startup the launcher checks GitHub for a newer version and lets you download & install it in one click, restoring the desktop shortcut after the update.
-- **Auto-Save Settings** — All settings save automatically the moment you change them. Toggles apply instantly; text fields save after a short delay. No Save button needed.
+- **Switch servers** — Swap between Radium and Vanilla from the sidebar. Each keeps
+  its own client install, so both can be installed at once.
+- **Browse** — Rooms with search, tag filters and sorting; player profiles with photos
+  and rooms; and a live feed of what players are doing right now.
+- **Client management** — Downloads and extracts the game client in-app with live speed
+  and ETA, resumes interrupted downloads, detects outdated installs, and launches the
+  game.
+- **16 themes** — Rec Room, Steam 2003 Green, Windows 98 / XP / 7 Aero, Mac OS X Aqua,
+  Modern Dark and more — or build your own, including a **Liquid Glass** effect.
+- **Diagnostics** — Server status on startup, a built-in bug reporter that bundles logs
+  and system info, and third-party antivirus detection.
+- **Stays current** — Checks GitHub for launcher updates on startup, and saves every
+  setting the moment you change it.
 
 ---
 
 ## Download
 
-Grab the latest build (**v3.5.5**) directly or check the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest):
+**Update 4.0.0 is coming soon.** The link below goes live the moment it's published —
+until then, grab the current build from the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest).
 
 | File | Description |
 |------|-------------|
-| [Radium.Launcher_3.5.5_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v3.5.5/Radium.Launcher_3.5.5_x64-setup.exe) | NSIS installer for Windows x64 |
+| [Radium.Launcher_4.0.0_x64-setup.exe](https://github.com/abod124-sudo/Radium-Launcher/releases/download/v4.0.0/Radium.Launcher_4.0.0_x64-setup.exe) | NSIS installer for Windows x64 |
 
----
 
 
 ## File Locations
 
-All client data and settings are stored locally under:
-
 ```
 %APPDATA%\com.radium.launcher\
-  ├── config.json       - saved settings
-  └── client\           - downloaded game files
+  ├── config.json         - saved settings
+  ├── client\             - Radium game files
+  └── client-vanilla\     - Vanilla game files
+```
+
+Uninstalling one server never touches the other.
+
+---
+
+## Building from source
+
+Requires the [Rust toolchain](https://rustup.rs/) and Node.js.
+
+```bash
+npm install
+npm run dev     # run the launcher
+npm run build   # produce the installer
+cd src-tauri && cargo test
 ```
 
 ---

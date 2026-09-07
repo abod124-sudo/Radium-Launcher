@@ -45,6 +45,52 @@ window.addEventListener('unhandledrejection', (e) => {
 // ─── Tauri v2 Compatibility Shim ───────────────────────────────────────────────
 // Recreates the window.radium API from the Electron preload bridge using Tauri APIs.
 // This allows the rest of app.js to remain unchanged.
+// ── Network selection ────────────────────────────────────────────────────
+// Which revival the launcher is pointed at. Read by the IPC shim below so every
+// backend call carries it, instead of threading the value through ~30 call
+// sites. Set from config at startup by setNetwork().
+let activeNetwork = 'radium';
+
+// Per-network descriptors. `capabilities` records what a network's API can
+// actually do — Vanilla has no room tags, no sort dimension, no activity feed
+// and no presence — so the UI hides controls rather than showing dead ones.
+const NETWORKS = {
+  radium: {
+    label: 'RADIUM',
+    logo: 'logo.png',
+    site: 'https://www.radie.app/',
+    downloadPage: 'https://www.radie.app/',
+    imageBase: 'https://img.radie.app',
+    hasFilters: true,
+    hasSort: true,
+    hasFeed: true,
+    hasPresence: true,
+    // Radium's API could serve one, but the FEED tab was asked for on Vanilla
+    // only — this flag is the switch if that ever changes.
+    hasPhotoFeed: false,
+    // Radium resolves its own download URL from the recroom.baby page.
+    needsConfiguredDownloadUrl: false
+  },
+  vanilla: {
+    label: 'VANILLA',
+    logo: 'assets/vanilla-logo.png',
+    site: 'https://vanillarec.net/',
+    downloadPage: 'https://vanillarec.net/download/',
+    imageBase: '',
+    hasFilters: false,
+    hasSort: false,
+    hasFeed: false,
+    hasPresence: false,
+    hasPhotoFeed: true,
+    // Vanilla has not shipped a client; the URL comes from Settings.
+    needsConfiguredDownloadUrl: true
+  }
+};
+
+function networkInfo(name = activeNetwork) {
+  return NETWORKS[name] || NETWORKS.radium;
+}
+
 (function setupTauriShim() {
   const { invoke } = window.__TAURI__.core;
   const { listen } = window.__TAURI__.event;
@@ -65,26 +111,27 @@ window.addEventListener('unhandledrejection', (e) => {
     getConfig:  ()    => invoke('cmd_get_config'),
     saveConfig: (cfg) => invoke('cmd_save_config', { config: cfg }),
 
-    // Server
+    // Server. Every command below takes the active network so the backend can
+    // route to the right API without the call sites having to care.
     pingServer:     (url) => invoke('ping_server', { url }),
-    getPlayerCount: ()    => invoke('get_player_count'),
+    getPlayerCount: ()    => invoke('get_player_count', { network: activeNetwork }),
     addDefenderExclusion:    () => invoke('add_defender_exclusion'),
     removeDefenderExclusion: () => invoke('remove_defender_exclusion'),
     detectAntivirus:         () => invoke('detect_antivirus'),
 
     // Install
-    checkInstall: () => invoke('check_install'),
-    checkClientUpdate: () => invoke('check_client_update'),
+    checkInstall: () => invoke('check_install', { network: activeNetwork }),
+    checkClientUpdate: () => invoke('check_client_update', { network: activeNetwork }),
 
     // Download
-    downloadClient:  () => invoke('download_client'),
-    cancelDownload:  () => invoke('cancel_download'),
+    downloadClient:  () => invoke('download_client', { network: activeNetwork }),
+    cancelDownload:  () => invoke('cancel_download', { network: activeNetwork }),
     pauseDownload:   () => invoke('pause_download'),
-    resumableDownloadInfo: () => invoke('resumable_download_info'),
-    uninstallClient: () => invoke('uninstall_client'),
-    openClientFolder: () => invoke('open_client_folder'),
-    selectFolder:     () => invoke('select_folder'),
-    getDefaultClientDir: () => invoke('get_default_client_dir'),
+    resumableDownloadInfo: () => invoke('resumable_download_info', { network: activeNetwork }),
+    uninstallClient: () => invoke('uninstall_client', { network: activeNetwork }),
+    openClientFolder: () => invoke('open_client_folder', { network: activeNetwork }),
+    selectFolder:     () => invoke('select_folder', { network: activeNetwork }),
+    getDefaultClientDir: () => invoke('get_default_client_dir', { network: activeNetwork }),
     restoreDll:          () => invoke('restore_dll'),
     onDownloadProgress: async (cb) => {
       if (unlistenMap['download-progress']) unlistenMap['download-progress']();
@@ -92,7 +139,7 @@ window.addEventListener('unhandledrejection', (e) => {
     },
 
     // Game
-    launchGame: (cfg) => invoke('launch_game', { config: cfg }),
+    launchGame: (cfg) => invoke('launch_game', { config: { ...cfg, network: activeNetwork } }),
     killGame:   ()    => invoke('kill_game'),
     onGameState: async (cb) => {
       if (unlistenMap['game-state']) unlistenMap['game-state']();
@@ -111,17 +158,17 @@ window.addEventListener('unhandledrejection', (e) => {
     downloadUpdate:  (downloadUrl, placeOnDesktop) => invoke('download_update', { url: downloadUrl, placeOnDesktop: !!placeOnDesktop }),
 
     // Data Fetching
-    fetchRooms:           (args) => invoke('fetch_rooms', { args }),
-    fetchPeople:          (args) => invoke('fetch_people', { args }),
-    fetchFilters:         ()     => invoke('fetch_filters'),
-    fetchRoomWebDetails:  (name) => invoke('fetch_room_web_details', { name: String(name) }),
-    fetchUserWebDetails:  (name) => invoke('fetch_user_web_details', { name: String(name) }),
-    fetchUserPhotos:      (args) => invoke('fetch_user_photos', { args }),
-    fetchUserRooms:       (args) => invoke('fetch_user_rooms', { args }),
-    fetchUserFeed:        (args) => invoke('fetch_user_feed', { args }),
-    fetchRecentPhotos:    (args) => invoke('fetch_recent_photos', { args }),
-    fetchPhotoWebDetails: (photoId) => invoke('fetch_photo_web_details', { photoId: String(photoId) }),
-    fetchPhotoComments:   (photoId) => invoke('fetch_photo_comments', { photoId: String(photoId) }),
+    fetchRooms:           (args) => invoke('fetch_rooms', { args: { ...args, network: activeNetwork } }),
+    fetchPeople:          (args) => invoke('fetch_people', { args: { ...args, network: activeNetwork } }),
+    fetchFilters:         ()     => invoke('fetch_filters', { network: activeNetwork }),
+    fetchRoomWebDetails:  (name) => invoke('fetch_room_web_details', { name: String(name), network: activeNetwork }),
+    fetchUserWebDetails:  (name) => invoke('fetch_user_web_details', { name: String(name), network: activeNetwork }),
+    fetchUserPhotos:      (args) => invoke('fetch_user_photos', { args: { ...args, network: activeNetwork } }),
+    fetchUserRooms:       (args) => invoke('fetch_user_rooms', { args: { ...args, network: activeNetwork } }),
+    fetchUserFeed:        (args) => invoke('fetch_user_feed', { args: { ...args, network: activeNetwork } }),
+    fetchRecentPhotos:    (args) => invoke('fetch_recent_photos', { args: { ...args, network: activeNetwork } }),
+    fetchPhotoWebDetails: (photoId) => invoke('fetch_photo_web_details', { photoId: String(photoId), network: activeNetwork }),
+    fetchPhotoComments:   (photoId) => invoke('fetch_photo_comments', { photoId: String(photoId), network: activeNetwork }),
 
     // Window state events
     onWindowMaximizedState: async (cb) => {
@@ -161,6 +208,432 @@ let lastServerStatus      = { apiOnline: null, cdnOnline: null };
 // Capped log buffer — captures up to 2000 log entries for bug reports.
 // The DOM viewer is capped at 120 for performance.
 const fullLogBuffer = [];
+
+// ── Image load handling ──────────────────────────────────────────────────
+// Every thumbnail in the app wants the same two things: drop the shimmer class
+// once it resolves, and swap to a local placeholder if it 404s. That used to be
+// an `onload`/`onerror` attribute on each `<img>`, which forced the CSP to allow
+// `script-src 'unsafe-inline'` — and with inline script permitted, any HTML
+// injection anywhere becomes code execution inside a webview that can reach
+// every backend command.
+//
+// `load` and `error` don't bubble, but they do reach document in the capture
+// phase, so one pair of listeners covers every image including ones added
+// later. Images opt into a fallback with `data-fallback`.
+function handleImageSettled(e) {
+  const el = e.target;
+  if (!(el instanceof HTMLImageElement)) return;
+  el.classList.remove('image-loading-placeholder');
+  if (e.type !== 'error') return;
+
+  const fallback = el.dataset.fallback;
+  if (!fallback) return;
+  // Cleared before assigning, so a fallback that is itself missing fires this
+  // once and stops rather than looping.
+  delete el.dataset.fallback;
+  el.src = fallback;
+}
+document.addEventListener('load', handleImageSettled, true);
+document.addEventListener('error', handleImageSettled, true);
+
+// ── Image sources ────────────────────────────────────────────────────────
+// The two networks serve images differently. Radium exposes a resizing CDN
+// addressed by image *name* (`img.radie.app/<name>?width=N`); Vanilla returns a
+// ready-made absolute URL that must be used verbatim, because some already
+// carry a cachebuster query and its endpoint does no resizing. The backend
+// normalizer attaches that URL as ThumbUrl / AvatarUrl, so the presence of
+// those fields is what decides which form to use — Radium payloads simply
+// don't have them and fall through to the existing behaviour.
+const RADIUM_IMG_BASE = 'https://img.radie.app';
+
+function roomThumbUrl(room, width) {
+  if (!room) return './images.png';
+  if (room.ThumbUrl) return room.ThumbUrl;
+  const name = room.ImageName || room.imageName || '';
+  return name ? `${RADIUM_IMG_BASE}/${name}?width=${width}` : './images.png';
+}
+
+function photoImageUrl(photo, width) {
+  if (!photo) return './images.png';
+  if (photo.ThumbUrl) return photo.ThumbUrl;
+  const name = photo.ImageName || photo.imageName || '';
+  return name ? `${RADIUM_IMG_BASE}/${name}?width=${width}` : './images.png';
+}
+
+/// Placeholder avatar for a network. Radium has a real DefaultProfileImage on
+/// its CDN; Vanilla has no such asset, so fall back to the bundled image.
+function defaultAvatarUrl(width) {
+  if (activeNetwork !== 'radium') return './images.png';
+  return `${RADIUM_IMG_BASE}/DefaultProfileImage?width=${width}&cropSquare=1`;
+}
+
+function personAvatarUrl(person, width) {
+  if (!person) return defaultAvatarUrl(width);
+  if (person.AvatarUrl) return person.AvatarUrl;
+  const name = person.profileImage || '';
+  if (!name || name === 'DefaultProfileImage') return defaultAvatarUrl(width);
+  return `${RADIUM_IMG_BASE}/${name}?width=${width}&cropSquare=1`;
+}
+
+// ── Network photo feed ───────────────────────────────────────────────────
+// Vanilla publishes a network-wide feed of the photos players are taking right
+// now — the same thing its website's front page shows. Radium has no such tab
+// by request, so the nav button is hidden there.
+
+let feedSkip = 0;
+const feedTake = 12;
+let feedLoading = false;
+let feedHasMore = false;
+let feedObserver = null;
+let feedSequenceId = 0;
+
+/// Point a card's creator and room at real people/places, once known.
+///
+/// Split out because attribution arrives two different ways: embedded in the
+/// photo row (Vanilla), or from a per-photo lookup (Radium). Both end here, so
+/// the card behaves identically whichever way it was filled.
+function applyPhotoAttribution(card, { creatorName, creatorUsername, roomName, avatar }) {
+  const creatorEl = card.querySelector('.creator-name');
+  if (creatorEl) {
+    creatorEl.textContent = creatorName || 'Unknown Creator';
+    const profile = creatorUsername || creatorName;
+    if (profile && profile !== 'Unknown' && profile !== 'Unknown Creator') {
+      creatorEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showCreatorProfile(profile);
+      });
+    }
+  }
+
+  const roomEl = card.querySelector('.room-link');
+  if (roomEl) {
+    if (roomName && roomName.toLowerCase() !== 'none') {
+      roomEl.textContent = roomName;
+      roomEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showRoomByName(roomName);
+      });
+    } else {
+      // Drop the whole "in <room> •" run rather than leaving a dangling label.
+      roomEl.previousElementSibling?.remove();
+      roomEl.nextElementSibling?.remove();
+      roomEl.remove();
+    }
+  }
+
+  if (avatar) {
+    const avatarEl = card.querySelector('.creator-avatar');
+    if (avatarEl) {
+      avatarEl.classList.add('image-loading-placeholder');
+      avatarEl.src = avatar;
+    }
+  }
+}
+
+/// Build one feed card from a photo row.
+///
+/// The single renderer behind the FEED tab, a room's photos, a player's photos
+/// and a player's feed — those four used to carry four copies of this markup.
+///
+/// Vanilla embeds the uploader, room and tagged players in every row, so the
+/// card is complete on first paint. Radium's rows carry none of that, so the
+/// card paints with a placeholder and fills itself in from the per-photo
+/// lookup in the background.
+function buildPhotoCard(photo, backToView) {
+  const card = document.createElement('div');
+  card.className = 'feed-post-card';
+
+  // Coerced to numbers — these are interpolated into innerHTML below.
+  const cheers = Number(photo.CheerCount ?? photo.cheerCount) || 0;
+  const comments = Number(photo.CommentCount ?? photo.commentCount) || 0;
+  // Vanilla has no comment count at all, so the stat is omitted rather than
+  // shown as a hardcoded zero.
+  const hasComments = (photo.CommentCount ?? photo.commentCount) != null;
+  const caption = photo.Description || photo.description || '';
+  const embedded = !!photo.CreatorUsername;
+  const creator = photo.CreatorDisplayName || photo.CreatorUsername || '';
+  const roomName = photo.RoomName || '';
+
+  let dateStr = '';
+  const createdAt = photo.CreatedAt || photo.createdAt;
+  if (createdAt) {
+    try { dateStr = relativeTime(createdAt); } catch (e) { dateStr = String(createdAt); }
+  }
+
+  // Whoever else is in the shot, minus the uploader (already named above).
+  const tagged = (photo.TaggedPlayers || [])
+    .filter(p => p.userName && p.userName !== photo.CreatorUsername);
+
+  card.innerHTML = `
+    <div class="feed-post-header">
+      <img class="feed-post-avatar creator-avatar image-loading-placeholder"
+           src="${escapeHtml(photo.CreatorAvatarUrl || defaultAvatarUrl(96))}"
+           data-fallback="./images.png" />
+      <div class="feed-post-header-text">
+        <div class="feed-post-creator creator-name">${escapeHtml(embedded ? creator : 'Loading...')}</div>
+        <div class="feed-post-meta">
+          <span>in</span>
+          <span class="feed-post-room room-link">${escapeHtml(embedded ? roomName : 'Loading...')}</span>
+          <span class="feed-post-dot">•</span>
+          <span class="feed-post-time">${escapeHtml(dateStr)}</span>
+        </div>
+      </div>
+    </div>
+    ${caption ? `<div class="feed-post-description">${escapeHtml(caption)}</div>` : ''}
+    <div class="feed-post-image-wrap image-wrap">
+      <img class="feed-post-image image-loading-placeholder"
+           src="${escapeHtml(photoImageUrl(photo, 480))}"
+           data-fallback="./images.png" />
+    </div>
+    ${tagged.length ? `<div class="feed-post-tagged"><span class="feed-tagged-label">In this photo:</span></div>` : ''}
+    <div class="feed-post-footer">
+      <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
+      ${hasComments ? `<span class="feed-post-stat"><span class="comments-count">${comments}</span> Comments</span>` : ''}
+    </div>
+  `;
+
+  card.querySelector('.image-wrap')?.addEventListener('click', () => {
+    showPhotoDetails(photo, backToView);
+  });
+
+  // Names are attached as elements, not interpolated markup, so a display name
+  // containing quotes can't break out of a JS string context.
+  const taggedEl = card.querySelector('.feed-post-tagged');
+  if (taggedEl) {
+    tagged.forEach(p => {
+      const link = document.createElement('span');
+      link.className = 'feed-tagged-name';
+      link.textContent = p.displayName || p.userName;
+      link.title = `@${p.userName}`;
+      link.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showCreatorProfile(p.userName);
+      });
+      taggedEl.appendChild(link);
+    });
+  }
+
+  if (embedded) {
+    applyPhotoAttribution(card, {
+      creatorName: creator,
+      creatorUsername: photo.CreatorUsername,
+      roomName,
+      avatar: photo.CreatorAvatarUrl
+    });
+  } else {
+    // Resolved in the background so the grid paints immediately.
+    (async () => {
+      const details = await getPhotoWebDetails(photo.Id || photo.id, photo);
+      if (!details?.success) {
+        applyPhotoAttribution(card, { creatorName: 'Unknown Creator', roomName: '' });
+        return;
+      }
+      const name = details.creatorUsername || 'Unknown';
+      // Prefer the avatar that came with the photo: it is keyed on the
+      // uploader's id, whereas a username lookup can land on a different
+      // account that happens to match the name.
+      const avatar = details.creatorAvatar
+        || (name !== 'Unknown' ? (await getUserWebDetails(name))?.avatar : '');
+      applyPhotoAttribution(card, {
+        creatorName: name,
+        creatorUsername: name,
+        roomName: details.roomName || '',
+        avatar
+      });
+    })();
+  }
+
+  return card;
+}
+
+/// "3m ago" / "2h ago", falling back to an absolute date past half a day —
+/// the same cutoff vanillarec.net uses, so the two read alike.
+function relativeTime(timestamp) {
+  const then = new Date(timestamp).getTime();
+  if (isNaN(then)) return '';
+  const diffMs = Date.now() - then;
+  const diffHours = diffMs / 3600000;
+  if (diffHours >= 0 && diffHours < 12) {
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    return `${Math.floor(diffHours)}h ago`;
+  }
+  return new Date(then).toLocaleString();
+}
+
+async function loadFeed(append = false) {
+  const grid = $('feedGrid');
+  const empty = $('feedEmptyMsg');
+  if (!grid || feedLoading) return;
+  // Guard here rather than only at the observer, so no caller can append past
+  // the end of the feed and duplicate the last page.
+  if (append && !feedHasMore) return;
+
+  feedSequenceId++;
+  const seq = feedSequenceId;
+
+  if (!append) {
+    feedSkip = 0;
+    feedHasMore = false;
+    grid.innerHTML = '<div id="feedLoading" class="feed-loading">Loading feed...</div>';
+    if (empty) empty.style.display = 'none';
+  } else {
+    const more = document.createElement('div');
+    more.id = 'feedLoading';
+    more.className = 'feed-loading';
+    more.textContent = 'Loading more...';
+    grid.appendChild(more);
+  }
+
+  feedLoading = true;
+  let res = null;
+  try {
+    res = await window.radium?.fetchRecentPhotos({ skip: feedSkip, take: feedTake });
+  } catch (e) {
+    console.error('loadFeed error:', e);
+  }
+  feedLoading = false;
+
+  // A network switch (or a refresh) started a newer load; drop this response.
+  if (seq !== feedSequenceId) return;
+
+  $('feedLoading')?.remove();
+
+  if (!res?.success || !res.data?.Results) {
+    if (!append) {
+      grid.innerHTML = '';
+      if (empty) {
+        empty.textContent = `Couldn't load the feed: ${res?.error || 'unknown error'}`;
+        empty.style.display = 'block';
+      }
+    }
+    feedHasMore = false;
+    return;
+  }
+
+  const photos = res.data.Results;
+  if (!append) grid.innerHTML = '';
+
+  photos.forEach(photo => grid.appendChild(buildPhotoCard(photo, 'feed')));
+
+  feedSkip += photos.length;
+  feedHasMore = photos.length === feedTake;
+
+  if (!append && photos.length === 0 && empty) {
+    empty.textContent = 'No recent photos.';
+    empty.style.display = 'block';
+  }
+
+  setupFeedObserver();
+}
+
+/// Page in the next batch when the sentinel below the list scrolls into view.
+function setupFeedObserver() {
+  const sentinel = $('feedSentinel');
+  const root = $('feedScroll');
+  if (!sentinel || !root) return;
+  if (feedObserver) feedObserver.disconnect();
+
+  feedObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && feedHasMore && !feedLoading) {
+      loadFeed(true);
+    }
+  }, {
+    root,
+    // The sentinel is 1px tall and sits flush with the bottom of the scroller,
+    // so with no margin it lands exactly on the root's edge and can report a
+    // zero ratio. The margin both fixes that and starts the next page a screen
+    // early, so scrolling doesn't stall waiting for it.
+    rootMargin: '400px 0px',
+    threshold: 0
+  });
+  feedObserver.observe(sentinel);
+}
+
+/// Drop feed state — used when switching networks, since the photos belong to
+/// the network that was active when they loaded.
+function resetFeed() {
+  feedSequenceId++;
+  feedSkip = 0;
+  feedHasMore = false;
+  feedLoading = false;
+  if (feedObserver) { feedObserver.disconnect(); feedObserver = null; }
+  const grid = $('feedGrid');
+  if (grid) grid.innerHTML = '';
+  const empty = $('feedEmptyMsg');
+  if (empty) empty.style.display = 'none';
+}
+
+/// Staff roles a network reports for a player, most senior first.
+///
+/// Read from the API's own booleans rather than a bundled list of names, so it
+/// stays correct as staff change. Radium's scraper exposes no equivalent, so
+/// this is empty there and nothing renders.
+function playerRoles(person) {
+  if (!person) return [];
+  const roles = [];
+  if (person.isDeveloper)     roles.push({ short: 'DEV',  full: 'Developer' });
+  if (person.isModerator)     roles.push({ short: 'MOD',  full: 'Moderator' });
+  if (person.isCommunityTeam) roles.push({ short: 'TEAM', full: 'Community Team' });
+  return roles;
+}
+
+/// Render a player's roles into `el`, hiding it when they have none.
+function renderPlayerRoles(el, person) {
+  if (!el) return;
+  const roles = playerRoles(person);
+  el.innerHTML = '';
+  el.hidden = roles.length === 0;
+  roles.forEach(role => {
+    const pill = document.createElement('span');
+    pill.className = `role-badge role-${role.short.toLowerCase()}`;
+    pill.textContent = role.short;
+    pill.title = role.full;
+    el.appendChild(pill);
+  });
+}
+
+/// Fill one profile stat tile, hiding it entirely when the network doesn't
+/// publish that number.
+///
+/// An empty value means "this network has no such stat" — Vanilla's player
+/// record carries only a follower count, with no friend or visit figure
+/// anywhere in its API. Showing those as a blank box implies a real value of
+/// zero (or a bug), so the tile is removed and the remaining ones take the
+/// space. A dash is different and stays visible: it means the stat exists but
+/// the lookup failed.
+function setProfileStat(el, value) {
+  if (!el) return;
+  const tile = el.closest('.profile-stat-item');
+  const known = value !== '' && value != null;
+  el.textContent = known ? value : '';
+  if (tile) tile.hidden = !known;
+}
+
+/// Backdrop for a profile header.
+///
+/// Vanilla has no per-user banner — its own site paints every profile with one
+/// shared pattern — so the launcher uses that same pattern rather than leaving
+/// the header blank. Radium keeps its themed gradient, which a scraped banner
+/// then overrides where one exists.
+function defaultProfileBanner() {
+  return activeNetwork === 'vanilla'
+    ? "url('assets/vanilla-pattern.png')"
+    : 'linear-gradient(135deg, var(--green-dim), var(--green))';
+}
+
+/// Full-resolution avatar for the lightbox.
+function personAvatarFullUrl(person) {
+  if (person?.AvatarUrl) return person.AvatarUrl;
+  const name = person?.profileImage || '';
+  if (!name || name === 'DefaultProfileImage') {
+    return activeNetwork === 'radium'
+      ? `${RADIUM_IMG_BASE}/DefaultProfileImage`
+      : './images.png';
+  }
+  return `${RADIUM_IMG_BASE}/${name}`;
+}
 
 // DOM shortcuts
 const $ = id => document.getElementById(id);
@@ -243,10 +716,15 @@ function addLog(msg, type = 'info') {
   while (out.children.length > 120) out.removeChild(out.firstChild);
 }
 
-// Tab routing switch
-document.querySelectorAll('.nav-btn').forEach(btn => {
+// Tab routing switch.
+//
+// Scoped to the nav itself: `.nav-btn` is also worn by the network switcher and
+// its menu options, purely so they inherit each theme's button styling. Those
+// carry no data-tab and must not take part in tab routing — or in the
+// deactivate sweep below, which would strip the selected network's highlight.
+document.querySelectorAll('.sidebar-nav .nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sidebar-nav .nav-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     const tabName = btn.dataset.tab;
@@ -259,6 +737,10 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
       loadRooms();
     } else if (tabName === 'people') {
       loadPeople();
+    } else if (tabName === 'feed') {
+      // Only reload an empty feed, so returning to the tab keeps your place
+      // in the list instead of jumping back to the top.
+      if (!$('feedGrid')?.children.length) loadFeed();
     }
   });
 });
@@ -447,6 +929,10 @@ async function loadConfig() {
   if (btnExcludeAv) {
     btnExcludeAv.textContent = config.defenderExcluded ? 'UNExclude AV' : 'Exclude AV';
   }
+
+  // Network last, so the brand and capability gating are applied against a
+  // fully-loaded config.
+  applyNetworkUI(config.network === 'vanilla' ? 'vanilla' : 'radium');
 }
 
 function applyTheme(theme) {
@@ -1807,7 +2293,11 @@ async function autoSaveSettings() {
     theme:            saveTheme,
     baselineTheme:    selectedTheme,
     launchOptions:    $('cfgLaunchOptions')?.value.trim() || '',
-    customTheme:      customColors
+    customTheme:      customColors,
+    network:          activeNetwork,
+    // Passed through untouched: no setting on this form owns anything in it,
+    // and the backend re-injects the install fields it manages anyway.
+    vanilla:          config.vanilla || {}
   };
 
   config.customTheme  = customColors;
@@ -1919,7 +2409,53 @@ async function checkInstall() {
     // install triggers a real re-check instead of reapplying stale info.
     clientUpdateInfo = null;
     clientUpdateAutoChecked = false;
-    addLog('Game client not found — download required.', 'info');
+
+    // A network that has not shipped a client yet is a different state from
+    // "you haven't installed it": there is nothing to install. Say so rather
+    // than offering a Download that can only fail.
+    if (!clientDownloadAvailable()) {
+      if (qi) qi.textContent = 'NOT RELEASED';
+      addLog(`${networkInfo().label} has not published a client yet.`, 'info');
+    } else {
+      addLog('Game client not found — download required.', 'info');
+    }
+  }
+
+  updateDownloadCta();
+}
+
+/// Whether the active network has something the launcher can actually install.
+///
+/// Vanilla has published no client, so this is false and its hero button opens
+/// their download page instead. The install pipeline behind it is complete and
+/// keyed on `config.vanilla.clientUrl`; there is deliberately no UI for that
+/// field while there is nothing to point it at, so it is set in config.json (or
+/// a Settings row is added back) once Vanilla ships a build.
+function clientDownloadAvailable() {
+  const info = networkInfo();
+  if (!info.needsConfiguredDownloadUrl) return true;
+  return !!(config?.vanilla?.clientUrl || '').trim();
+}
+
+/// Point the hero's DOWNLOAD button at the right thing, and explain it when
+/// that thing is a website rather than an install.
+function updateDownloadCta() {
+  const btn = $('btnDownload');
+  const note = $('heroDownloadNote');
+  const available = clientDownloadAvailable();
+  const info = networkInfo();
+
+  if (btn) {
+    btn.textContent = available ? '\u2b07 DOWNLOAD' : `\u2b07 GET ${info.label}`;
+    btn.title = available
+      ? `Download the ${info.label} client`
+      : `Open ${info.downloadPage}`;
+  }
+  if (note) {
+    note.style.display = available ? 'none' : 'block';
+    note.textContent = available
+      ? ''
+      : `${info.label} hasn't released a client yet. This opens their download page.`;
   }
 }
 
@@ -2163,7 +2699,9 @@ async function runClientDownload({ resuming = false } = {}) {
     addLog('Resuming download...', 'info');
     toast('Resuming download...', 'info', 2500);
   } else {
-    addLog('Starting download from recroom.baby (downloads page)...', 'info');
+    addLog(activeNetwork === 'radium'
+      ? 'Starting download from recroom.baby (downloads page)...'
+      : 'Starting download from the configured Vanilla client URL...', 'info');
     toast('Download started!', 'info', 2500);
   }
 
@@ -2185,7 +2723,7 @@ async function runClientDownload({ resuming = false } = {}) {
     setDownloadUI(false);
     addLog(`Download & extraction complete in ${elapsed}s.`, 'ok');
     addLog(`Exe: ${result.exePath || 'Found in client dir'}`, 'ok');
-    toast('Radium client installed!', 'ok', 4000);
+    toast(`${networkInfo().label} client installed!`, 'ok', 4000);
     // The download stamped a new client build id / version / ETag directly into
     // config.json. Re-sync our in-memory copy from disk so the next settings
     // autosave (which writes the whole config back) doesn't revert those to the
@@ -2222,7 +2760,17 @@ async function runClientDownload({ resuming = false } = {}) {
   }
 }
 
-$('btnDownload')?.addEventListener('click', () => runClientDownload());
+$('btnDownload')?.addEventListener('click', () => {
+  // Nothing to install on this network yet — send the user to the source
+  // instead of starting a download that would immediately fail.
+  if (!clientDownloadAvailable()) {
+    const info = networkInfo();
+    addLog(`Opening ${info.downloadPage} — no ${info.label} client to install yet.`, 'info');
+    window.radium?.openUrl(info.downloadPage);
+    return;
+  }
+  runClientDownload();
+});
 
 // On startup, offer to continue a download that was interrupted last session
 // (paused, or the launcher was closed mid-download). The partial file + resume
@@ -2840,7 +3388,12 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
 
 // Periodically ping server and update status labels
 async function checkServerStatus(silent = false) {
-  const apiUrl = config.apiUrl || 'https://api.radie.app/';
+  // Radium's API host is user-configurable; Vanilla's is fixed. The CDN check
+  // is Radium's download host, so it is only meaningful there.
+  const isRadium = activeNetwork === 'radium';
+  const apiUrl = isRadium
+    ? (config.apiUrl || 'https://api.radie.app/')
+    : 'https://api.vanillarec.net';
   const cdnUrl = 'https://cdn.recroomarchive.org';
 
   // Immediately show CHECKING... in quick stats while pings are in-flight
@@ -2854,14 +3407,16 @@ async function checkServerStatus(silent = false) {
   try {
     [apiResult, cdnResult] = await Promise.all([
       window.radium?.pingServer(apiUrl),
-      window.radium?.pingServer(cdnUrl),
+      isRadium ? window.radium?.pingServer(cdnUrl) : Promise.resolve(null),
     ]);
   } catch (e) {
     console.error('pingServer error:', e);
   }
 
   const apiOnline = apiResult?.online ?? false;
-  const cdnOnline = cdnResult?.online ?? false;
+  // Tri-state: null means "not applicable to this network", which the bug
+  // reporter renders differently from a real offline.
+  const cdnOnline = isRadium ? (cdnResult?.online ?? false) : null;
   lastServerStatus = { apiOnline, cdnOnline };
 
   // Quick stats card on home tab
@@ -2876,7 +3431,9 @@ async function checkServerStatus(silent = false) {
     // A server being unreachable is a status, not a launcher error — log it as a
     // warning so genuine errors stay distinct in the log.
     addLog(`API Gateway (${apiUrl}): ${apiOnline ? 'ONLINE' : 'OFFLINE'}`, apiOnline ? 'ok' : 'warn');
-    addLog(`CDN Server (${cdnUrl}): ${cdnOnline ? 'ONLINE' : 'OFFLINE'}`, cdnOnline ? 'ok' : 'warn');
+    if (isRadium) {
+      addLog(`CDN Server (${cdnUrl}): ${cdnOnline ? 'ONLINE' : 'OFFLINE'}`, cdnOnline ? 'ok' : 'warn');
+    }
   }
 }
 
@@ -3398,6 +3955,182 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
 });
 
 // Launcher entrypoint initialization
+// ── Network switcher ─────────────────────────────────────────────────────
+
+/// Apply everything that is purely presentational about a network. Split out
+/// from setNetwork() so startup can brand the UI without triggering a reload
+/// of data that init() is about to fetch anyway.
+function applyNetworkUI(name) {
+  activeNetwork = NETWORKS[name] ? name : 'radium';
+  const info = networkInfo();
+
+  document.body.classList.toggle('network-vanilla', activeNetwork === 'vanilla');
+  document.body.classList.toggle('network-radium', activeNetwork === 'radium');
+  // Mirrored so the pre-paint bootstrap in index.html can brand the window
+  // before CSS loads on the next launch.
+  try { localStorage.setItem('radium-network', activeNetwork); } catch (e) {}
+
+  const nameEl = $('networkName');
+  if (nameEl) nameEl.textContent = info.label;
+
+  const logoEl = $('sidebarLogo');
+  if (logoEl) logoEl.src = info.logo;
+
+  document.querySelectorAll('#networkMenu .network-option').forEach(opt => {
+    const selected = opt.dataset.network === activeNetwork;
+    opt.setAttribute('aria-selected', String(selected));
+    // `active` is the class every theme already styles as "this is the current
+    // one", so the selected network is highlighted the same way the current
+    // tab is, in whichever skin is applied.
+    opt.classList.toggle('active', selected);
+  });
+
+  updateDownloadCta();
+}
+
+function closeNetworkMenu() {
+  const menu = $('networkMenu');
+  const btn = $('networkSwitcher');
+  if (menu) menu.hidden = true;
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('active');
+  }
+}
+
+function openNetworkMenu() {
+  const menu = $('networkMenu');
+  const btn = $('networkSwitcher');
+  if (menu) menu.hidden = false;
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'true');
+    // Borrows the current-tab look while open, which every theme already
+    // defines for `.nav-btn.active`.
+    btn.classList.add('active');
+  }
+  menu?.querySelector('.network-option.active')?.focus();
+}
+
+/// Switch networks: rebrand, persist, and reload everything that is
+/// network-scoped.
+async function setNetwork(name) {
+  if (!NETWORKS[name] || name === activeNetwork) {
+    closeNetworkMenu();
+    return;
+  }
+
+  // A download and a running game are both single-instance globals bound to one
+  // client, so switching underneath them would leave the UI describing a client
+  // it is no longer pointing at.
+  if (isDownloading || isPaused) {
+    toast('Finish or cancel the current download before switching networks.', 'warn', 4000);
+    closeNetworkMenu();
+    return;
+  }
+  if (isGameRunning || isGameLaunching) {
+    toast('Close the game before switching networks.', 'warn', 4000);
+    closeNetworkMenu();
+    return;
+  }
+
+  closeNetworkMenu();
+  applyNetworkUI(name);
+  addLog(`Switched network to ${networkInfo().label} (${networkInfo().site}).`, 'ok');
+
+  // Persist. Written directly rather than through autoSaveSettings() so the
+  // switch survives even if the user never touches the settings form.
+  config.network = activeNetwork;
+  try {
+    await window.radium?.saveConfig({ ...config, network: activeNetwork });
+  } catch (e) {
+    console.error('saveConfig (network) error:', e);
+  }
+
+  // Drop everything scoped to the previous network. Bumping the sequence ids
+  // makes the existing race guards discard any responses still in flight.
+  roomsSequenceId++;
+  peopleSequenceId++;
+  roomsSkip = 0;
+  peopleSkip = 0;
+  activeRoomsTag = '';
+  activeRoomsSort = 0;
+  roomsSearchQuery = '';
+  peopleSearchQuery = '';
+  setValue('roomsSearch', '');
+  setValue('peopleSearch', '');
+  hideRoomDetails();
+  hidePlayerDetails();
+  resetFeed();
+
+  // Cached client-update state belongs to the old network's client.
+  clientUpdateInfo = null;
+  clientUpdateAutoChecked = false;
+
+  // These caches are keyed by username / photo id alone, which is only unique
+  // *within* a network — the same name is a different person on each. Without
+  // this, opening a profile on one network then the same name on the other
+  // serves the first network's stats.
+  userWebDetailsCache.clear();
+  photoWebDetailsCache.clear();
+
+  await checkInstall();
+  checkServerStatus(true);
+  updatePlayerCount(true);
+
+  // Only refetch a list the user is actually looking at.
+  const openTab = document.querySelector('.tab-panel.active')?.id;
+  if (openTab === 'tab-rooms') {
+    loadFilters();
+    loadRooms();
+  } else if (openTab === 'tab-people') {
+    loadPeople();
+  } else if (openTab === 'tab-feed') {
+    // FEED only exists on networks that publish one; leaving the user parked
+    // on a tab whose nav button just disappeared would strand them.
+    if (networkInfo().hasPhotoFeed) loadFeed();
+    else switchTab('home');
+  }
+}
+
+$('networkSwitcher')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const expanded = $('networkSwitcher')?.getAttribute('aria-expanded') === 'true';
+  if (expanded) closeNetworkMenu(); else openNetworkMenu();
+});
+
+document.querySelectorAll('#networkMenu .network-option').forEach(opt => {
+  opt.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setNetwork(opt.dataset.network);
+  });
+});
+
+// Dismissal: anywhere outside, or Escape.
+document.addEventListener('click', (e) => {
+  const menu = $('networkMenu');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(e.target) || $('networkSwitcher')?.contains(e.target)) return;
+  closeNetworkMenu();
+});
+document.addEventListener('keydown', (e) => {
+  const menu = $('networkMenu');
+  if (!menu || menu.hidden) return;
+  if (e.key === 'Escape') {
+    closeNetworkMenu();
+    $('networkSwitcher')?.focus();
+    return;
+  }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const opts = Array.from(menu.querySelectorAll('.network-option'));
+    const idx = opts.indexOf(document.activeElement);
+    const next = e.key === 'ArrowDown'
+      ? (idx + 1) % opts.length
+      : (idx - 1 + opts.length) % opts.length;
+    opts[next]?.focus();
+  }
+});
+
 async function init() {
   addLog('Radium Launcher started.', 'ok');
   await loadVersion();
@@ -3409,6 +4142,7 @@ async function init() {
   // Check for launcher updates first on startup (run in background, do not block initialization)
   checkForLauncherUpdate();
 
+  addLog(`Network: ${networkInfo().label} (${networkInfo().site})`, 'info');
   addLog(`API: ${config.apiUrl}`, 'info');
   addLog(`Install dir: ${config?.installDir || '%APPDATA%\\com.radium.launcher\\client'}`, 'info');
 
@@ -3486,6 +4220,20 @@ const peopleTake = 15;
 let peopleSearchQuery = '';
 let peopleSequenceId = 0;
 
+/// Text for a pagination readout.
+///
+/// `totalKnown === false` means the backend is paging a source that never
+/// reports its size (Vanilla enumerates its player roster, and its list
+/// endpoints cap rows without saying how many were withheld). Printing
+/// "of N" there produces a total that grows every time you press Next, so the
+/// page number is shown on its own instead of quoting a number that moves.
+function pageLabel(skip, take, total, totalKnown) {
+  const currentPage = Math.floor(skip / take) + 1;
+  if (totalKnown === false) return `Page ${currentPage}`;
+  const totalPages = Math.ceil(total / take);
+  return `Page ${currentPage} of ${Math.max(1, totalPages)}`;
+}
+
 function escapeHtml(str) {
   if (str == null) return '';
   return String(str)
@@ -3525,6 +4273,12 @@ async function loadFilters() {
         document.querySelectorAll('#roomsFiltersList .filter-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         activeRoomsTag = (tag === 'all') ? '' : tag;
+        // Mirror of the search handler: on Vanilla the two share one field, so
+        // picking a tag clears whatever was typed.
+        if (!networkInfo().hasFilters && activeRoomsTag && roomsSearchQuery) {
+          roomsSearchQuery = '';
+          setValue('roomsSearch', '');
+        }
         roomsSkip = 0;
         loadRooms();
       });
@@ -3565,8 +4319,7 @@ async function loadRooms() {
       emptyEl?.classList.remove('hidden');
     } else {
       rooms.forEach(room => {
-        const imgName = room.ImageName || room.imageName || '';
-        const thumbUrl = imgName ? `https://img.radie.app/${imgName}?width=480` : './images.png';
+        const thumbUrl = roomThumbUrl(room, 480);
         
         const card = document.createElement('div');
         card.className = 'room-card';
@@ -3576,7 +4329,7 @@ async function loadRooms() {
         const roomName = room.Name || room.name || 'Unknown Room';
         const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
         card.innerHTML = `
-          <img class="room-card-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(roomName)}" />
+          <img class="room-card-image image-loading-placeholder"  data-fallback="./images.png" src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(roomName)}" />
           <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
           <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         `;
@@ -3594,11 +4347,9 @@ async function loadRooms() {
     }
     
     // Pagination text & buttons state
-    const totalPages = Math.ceil(total / roomsTake);
-    const currentPage = Math.floor(roomsSkip / roomsTake) + 1;
     const txtPage = $('txtRoomsPage');
     if (txtPage) {
-      txtPage.textContent = `Page ${currentPage} of ${Math.max(1, totalPages)}`;
+      txtPage.textContent = pageLabel(roomsSkip, roomsTake, total, res.data.TotalKnown);
     }
     
     const btnPrev = $('btnRoomsPrev');
@@ -3606,7 +4357,11 @@ async function loadRooms() {
     if (btnPrev) btnPrev.disabled = (roomsSkip === 0);
     if (btnNext) btnNext.disabled = (roomsSkip + roomsTake >= total);
   } else {
-    gridEl.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${res?.error || 'Failed to fetch rooms'}</div>`;
+    // Escaped: this string can carry text straight from a remote API (an error
+    // object's message, or a prefix of an unparseable response body), and the
+    // CSP allows inline handlers — so unescaped it is a script-injection path
+    // into a webview that can reach every backend command.
+    gridEl.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${escapeHtml(res?.error || 'Failed to fetch rooms')}</div>`;
     const btnPrev = $('btnRoomsPrev');
     const btnNext = $('btnRoomsNext');
     if (btnPrev) btnPrev.disabled = true;
@@ -3650,9 +4405,13 @@ async function loadPeople() {
       bodyEl.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">No players found.</td></tr>';
     } else {
       people.forEach(person => {
-        const profileImg = person.profileImage || '';
-        const isDefault = !profileImg || profileImg === 'DefaultProfileImage';
-        const avatarUrl = isDefault ? 'https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1' : `https://img.radie.app/${profileImg}?width=50&cropSquare=1`;
+        const avatarUrl = personAvatarUrl(person, 50);
+        const fallbackAvatar = defaultAvatarUrl(50);
+        // Vanilla publishes no presence, so `isOnline` arrives as null and the
+        // dot stays neutral rather than asserting a definite "offline".
+        const presence = person.isOnline == null
+          ? { cls: 'unknown', title: 'Presence unknown' }
+          : (person.isOnline ? { cls: 'online', title: 'Online' } : { cls: 'offline', title: 'Offline' });
         
         const row = document.createElement('tr');
         row.onclick = () => {
@@ -3660,31 +4419,30 @@ async function loadPeople() {
         };
         row.innerHTML = `
           <td>
-            <img class="people-avatar image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='https://img.radie.app/DefaultProfileImage?width=50&cropSquare=1'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(person.userName)}" />
+            <img class="people-avatar image-loading-placeholder"  data-fallback="${escapeHtml(fallbackAvatar)}" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(person.userName)}" />
           </td>
           <td>
-            <span class="status-dot ${person.isOnline ? 'online' : 'offline'}" title="${person.isOnline ? 'Online' : 'Offline'}"></span>
+            <span class="status-dot ${presence.cls}" title="${presence.title}"></span>
             ${escapeHtml(person.displayName || person.userName)}
           </td>
-          <td>
-            <a href="#" class="text-link" onclick="return false;">
-              @${escapeHtml(person.userName)}
-            </a>
+          <td class="people-username-cell">
+            <span class="text-link">@${escapeHtml(person.userName)}</span><span class="profile-roles inline-roles"></span>
           </td>
           <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(person.bio || '')}">
             ${escapeHtml(person.bio || '')}
           </td>
         `;
+        // Built after innerHTML so the pills are real elements rather than
+        // interpolated markup.
+        renderPlayerRoles(row.querySelector('.inline-roles'), person);
         bodyEl.appendChild(row);
       });
     }
-    
+
     // Pagination text & buttons state
-    const totalPages = Math.ceil(total / peopleTake);
-    const currentPage = Math.floor(peopleSkip / peopleTake) + 1;
     const txtPage = $('txtPeoplePage');
     if (txtPage) {
-      txtPage.textContent = `Page ${currentPage} of ${Math.max(1, totalPages)}`;
+      txtPage.textContent = pageLabel(peopleSkip, peopleTake, total, res.data.TotalKnown);
     }
     
     const btnPrev = $('btnPeoplePrev');
@@ -3692,7 +4450,8 @@ async function loadPeople() {
     if (btnPrev) btnPrev.disabled = (peopleSkip === 0);
     if (btnNext) btnNext.disabled = (peopleSkip + peopleTake >= total);
   } else {
-    bodyEl.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${res?.error || 'Failed to fetch players'}</td></tr>`;
+    // Escaped for the same reason as the rooms error above.
+    bodyEl.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${escapeHtml(res?.error || 'Failed to fetch players')}</td></tr>`;
     const btnPrev = $('btnPeoplePrev');
     const btnNext = $('btnPeopleNext');
     if (btnPrev) btnPrev.disabled = true;
@@ -3700,16 +4459,33 @@ async function loadPeople() {
   }
 }
 
+// Wired here rather than beside loadFeed(): the `$` helper is declared further
+// down this file, so a top-level call up there hits its temporal dead zone.
+$('btnFeedRefresh')?.addEventListener('click', () => loadFeed());
+
 // Event listeners for Rooms search / sort / pagination
 let roomsSearchTimeout;
 $('roomsSearch')?.addEventListener('input', (e) => {
   clearTimeout(roomsSearchTimeout);
   roomsSearchTimeout = setTimeout(() => {
     roomsSearchQuery = e.target.value.trim();
+    // Vanilla filters by tag through the same search field it matches names
+    // with, and a multi-term query matches nothing there — so a typed search
+    // replaces the tag rather than narrowing it. Radium filters server-side and
+    // can hold both at once.
+    if (!networkInfo().hasFilters && roomsSearchQuery) clearRoomsTag();
     roomsSkip = 0;
     loadRooms();
   }, 300);
 });
+
+/// Drop the active tag filter and un-highlight it in the rail.
+function clearRoomsTag() {
+  if (!activeRoomsTag) return;
+  activeRoomsTag = '';
+  document.querySelectorAll('#roomsFiltersList .filter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('#roomsFiltersList .filter-btn')?.classList.add('active'); // "All Rooms"
+}
 
 $('btnRoomsPrev')?.addEventListener('click', () => {
   if (roomsSkip >= roomsTake) {
@@ -3794,7 +4570,25 @@ async function showCreatorProfile(username) {
 const photoWebDetailsCache = new Map();
 const userWebDetailsCache = new Map();
 
-async function getPhotoWebDetails(photoId) {
+/// Attribution for a photo: who took it and where.
+///
+/// Radium has to scrape this from the photo's web page, one request per photo.
+/// Vanilla's feed already embeds the uploader and room on every row (and has no
+/// per-photo detail endpoint to scrape anyway), so when the photo object
+/// carries them the answer is already in hand — passing `photo` avoids a
+/// pointless round trip on Radium and is the only way it resolves on Vanilla.
+async function getPhotoWebDetails(photoId, photo) {
+  // Keyed on the uploader specifically: a row carrying only a room name would
+  // otherwise short-circuit into an "Unknown Creator" card on Radium, where the
+  // scrape is the only source of attribution.
+  if (photo?.CreatorUsername) {
+    return {
+      success: true,
+      creatorUsername: photo.CreatorUsername,
+      roomName: photo.RoomName || '',
+      creatorAvatar: photo.CreatorAvatarUrl || ''
+    };
+  }
   if (photoWebDetailsCache.has(photoId)) {
     return photoWebDetailsCache.get(photoId);
   }
@@ -3828,7 +4622,14 @@ async function getUserWebDetails(username) {
 
 // Photos pagination state
 let roomPhotosFeedSkip = 0;
-const roomPhotosFeedTake = 30;
+// A room's photos are found by scanning the network-wide feed and filtering by
+// room id — neither network exposes a per-room photo endpoint. Each scanned page
+// costs a request (two on Vanilla, which resolves photo creators in a batch),
+// and because Vanilla has no `skip` the backend re-fetches everything before the
+// requested window, so deep pages get quadratically more expensive. Fewer, larger
+// pages cover the same ground for half the round trips.
+const roomPhotosFeedTake = 60;
+const ROOM_PHOTO_MAX_PAGES = 3;
 let currentRoomId = null;
 let currentRoomPhotosCount = 0;
 let roomPhotosHasMore = false;
@@ -3965,117 +4766,7 @@ async function loadRoomPhotos(roomId, append = false) {
           currentRoomPhotosCount++;
           matchedInBatch++;
           
-          // Create Feed Post Card
-          const card = document.createElement('div');
-          card.className = 'feed-post-card';
-          
-          const photoId = photo.Id || photo.id;
-          // Coerce to numbers — these are interpolated into innerHTML, so a
-          // malicious/odd string from the API must never reach the DOM raw.
-          const cheers = Number(photo.CheerCount ?? photo.cheerCount) || 0;
-          const comments = Number(photo.CommentCount ?? photo.commentCount) || 0;
-          const captionText = photo.Description || photo.description || '';
-          
-          let dateStr = '';
-          const createdAt = photo.CreatedAt || photo.createdAt;
-          if (createdAt) {
-            try {
-              dateStr = new Date(createdAt).toLocaleString();
-            } catch (e) {
-              dateStr = createdAt;
-            }
-          }
-          
-          const imgName = photo.ImageName || photo.imageName || '';
-          
-          card.innerHTML = `
-            <div class="feed-post-header">
-              <img class="feed-post-avatar creator-avatar image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./logo.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1" />
-              <div class="feed-post-header-text">
-                <div class="feed-post-creator creator-name">Loading...</div>
-                <div class="feed-post-meta">
-                  <span>in</span>
-                  <span class="feed-post-room room-link">Loading...</span>
-                  <span class="feed-post-dot">•</span>
-                  <span class="feed-post-time">${escapeHtml(dateStr)}</span>
-                </div>
-              </div>
-            </div>
-            ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
-            <div class="feed-post-image-wrap image-wrap">
-              <img class="feed-post-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" src="${imgName ? escapeHtml(`https://img.radie.app/${imgName}?width=480`) : './images.png'}" />
-            </div>
-            <div class="feed-post-footer">
-              <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
-              <span class="feed-post-stat"><span class="comments-count">${comments}</span> Comments</span>
-            </div>
-          `;
-          
-          // Hook up clicks
-          const imgWrap = card.querySelector('.image-wrap');
-          if (imgWrap) {
-            imgWrap.onclick = () => showPhotoDetails(photo, 'rooms-detail');
-          }
-          
-          photosGrid.appendChild(card);
-          
-          // Asynchronously fetch photo web details in background
-          (async () => {
-            const details = await getPhotoWebDetails(photoId);
-            if (details && details.success) {
-              const creatorName = details.creatorUsername || 'Unknown';
-              const roomName = details.roomName || '';
-              
-              const creatorEl = card.querySelector('.creator-name');
-              if (creatorEl) {
-                creatorEl.textContent = creatorName;
-                creatorEl.onclick = (e) => {
-                  e.stopPropagation();
-                  showCreatorProfile(creatorName);
-                };
-              }
-              
-              const roomEl = card.querySelector('.room-link');
-              if (roomEl) {
-                if (roomName && roomName.toLowerCase() !== 'none') {
-                  roomEl.textContent = roomName;
-                  roomEl.onclick = (e) => {
-                    e.stopPropagation();
-                    showRoomByName(roomName);
-                  };
-                } else {
-                  roomEl.previousElementSibling?.remove(); // remove 'in'
-                  roomEl.remove();
-                }
-              }
-              
-              // Asynchronously fetch creator avatar in background
-              if (creatorName && creatorName !== 'Unknown') {
-                const userDetails = await getUserWebDetails(creatorName);
-                if (userDetails && userDetails.success && userDetails.avatar) {
-                  const avatarEl = card.querySelector('.creator-avatar');
-                  if (avatarEl) {
-                    avatarEl.classList.add('image-loading-placeholder');
-                    avatarEl.onload = () => avatarEl.classList.remove('image-loading-placeholder');
-                    avatarEl.onerror = () => {
-                      avatarEl.src = './logo.png';
-                      avatarEl.classList.remove('image-loading-placeholder');
-                      avatarEl.onerror = null;
-                    };
-                    avatarEl.src = userDetails.avatar;
-                  }
-                }
-              }
-            } else {
-              const creatorEl = card.querySelector('.creator-name');
-              if (creatorEl) creatorEl.textContent = 'Unknown Creator';
-              const roomEl = card.querySelector('.room-link');
-              if (roomEl) {
-                roomEl.previousElementSibling?.remove();
-                roomEl.remove();
-              }
-            }
-          })();
+          photosGrid.appendChild(buildPhotoCard(photo, 'rooms-detail'));
         });
       }
       
@@ -4085,10 +4776,10 @@ async function loadRoomPhotos(roomId, append = false) {
       }
       if (matched.length > 0) {
         roomPhotosFeedSkip += roomPhotosFeedTake;
-        roomPhotosHasMore = (roomPhotosTotalPagesSearched < 6);
+        roomPhotosHasMore = (roomPhotosTotalPagesSearched < ROOM_PHOTO_MAX_PAGES);
         break;
       }
-      if (roomPhotosTotalPagesSearched >= 6) {
+      if (roomPhotosTotalPagesSearched >= ROOM_PHOTO_MAX_PAGES) {
         roomPhotosHasMore = false;
         break;
       }
@@ -4162,110 +4853,7 @@ async function loadPlayerPhotos(userId, append = false) {
     if (!append) photosGrid.innerHTML = '';
     
     photos.forEach(photo => {
-      // Create Feed Post Card
-      const card = document.createElement('div');
-      card.className = 'feed-post-card';
-      
-      const photoId = photo.Id || photo.id;
-      // Coerced to numbers — interpolated into innerHTML below.
-      const cheers = Number(photo.CheerCount ?? photo.cheerCount) || 0;
-      const comments = Number(photo.CommentCount ?? photo.commentCount) || 0;
-      const captionText = photo.Description || photo.description || '';
-      
-      let dateStr = '';
-      const createdAt = photo.CreatedAt || photo.createdAt;
-      if (createdAt) {
-        try {
-          dateStr = new Date(createdAt).toLocaleString();
-        } catch (e) {
-          dateStr = createdAt;
-        }
-      }
-      
-      const imgName = photo.ImageName || photo.imageName || '';
-      
-      card.innerHTML = `
-        <div class="feed-post-header">
-          <img class="feed-post-avatar creator-avatar image-loading-placeholder" src="https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./logo.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
-          <div class="feed-post-header-text">
-            <div class="feed-post-creator creator-name">Loading...</div>
-            <div class="feed-post-meta">
-              <span>in</span>
-              <span class="feed-post-room room-link">Loading...</span>
-              <span class="feed-post-dot">•</span>
-              <span class="feed-post-time">${escapeHtml(dateStr)}</span>
-            </div>
-          </div>
-        </div>
-        ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
-        <div class="feed-post-image-wrap image-wrap">
-          <img class="feed-post-image image-loading-placeholder" src="${imgName ? escapeHtml(`https://img.radie.app/${imgName}?width=480`) : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
-        </div>
-        <div class="feed-post-footer">
-          <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
-          <span class="feed-post-stat"><span class="comments-count">${comments}</span> Comments</span>
-        </div>
-      `;
-      
-      // Hook up clicks
-      const imgWrap = card.querySelector('.image-wrap');
-      if (imgWrap) {
-        imgWrap.onclick = () => showPhotoDetails(photo, 'people-detail');
-      }
-      
-      photosGrid.appendChild(card);
-      
-      // Asynchronously fetch photo web details in background
-      (async () => {
-        const details = await getPhotoWebDetails(photoId);
-        if (details && details.success) {
-          const creatorName = details.creatorUsername || 'Unknown';
-          const roomName = details.roomName || '';
-          
-          const creatorEl = card.querySelector('.creator-name');
-          if (creatorEl) {
-            creatorEl.textContent = creatorName;
-            creatorEl.onclick = (e) => {
-              e.stopPropagation();
-              showCreatorProfile(creatorName);
-            };
-          }
-          
-          const roomEl = card.querySelector('.room-link');
-          if (roomEl) {
-            if (roomName && roomName.toLowerCase() !== 'none') {
-              roomEl.textContent = roomName;
-              roomEl.onclick = (e) => {
-                e.stopPropagation();
-                showRoomByName(roomName);
-              };
-            } else {
-              roomEl.previousElementSibling?.remove(); // remove 'in'
-              roomEl.remove();
-            }
-          }
-          
-          // Asynchronously fetch creator avatar in background
-          if (creatorName && creatorName !== 'Unknown') {
-            const userDetails = await getUserWebDetails(creatorName);
-            if (userDetails && userDetails.success && userDetails.avatar) {
-              const avatarEl = card.querySelector('.creator-avatar');
-              if (avatarEl) {
-                avatarEl.classList.add('image-loading-placeholder');
-                avatarEl.src = userDetails.avatar;
-              }
-            }
-          }
-        } else {
-          const creatorEl = card.querySelector('.creator-name');
-          if (creatorEl) creatorEl.textContent = 'Unknown Creator';
-          const roomEl = card.querySelector('.room-link');
-          if (roomEl) {
-            roomEl.previousElementSibling?.remove();
-            roomEl.remove();
-          }
-        }
-      })();
+      photosGrid.appendChild(buildPhotoCard(photo, 'people-detail'));
     });
     
     const totalInGrid = photosGrid.querySelectorAll('.feed-post-card').length;
@@ -4324,8 +4912,7 @@ async function showPhotoDetails(photo, backToView) {
     imgEl.classList.add('image-loading-placeholder');
     imgEl.onload = () => imgEl.classList.remove('image-loading-placeholder');
     imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.classList.remove('image-loading-placeholder'); imgEl.onerror = null; };
-    const imgName = photo.ImageName || photo.imageName || '';
-    imgEl.src = imgName ? `https://img.radie.app/${imgName}?width=720` : './images.png';
+    imgEl.src = photoImageUrl(photo, 720);
   }
   
   const captionEl = $('photoDetailCaption');
@@ -4357,7 +4944,7 @@ async function showPhotoDetails(photo, backToView) {
   const creatorAvatarEl = $('photoDetailCreatorAvatar');
   if (creatorAvatarEl) {
     creatorAvatarEl.classList.add('image-loading-placeholder');
-    creatorAvatarEl.src = 'https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1';
+    creatorAvatarEl.src = defaultAvatarUrl(34);
   }
   const roomLinkEl = $('photoDetailRoomLink');
   if (roomLinkEl) roomLinkEl.style.display = 'none';
@@ -4367,7 +4954,7 @@ async function showPhotoDetails(photo, backToView) {
   if (creatorLinkEl) creatorLinkEl.onclick = null;
   
   // Fetch scraped details from photo webpage
-  const res = await getPhotoWebDetails(photoId);
+  const res = await getPhotoWebDetails(photoId, photo);
   if (res && res.success) {
     const creatorUsername = res.creatorUsername || '';
     const roomName = res.roomName || '';
@@ -4382,10 +4969,10 @@ async function showPhotoDetails(photo, backToView) {
         };
       }
       // fetch avatar of user in background
-      const userWeb = await getUserWebDetails(creatorUsername);
-      if (userWeb && userWeb.success && userWeb.avatar && creatorAvatarEl) {
+      const avatarSrc = res.creatorAvatar || (await getUserWebDetails(creatorUsername))?.avatar;
+      if (avatarSrc && creatorAvatarEl) {
         creatorAvatarEl.classList.add('image-loading-placeholder');
-        creatorAvatarEl.src = userWeb.avatar;
+        creatorAvatarEl.src = avatarSrc;
       } else if (creatorAvatarEl) {
         creatorAvatarEl.classList.remove('image-loading-placeholder');
       }
@@ -4443,8 +5030,7 @@ async function showRoomDetails(room) {
   const detail = $('roomsDetailView');
   if (!list || !detail) return;
   
-  const imgName = room.ImageName || room.imageName || '';
-  const thumbUrl = imgName ? `https://img.radie.app/${imgName}?width=720` : './images.png';
+  const thumbUrl = roomThumbUrl(room, 720);
   
   const imgEl = $('roomsDetailImage');
   if (imgEl) {
@@ -4476,7 +5062,7 @@ async function showRoomDetails(room) {
   const creatorAvatarEl = $('roomsDetailCreatorAvatar');
   if (creatorAvatarEl) {
     creatorAvatarEl.classList.add('image-loading-placeholder');
-    creatorAvatarEl.src = 'https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1';
+    creatorAvatarEl.src = defaultAvatarUrl(34);
   }
   
   const roomId = room.RoomId || room.roomId || '—';
@@ -4553,9 +5139,7 @@ async function showPlayerDetails(person) {
   const detail = $('peopleDetailView');
   if (!list || !detail) return;
   
-  const profileImg = person.profileImage || '';
-  const isDefault = !profileImg || profileImg === 'DefaultProfileImage';
-  const avatarUrl = isDefault ? 'https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1' : `https://img.radie.app/${profileImg}?width=96&cropSquare=1`;
+  const avatarUrl = personAvatarUrl(person, 96);
   
   const avatarEl = $('peopleDetailAvatar');
   if (avatarEl) {
@@ -4566,8 +5150,7 @@ async function showPlayerDetails(person) {
     avatarEl.style.cursor = 'pointer';
     avatarEl.title = 'Click to view full size';
     avatarEl.onclick = () => {
-      const fullUrl = isDefault ? 'https://img.radie.app/DefaultProfileImage' : `https://img.radie.app/${profileImg}`;
-      showLightbox(fullUrl);
+      showLightbox(personAvatarFullUrl(person));
     };
   }
   
@@ -4577,15 +5160,17 @@ async function showPlayerDetails(person) {
   const userEl = $('peopleDetailUsername');
   if (userEl) userEl.textContent = `@${person.userName || ''}`;
 
+  renderPlayerRoles($('peopleDetailRoles'), person);
+
   const aboutLabelEl = $('peopleDetailAboutLabel');
   if (aboutLabelEl) aboutLabelEl.textContent = `About ${person.displayName || person.userName || 'Player'}`;
   
   const friendsEl = $('peopleDetailFriends');
-  if (friendsEl) friendsEl.textContent = '...';
   const subsEl = $('peopleDetailSubscribers');
-  if (subsEl) subsEl.textContent = '...';
   const visitsEl = $('peopleDetailVisits');
-  if (visitsEl) visitsEl.textContent = '...';
+  // Show all three while loading; whichever the network can't fill is hidden
+  // once the answer arrives.
+  [friendsEl, subsEl, visitsEl].forEach(el => setProfileStat(el, '...'));
   const bioEl = $('peopleDetailBio');
   if (bioEl) bioEl.textContent = 'Loading bio from web...';
   
@@ -4593,12 +5178,15 @@ async function showPlayerDetails(person) {
   const labelEl = $('peopleDetailStatusLabel');
   const activityEl = $('peopleDetailActivityBadge');
   
+  // `isOnline` is null on networks with no presence API (Vanilla), which is
+  // distinct from a known-offline false.
   const isOnline = person.isOnline;
+  const presenceUnknown = isOnline == null;
   if (dotEl) {
-    dotEl.className = `status-dot ${isOnline ? 'online' : 'offline'}`;
+    dotEl.className = `status-dot ${presenceUnknown ? 'unknown' : (isOnline ? 'online' : 'offline')}`;
   }
   if (labelEl) {
-    labelEl.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
+    labelEl.textContent = presenceUnknown ? 'STATUS UNKNOWN' : (isOnline ? 'ONLINE' : 'OFFLINE');
   }
   if (activityEl) {
     activityEl.style.display = 'none';
@@ -4607,7 +5195,9 @@ async function showPlayerDetails(person) {
   
   const bannerEl = $('peopleDetailBanner');
   if (bannerEl) {
-    bannerEl.style.backgroundImage = 'linear-gradient(135deg, var(--green-dim), var(--green))';
+    bannerEl.style.backgroundImage = defaultProfileBanner();
+    bannerEl.style.backgroundSize = 'cover';
+    bannerEl.style.backgroundPosition = 'center';
   }
 
   const peoplePhotosGrid = $('peopleDetailPhotosGrid');
@@ -4626,9 +5216,9 @@ async function showPlayerDetails(person) {
     console.error("Error loading web details for user:", err);
   }
   if (webDetails && webDetails.success) {
-    if (friendsEl) friendsEl.textContent = webDetails.friends;
-    if (subsEl) subsEl.textContent = webDetails.subscribers;
-    if (visitsEl) visitsEl.textContent = webDetails.visits;
+    setProfileStat(friendsEl, webDetails.friends);
+    setProfileStat(subsEl, webDetails.subscribers);
+    setProfileStat(visitsEl, webDetails.visits);
     if (bioEl) bioEl.textContent = webDetails.bio || 'This user has not setup a bio yet.';
     if (webDetails.banner && bannerEl) {
       bannerEl.style.backgroundImage = `url("${webDetails.banner}")`;
@@ -4647,14 +5237,16 @@ async function showPlayerDetails(person) {
         }
       }
     } else {
-      // If no status was scraped, fallback to person.isOnline
-      if (dotEl) dotEl.className = `status-dot ${person.isOnline ? 'online' : 'offline'}`;
-      if (labelEl) labelEl.textContent = person.isOnline ? 'ONLINE' : 'OFFLINE';
+      // If no status was scraped, fall back to person.isOnline (still tri-state).
+      if (dotEl) dotEl.className = `status-dot ${presenceUnknown ? 'unknown' : (person.isOnline ? 'online' : 'offline')}`;
+      if (labelEl) labelEl.textContent = presenceUnknown ? 'STATUS UNKNOWN' : (person.isOnline ? 'ONLINE' : 'OFFLINE');
     }
   } else {
-    if (friendsEl) friendsEl.textContent = '—';
-    if (subsEl) subsEl.textContent = '—';
-    if (visitsEl) visitsEl.textContent = '—';
+    // The lookup failed, which is different from the stat not existing: the
+    // numbers are real on this network, we just don't have them right now.
+    setProfileStat(friendsEl, '—');
+    setProfileStat(subsEl, '—');
+    setProfileStat(visitsEl, '—');
     if (bioEl) bioEl.textContent = person.bio || 'This user has not setup a bio yet.';
   }
 
@@ -4768,110 +5360,7 @@ async function loadPlayerFeeds(userId, append = false) {
     if (!append) grid.innerHTML = '';
     
     feeds.forEach(photo => {
-      // Create Feed Post Card
-      const card = document.createElement('div');
-      card.className = 'feed-post-card';
-      
-      const photoId = photo.Id || photo.id;
-      // Coerced to numbers — interpolated into innerHTML below.
-      const cheers = Number(photo.CheerCount ?? photo.cheerCount) || 0;
-      const comments = Number(photo.CommentCount ?? photo.commentCount) || 0;
-      const captionText = photo.Description || photo.description || '';
-      
-      let dateStr = '';
-      const createdAt = photo.CreatedAt || photo.createdAt;
-      if (createdAt) {
-        try {
-          dateStr = new Date(createdAt).toLocaleString();
-        } catch (e) {
-          dateStr = createdAt;
-        }
-      }
-      
-      const imgName = photo.ImageName || photo.imageName || '';
-      
-      card.innerHTML = `
-        <div class="feed-post-header">
-          <img class="feed-post-avatar creator-avatar image-loading-placeholder" src="https://img.radie.app/DefaultProfileImage?width=96&cropSquare=1" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./logo.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
-          <div class="feed-post-header-text">
-            <div class="feed-post-creator creator-name">Loading...</div>
-            <div class="feed-post-meta">
-              <span>in</span>
-              <span class="feed-post-room room-link">Loading...</span>
-              <span class="feed-post-dot">•</span>
-              <span class="feed-post-time">${escapeHtml(dateStr)}</span>
-            </div>
-          </div>
-        </div>
-        ${captionText ? `<div class="feed-post-description">${escapeHtml(captionText)}</div>` : ''}
-        <div class="feed-post-image-wrap image-wrap">
-          <img class="feed-post-image image-loading-placeholder" src="${imgName ? escapeHtml(`https://img.radie.app/${imgName}?width=480`) : './images.png'}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" />
-        </div>
-        <div class="feed-post-footer">
-          <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
-          <span class="feed-post-stat"><span class="comments-count">${comments}</span> Comments</span>
-        </div>
-      `;
-      
-      // Hook up clicks
-      const imgWrap = card.querySelector('.image-wrap');
-      if (imgWrap) {
-        imgWrap.onclick = () => showPhotoDetails(photo, 'people-detail');
-      }
-      
-      grid.appendChild(card);
-      
-      // Asynchronously fetch photo web details in background
-      (async () => {
-        const details = await getPhotoWebDetails(photoId);
-        if (details && details.success) {
-          const creatorName = details.creatorUsername || 'Unknown';
-          const roomName = details.roomName || '';
-          
-          const creatorEl = card.querySelector('.creator-name');
-          if (creatorEl) {
-            creatorEl.textContent = creatorName;
-            creatorEl.onclick = (e) => {
-              e.stopPropagation();
-              showCreatorProfile(creatorName);
-            };
-          }
-          
-          const roomEl = card.querySelector('.room-link');
-          if (roomEl) {
-            if (roomName && roomName.toLowerCase() !== 'none') {
-              roomEl.textContent = roomName;
-              roomEl.onclick = (e) => {
-                e.stopPropagation();
-                showRoomByName(roomName);
-              };
-            } else {
-              roomEl.previousElementSibling?.remove(); // remove 'in'
-              roomEl.remove();
-            }
-          }
-          
-          // Asynchronously fetch creator avatar in background
-          if (creatorName && creatorName !== 'Unknown') {
-            const userDetails = await getUserWebDetails(creatorName);
-            if (userDetails && userDetails.success && userDetails.avatar) {
-              const avatarEl = card.querySelector('.creator-avatar');
-              if (avatarEl) {
-                avatarEl.classList.add('image-loading-placeholder');
-                avatarEl.src = userDetails.avatar;
-              }
-            }
-          }
-        } else {
-          const creatorEl = card.querySelector('.creator-name');
-          if (creatorEl) creatorEl.textContent = 'Unknown Creator';
-          const roomEl = card.querySelector('.room-link');
-          if (roomEl) {
-            roomEl.previousElementSibling?.remove();
-            roomEl.remove();
-          }
-        }
-      })();
+      grid.appendChild(buildPhotoCard(photo, 'people-detail'));
     });
     
     const totalInGrid = grid.querySelectorAll('.feed-post-card').length;
@@ -4935,12 +5424,11 @@ async function loadPlayerRooms(userId, append = false) {
     rooms.forEach(room => {
       const roomCard = document.createElement('div');
       roomCard.className = 'room-card';
-      const imgName = room.ImageName || room.imageName || '';
-      const imgUrl = imgName ? `https://img.radie.app/${imgName}?width=400` : './images.png';
+      const imgUrl = roomThumbUrl(room, 400);
       const roomName = room.Name || room.name || 'Unknown Room';
       const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
       roomCard.innerHTML = `
-        <img class="room-card-image image-loading-placeholder" src="${escapeHtml(imgUrl)}" onload="this.classList.remove('image-loading-placeholder');" onerror="this.src='./images.png'; this.classList.remove('image-loading-placeholder'); this.onerror=null;" alt="${escapeHtml(roomName)}" />
+        <img class="room-card-image image-loading-placeholder" src="${escapeHtml(imgUrl)}"  data-fallback="./images.png" alt="${escapeHtml(roomName)}" />
         <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
         <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         <div class="room-card-stats">

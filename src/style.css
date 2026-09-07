@@ -1525,11 +1525,87 @@ a:hover, .text-link:hover {
   box-shadow: inset -1px 0 0 var(--border-light);
 }
 .sidebar-logo {
+  position: relative;            /* anchors the network menu */
   padding-bottom: 12px;
   border-bottom: 2px dashed var(--border-dark);
   margin-bottom: 12px;
 }
-.logo-combo { display: flex; align-items: center; gap: 8px; }
+
+/* Brand + network picker.
+   It wears `.nav-btn`, so every theme's button treatment — colours, radius,
+   glow, the runtime-generated custom ones — already applies. Only the things a
+   nav button doesn't do are set here, at a specificity that beats `.nav-btn`
+   without needing !important. */
+.sidebar-logo .logo-combo {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  font: inherit;
+  cursor: pointer;
+}
+.logo-caret {
+  margin-left: auto;
+  padding-right: 2px;
+  font-size: 17px; line-height: 1;
+  /* Inherits the button's own foreground, so it stays legible whether the
+     theme paints a resting button dark, light, or an accent gradient. */
+  color: inherit;
+  transition: none;
+}
+/* Closed, the wordmark keeps the brand colour. Open, the button is painted
+   with the theme's "current" treatment — an accent gradient in the modern
+   skins — where the brand colour has too little contrast, so it defers to
+   whatever foreground that state defines. */
+.sidebar-logo .logo-combo.active .wordmark-text { color: inherit; }
+
+/* Menu. Sits over the nav rather than pushing it down, so the tab positions
+   never move under the pointer. Deliberately theme-neutral: a soft drop shadow
+   reads as "floating" in both the retro and the modern skins, where the hard
+   offset shadow it used to have only suited the retro ones. */
+.network-menu {
+  position: absolute;
+  top: calc(100% - 8px); left: 0; right: 0;
+  z-index: 60;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dark);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+/* `display:flex` above outranks the UA's `[hidden] { display: none }`, so the
+   closed state has to be restated at the same specificity. */
+.network-menu[hidden] { display: none; }
+
+/* Options wear `.nav-btn` too, and the selected one also wears `.active`, so
+   each theme highlights the current network exactly as it highlights the
+   current tab. Only layout is set here. */
+.network-menu .network-option {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%;
+  cursor: pointer;
+}
+.network-option-icon {
+  width: 22px; height: 22px; flex-shrink: 0;
+  object-fit: contain; image-rendering: pixelated;
+  border: 1px solid var(--border-dark);
+}
+.network-option-text { display: flex; flex-direction: column; min-width: 0; }
+.network-option-name {
+  font-family: var(--font-mono); font-size: 11px; font-weight: bold;
+  color: inherit;
+}
+.network-option-sub {
+  font-family: var(--font-mono); font-size: 8px;
+  /* Inherited rather than --text-muted: on a theme whose selected state is an
+     accent gradient, the muted token is unreadable. Opacity keeps it
+     subordinate against whatever foreground the theme chose. */
+  color: inherit; opacity: 0.7;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.network-option-check {
+  margin-left: auto; font-size: 11px; color: inherit;
+  visibility: hidden;
+}
+.network-menu .network-option.active .network-option-check { visibility: visible; }
 .sidebar-logo img {
   width: 38px; height: 38px; object-fit: contain;
   image-rendering: pixelated; /* Retro pixelated logo scaling */
@@ -1915,6 +1991,39 @@ body.theme-blackandwhite-inverted .btn-download-big {
   mask: url('assets/wordmark.png') center / contain no-repeat;
   filter: drop-shadow(0 3px 10px rgba(0,0,0,0.30));
 }
+
+/* Vanilla brand. Their mark is a square icon rather than a wordmark, hence the
+   different box; the fill is their own theme colour (#b08462) darkened enough
+   to hold against the light banner art. */
+body.network-vanilla .home-hero-art {
+  background-image: url('assets/vanilla-hero.png');
+}
+body.network-vanilla .home-hero-mark {
+  width: 92px; max-width: 30%; height: 100px;
+  background-color: #3a2418;
+  -webkit-mask-image: url('assets/vanilla-mark.svg');
+  mask-image: url('assets/vanilla-mark.svg');
+}
+
+/* Capabilities Vanilla's API doesn't have. Hidden rather than shown-empty, so
+   the UI never offers a control that can't do anything. */
+body.network-vanilla #tabBtnPeopleFeeds {
+  display: none !important;
+}
+/* Vanilla exposes no presence, so the dot asserts nothing rather than lying
+   with a definite "offline". */
+body.network-vanilla .status-dot.unknown {
+  background: var(--border-light);
+  border-color: var(--border-dark);
+  opacity: 0.55;
+}
+
+/* Explains a DOWNLOAD button that opens a website instead of installing. */
+.hero-note {
+  font-family: var(--font-mono); font-size: 9px; line-height: 1.4;
+  color: rgba(255,255,255,0.72);
+  max-width: 320px;
+}
 /* Scrim strip carrying the primary action. Dark regardless of theme so the
    controls stay legible over the bright pattern. */
 .home-hero-bar {
@@ -2073,6 +2182,14 @@ body.theme-custom-glass .btn-play.running:active {
    instead of forcing the window to scroll sideways. */
 .manage-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .manage-actions .btn-uninstall { margin-left: auto; }
+
+/* Explanatory copy under a settings row. */
+.sg-note {
+  font-size: 10px; line-height: 1.5;
+  color: var(--text-muted);
+  padding: 2px 2px 0;
+  max-width: 620px;
+}
 
 /* Connection logs panel */
 .panel-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--border-dark); padding-top: 6px; padding-bottom: 8px; margin-bottom: 8px; }
@@ -4196,6 +4313,83 @@ body.theme-macosclassic th {
     gap: 10px;
   }
 }
+
+/* `display:flex` below outranks the UA's `[hidden] { display: none }`, so a
+   tile hidden for a network that doesn't publish that stat needs this. */
+.profile-stat-item[hidden] { display: none; }
+
+/* ── Feed tab ───────────────────────────────────────────────────────────
+   Vanilla-only, so the nav button is hidden everywhere else. Gated from
+   <body> rather than the button so the rule reads the same way as the other
+   per-network switches. */
+body:not(.network-vanilla) .network-only-vanilla { display: none !important; }
+
+/* Like the other list panels: the panel itself doesn't scroll, the list inside
+   it does, so the header stays put. (.tab-panel already sets the display.) */
+#tab-feed { overflow: hidden; gap: 0; }
+
+.feed-subtitle {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-muted);
+  padding-bottom: 8px;
+}
+/* The list scrolls inside the panel so the header and subtitle stay put. */
+.feed-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.feed-loading {
+  text-align: center; padding: 12px;
+  font-size: 11px; color: var(--text-muted);
+}
+
+/* Who else is in the shot, mirroring vanillarec.net's own caption line. */
+.feed-post-tagged {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px;
+  padding: 6px 10px 0;
+  font-size: 10px;
+}
+.feed-tagged-label {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+.feed-tagged-name {
+  color: var(--green);
+  cursor: pointer;
+}
+.feed-tagged-name:hover { text-decoration: underline; }
+.feed-tagged-name:not(:last-child)::after {
+  content: ',';
+  color: var(--text-muted);
+}
+
+/* ── Staff role badges ──────────────────────────────────────────────────
+   Colour-coded so a moderator is recognisable at a glance in a long list,
+   but sized to sit inside a table row without changing its height. */
+.profile-roles { display: inline-flex; align-items: center; gap: 4px; }
+.profile-roles[hidden] { display: none; }
+.inline-roles { margin-left: 6px; vertical-align: middle; }
+
+/* A staff member with two badges would otherwise wrap onto a second line and
+   make that one row taller than the rest of the table. */
+.people-username-cell { white-space: nowrap; }
+
+.role-badge {
+  font-family: var(--font-mono);
+  font-size: 8px; font-weight: bold; letter-spacing: 0.5px;
+  line-height: 1;
+  padding: 3px 5px;
+  border: 1px solid;
+  color: var(--bg-dark);
+  white-space: nowrap;
+  cursor: default;
+}
+/* Fixed hues rather than theme tokens: the point of a badge is that it means
+   the same thing in every skin, and the dark text keeps it legible on each. */
+.role-dev  { background: #7ab8ff; border-color: #4c8ed6; }
+.role-mod  { background: #8ee06a; border-color: #5fae3f; }
+.role-team { background: #f0c060; border-color: #c1913a; }
 
 .profile-stat-item {
   display: flex;

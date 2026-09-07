@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net;" />
   <title>Radium Launcher</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -10,19 +10,7 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <script>
-    // Instant theme and animation state application to prevent flash of default theme
-    try {
-      const savedTheme = localStorage.getItem('radium-theme');
-      if (savedTheme && savedTheme !== 'steam-green') {
-        document.body.classList.add('theme-' + savedTheme);
-      }
-      const anims = localStorage.getItem('radium-animations');
-      if (anims !== 'false') {
-        document.body.classList.add('animations-enabled');
-      }
-    } catch (e) {}
-  </script>
+  <script src="boot.js"></script>
 
   <!-- Custom Title Bar -->
   <div class="titlebar" id="titlebar">
@@ -42,11 +30,40 @@
     <!-- ── Sidebar ─────────────────────────────────────────── -->
     <aside class="sidebar">
       <div class="sidebar-logo">
-        <div class="logo-combo" id="logoCombo">
-          <img src="logo.png" alt="Radium Icon" id="sidebarLogo" />
+        <!-- Brand doubles as the network picker: which revival the launcher is
+             pointed at is the single most global piece of state, so it lives
+             where the identity already is. -->
+        <!-- Wears `nav-btn` so it inherits each theme's button treatment (all
+             18, including the ones generated at runtime for custom themes)
+             rather than re-implementing them. Tab routing is scoped to
+             .sidebar-nav, so this never participates in it. -->
+        <button class="nav-btn logo-combo" id="networkSwitcher" aria-haspopup="listbox"
+                aria-expanded="false" aria-controls="networkMenu"
+                title="Switch network">
+          <img src="logo.png" alt="" id="sidebarLogo" />
           <div class="logo-wordmark">
-            <div class="wordmark-text">RADIUM</div>
+            <div class="wordmark-text" id="networkName">RADIUM</div>
           </div>
+          <span class="logo-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="network-menu" id="networkMenu" role="listbox"
+             aria-label="Network" hidden>
+          <button class="nav-btn network-option" role="option" data-network="radium" aria-selected="true">
+            <img class="network-option-icon" src="logo.png" alt="" />
+            <span class="network-option-text">
+              <span class="network-option-name">RADIUM</span>
+              <span class="network-option-sub">radie.app</span>
+            </span>
+            <span class="network-option-check" aria-hidden="true">&#10003;</span>
+          </button>
+          <button class="nav-btn network-option" role="option" data-network="vanilla" aria-selected="false">
+            <img class="network-option-icon" src="assets/vanilla-logo.png" alt="" />
+            <span class="network-option-text">
+              <span class="network-option-name">VANILLA</span>
+              <span class="network-option-sub">vanillarec.net</span>
+            </span>
+            <span class="network-option-check" aria-hidden="true">&#10003;</span>
+          </button>
         </div>
         <div class="sidebar-logo-fallback" id="logoFallback" style="display:none">
           <div class="fallback-icon">R</div>
@@ -63,6 +80,11 @@
         </button>
         <button class="nav-btn" data-tab="people" id="nav-people">
           PEOPLE
+        </button>
+        <!-- Vanilla only: it publishes a network-wide photo feed. Hidden on
+             any network that doesn't, via body.network-* in the stylesheet. -->
+        <button class="nav-btn network-only-vanilla" data-tab="feed" id="nav-feed">
+          FEED
         </button>
         <button class="nav-btn" data-tab="status" id="nav-status">
           LOGS
@@ -109,6 +131,7 @@
                branding, so no icon or title is repeated here. -->
           <div class="home-hero-bar not-installed-only">
             <button class="btn-download-big" id="btnDownload">⬇ DOWNLOAD</button>
+            <span class="hero-note" id="heroDownloadNote" style="display:none"></span>
           </div>
         </div>
 
@@ -196,6 +219,23 @@
       </section>
 
       <!-- ───────── ROOMS TAB ────────────────────────── -->
+      <!-- ───────── FEED TAB (Vanilla only) ────────────── -->
+      <section class="tab-panel" id="tab-feed">
+        <div class="panel-header">
+          <h2>FEED</h2>
+          <button class="btn-refresh" id="btnFeedRefresh" title="Reload the feed">&#8635; Refresh</button>
+        </div>
+        <div class="feed-subtitle">What's happening right now in Vanilla</div>
+        <div class="feed-scroll" id="feedScroll">
+          <div id="feedGrid" class="photo-list-vertical">
+            <!-- Feed cards loaded here -->
+          </div>
+          <div id="feedEmptyMsg" class="photo-empty-msg" style="display: none;">No recent photos.</div>
+          <!-- Watched by an IntersectionObserver to page in more. -->
+          <div id="feedSentinel" style="height: 1px; width: 100%;"></div>
+        </div>
+      </section>
+
       <section class="tab-panel" id="tab-rooms">
         <div class="panel-header">
           <h2>ROOMS</h2>
@@ -204,7 +244,7 @@
           <!-- Rooms List View -->
           <div id="roomsListView" class="flex gap-3.75 flex-1 overflow-hidden" style="min-height: 0;">
             <!-- Sidebar Filters & Sorting -->
-            <div class="w-50 flex flex-col gap-2.5 overflow-auto flex-shrink-0">
+            <div class="w-50 flex flex-col gap-2.5 overflow-auto flex-shrink-0" id="roomsSidebar">
               <!-- Filters Card -->
               <div class="border p-2 flex-1 overflow-auto flex flex-col" style="height: 150px;">
                 <div class="sg-title font-bold text-[10px] mb-1.5">Filters</div>
@@ -257,7 +297,7 @@
                 <div class="room-card-main">
                   <!-- Left Column: Thumbnail -->
                   <div class="room-thumbnail-wrapper">
-                    <img id="roomsDetailImage" class="room-thumbnail-image image-loading-placeholder" src="data:," alt="Room Thumbnail" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
+                    <img id="roomsDetailImage" class="room-thumbnail-image image-loading-placeholder" src="data:," alt="Room Thumbnail" />
                   </div>
 
                   <!-- Right Column: Details info -->
@@ -266,7 +306,7 @@
                     
                     <!-- Creator Signature Box -->
                     <div id="roomsDetailCreatorLink" class="room-creator-box bevel-inset">
-                      <img id="roomsDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" class="room-creator-avatar image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
+                      <img id="roomsDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" class="room-creator-avatar image-loading-placeholder" />
                       <div class="room-creator-info">
                         <span id="roomsDetailCreatorName" class="room-creator-name">Coach</span>
                         <span id="roomsDetailCreatorHandle" class="room-creator-handle">@Coach</span>
@@ -366,7 +406,7 @@
                 <!-- Profile Info Header Bar (overlapping the banner) -->
                 <div class="profile-header-content">
                   <div class="profile-avatar-wrapper">
-                    <img id="peopleDetailAvatar" src="data:," alt="Player Avatar" class="profile-avatar-image image-loading-placeholder" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
+                    <img id="peopleDetailAvatar" src="data:," alt="Player Avatar" class="profile-avatar-image image-loading-placeholder" />
                   </div>
                   <div class="profile-identity-info">
                     <div id="peopleDetailDisplayName" class="profile-display-name">Display Name</div>
@@ -377,6 +417,8 @@
                         <span id="peopleDetailStatusLabel">ONLINE</span>
                       </div>
                       <div id="peopleDetailActivityBadge" class="profile-activity-badge bevel-inset" style="display: none;"></div>
+                      <!-- Staff roles, populated from the network's own flags. -->
+                      <div id="peopleDetailRoles" class="profile-roles"></div>
                     </div>
                   </div>
                 </div>
@@ -769,14 +811,14 @@
             
             <!-- Large Image Container -->
             <div class="photo-detail-img-wrap" style="width: 100%; border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark); background: var(--bg-panel); overflow: hidden;">
-              <img id="photoDetailImage" class="image-loading-placeholder" src="data:," alt="Photo" style="width: 100%; height: auto; display: block; object-fit: contain; max-height: 400px;" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
+              <img id="photoDetailImage" class="image-loading-placeholder" src="data:," alt="Photo" style="width: 100%; height: auto; display: block; object-fit: contain; max-height: 400px;" />
             </div>
 
             <!-- Details Block -->
             <div id="photoDetailInfoBlock" class="bevel-inset" style="background: var(--bg-panel); padding: 12px; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; box-sizing: border-box;">
               <!-- Creator Inset Box -->
               <div class="bevel-inset" style="grid-column: span 1; background: var(--bg-dark); padding: 8px; display: flex; align-items: center; gap: 8px; box-sizing: border-box; min-height: 52px;">
-                <img id="photoDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" style="width: 34px; height: 34px; border-radius: 5px; object-fit: cover; border: 1px solid var(--border-dark);" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
+                <img id="photoDetailCreatorAvatar" src="https://img.radie.app/DefaultProfileImage?width=34&cropSquare=1" alt="Creator Avatar" style="width: 34px; height: 34px; border-radius: 5px; object-fit: cover; border: 1px solid var(--border-dark);" />
                 <div id="photoDetailCreatorLink" class="flex flex-col leading-tight cursor-pointer" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   <span id="photoDetailCreatorName" style="font-weight: bold; font-size: 11.5px; color: var(--text);">Loading...</span>
                   <span id="photoDetailCreatorHandle" style="font-size: 10.5px; color: var(--text-muted);">@...</span>
@@ -1158,7 +1200,7 @@
       </div>
       <div class="modal-body" style="padding: 8px;">
         <div class="bevel-inset" style="padding: 4px; background: var(--bg-dark); display: flex; justify-content: center; align-items: center; box-sizing: border-box; width: 100%;">
-          <img id="lightboxImage" src="data:," alt="Full size preview" style="max-width: 100%; max-height: 60vh; object-fit: contain; display: block;" onload="this.classList.remove('image-loading-placeholder');" onerror="this.classList.remove('image-loading-placeholder');" />
+          <img id="lightboxImage" src="data:," alt="Full size preview" style="max-width: 100%; max-height: 60vh; object-fit: contain; display: block;" />
         </div>
       </div>
     </div>

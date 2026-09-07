@@ -228,16 +228,23 @@ fn launch_game_impl(
         .and_then(|v| v.as_str())
         .unwrap_or("screen");
 
-    // 3. Resolve client directory + game executable
+    // 3. Resolve client directory + game executable for the selected network
+    let network = config::Network::parse(config.get("network").and_then(|v| v.as_str()));
     let cfg = config::ensure_config(&app);
-    let client_dir = config::get_client_dir(&app, &cfg);
+    let client_dir = config::get_client_dir_for(&app, &cfg, network);
 
     // Prefer the saved exe path; otherwise search the client dir for a known exe.
-    let mut exe_path = config
-        .get("gameExePath")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let mut exe_path = match network {
+        // The frontend passes Radium's exe path as a flat config field.
+        config::Network::Radium => config
+            .get("gameExePath")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        // Vanilla's install state lives in its own config sub-object, so read it
+        // from disk rather than from the frontend's flat (Radium) field.
+        config::Network::Vanilla => cfg.vanilla.game_exe_path.clone(),
+    };
     if exe_path.is_empty() || !Path::new(&exe_path).exists() {
         exe_path = find_game_exe(&client_dir).unwrap_or_default();
     }

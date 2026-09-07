@@ -1,3 +1,5 @@
+use crate::config::Network;
+use crate::vanilla;
 use regex::Regex;
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -66,7 +68,11 @@ fn first_capture(pattern: &str, text: &str) -> Option<String> {
 // 1. fetch_room_web_details
 // ---------------------------------------------------------------------------
 #[tauri::command]
-pub async fn fetch_room_web_details(name: String) -> Value {
+pub async fn fetch_room_web_details(name: String, network: Option<String>) -> Value {
+    // Vanilla serves these stats from its API, so there is no page to scrape.
+    if Network::parse(network.as_deref()) == Network::Vanilla {
+        return vanilla::room_web_details(&name).await;
+    }
     let safe_name = name.replace('/', "%2F").replace('?', "%3F").replace('#', "%23").replace('&', "%26").replace('=', "%3D");
     let url = format!("https://www.radie.app/room/{}", safe_name);
 
@@ -122,7 +128,10 @@ pub async fn fetch_room_web_details(name: String) -> Value {
 // 2. fetch_user_web_details
 // ---------------------------------------------------------------------------
 #[tauri::command]
-pub async fn fetch_user_web_details(name: String) -> Value {
+pub async fn fetch_user_web_details(name: String, network: Option<String>) -> Value {
+    if Network::parse(network.as_deref()) == Network::Vanilla {
+        return vanilla::user_web_details(&name).await;
+    }
     let safe_name = name.replace('/', "%2F").replace('?', "%3F").replace('#', "%23").replace('&', "%26").replace('=', "%3D");
     let url = format!("https://www.radie.app/user/{}", safe_name);
 
@@ -219,7 +228,10 @@ pub async fn fetch_user_web_details(name: String) -> Value {
 // 3. fetch_photo_web_details
 // ---------------------------------------------------------------------------
 #[tauri::command]
-pub async fn fetch_photo_web_details(photo_id: String) -> Value {
+pub async fn fetch_photo_web_details(photo_id: String, network: Option<String>) -> Value {
+    if Network::parse(network.as_deref()) == Network::Vanilla {
+        return json!({ "success": false, "error": "Vanilla does not publish photo details." });
+    }
     let safe_photo_id = photo_id.replace('/', "%2F").replace('?', "%3F").replace('#', "%23").replace('&', "%26").replace('=', "%3D");
     let url = format!("https://www.radie.app/photo/{}", safe_photo_id);
 
@@ -245,7 +257,10 @@ pub async fn fetch_photo_web_details(photo_id: String) -> Value {
 // 4. fetch_photo_comments
 // ---------------------------------------------------------------------------
 #[tauri::command]
-pub async fn fetch_photo_comments(photo_id: String) -> Value {
+pub async fn fetch_photo_comments(photo_id: String, network: Option<String>) -> Value {
+    if Network::parse(network.as_deref()) == Network::Vanilla {
+        return json!({ "success": false, "error": "Vanilla does not publish photo comments." });
+    }
     let urls = vec![
         format!(
             "https://launcher.radie.app/api/photos/v1/{}/comments?skip=0&take=20",

@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use tauri::Emitter;
 use tauri::Manager;
 
-use crate::config;
+use crate::config::{self, Network};
 use crate::game;
 use crate::scraper::unescape_html;
 
@@ -24,6 +24,17 @@ const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 /// any client installed under a different build id is treated as outdated and
 /// the user is prompted to re-download. (See `check_install` -> `clientOutdated`.)
 pub const REQUIRED_CLIENT_BUILD: &str = "recroom-baby-2016";
+
+/// Basename of the download artifacts for `network`.
+///
+/// The two networks keep separate zips and separate resume state, so a paused
+/// Radium download is not clobbered by starting a Vanilla one (and vice versa).
+fn zip_stem(network: Network) -> &'static str {
+    match network {
+        Network::Radium => "client.zip",
+        Network::Vanilla => "client-vanilla.zip",
+    }
+}
 
 /// Atomic flag used to signal cancellation of an in-progress download.
 static DOWNLOAD_CANCELLED: AtomicBool = AtomicBool::new(false);
@@ -215,7 +226,30 @@ pub fn version_gt(a: &str, b: &str) -> bool {
 /// Fetch the download page and resolve the version + direct URL of the
 /// Windows client zip. Falls back to a generic `.zip` link (with an unknown
 /// version) if the page layout doesn't match the expected "Windows" card.
-async fn resolve_download_info() -> Result<(String, String), String> {
+async fn resolve_download_info(
+    app: &tauri::AppHandle,
+    network: Network,
+) -> Result<(String, String), String> {
+    if network == Network::Vanilla {
+        // Vanilla has no published build yet — vanillarec.net lists every
+        // platform as "coming soon" with dead download buttons — so the URL is
+        // whatever the user configured in Settings. The UI does not offer a
+        // Download action at all while this is blank.
+        let cfg = config::ensure_config(app);
+        let url = cfg.vanilla.client_url.trim().to_string();
+        if url.is_empty() {
+            return Err(
+                "No Vanilla client URL is configured. Vanilla has not published a \
+                 download yet; set one in Settings once it does."
+                    .into(),
+            );
+        }
+        if !url.starts_with("https://") {
+            return Err("The Vanilla client URL must start with https://".into());
+        }
+        return Ok((String::new(), url));
+    }
+
     // ─── TEMPORARY TEST OVERRIDE — REMOVE BEFORE RELEASE ───────────────────
     // The tenwholeyears download page was shut down, so hardcode a known-good
     // client zip on the recroomarchive CDN just so the download flow can be
@@ -252,11 +286,19 @@ async fn resolve_download_info() -> Result<(String, String), String> {
 /// installed, returning version info and "what's new" patch notes for a
 /// Steam-style update prompt.
 #[tauri::command]
-pub async fn check_client_update(app: tauri::AppHandle) -> Value {
+pub async fn check_client_update(app: tauri::AppHandle, network: Option<String>) -> Value {
     let cfg = config::ensure_config(&app);
+    let network = Network::parse(network.as_deref());
 
-    if cfg.game_exe_path.is_empty() {
+    if cfg.game_exe_for(network).is_empty() {
         return json!({ "success": true, "hasUpdate": false });
+    }
+
+    // Update checking is driven by scraping the recroom.baby download page,
+    // which describes Radium's client only. Vanilla installs come from a
+    // user-supplied URL with no version feed to compare against.
+    if network == Network::Vanilla {
+        return json!({ "success": true, "hasUpdate": false, "versionKnown": false });
     }
 
     let html = match fetch_download_page_html().await {
@@ -347,14 +389,20 @@ pub async fn check_client_update(app: tauri::AppHandle) -> Value {
 /// Emits `download-progress` events to the frontend during both the download
 /// and extraction phases. Returns `{ success: true, exePath }` on success.
 #[tauri::command]
-pub async fn download_client(app: tauri::AppHandle) -> Result<Value, String> {
-    match download_client_impl(app).await {
+pub async fn download_client(
+    app: tauri::AppHandle,
+    network: Option<String>,
+) -> Result<Value, String> {
+    match download_client_impl(app, Network::parse(network.as_deref())).await {
         Ok(val) => Ok(val),
         Err(err) => Ok(json!({ "success": false, "error": err })),
     }
 }
 
-async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
+async fn download_client_impl(
+    app: tauri::AppHandle,
+    network: Network,
+) -> Result<Value, String> {
     // Reject a second concurrent download — a cancelled download keeps running
     // until its next chunk, so a quick re-click could otherwise start a second
     // writer on the same client.zip.
@@ -374,7 +422,7 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     DOWNLOAD_PAUSED.store(false, Ordering::SeqCst);
 
     let cfg = config::ensure_config(&app);
-    let client_dir = config::get_client_dir(&app, &cfg);
+    let client_dir = config::get_client_dir_for(&app, &cfg, network);
     let user_data = app
         .path()
         .app_data_dir()
@@ -384,9 +432,10 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     fs::create_dir_all(&user_data).map_err(|e| e.to_string())?;
     fs::create_dir_all(&client_dir).map_err(|e| e.to_string())?;
 
-    let client_zip = user_data.join("client.zip");
-    let part_path = user_data.join("client.zip.part");
-    let meta_path = user_data.join("client.zip.part.meta");
+    let stem = zip_stem(network);
+    let client_zip = user_data.join(stem);
+    let part_path = user_data.join(format!("{}.part", stem));
+    let meta_path = user_data.join(format!("{}.part.meta", stem));
 
     // A completed zip from a previous run is stale — remove it so we never
     // extract an old build. (In-progress resume state lives in the .part file.)
@@ -405,7 +454,7 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     }));
 
     // Resolve the current Windows client zip (and its version) from the download page.
-    let (resolved_version, download_url) = resolve_download_info().await?;
+    let (resolved_version, download_url) = resolve_download_info(&app, network).await?;
 
     // Resume support: if a partial download for this exact URL already exists,
     // continue it with a byte-range request instead of starting over. The .part
@@ -688,16 +737,21 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
     // Save the bat path and the installed client build id to config.
     {
         let mut cfg = config::ensure_config(&app);
-        if !bat_path.is_empty() {
-            cfg.game_exe_path = bat_path.clone();
-        }
-        cfg.client_build = REQUIRED_CLIENT_BUILD.to_string();
-        // Always assign together so the two never desync: if the version
+        let exe = if bat_path.is_empty() {
+            cfg.game_exe_for(network).to_string()
+        } else {
+            bat_path.clone()
+        };
+        // Always assign together so the fields never desync: if the version
         // couldn't be scraped this time, clear it rather than leaving a
         // stale value paired with the newly-downloaded build's ETag.
-        cfg.client_version = resolved_version;
-        cfg.client_etag = resolved_etag.unwrap_or_default();
-        cfg.client_version_sync_prompted = false;
+        cfg.set_client_install(
+            network,
+            exe,
+            REQUIRED_CLIENT_BUILD.to_string(),
+            resolved_version,
+            resolved_etag.unwrap_or_default(),
+        );
         let _ = config::save_config(&app, &cfg);
     }
 
@@ -721,13 +775,14 @@ async fn download_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
 /// download — there is no loop to observe the flag, so the partial file and its
 /// resume metadata are removed here directly.
 #[tauri::command]
-pub fn cancel_download(app: tauri::AppHandle) {
+pub fn cancel_download(app: tauri::AppHandle, network: Option<String>) {
     DOWNLOAD_CANCELLED.store(true, Ordering::SeqCst);
     DOWNLOAD_PAUSED.store(false, Ordering::SeqCst);
     if !DOWNLOAD_IN_PROGRESS.load(Ordering::SeqCst) {
         if let Ok(user_data) = app.path().app_data_dir() {
-            let _ = fs::remove_file(user_data.join("client.zip.part"));
-            let _ = fs::remove_file(user_data.join("client.zip.part.meta"));
+            let stem = zip_stem(Network::parse(network.as_deref()));
+            let _ = fs::remove_file(user_data.join(format!("{}.part", stem)));
+            let _ = fs::remove_file(user_data.join(format!("{}.part.meta", stem)));
         }
     }
 }
@@ -745,13 +800,14 @@ pub fn pause_download() {
 /// expected total. Used on launcher startup to offer to continue a download that
 /// was in progress when the launcher was last closed.
 #[tauri::command]
-pub async fn resumable_download_info(app: tauri::AppHandle) -> Value {
+pub async fn resumable_download_info(app: tauri::AppHandle, network: Option<String>) -> Value {
     let user_data = match app.path().app_data_dir() {
         Ok(p) => p,
         Err(_) => return json!({ "resumable": false }),
     };
-    let part_path = user_data.join("client.zip.part");
-    let meta_path = user_data.join("client.zip.part.meta");
+    let stem = zip_stem(Network::parse(network.as_deref()));
+    let part_path = user_data.join(format!("{}.part", stem));
+    let meta_path = user_data.join(format!("{}.part.meta", stem));
 
     if !part_path.exists() {
         return json!({ "resumable": false });
@@ -773,20 +829,26 @@ pub async fn resumable_download_info(app: tauri::AppHandle) -> Value {
 
 /// Remove the game client directory and clear the saved exe path from config.
 #[tauri::command]
-pub async fn uninstall_client(app: tauri::AppHandle) -> Result<Value, String> {
-    match uninstall_client_impl(app).await {
+pub async fn uninstall_client(
+    app: tauri::AppHandle,
+    network: Option<String>,
+) -> Result<Value, String> {
+    match uninstall_client_impl(app, Network::parse(network.as_deref())).await {
         Ok(val) => Ok(val),
         Err(err) => Ok(json!({ "success": false, "error": err })),
     }
 }
 
-async fn uninstall_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
+async fn uninstall_client_impl(
+    app: tauri::AppHandle,
+    network: Network,
+) -> Result<Value, String> {
     if game::check_game_running() {
         return Err("Cannot uninstall while the game is running.".into());
     }
 
     let cfg = config::ensure_config(&app);
-    let client_dir = config::get_client_dir(&app, &cfg);
+    let client_dir = config::get_client_dir_for(&app, &cfg, network);
 
     if Path::new(&client_dir).exists() {
         safe_clear_client_dir(&client_dir)
@@ -795,8 +857,11 @@ async fn uninstall_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
 
     // Clear relevant config fields.
     let mut cfg = config::ensure_config(&app);
-    cfg.game_exe_path = String::new();
-    cfg.defender_excluded = false;
+    cfg.clear_client_install(network);
+    match network {
+        Network::Radium => cfg.defender_excluded = false,
+        Network::Vanilla => cfg.vanilla.defender_excluded = false,
+    }
     config::save_config(&app, &cfg)?;
 
     Ok(json!({ "success": true }))
@@ -810,11 +875,15 @@ async fn uninstall_client_impl(app: tauri::AppHandle) -> Result<Value, String> {
 /// directory. Falls back to searching for `RecRoom_ScreenMode.bat` if the
 /// config path is stale.
 #[tauri::command]
-pub async fn check_install(app: tauri::AppHandle) -> Result<Value, String> {
+pub async fn check_install(
+    app: tauri::AppHandle,
+    network: Option<String>,
+) -> Result<Value, String> {
     let cfg = config::ensure_config(&app);
-    let client_dir = config::get_client_dir(&app, &cfg);
+    let network = Network::parse(network.as_deref());
+    let client_dir = config::get_client_dir_for(&app, &cfg, network);
 
-    let mut exe_path = cfg.game_exe_path.clone();
+    let mut exe_path = cfg.game_exe_for(network).to_string();
 
     // Verify the configured path is valid and inside client_dir.
     if !exe_path.is_empty() {
@@ -857,7 +926,11 @@ pub async fn check_install(app: tauri::AppHandle) -> Result<Value, String> {
 
     // A client installed under a different build id (or with no recorded build,
     // e.g. installed by an older launcher) is outdated and needs re-downloading.
-    let client_outdated = installed && cfg.client_build != REQUIRED_CLIENT_BUILD;
+    // Only Radium has a launcher-tracked build id; a Vanilla install comes from
+    // a user-supplied zip with no build feed, so it is never flagged outdated.
+    let client_outdated = installed
+        && network == Network::Radium
+        && cfg.client_build != REQUIRED_CLIENT_BUILD;
 
     Ok(json!({
         "installed": installed,
@@ -866,10 +939,11 @@ pub async fn check_install(app: tauri::AppHandle) -> Result<Value, String> {
         "isRunning": is_running,
         "dllMissing": dll_missing,
         "clientOutdated": client_outdated,
-        "clientVersion": cfg.client_version,
+        "clientVersion": cfg.client_version_for(network),
+        "network": network.as_str(),
         // Surfaced so the frontend can log the concrete build mismatch behind an
         // "outdated" verdict instead of an opaque message.
-        "clientBuild": cfg.client_build,
+        "clientBuild": cfg.client_build_for(network),
         "requiredBuild": REQUIRED_CLIENT_BUILD
     }))
 }
@@ -878,9 +952,9 @@ pub async fn check_install(app: tauri::AppHandle) -> Result<Value, String> {
 
 /// Open the game client directory in the system file explorer.
 #[tauri::command]
-pub async fn open_client_folder(app: tauri::AppHandle) -> bool {
+pub async fn open_client_folder(app: tauri::AppHandle, network: Option<String>) -> bool {
     let cfg = config::ensure_config(&app);
-    let client_dir = config::get_client_dir(&app, &cfg);
+    let client_dir = config::get_client_dir_for(&app, &cfg, Network::parse(network.as_deref()));
 
     if Path::new(&client_dir).exists() {
         let _ = std::process::Command::new("explorer")
@@ -896,10 +970,12 @@ pub async fn open_client_folder(app: tauri::AppHandle) -> bool {
 
 /// Show a native folder picker dialog and return the selected path.
 #[tauri::command]
-pub async fn select_folder() -> Result<Option<String>, String> {
-    let folder = rfd::FileDialog::new()
-        .set_title("Select Radium Client Install Folder")
-        .pick_folder();
+pub async fn select_folder(network: Option<String>) -> Result<Option<String>, String> {
+    let title = match Network::parse(network.as_deref()) {
+        Network::Radium => "Select Radium Client Install Folder",
+        Network::Vanilla => "Select Vanilla Client Install Folder",
+    };
+    let folder = rfd::FileDialog::new().set_title(title).pick_folder();
 
     Ok(folder.map(|p| p.to_string_lossy().to_string()))
 }
@@ -908,12 +984,13 @@ pub async fn select_folder() -> Result<Option<String>, String> {
 
 /// Return the default client directory path (`<app_data_dir>/client`).
 #[tauri::command]
-pub fn get_default_client_dir(app: tauri::AppHandle) -> String {
+pub fn get_default_client_dir(app: tauri::AppHandle, network: Option<String>) -> String {
     let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    app_data_dir
-        .join("client")
-        .to_string_lossy()
-        .to_string()
+    let folder = match Network::parse(network.as_deref()) {
+        Network::Radium => "client",
+        Network::Vanilla => "client-vanilla",
+    };
+    app_data_dir.join(folder).to_string_lossy().to_string()
 }
 
 /// Restore-DLL feature is disabled.
@@ -964,13 +1041,73 @@ fn dir_contains_game_files(path: &Path, depth: u32) -> bool {
 /// Returns true only if the given directory contains at least one recognized
 /// Rec Room game file (at any depth) — ensuring we never accidentally clear a
 /// folder that isn't actually a game installation.
-fn is_game_install_dir(client_dir: &str) -> bool {
+pub fn is_game_install_dir(client_dir: &str) -> bool {
     let path = Path::new(client_dir);
     if !path.exists() {
         // Non-existent directories are safe to treat as empty install targets.
         return true;
     }
     dir_contains_game_files(path, 0)
+}
+
+/// Whether `dir` is broad enough that operating on it would reach far beyond a
+/// game install — a drive root, a system directory, or a well-known user
+/// folder.
+///
+/// Deletion is already protected by the sentinel scan above, but that check
+/// deliberately passes for a *non-existent* directory and says nothing about
+/// scope. Adding a Windows Defender exclusion is the opposite problem: the
+/// directory always exists, and the danger is picking one so broad that the
+/// exclusion disables real-time protection for most of the disk. Choosing `C:\`
+/// as the install folder is a couple of clicks in the folder picker.
+pub fn is_overly_broad_dir(dir: &str) -> bool {
+    let trimmed = dir.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let normalized = trimmed.replace('/', "\\");
+    let without_trailing = normalized.trim_end_matches('\\');
+
+    // "C:", "C:\" or a bare UNC share root.
+    if without_trailing.len() <= 2 || without_trailing == "\\\\" {
+        return true;
+    }
+
+    let lower = without_trailing.to_lowercase();
+
+    // Any directory this shallow is a top-level system or profile folder.
+    const DENY_SUFFIXES: [&str; 8] = [
+        "\\windows",
+        "\\program files",
+        "\\program files (x86)",
+        "\\programdata",
+        "\\users",
+        "\\users\\public",
+        "\\system32",
+        "\\appdata",
+    ];
+    if DENY_SUFFIXES.iter().any(|s| lower.ends_with(s)) {
+        return true;
+    }
+
+    // A user's profile root and its common folders: "C:\Users\<name>" is three
+    // components, so anything at or above that depth under Users is too broad.
+    let components: Vec<&str> = lower
+        .trim_start_matches('\\')
+        .split('\\')
+        .filter(|c| !c.is_empty())
+        .collect();
+    if components.len() <= 2 && components.first().map(|c| c.contains(':')).unwrap_or(false) {
+        // e.g. "c:\downloads" — a top-level folder on a drive.
+        return true;
+    }
+    if components.len() <= 3 && components.get(1).map(|c| *c == "users").unwrap_or(false) {
+        // e.g. "c:\users\abdullah"
+        return true;
+    }
+
+    false
 }
 
 /// Targeted cleanup function that deletes only Rec Room game client files and
@@ -1038,6 +1175,56 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod install_dir_scope_tests {
+    use super::*;
+
+    #[test]
+    fn drive_roots_and_system_folders_are_too_broad() {
+        // Adding a Defender exclusion for any of these would switch off
+        // real-time protection across most of the disk. The install folder is
+        // picked in a folder dialog, so "C:\" is two clicks away.
+        for dir in [
+            "C:\\", "C:", "c:/", "D:\\",
+            "C:\\Windows", "C:\\windows\\System32",
+            "C:\\Program Files", "C:\\Program Files (x86)", "C:\\ProgramData",
+            "C:\\Users", "C:\\Users\\Public",
+            "C:\\Users\\Abdullah",          // a whole user profile
+            "C:\\Downloads",                 // any top-level folder on a drive
+            "",
+        ] {
+            assert!(
+                is_overly_broad_dir(dir),
+                "should have been rejected as too broad: {:?}",
+                dir
+            );
+        }
+    }
+
+    #[test]
+    fn real_install_folders_are_allowed() {
+        for dir in [
+            "C:\\Users\\Abdullah\\AppData\\Roaming\\com.radium.launcher\\client",
+            "C:\\Users\\Abdullah\\AppData\\Roaming\\com.radium.launcher\\client-vanilla",
+            "C:\\Games\\Radium\\client",
+            "D:\\Program Files\\Radium\\client",
+            "C:/Users/Abdullah/Documents/Radium",
+        ] {
+            assert!(
+                !is_overly_broad_dir(dir),
+                "should have been allowed: {:?}",
+                dir
+            );
+        }
+    }
+
+    #[test]
+    fn a_trailing_separator_does_not_smuggle_a_root_through() {
+        assert!(is_overly_broad_dir("C:\\Windows\\"));
+        assert!(is_overly_broad_dir("C:\\Users\\Abdullah\\"));
+    }
 }
 
 #[cfg(test)]
