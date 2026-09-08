@@ -1151,11 +1151,13 @@ pub async fn fetch_recent_photos(skip: i64, take: i64) -> Value {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-/// Percent-encode a query-string value.
+/// Percent-encode a query-string value or a single path segment.
 ///
 /// Hand-rolled rather than pulling in a crate: these are search terms typed by
-/// the user, and the unreserved set from RFC 3986 is all we need to keep.
-fn urlencoding(s: &str) -> String {
+/// the user and ids echoed back from an API, and the unreserved set from
+/// RFC 3986 is all we need to keep. Keeping `/`, `?` and `#` encoded is what
+/// stops an id from reshaping the URL it is interpolated into.
+pub(crate) fn urlencoding(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.as_bytes() {
         match b {

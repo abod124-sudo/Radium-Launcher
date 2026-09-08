@@ -1,7 +1,6 @@
 use crate::config::Network;
 use crate::vanilla;
 use regex::Regex;
-use reqwest::Client;
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -38,14 +37,12 @@ fn resolve_url(url: &str, base: &str) -> String {
 // Helper: perform an HTTP GET and return the body as text
 // ---------------------------------------------------------------------------
 async fn http_get_text(url: &str) -> Result<String, String> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let response = client
+    // The process-wide client, so these scrapes reuse the existing connection
+    // pool instead of paying for a fresh TLS handshake on every card the user
+    // opens. reqwest's default redirect policy is the same limit of 10.
+    let response = crate::server::http()
         .get(url)
+        .timeout(Duration::from_secs(10))
         .header("User-Agent", "RadiumLauncher/1.0")
         .send()
         .await
@@ -73,7 +70,7 @@ pub async fn fetch_room_web_details(name: String, network: Option<String>) -> Va
     if Network::parse(network.as_deref()) == Network::Vanilla {
         return vanilla::room_web_details(&name).await;
     }
-    let safe_name = name.replace('/', "%2F").replace('?', "%3F").replace('#', "%23").replace('&', "%26").replace('=', "%3D");
+    let safe_name = vanilla::urlencoding(&name);
     let url = format!("https://www.radie.app/room/{}", safe_name);
 
     let html = match http_get_text(&url).await {
@@ -132,7 +129,7 @@ pub async fn fetch_user_web_details(name: String, network: Option<String>) -> Va
     if Network::parse(network.as_deref()) == Network::Vanilla {
         return vanilla::user_web_details(&name).await;
     }
-    let safe_name = name.replace('/', "%2F").replace('?', "%3F").replace('#', "%23").replace('&', "%26").replace('=', "%3D");
+    let safe_name = vanilla::urlencoding(&name);
     let url = format!("https://www.radie.app/user/{}", safe_name);
 
     let html = match http_get_text(&url).await {
@@ -232,7 +229,7 @@ pub async fn fetch_photo_web_details(photo_id: String, network: Option<String>) 
     if Network::parse(network.as_deref()) == Network::Vanilla {
         return json!({ "success": false, "error": "Vanilla does not publish photo details." });
     }
-    let safe_photo_id = photo_id.replace('/', "%2F").replace('?', "%3F").replace('#', "%23").replace('&', "%26").replace('=', "%3D");
+    let safe_photo_id = vanilla::urlencoding(&photo_id);
     let url = format!("https://www.radie.app/photo/{}", safe_photo_id);
 
     let html = match http_get_text(&url).await {
@@ -264,15 +261,15 @@ pub async fn fetch_photo_comments(photo_id: String, network: Option<String>) -> 
     let urls = vec![
         format!(
             "https://launcher.radie.app/api/photos/v1/{}/comments?skip=0&take=20",
-            photo_id
+            vanilla::urlencoding(&photo_id)
         ),
         format!(
             "https://launcher.radie.app/api/comments/v1?photoId={}&skip=0&take=20",
-            photo_id
+            vanilla::urlencoding(&photo_id)
         ),
         format!(
             "https://api.radie.app/api/photos/v1/{}/comments?skip=0&take=20",
-            photo_id
+            vanilla::urlencoding(&photo_id)
         ),
     ];
 

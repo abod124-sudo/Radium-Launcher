@@ -20,6 +20,14 @@
      character grid must hold its columns by width, the way .log-ts and
      .log-tag do, not by padding text with spaces. */
   --font-mono:    'Lucida Console', 'Courier New', monospace;
+  /* The log pane, and nothing else. Held apart from --font-mono precisely so
+     the font packs cannot reach it: the log is diagnostic output that gets
+     read closely and pasted into bug reports, and its timestamp and level
+     columns only line up under a real fixed-advance face. A display face like
+     Radie (no lowercase, ~60% wider than Tahoma) or a pixel face makes it
+     harder to read a stack of paths and URLs, which is the one place in the
+     app where legibility beats flavour. No font pack re-points this. */
+  --font-log:     'Lucida Console', 'Consolas', 'Courier New', monospace;
   /* The face for brand moments — wordmark, titlebar, hero. Defined here so it
      resolves under every pack; packs re-point it, they do not introduce it. */
   --font-display: 'Lucida Console', 'Courier New', monospace;
@@ -2308,7 +2316,7 @@ body.theme-custom-glass .btn-play.running:active {
 .log-output {
   background: var(--bg-dark);
   border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  padding: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--green-dim);
+  padding: 8px; font-family: var(--font-log); font-size: 10px; color: var(--green-dim);
   line-height: 1.4; overflow-y: auto; flex: 1;
 }
 /* Per-severity colouring for log lines. Long lines (paths, URLs, detail
@@ -2316,10 +2324,10 @@ body.theme-custom-glass .btn-play.running:active {
    alignment spaces via pre-wrap. */
 .log-entry { white-space: pre-wrap; word-break: break-word; }
 /* The timestamp and level columns are held open by width, not by the space
-   padding in the log string: a font pack can point --font-mono at a
-   proportional face, and spaces stop lining up the moment it does. `ch` is
-   the width of "0" in whatever face is active, so the columns track the font
-   instead of assuming one. */
+   padding in the log string. The log is pinned to --font-log, which no font
+   pack re-points, but `ch` (the width of "0" in the active face) still beats
+   padding with spaces: it survives a missing font falling back to whatever
+   monospace the platform substitutes. */
 .log-ts  { display: inline-block; min-width: 10.5ch; }
 .log-tag { display: inline-block; min-width: 8.5ch; }
 .log-msg { white-space: pre-wrap; }
@@ -3176,7 +3184,8 @@ body.theme-macosclassic .room-card:hover {
   background: var(--bg-panel);
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  overflow: hidden;
+  /* See .feed-post-image-wrap: clip so the wheel handler stays out of the way. */
+  overflow: clip;
   cursor: pointer;
   aspect-ratio: 16/9;
   transition: transform 0.15s ease, border-color 0.15s ease;
@@ -4238,7 +4247,17 @@ html body.theme-win7 ::-webkit-scrollbar-thumb:hover {
   border: 2px solid;
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   border-radius: 4px;
-  overflow: hidden;
+  /* `clip`, not `hidden`. Both clip the image identically (border-radius
+     included), but `overflow: hidden` makes the element a scroll container,
+     and Chromium/WebView2 can swallow a wheel event that lands on a scroll
+     container with nothing to scroll. The global wheel handler in app.js exists
+     to rescue that case, and it does so by calling preventDefault() and moving
+     the ancestor with `scrollTop += deltaY` — a discrete jump per tick, in
+     place of Chromium's smooth wheel animation. That is why scrolling went
+     rough the moment the pointer sat on a photo and was smooth everywhere
+     else. `clip` is not a scroll container, so the handler no longer engages
+     here and native smooth scrolling is left alone. */
+  overflow: clip;
   cursor: pointer;
   background: var(--bg-dark);
 }
@@ -4247,12 +4266,24 @@ html body.theme-win7 ::-webkit-scrollbar-thumb:hover {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.2s ease;
   pointer-events: none;
-  will-change: transform;
+  /* No `will-change: transform` here. It promoted every photo in the feed to
+     its own compositor layer permanently — dozens of full-size textures held
+     for an effect that only one image at a time can be running. MDN calls this
+     out directly: will-change is a last resort, not something to apply to a
+     large number of elements. The compositor already promotes an element for
+     the duration of a transform transition without being told to. */
 }
 
-.feed-post-image-wrap:hover .feed-post-image {
+/* Gated like every other transition in this stylesheet: the base skins snap,
+   and only the modern themes with animations switched on get the movement.
+   The feed image was the one hover effect that animated unconditionally, so
+   turning animations off did not turn it off. */
+body.animations-enabled .feed-post-image {
+  transition: transform 0.2s ease;
+}
+
+body.animations-enabled .feed-post-image-wrap:hover .feed-post-image {
   transform: scale(1.02);
 }
 

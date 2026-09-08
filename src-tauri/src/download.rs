@@ -96,9 +96,16 @@ fn parse_content_range_total(headers: &reqwest::header::HeaderMap) -> Option<u64
 }
 
 /// Resolve a possibly-relative link from the download page into an absolute URL.
+///
+/// The launcher executes what it downloads, so a plaintext `http://` link from
+/// the page is upgraded to https rather than fetched in the clear. (The old
+/// `starts_with("http")` test also treated any string merely beginning with
+/// those four letters as an absolute URL.)
 fn resolve_link(raw: &str) -> String {
-    if raw.starts_with("http") {
+    if raw.starts_with("https://") {
         raw.to_string()
+    } else if let Some(rest) = raw.strip_prefix("http://") {
+        format!("https://{}", rest)
     } else if let Some(stripped) = raw.strip_prefix("//") {
         format!("https://{}", stripped)
     } else if raw.starts_with('/') {
@@ -121,12 +128,9 @@ fn extract_etag(headers: &reqwest::header::HeaderMap) -> Option<String> {
 /// Returns `None` on any failure (missing header, network error, method not
 /// allowed, etc.) — this is a best-effort secondary signal, not a hard error.
 async fn fetch_remote_etag(url: &str) -> Option<String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .ok()?;
-    let response = client
+    let response = crate::server::http()
         .head(url)
+        .timeout(std::time::Duration::from_secs(10))
         .header("User-Agent", BROWSER_UA)
         .send()
         .await
@@ -136,13 +140,9 @@ async fn fetch_remote_etag(url: &str) -> Option<String> {
 
 /// Fetch the raw HTML of the downloads page.
 async fn fetch_download_page_html() -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    client
+    crate::server::http()
         .get(DOWNLOAD_PAGE)
+        .timeout(std::time::Duration::from_secs(20))
         .header("User-Agent", BROWSER_UA)
         .send()
         .await
@@ -456,6 +456,13 @@ async fn download_client_impl(
     // Resolve the current Windows client zip (and its version) from the download page.
     let (resolved_version, download_url) = resolve_download_info(&app, network).await?;
 
+    // Belt and braces: whatever produced this URL — a scraped page, a
+    // user-supplied Vanilla URL — the bytes become an executable, so they are
+    // never fetched over a channel that can be rewritten in transit.
+    if !download_url.starts_with("https://") {
+        return Err("Refusing to download the client over an insecure URL.".into());
+    }
+
     // Resume support: if a partial download for this exact URL already exists,
     // continue it with a byte-range request instead of starting over. The .part
     // file and its sidecar metadata survive launcher restarts, so this resumes a
@@ -635,6 +642,16 @@ async fn download_client_impl(
         return Err("Cancelled".into());
     }
 
+    // A stream that ends early without erroring (a proxy closing the connection,
+    // for instance) would otherwise be promoted and extracted as a truncated
+    // zip. Keep the .part so the next run resumes from here instead.
+    if total > 0 && downloaded < total {
+        return Err(format!(
+            "Download ended early: got {} of {} bytes. Resume to finish it.",
+            downloaded, total
+        ));
+    }
+
     // Download finished — promote the completed .part to the real zip and drop
     // the now-obsolete resume metadata.
     fs::rename(&part_path, &client_zip)
@@ -648,17 +665,21 @@ async fn download_client_impl(
         "status": "Preparing extraction..."
     }));
 
-    // Clear existing client directory contents before extracting.
+    // Open and parse the archive BEFORE touching the existing install. Clearing
+    // first meant a corrupt or truncated download wiped a working client and
+    // then failed, leaving the user with nothing to launch and nothing to
+    // roll back to.
+    let zip_file = fs::File::open(&client_zip)
+        .map_err(|e| format!("Failed to open zip: {}", e))?;
+    let mut archive = zip::ZipArchive::new(zip_file)
+        .map_err(|e| format!("Failed to read zip archive: {}", e))?;
+
+    // The archive is readable, so the old install can go.
     if Path::new(&client_dir).exists() {
         let _ = safe_clear_client_dir(&client_dir);
     }
     fs::create_dir_all(&client_dir)
         .map_err(|e| format!("Failed to create client dir: {}", e))?;
-
-    let zip_file = fs::File::open(&client_zip)
-        .map_err(|e| format!("Failed to open zip: {}", e))?;
-    let mut archive = zip::ZipArchive::new(zip_file)
-        .map_err(|e| format!("Failed to read zip archive: {}", e))?;
 
     let entry_count = archive.len();
     let mut was_cancelled = false;
@@ -886,31 +907,10 @@ pub async fn check_install(
     let mut exe_path = cfg.game_exe_for(network).to_string();
 
     // Verify the configured path is valid and inside client_dir.
-    if !exe_path.is_empty() {
-        let exe = Path::new(&exe_path);
-        let client = Path::new(&client_dir);
-
-        // Prefer canonicalized comparison so differences in slash style or
-        // drive-letter casing on Windows don't cause a false "outside" result.
-        // Fall back to a normalized, case-insensitive string prefix check if
-        // either path can't be canonicalized.
-        let is_inside = match (std::fs::canonicalize(exe), std::fs::canonicalize(client)) {
-            (Ok(exe_canon), Ok(client_canon)) => exe_canon.starts_with(&client_canon),
-            _ => {
-                // Append a trailing separator to the dir before the prefix check
-                // so "C:\client2\..." is not treated as inside "C:\client".
-                let normalize = |p: &str| p.replace('/', "\\").to_lowercase();
-                let mut dir = normalize(&client_dir);
-                if !dir.ends_with('\\') {
-                    dir.push('\\');
-                }
-                normalize(&exe_path).starts_with(&dir)
-            }
-        };
-
-        if !is_inside || !exe.exists() {
-            exe_path = String::new();
-        }
+    if !exe_path.is_empty()
+        && (!config::path_is_inside_dir(&exe_path, &client_dir) || !Path::new(&exe_path).exists())
+    {
+        exe_path = String::new();
     }
 
     // Try to locate the bat file if the config path was empty or invalid.
@@ -941,6 +941,10 @@ pub async fn check_install(
         "clientOutdated": client_outdated,
         "clientVersion": cfg.client_version_for(network),
         "network": network.as_str(),
+        // A client folder the launcher renamed out of the way because it held
+        // another network's client. Reported so the UI can tell the user where
+        // those files went instead of silently leaving them on disk.
+        "orphanedClientDir": cfg.orphaned_client_dir,
         // Surfaced so the frontend can log the concrete build mismatch behind an
         // "outdated" verdict instead of an opaque message.
         "clientBuild": cfg.client_build_for(network),
@@ -986,10 +990,7 @@ pub async fn select_folder(network: Option<String>) -> Result<Option<String>, St
 #[tauri::command]
 pub fn get_default_client_dir(app: tauri::AppHandle, network: Option<String>) -> String {
     let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let folder = match Network::parse(network.as_deref()) {
-        Network::Radium => "client",
-        Network::Vanilla => "client-vanilla",
-    };
+    let folder = config::default_client_folder(Network::parse(network.as_deref()));
     app_data_dir.join(folder).to_string_lossy().to_string()
 }
 

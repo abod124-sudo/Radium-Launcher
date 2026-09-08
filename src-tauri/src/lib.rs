@@ -73,6 +73,7 @@ pub fn run() {
             // Debug
             cmd_debug_exec,
             cmd_debug_paths,
+            cmd_debug_append_diag,
             // Bug Report
             submit_bug_report,
         ])
@@ -116,10 +117,15 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             // (plus control chars). Legal folder names like "Games & Mods" or
             // "100%" must be saveable; the launch path is explicitly quoted at
             // spawn time, so shell metacharacters in the path are inert.
-            let dir = &cfg.install_dir;
-            if dir.chars().any(|c| c.is_control())
-                || dir.contains('"') || dir.contains('<') || dir.contains('>') || dir.contains('|')
-            {
+            let bad_dir = |dir: &str| {
+                dir.chars().any(|c| c.is_control())
+                    || dir.contains('"')
+                    || dir.contains('<')
+                    || dir.contains('>')
+                    || dir.contains('|')
+            };
+            // Both networks' install dirs are user-settable, so both get checked.
+            if bad_dir(&cfg.install_dir) || bad_dir(&cfg.vanilla.install_dir) {
                 return false;
             }
             let opt = &cfg.launch_options;
@@ -138,6 +144,13 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             // very next check, causing an endless re-download loop.
             let current = config::ensure_config(&app);
             cfg.preserve_backend_managed_fields(&current);
+
+            // Last line of defence for the per-network install dirs: whatever
+            // the settings form sends, the two networks must never end up
+            // resolving to the same client folder — that is what let a Radium
+            // download land in the Vanilla folder and made Vanilla report an
+            // install it never had.
+            config::dedupe_install_dirs(&app, &mut cfg);
 
             config::save_config(&app, &cfg).is_ok()
         }
@@ -192,6 +205,32 @@ fn cmd_debug_exec(app: tauri::AppHandle, mode: String) -> serde_json::Value {
             Ok(child) => serde_json::json!({ "ok": true, "pid": child.id() }),
             Err(e) => serde_json::json!({ "ok": false, "err": e.to_string() }),
         }
+    }
+}
+
+const NEWLINE: &str = "\n";
+
+/// TEMPORARY — appends one diagnostic line to `scroll-diag.log` in the app data
+/// directory, so a scroll trace can be read off disk instead of copied out of
+/// the log pane by hand. Remove together with the frontend scroll diagnostic.
+///
+/// Deliberately dumb: one fixed filename the caller cannot influence, append
+/// only, newline-terminated, and the line is truncated so a runaway caller
+/// cannot grow the file without bound.
+#[tauri::command]
+fn cmd_debug_append_diag(app: tauri::AppHandle, line: String) {
+    use std::io::Write;
+    let mut line: String =
+        line.chars().filter(|c| !c.is_control()).take(400).collect();
+    line.push_str(NEWLINE);
+    let dir = config::app_data_dir(&app);
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("scroll-diag.log"))
+    {
+        let _ = f.write_all(line.as_bytes());
     }
 }
 

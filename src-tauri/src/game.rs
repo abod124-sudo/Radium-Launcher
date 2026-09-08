@@ -10,89 +10,161 @@ use crate::config;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/// Recursively search for a `.bat` file by `name` inside `dir`, up to `depth` 4.
+/// Game executables the launcher recognises, newest client first.
+/// (The new recroom.baby client uses `Recroom_Release.exe`; the legacy client
+/// used `RecRoom.exe`.) The legacy screen-mode script is the last resort.
+pub const GAME_EXES: [&str; 2] = ["Recroom_Release.exe", "RecRoom.exe"];
+
+/// Every launch target, in preference order.
+const LAUNCH_TARGETS: [&str; 3] = [
+    "Recroom_Release.exe",
+    "RecRoom.exe",
+    "RecRoom_ScreenMode.bat",
+];
+
+/// Locate the game executable inside `dir` — recursive to depth 4, preferring
+/// the newest known client, then the legacy exe, then the screen-mode script.
 ///
-/// Returns the full path to the first matching file, or `None` if not found.
-pub fn find_bat_in(dir: &str, name: &str, depth: u32) -> Option<String> {
+/// All three names are matched in a single walk. Searching for one name at a
+/// time meant that on the common install (which has `RecRoom.exe`, not
+/// `Recroom_Release.exe`) the whole tree was walked to exhaustion for the name
+/// that isn't there before the second pass found the one that is — a full scan
+/// of a multi-gigabyte install on every `check_install`, which runs on every
+/// settings autosave. Preference is applied per directory level, so a
+/// `Recroom_Release.exe` nested one level down still loses to nothing: the
+/// shallowest directory containing any target wins, and within it the
+/// most-preferred name.
+pub fn find_game_exe(dir: &str) -> Option<String> {
+    find_launch_target(Path::new(dir), 0)
+}
+
+fn find_launch_target(dir: &Path, depth: u32) -> Option<String> {
     if depth > 4 {
         return None;
     }
+    let entries = std::fs::read_dir(dir).ok()?;
 
-    let dir_path = Path::new(dir);
-    if !dir_path.exists() {
-        return None;
-    }
-
-    let entries = match std::fs::read_dir(dir_path) {
-        Ok(e) => e,
-        Err(_) => return None,
-    };
-
+    // Index this level in one pass, then decide — a second read_dir per name
+    // would put the per-name cost straight back.
+    let mut found: [Option<std::path::PathBuf>; LAUNCH_TARGETS.len()] = Default::default();
     let mut subdirs: Vec<std::path::PathBuf> = Vec::new();
 
     for entry in entries.flatten() {
-        let file_type = match entry.file_type() {
-            Ok(ft) => ft,
-            Err(_) => continue,
+        let Ok(file_type) = entry.file_type() else {
+            continue;
         };
-        let entry_name = entry.file_name().to_string_lossy().to_string();
-
-        if file_type.is_file() && entry_name.eq_ignore_ascii_case(name) {
-            return Some(entry.path().to_string_lossy().to_string());
-        }
-
         if file_type.is_dir() {
             subdirs.push(entry.path());
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        for (i, target) in LAUNCH_TARGETS.iter().enumerate() {
+            if found[i].is_none() && name.eq_ignore_ascii_case(target) {
+                found[i] = Some(entry.path());
+            }
         }
     }
 
-    // Recurse into subdirectories
+    if let Some(hit) = found.into_iter().flatten().next() {
+        return Some(hit.to_string_lossy().to_string());
+    }
+
     for subdir in subdirs {
-        if let Some(found) = find_bat_in(&subdir.to_string_lossy(), name, depth + 1) {
-            return Some(found);
+        if let Some(hit) = find_launch_target(&subdir, depth + 1) {
+            return Some(hit);
         }
     }
 
     None
 }
 
-/// Game executables the launcher recognises, newest client first.
-/// (The new recroom.baby client uses `Recroom_Release.exe`; the legacy client
-/// used `RecRoom.exe`.)
-pub const GAME_EXES: [&str; 2] = ["Recroom_Release.exe", "RecRoom.exe"];
-
-/// Locate the game executable inside `dir` (recursive, newest-known first),
-/// falling back to the legacy screen-mode launch script.
-pub fn find_game_exe(dir: &str) -> Option<String> {
-    for name in GAME_EXES {
-        if let Some(p) = find_bat_in(dir, name, 0) {
-            return Some(p);
-        }
-    }
-    find_bat_in(dir, "RecRoom_ScreenMode.bat", 0)
-}
-
 /// Returns true if any process with one of the given image names is running.
-/// One unfiltered `tasklist` call covers all names — cheaper than spawning a
-/// filtered `tasklist` per image (this runs every 2s in the game monitor).
+///
+/// Walks the kernel's process snapshot directly rather than shelling out to
+/// `tasklist`. The old implementation cost ~76ms per call — essentially all of
+/// it process-creation overhead, which is why filtering by image name made no
+/// difference — and this runs every 2 seconds for the whole session from the
+/// game monitor. A snapshot walk over ~320 processes is about 1ms, spawns
+/// nothing, and keeps the call off the blocking path of the async commands that
+/// use it. It also stops the launcher from creating a hidden console process
+/// twice a second, which is exactly the pattern antivirus heuristics flag.
 #[cfg(target_os = "windows")]
 fn any_process_running(images: &[&str]) -> bool {
-    use std::os::windows::process::CommandExt;
-    Command::new("tasklist")
-        .arg("/NH")
-        .creation_flags(0x08000000)
-        .output()
-        .map(|o| {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            stdout.lines().any(|line| {
-                line.split_whitespace()
-                    .next()
-                    .map(|name| images.iter().any(|img| name.eq_ignore_ascii_case(img)))
-                    .unwrap_or(false)
-            })
-        })
-        .unwrap_or(false)
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+
+    // SAFETY: the snapshot handle is checked against INVALID_HANDLE_VALUE
+    // before use and closed on every exit path. `entry` is zeroed and has its
+    // `dwSize` set before the first call, which is what Process32FirstW
+    // requires; both iteration calls receive that same initialised struct.
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return false;
+        }
+
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        let mut found = false;
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                if image_name_matches(&entry.szExeFile, images) {
+                    found = true;
+                    break;
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snapshot);
+        found
+    }
 }
+
+/// Whether a `PROCESSENTRY32W` image name matches any of `images`.
+///
+/// The field is a fixed-size UTF-16 buffer padded with NULs, so it is truncated
+/// at the first NUL before comparing — the whole 260-wchar buffer would never
+/// match anything.
+#[cfg(target_os = "windows")]
+fn image_name_matches(sz_exe_file: &[u16], images: &[&str]) -> bool {
+    let len = sz_exe_file
+        .iter()
+        .position(|&c| c == 0)
+        .unwrap_or(sz_exe_file.len());
+    let name = &sz_exe_file[..len];
+    images.iter().any(|img| utf16_eq_ignore_ascii_case(name, img))
+}
+
+/// Case-insensitive comparison of a UTF-16 slice against an ASCII string,
+/// without allocating.
+///
+/// Decoding each name into a `String` instead cost 300-odd allocations per
+/// poll, which was most of the walk's runtime. Comparing lengths up front is
+/// valid because every image name we look for is ASCII, so one byte is one
+/// UTF-16 unit; a non-ASCII `ascii` argument simply fails to match, which is
+/// the safe answer.
+#[cfg(target_os = "windows")]
+fn utf16_eq_ignore_ascii_case(utf16: &[u16], ascii: &str) -> bool {
+    if utf16.len() != ascii.len() {
+        return false;
+    }
+    utf16
+        .iter()
+        .zip(ascii.bytes())
+        .all(|(&u, a)| u < 128 && (u as u8).eq_ignore_ascii_case(&a))
+}
+
 #[cfg(not(target_os = "windows"))]
 fn any_process_running(_images: &[&str]) -> bool {
     false
@@ -106,30 +178,10 @@ pub fn check_game_running() -> bool {
     any_process_running(&GAME_EXES)
 }
 
-/// Checks whether `steam.exe` is currently running via `tasklist`.
+/// Checks whether `steam.exe` is currently running.
 #[tauri::command]
 pub fn check_steam() -> bool {
-    #[cfg(target_os = "windows")]
-    use std::os::windows::process::CommandExt;
-
-    #[cfg(target_os = "windows")]
-    let output = Command::new("tasklist")
-        .args(["/NH", "/FI", "IMAGENAME eq steam.exe"])
-        .creation_flags(0x08000000)
-        .output();
-
-    #[cfg(not(target_os = "windows"))]
-    let output = Command::new("tasklist")
-        .args(["/NH", "/FI", "IMAGENAME eq steam.exe"])
-        .output();
-
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout).to_lowercase();
-            stdout.contains("steam.exe")
-        }
-        Err(_) => false,
-    }
+    any_process_running(&["steam.exe"])
 }
 
 /// Returns true if the required Rec Room Steam app (appid 92) is installed,
@@ -245,7 +297,16 @@ fn launch_game_impl(
         // from disk rather than from the frontend's flat (Radium) field.
         config::Network::Vanilla => cfg.vanilla.game_exe_path.clone(),
     };
-    if exe_path.is_empty() || !Path::new(&exe_path).exists() {
+    // The exe path arrives from the frontend for Radium, so it is confirmed to
+    // live inside the resolved client directory before anything is spawned —
+    // the same containment check `check_install` applies. Without it, anything
+    // that could reach the IPC layer (a compromised API feeding the room and
+    // photo views, say) could name any executable on disk and have the
+    // launcher run it.
+    if exe_path.is_empty()
+        || !Path::new(&exe_path).exists()
+        || !config::path_is_inside_dir(&exe_path, &client_dir)
+    {
         exe_path = find_game_exe(&client_dir).unwrap_or_default();
     }
     if exe_path.is_empty() {
@@ -314,7 +375,7 @@ fn launch_game_impl(
     //
     // The background monitor must not report "closed" until the game process
     // has actually appeared: a `.bat`/`start` launch (and slow first-time Unity
-    // startup) can take several seconds, during which `tasklist` shows nothing.
+    // startup) can take several seconds, during which no game process exists yet.
     // Without this, the monitor's first poll would see no process, flip the
     // state back to not-running, and fire a spurious "Game closed". See
     // `start_game_monitor`.
@@ -442,7 +503,7 @@ static LAUNCH_GRACE_POLLS: AtomicU64 = AtomicU64::new(0);
 
 /// Length of the post-launch grace window, in monitor polls. At the 2s poll
 /// interval this is ~16s — enough for a slow `.bat`/`start` launch or a cold
-/// Unity start to make the game process appear in `tasklist`.
+/// Unity start to make the game process appear in the process snapshot.
 const GRACE_POLLS_AFTER_LAUNCH: u64 = 8;
 
 /// Decide whether the monitor should emit a `game-state` transition this poll.
@@ -536,5 +597,67 @@ mod game_monitor_tests {
         // Process appearing is always emitted (grace only guards the close edge).
         assert!(should_emit_game_state(true, false, false, 8));
         assert!(should_emit_game_state(true, false, true, 0));
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod process_snapshot_tests {
+    use super::{any_process_running, image_name_matches};
+
+    /// The snapshot walk must find a process that is definitely running: this
+    /// test binary. Guards against the whole enumeration silently returning
+    /// false — the failure mode that would make the launcher believe the game
+    /// had closed the moment it started.
+    #[test]
+    fn the_snapshot_finds_this_test_process() {
+        let exe = std::env::current_exe().expect("current exe");
+        let name = exe
+            .file_name()
+            .expect("exe file name")
+            .to_string_lossy()
+            .to_string();
+
+        assert!(
+            any_process_running(&[&name]),
+            "expected to find this test process ({}) in the snapshot",
+            name
+        );
+    }
+
+    #[test]
+    fn a_process_that_is_not_running_is_not_reported() {
+        assert!(!any_process_running(&[
+            "radium-launcher-no-such-process-9f3a1c.exe"
+        ]));
+    }
+
+    #[test]
+    fn an_empty_image_list_matches_nothing() {
+        assert!(!any_process_running(&[]));
+    }
+
+    /// The image name arrives as a fixed 260-wchar buffer padded with NULs, so
+    /// it has to be truncated at the first NUL before comparing. Comparison is
+    /// case-insensitive because Windows process names are.
+    #[test]
+    fn a_nul_padded_image_name_is_truncated_before_comparing() {
+        let mut buf = [0u16; 260];
+        for (slot, ch) in buf.iter_mut().zip("RecRoom.exe".encode_utf16()) {
+            *slot = ch;
+        }
+
+        assert!(image_name_matches(&buf, &["RecRoom.exe"]));
+        assert!(image_name_matches(&buf, &["recroom.EXE"]));
+        assert!(image_name_matches(&buf, &["Recroom_Release.exe", "RecRoom.exe"]));
+        assert!(!image_name_matches(&buf, &["RecRoom"]));
+        assert!(!image_name_matches(&buf, &["steam.exe"]));
+    }
+
+    /// A buffer with no NUL at all must not read past its end.
+    #[test]
+    fn an_unterminated_image_name_does_not_overrun() {
+        let buf = [b'a' as u16; 260];
+        assert!(!image_name_matches(&buf, &["a.exe"]));
+        assert!(image_name_matches(&buf, &["a".repeat(260).as_str()]));
     }
 }

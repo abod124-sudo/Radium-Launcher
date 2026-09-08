@@ -259,7 +259,9 @@ pub async fn fetch_user_photos(args: Value) -> Value {
 
     let url = format!(
         "https://launcher.radie.app/api/user/v1/{}/photos?skip={}&take={}",
-        user_id, skip, take
+        vanilla::urlencoding(&user_id),
+        skip,
+        take
     );
 
     match http_get_json(&url).await {
@@ -287,7 +289,9 @@ pub async fn fetch_user_rooms(args: Value) -> Value {
 
     let url = format!(
         "https://launcher.radie.app/api/user/v1/{}/rooms?skip={}&take={}",
-        user_id, skip, take
+        vanilla::urlencoding(&user_id),
+        skip,
+        take
     );
 
     match http_get_json(&url).await {
@@ -320,7 +324,9 @@ pub async fn fetch_user_feed(args: Value) -> Value {
 
     let url = format!(
         "https://launcher.radie.app/api/user/v1/{}/feed?skip={}&take={}",
-        user_id, skip, take
+        vanilla::urlencoding(&user_id),
+        skip,
+        take
     );
 
     match http_get_json(&url).await {

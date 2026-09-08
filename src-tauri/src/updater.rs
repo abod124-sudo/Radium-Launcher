@@ -101,6 +101,43 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
     })
 }
 
+/// Filename prefix for the downloaded launcher installer. Each run appends a
+/// unique suffix (see [`download_update`]), so old ones accumulate in temp.
+const INSTALLER_PREFIX: &str = "RadiumLauncherSetup_update_";
+
+/// Delete installers left behind by previous updates.
+///
+/// Each update writes a uniquely-named installer to temp and then exits the app
+/// to run it, so nothing ever cleaned them up — one abandoned executable per
+/// update, forever. Only files matching our own prefix are considered, and only
+/// ones older than an hour, so the installer this run is about to write (and any
+/// installer a concurrently-updating instance is still executing) is left alone.
+fn clean_stale_installers(temp_dir: &std::path::Path) {
+    const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+    let Ok(entries) = std::fs::read_dir(temp_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with(INSTALLER_PREFIX) || !name.ends_with(".exe") {
+            continue;
+        }
+        let is_stale = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.elapsed().ok())
+            .map(|age| age > MAX_AGE)
+            .unwrap_or(false);
+        if is_stale {
+            // Best-effort: a file still locked by a running installer stays.
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// Download the update installer and launch it.
 ///
 /// Downloads the file from the given URL to the system temp directory as
@@ -130,7 +167,8 @@ pub async fn download_update(app: tauri::AppHandle, url: String, place_on_deskto
             .unwrap_or(0)
     );
     let temp_dir = env::temp_dir();
-    let installer_path = temp_dir.join(format!("RadiumLauncherSetup_update_{}.exe", unique));
+    clean_stale_installers(&temp_dir);
+    let installer_path = temp_dir.join(format!("{}{}.exe", INSTALLER_PREFIX, unique));
 
     // Download the installer. Without timeouts a stalled connection would
     // leave the update modal stuck on "Downloading..." forever.
@@ -188,4 +226,86 @@ pub async fn download_update(app: tauri::AppHandle, url: String, place_on_deskto
 #[tauri::command]
 pub fn get_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
+}
+
+#[cfg(test)]
+mod installer_cleanup_tests {
+    use super::{clean_stale_installers, INSTALLER_PREFIX};
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "radium-updater-test-{}-{}",
+            tag,
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    /// Backdate a file so the age check sees it as stale.
+    fn age(path: &std::path::Path, secs: u64) {
+        let when = std::time::SystemTime::now() - std::time::Duration::from_secs(secs);
+        let f = fs::File::options().write(true).open(path).expect("open");
+        f.set_modified(when).expect("set mtime");
+    }
+
+    #[test]
+    fn a_stale_installer_is_removed() {
+        let dir = temp_dir("stale");
+        let stale = dir.join(format!("{}12345_678.exe", INSTALLER_PREFIX));
+        fs::write(&stale, b"stub").expect("write");
+        age(&stale, 60 * 60 * 24);
+
+        clean_stale_installers(&dir);
+        assert!(!stale.exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The installer this run is about to write, and one a concurrently
+    /// updating instance may still be executing, are both recent.
+    #[test]
+    fn a_recent_installer_is_left_alone() {
+        let dir = temp_dir("recent");
+        let fresh = dir.join(format!("{}999_111.exe", INSTALLER_PREFIX));
+        fs::write(&fresh, b"stub").expect("write");
+
+        clean_stale_installers(&dir);
+        assert!(fresh.exists(), "a running installer must not be deleted");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Temp is shared with the rest of the system, so nothing outside our own
+    /// naming scheme may be touched however old it is.
+    #[test]
+    fn unrelated_temp_files_are_never_touched() {
+        let dir = temp_dir("unrelated");
+        let others = [
+            "important.exe",
+            "RadiumLauncherSetup.exe",
+            "SomeOtherApp_update_1.exe",
+        ];
+        for name in others {
+            let p = dir.join(name);
+            fs::write(&p, b"stub").expect("write");
+            age(&p, 60 * 60 * 24 * 30);
+        }
+        // Our prefix but not an executable.
+        let log = dir.join(format!("{}1_2.log", INSTALLER_PREFIX));
+        fs::write(&log, b"stub").expect("write");
+        age(&log, 60 * 60 * 24 * 30);
+
+        clean_stale_installers(&dir);
+
+        for name in others {
+            assert!(dir.join(name).exists(), "{} must survive", name);
+        }
+        assert!(log.exists(), "only .exe files match");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

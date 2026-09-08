@@ -95,6 +95,34 @@ function networkInfo(name = activeNetwork) {
   return NETWORKS[name] || NETWORKS.radium;
 }
 
+/// Install directories are per-network: Radium's lives on the flat
+/// `config.installDir`, Vanilla's on `config.vanilla.installDir`. Every read
+/// and write has to go through these two helpers — touching the flat field
+/// while Vanilla is active is what stamped the Vanilla folder onto Radium's
+/// slot, which then sent Radium's download into the Vanilla client folder and
+/// made Vanilla report that Radium's client was a Vanilla install.
+function configInstallDir(network = activeNetwork) {
+  if (!config) return '';
+  return (network === 'vanilla' ? config.vanilla?.installDir : config.installDir) || '';
+}
+
+/// Placeholder for the log/modal text before checkInstall() has resolved the
+/// real path. Per-network, since the two default to different folders.
+function defaultInstallDirHint(network = activeNetwork) {
+  return network === 'vanilla'
+    ? '%APPDATA%\com.radium.launcher\client-vanilla'
+    : '%APPDATA%\com.radium.launcher\client';
+}
+
+function setConfigInstallDir(dir, network = activeNetwork) {
+  if (!config) return;
+  if (network === 'vanilla') {
+    config.vanilla = { ...(config.vanilla || {}), installDir: dir };
+  } else {
+    config.installDir = dir;
+  }
+}
+
 (function setupTauriShim() {
   const { invoke } = window.__TAURI__.core;
   const { listen } = window.__TAURI__.event;
@@ -2350,12 +2378,6 @@ async function autoSaveSettings() {
   const customActive  = getToggle('tgl-customTheme');
   const selectedTheme = $('cfgTheme')?.value || 'steam-green';
   const saveTheme     = customActive ? 'custom' : selectedTheme;
-  // The span normally holds the real path filled in by checkInstall(). If that
-  // never ran (e.g. backend error at startup) it still shows the literal
-  // "%APPDATA%\..." placeholder — persisting that would make the backend treat
-  // it as a real relative path, so fall back to the saved value instead.
-  let customDir = $('cfgInstallDir')?.textContent.trim() || '';
-  if (customDir.includes('%')) customDir = config.installDir || '';
   const isModern      = $('styleBaseModern')?.checked === true;
 
   const customColors = {
@@ -2384,7 +2406,12 @@ async function autoSaveSettings() {
     autoUpdate:       getToggle('tgl-autoUpdate'),
     enableAnimations: getToggle('tgl-enableAnimations'),
     disableWarnings:  getToggle('tgl-disableWarnings'),
-    installDir:       customDir,
+    // No `installDir` here on purpose. The install-dir span shows whichever
+    // network is active, so copying it into the flat (Radium) field on every
+    // autosave silently repointed Radium at the Vanilla folder. The Change /
+    // Reset Folder buttons own that setting and save it themselves, into the
+    // active network's slot; the `...config` spread carries both slots through
+    // untouched.
     playMode,
     theme:            saveTheme,
     baselineTheme:    selectedTheme,
@@ -2437,6 +2464,9 @@ $('cfgLaunchOptions')?.addEventListener('input', debounceAutoSave);
 
 
 // Check client installation state
+/// One log line per session about a set-aside folder, not one per autosave.
+let orphanedDirReported = false;
+
 async function checkInstall() {
   let result = null;
   try {
@@ -2450,6 +2480,14 @@ async function checkInstall() {
 
   if (installDirSpan && result?.clientDir) {
     installDirSpan.textContent = result.clientDir;
+  }
+
+  // The backend renames a client folder aside when it finds one network holding
+  // another network's client. Say so once a session — checkInstall() re-runs on
+  // every settings autosave, and the folder sticks around until the user deletes it.
+  if (result?.orphanedClientDir && !orphanedDirReported) {
+    orphanedDirReported = true;
+    addLog(`Found a client in the wrong network's folder. Moved it aside to ${result.orphanedClientDir} — you can delete that folder.`, 'warn');
   }
 
   if (isInstalled) {
@@ -2474,10 +2512,13 @@ async function checkInstall() {
     const buildLabel = result?.clientBuild || 'unrecorded build';
     addLog(`Game client found (${verLabel}, build ${buildLabel}): ${result.exePath || 'client dir'}`, 'ok');
 
-    // Check if the game is already running on startup
+    // Check if the game is already running on startup. Only log the transition:
+    // checkInstall() re-runs on every settings autosave, so logging every time
+    // filled the log with one line per 800ms while the game was open.
     if (result?.isRunning) {
+      const wasRunning = isGameRunning;
       setGameRunning(true);
-      addLog('Game is already running.', 'ok');
+      if (!wasRunning) addLog('Game is already running.', 'ok');
     }
 
     // An outdated client (left over from a previous launcher version) must be
@@ -3113,7 +3154,7 @@ $('btnReinstall')?.addEventListener('click', () => {
   // Show the current install directory in the modal so the user can confirm
   const dirSpan = $('reinstallModalInstallDir');
   if (dirSpan) {
-    const currentDir = $('cfgInstallDir')?.textContent.trim() || config.installDir || '%APPDATA%\\com.radium.launcher\\client';
+    const currentDir = $('cfgInstallDir')?.textContent.trim() || configInstallDir() || defaultInstallDirHint();
     dirSpan.textContent = currentDir;
   }
   if (reinstallModal) reinstallModal.style.display = 'flex';
@@ -3210,7 +3251,7 @@ $('btnChangeFolder')?.addEventListener('click', async () => {
     const span = $('cfgInstallDir');
     if (span) {
       span.textContent = newDir;
-      config.installDir = newDir;
+      setConfigInstallDir(newDir);
       const ok = await window.radium?.saveConfig(config);
       if (ok) {
         toast('Install location updated and saved!', 'ok');
@@ -3236,7 +3277,10 @@ $('btnResetFolder')?.addEventListener('click', async () => {
     const span = $('cfgInstallDir');
     if (span) {
       span.textContent = defaultDir;
-      config.installDir = defaultDir;
+      // Stored as "" rather than the resolved path: an empty slot means "use
+      // this network's default", so a reset keeps tracking the default instead
+      // of pinning a literal path a later network switch could misapply.
+      setConfigInstallDir('');
       const ok = await window.radium?.saveConfig(config);
       if (ok) {
         toast('Install location reset and saved!', 'ok');
@@ -3325,7 +3369,7 @@ function showThirdPartyAvModal(thirdPartyAvs) {
 
   const clientPathCode = $('tpClientFolderPath');
   if (clientPathCode) {
-    const clientPath = $('cfgInstallDir')?.textContent.trim() || config.installDir || '';
+    const clientPath = $('cfgInstallDir')?.textContent.trim() || configInstallDir() || '';
     clientPathCode.textContent = clientPath;
   }
 
@@ -3353,7 +3397,7 @@ $('thirdPartyAvModalClose')?.addEventListener('click', hideThirdPartyAvModal);
 $('btnThirdPartyAvCancel')?.addEventListener('click', hideThirdPartyAvModal);
 
 $('btnCopyTpPath')?.addEventListener('click', async () => {
-  const clientPath = $('cfgInstallDir')?.textContent.trim() || config.installDir || '';
+  const clientPath = $('cfgInstallDir')?.textContent.trim() || configInstallDir() || '';
   if (clientPath) {
     try {
       await navigator.clipboard.writeText(clientPath);
@@ -4263,7 +4307,7 @@ async function init() {
 
   addLog(`Network: ${networkInfo().label} (${networkInfo().site})`, 'info');
   addLog(`API: ${config.apiUrl}`, 'info');
-  addLog(`Install dir: ${config?.installDir || '%APPDATA%\\com.radium.launcher\\client'}`, 'info');
+  addLog(`Install dir: ${configInstallDir() || defaultInstallDirHint()}`, 'info');
 
   // Check install first (determines which panel to show)
   await checkInstall();
@@ -4288,37 +4332,138 @@ async function init() {
   // Disable default context menu
   document.addEventListener('contextmenu', e => e.preventDefault());
 
-  // Global fix for Chromium/WebView2 scroll-trapping over overflow:hidden/auto elements
-  document.addEventListener('wheel', (e) => {
-    let target = e.target;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
-      return;
-    }
-    let scrollContainer = null;
-    let hasTrappingElement = false;
-    let current = target;
+  // Nearest ancestor that can actually be scrolled, or null.
+  function scrollableAncestor(el) {
+    let current = el;
     while (current && current !== document.body && current !== document.documentElement) {
       const style = window.getComputedStyle(current);
       const overflowY = style.overflowY;
-      const isScrollable = (overflowY === 'auto' || overflowY === 'scroll') && current.scrollHeight > current.clientHeight;
-      if (isScrollable) {
-        scrollContainer = current;
-        break;
-      }
-      const overflow = style.overflow;
-      const overflowX = style.overflowX;
-      const isOverflowHidden = overflow === 'hidden' || overflowX === 'hidden' || overflowY === 'hidden';
-      const isOverflowScrollOrAuto = overflowY === 'auto' || overflowY === 'scroll' || overflowX === 'auto' || overflowX === 'scroll';
-      if (isOverflowHidden || (isOverflowScrollOrAuto && !isScrollable)) {
-        hasTrappingElement = true;
+      if ((overflowY === 'auto' || overflowY === 'scroll')
+          && current.scrollHeight > current.clientHeight) {
+        return current;
       }
       current = current.parentElement;
     }
-    if (scrollContainer && hasTrappingElement) {
-      scrollContainer.scrollTop += e.deltaY;
-      e.preventDefault();
-    }
-  }, { passive: false });
+    return null;
+  }
+
+  // A wheel delta in CSS pixels. deltaY is only in pixels when deltaMode is
+  // DOM_DELTA_PIXEL; some mice and drivers report lines or pages instead, and
+  // treating those as pixels scrolls by a few px per notch.
+  function wheelPixels(e, container) {
+    if (e.deltaMode === 1) return e.deltaY * 16;                  // lines
+    if (e.deltaMode === 2) return e.deltaY * container.clientHeight; // pages
+    return e.deltaY;
+  }
+
+  // Chromium/WebView2 can swallow a wheel event that lands on a scroll container
+  // with nothing to scroll — an `overflow: hidden` image frame, for instance —
+  // leaving the scrollable ancestor untouched and the view apparently stuck.
+  //
+  // This used to be handled by detecting that case up front and taking over:
+  // preventDefault() plus `scrollTop += deltaY`. That did unstick the page, but
+  // it swapped Chromium's smooth wheel animation for one discrete jump per
+  // notch on every scroll that happened to start over an image, and being
+  // non-passive it pushed each wheel event through the main thread before
+  // anything could move — while calling getComputedStyle() on every ancestor of
+  // every event. That is why scrolling felt smooth over a card's padding and
+  // rough the moment the pointer sat on the photo inside it.
+  //
+  // So: stay passive, let the browser scroll normally, and only step in if the
+  // container genuinely has not moved. The ordinary path is now untouched
+  // native scrolling, and the rescue costs nothing until it is actually needed.
+  // ─── TEMPORARY SCROLL DIAGNOSTIC — REMOVE ONCE THE STUTTER IS PINNED DOWN ───
+  //
+  // Emits one line to the launcher log per scroll burst. It answers the two
+  // questions the symptom cannot distinguish on its own:
+  //
+  //   rescued > 0  the container never moved by itself, so the wheel is being
+  //                trapped and this code is doing the scrolling — the jerk is
+  //                the rescue, and the frame times will look fine.
+  //   rescued = 0  the browser scrolled normally and the frame times are the
+  //                whole story: a slow median/worst means paint or compositing
+  //                cost (large images, rounded clipping, the transparent
+  //                window), not scrolling logic.
+  let burst = null;
+  let burstEndTimer = null;
+  let burstRaf = 0;
+  let lastFrameAt = 0;
+
+  function describeTarget(el) {
+    const cls = (el.className && typeof el.className === 'string')
+      ? '.' + el.className.trim().split(/\s+/)[0]
+      : '';
+    return el.tagName.toLowerCase() + cls;
+  }
+
+  function beginBurst(target) {
+    burst = { target: describeTarget(target), wheels: 0, rescued: 0, doubled: 0, frames: [] };
+    lastFrameAt = 0;
+    const tick = (t) => {
+      if (!burst) return;
+      if (lastFrameAt) burst.frames.push(t - lastFrameAt);
+      lastFrameAt = t;
+      burstRaf = requestAnimationFrame(tick);
+    };
+    burstRaf = requestAnimationFrame(tick);
+  }
+
+  function endBurst() {
+    if (!burst) return;
+    cancelAnimationFrame(burstRaf);
+    const f = burst.frames.slice().sort((a, b) => a - b);
+    const median = f.length ? f[Math.floor(f.length / 2)].toFixed(1) : '?';
+    const worst = f.length ? f[f.length - 1].toFixed(1) : '?';
+    const dropped = burst.frames.filter(d => d > 20).length;
+    const line =
+      `[scroll] over=${burst.target} wheels=${burst.wheels} rescued=${burst.rescued} ` +
+      `doubled=${burst.doubled} frames=${burst.frames.length} ` +
+      `median=${median}ms worst=${worst}ms dropped=${dropped}`;
+    addLog(line, dropped > 0 || burst.rescued > 0 ? 'warn' : 'info');
+    // TEMPORARY: also append to scroll-diag.log so the trace can be read off
+    // disk rather than copied out of the log pane.
+    try { window.__TAURI__?.core?.invoke('cmd_debug_append_diag', { line }); } catch (e) {}
+    burst = null;
+  }
+  // ─── END TEMPORARY SCROLL DIAGNOSTIC ────────────────────────────────────────
+
+  document.addEventListener('wheel', (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    const container = scrollableAncestor(target);
+    if (!container) return;
+
+    const before = container.scrollTop;
+    const delta = wheelPixels(e, container);
+
+    // TEMPORARY: burst bookkeeping for the diagnostic above.
+    if (!burst) beginBurst(target);
+    burst.wheels++;
+    clearTimeout(burstEndTimer);
+    burstEndTimer = setTimeout(endBurst, 400);
+
+    // Two frames, not one: a smooth scroll may not have committed a new
+    // scrollTop by the very next frame, and nudging early would scroll twice.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (container.scrollTop === before) {
+        container.scrollTop = before + delta;
+        if (burst) burst.rescued++; // TEMPORARY
+        // TEMPORARY: if a native scroll was merely slow rather than absent, it
+        // lands after this and carries the container well past where we put it.
+        // That distinguishes "the wheel really was trapped" from "this code
+        // gave up too early and scrolled on top of the browser".
+        const placedAt = container.scrollTop;
+        setTimeout(() => {
+          if (burst && Math.abs(container.scrollTop - placedAt) > Math.abs(delta) * 0.5) {
+            burst.doubled++;
+          }
+        }, 200);
+      }
+    }));
+  }, { passive: true });
 }
 
 init().catch(err => {
