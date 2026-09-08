@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net"
     }
   },
   "plugins": {

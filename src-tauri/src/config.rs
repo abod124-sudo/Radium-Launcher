@@ -136,6 +136,11 @@ pub struct Config {
     pub third_party_av_acknowledged: bool,
     pub theme: String,
     pub baseline_theme: String,
+    /// Font pack selected in Settings -> Theme -> Font: "default" | "ios" |
+    /// "minecraft" | "radium". Orthogonal to `theme`: it only re-points the
+    /// --font-ui / --font-mono CSS variables, so it composes with any skin,
+    /// custom themes included.
+    pub font: String,
     pub close_on_launch: bool,
     pub launch_options: String,
     pub enable_animations: bool,
@@ -295,6 +300,7 @@ impl Default for Config {
             third_party_av_acknowledged: false,
             theme: "steam-green".to_string(),
             baseline_theme: "steam-green".to_string(),
+            font: "default".to_string(),
             close_on_launch: false,
             launch_options: String::new(),
             enable_animations: true,
@@ -525,6 +531,49 @@ mod tests {
     /// omits (or holds a stale value for) lands as the serde default.
     fn config_from_frontend_json(json: serde_json::Value) -> Config {
         serde_json::from_value::<Config>(json).expect("frontend config should deserialize")
+    }
+
+    /// The font pack round-trips through a save. It is not one of the
+    /// backend-managed fields, so nothing should be preserving or resetting
+    /// it behind the settings UI's back.
+    #[test]
+    fn font_pack_survives_a_save_round_trip() {
+        let incoming = config_from_frontend_json(serde_json::json!({
+            "theme": "moderndark",
+            "font": "minecraft"
+        }));
+        assert_eq!(incoming.font, "minecraft");
+
+        let json = serde_json::to_value(&incoming).expect("config should serialize");
+        assert_eq!(json["font"], "minecraft", "font is serialized as camelCase `font`");
+
+        let reloaded = config_from_frontend_json(json);
+        assert_eq!(reloaded.font, "minecraft");
+    }
+
+    /// A config written before the font setting existed has no `font` key at
+    /// all. It must land on the default pack rather than failing to load and
+    /// wiping every other setting with it.
+    #[test]
+    fn config_without_font_key_defaults_to_default_pack() {
+        let legacy = config_from_frontend_json(serde_json::json!({
+            "theme": "steam-green",
+            "minimizeOnLaunch": true
+        }));
+        assert_eq!(legacy.font, "default");
+    }
+
+    /// A font pack is not backend-managed, so a save must be able to change it
+    /// (unlike the client build fields, which the backend owns).
+    #[test]
+    fn preserve_backend_managed_fields_leaves_font_alone() {
+        let mut on_disk = Config::default();
+        on_disk.font = "radium".to_string();
+
+        let mut incoming = config_from_frontend_json(serde_json::json!({ "font": "ios" }));
+        incoming.preserve_backend_managed_fields(&on_disk);
+
+        assert_eq!(incoming.font, "ios", "the user's new font choice must win");
     }
 
     #[test]

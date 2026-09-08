@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net;" />
   <title>Radium Launcher</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Orbitron:wght@400;500;700;900&family=Inter:wght@400;700&family=Pixelify+Sans:wght@400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -52,7 +52,6 @@
             <img class="network-option-icon" src="logo.png" alt="" />
             <span class="network-option-text">
               <span class="network-option-name">RADIUM</span>
-              <span class="network-option-sub">radie.app</span>
             </span>
             <span class="network-option-check" aria-hidden="true">&#10003;</span>
           </button>
@@ -60,7 +59,6 @@
             <img class="network-option-icon" src="assets/vanilla-logo.png" alt="" />
             <span class="network-option-text">
               <span class="network-option-name">VANILLA</span>
-              <span class="network-option-sub">vanillarec.net</span>
             </span>
             <span class="network-option-check" aria-hidden="true">&#10003;</span>
           </button>
@@ -551,6 +549,19 @@
                 <option value="moderngreen">Modern Forest Green</option>
                 <option value="blackandwhite">Black & White</option>
                 <option value="blackandwhite-inverted">Black & White (Inverted)</option>
+              </select>
+            </div>
+
+            <!-- Font pack. Independent of the skin: it only re-points the
+                 --font-ui / --font-mono variables, so it composes with every
+                 skin above and with a custom theme. -->
+            <div class="sg-row">
+              <label for="cfgFont">Font</label>
+              <select id="cfgFont" class="cfg-input">
+                <option value="default">Theme Default</option>
+                <option value="ios">iOS (San Francisco)</option>
+                <option value="minecraft">Minecraft</option>
+                <option value="radium">Radium</option>
               </select>
             </div>
             

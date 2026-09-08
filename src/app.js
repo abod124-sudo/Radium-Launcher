@@ -714,7 +714,22 @@ function addLog(msg, type = 'info') {
   if (!out) return;
   const el = document.createElement('div');
   el.className = `log-entry ${level}`;
-  el.textContent = line;
+  // Built from spans rather than the padded `line`. The padding in `line` is
+  // literal spaces, which only line up under a monospaced face — and a font
+  // pack can point --font-mono at a proportional one, which loses the column
+  // the padEnd above exists to create. Fixed-width spans keep it square in
+  // every pack. `line` keeps its padding for fullLogBuffer, which is exported
+  // to a plain text file where spaces are the only alignment available.
+  const tsEl = document.createElement('span');
+  tsEl.className = 'log-ts';
+  tsEl.textContent = `[${ts}]`;
+  const tagEl = document.createElement('span');
+  tagEl.className = 'log-tag';
+  tagEl.textContent = `[${LOG_LEVELS[level]}]`;
+  const msgEl = document.createElement('span');
+  msgEl.className = 'log-msg';
+  msgEl.textContent = msg;
+  el.append(tsEl, tagEl, msgEl);
   out.appendChild(el);
   out.scrollTop = out.scrollHeight;
   while (out.children.length > 120) out.removeChild(out.firstChild);
@@ -928,6 +943,13 @@ async function loadConfig() {
 
   applyTheme(activeTheme);
 
+  // Font pack. Order against applyTheme does not matter — each rebuilds
+  // body.className filtering only its own prefix, so neither can wipe the
+  // other. Read back from applyFont so an unknown value in config.json falls
+  // back to 'default' in the dropdown too, not just on <body>.
+  const activeFont = applyFont(config.font || 'default');
+  setValue('cfgFont', activeFont);
+
   // Defender Exclusion State
   const btnExcludeAv = $('btnExcludeAv');
   if (btnExcludeAv) {
@@ -937,6 +959,35 @@ async function loadConfig() {
   // Network last, so the brand and capability gating are applied against a
   // fully-loaded config.
   applyNetworkUI(config.network === 'vanilla' ? 'vanilla' : 'radium');
+}
+
+// Every font pack the Font dropdown can select. Keeping the list here (rather
+// than reading the <option> values) means applyFont can reject a stale or
+// hand-edited config value instead of stamping a junk class onto <body>.
+const FONT_PACKS = ['default', 'ios', 'minecraft', 'radium'];
+
+// Swaps the `font-*` class on <body>. Each pack re-points --font-ui and
+// --font-mono in style.css; 'default' just removes the class and lets the
+// active skin's own faces show through.
+function applyFont(font) {
+  const pack = FONT_PACKS.includes(font) ? font : 'default';
+
+  document.body.className = document.body.className
+    .split(' ')
+    .filter(c => c && !c.startsWith('font-'))
+    .join(' ');
+
+  if (pack !== 'default') document.body.classList.add('font-' + pack);
+
+  // Mirrored to localStorage for boot.js, which replays it before first paint.
+  // Without this the pack can only land after the getConfig() IPC resolves, so
+  // the window paints in the theme's stock face and then reflows — the packs
+  // change body font-size and eight readout sizes, so the jump is visible.
+  try {
+    localStorage.setItem('radium-font', pack);
+  } catch (e) {}
+
+  return pack;
 }
 
 function applyTheme(theme) {
@@ -1729,6 +1780,49 @@ $('cfgTheme')?.addEventListener('change', () => {
   autoSaveTheme(selectedTheme, null);
 });
 
+// Persists just the font pack, same shape as autoSaveTheme: the choice
+// should survive a restart without the user hitting "Save Settings".
+async function autoSaveFont(newFont) {
+  if (!config || Object.keys(config).length === 0) return; // config not loaded yet
+  try {
+    const ok = await window.radium?.saveConfig({ ...config, font: newFont });
+    if (ok) {
+      // Merge onto whatever `config` holds *now*, not onto the snapshot taken
+      // before the await. Three functions write the whole config (this one,
+      // autoSaveTheme, autoSaveSettings); assigning a pre-await snapshot would
+      // roll back any field a save that resolved in the meantime had set.
+      config = { ...config, font: newFont };
+    } else {
+      // A `false` return is a validation refusal from cmd_save_config, not an
+      // exception, so the catch below never sees it. Say so — the pack is
+      // applied to the DOM either way, and staying silent means the user finds
+      // out only when it reverts on the next launch.
+      console.warn('autoSaveFont: backend rejected the config write');
+      reportFontSaveFailure();
+    }
+  } catch (e) {
+    console.warn('autoSaveFont: failed to persist', e);
+    reportFontSaveFailure();
+  }
+}
+
+// Mirrors how autoSaveSettings reports a failed write: a line in the Logs tab
+// so it is discoverable after the fact, and an indicator that fades rather
+// than sticking on screen.
+function reportFontSaveFailure() {
+  addLog('Font change could not be saved — it will revert on restart.', 'error');
+  showAutosaveIndicator('error', '✕ Font not saved');
+  setTimeout(() => {
+    const el = $('autosaveIndicator');
+    if (el) el.classList.remove('visible');
+  }, 2000);
+}
+
+$('cfgFont')?.addEventListener('change', () => {
+  const selectedFont = applyFont($('cfgFont').value);
+  autoSaveFont(selectedFont);
+});
+
 $('tgl-customTheme')?.addEventListener('click', () => {
   const customOn = !getToggle('tgl-customTheme');
   setToggle('tgl-customTheme', customOn);
@@ -2294,6 +2388,7 @@ async function autoSaveSettings() {
     playMode,
     theme:            saveTheme,
     baselineTheme:    selectedTheme,
+    font:             $('cfgFont')?.value || 'default',
     launchOptions:    $('cfgLaunchOptions')?.value.trim() || '',
     customTheme:      customColors,
     network:          activeNetwork,

@@ -14,7 +14,15 @@
   --status-online:#00ff00; /* Legible green for online status */
   
   --font-ui:      'Tahoma', 'Verdana', sans-serif;
+  /* Despite the name, this is the dense/technical text face — log lines,
+     paths, small readouts — not a promise of fixed advance widths. A font
+     pack may point it at a proportional face; anything that needs a real
+     character grid must hold its columns by width, the way .log-ts and
+     .log-tag do, not by padding text with spaces. */
   --font-mono:    'Lucida Console', 'Courier New', monospace;
+  /* The face for brand moments — wordmark, titlebar, hero. Defined here so it
+     resolves under every pack; packs re-point it, they do not introduce it. */
+  --font-display: 'Lucida Console', 'Courier New', monospace;
   --titlebar-h:   30px;
 }
 
@@ -1117,7 +1125,11 @@ body.theme-blackandwhite .wordmark-text,
 body.theme-blackandwhite-inverted .wordmark-text {
   font-family: inherit !important;
   text-transform: uppercase !important;
-  letter-spacing: 1.5px !important;
+  /* No letter-spacing here. It used to track this at 1.5px, which on a
+     seven-letter network name is 10.5px of pure tracking in a row that has
+     no width to spare — enough on its own to push "VANILLA" into an ellipsis
+     once a font pack widened the letters. A logotype should keep the spacing
+     its own face was drawn with. */
   font-weight: 700 !important;
 }
 
@@ -1587,17 +1599,35 @@ a:hover, .text-link:hover {
    nav button doesn't do are set here, at a specificity that beats `.nav-btn`
    without needing !important. */
 .sidebar-logo .logo-combo {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center;
+  /* 6px, not the original 8: "VANILLA" was 3px too wide for this row on the
+     Rec Room skin even in the stock font, so the caret sat just outside the
+     button. Reclaiming the two gaps and the caret's old padding covers it
+     without shrinking the wordmark on every theme, and leaves the budget to
+     draw a larger arrow. */
+  gap: 6px;
   width: 100%;
+  min-width: 0;                  /* lets the wordmark shrink; see .logo-wordmark */
   font: inherit;
   cursor: pointer;
 }
 .logo-caret {
   margin-left: auto;
-  padding-right: 2px;
-  font-size: 17px; line-height: 1;
+  /* Drawn with borders instead of rendering the ▾ in the markup. A glyph's
+     advance width is mostly sidebearings — the old one reserved ~17px of row
+     to show maybe half that in actual arrow, on the one row that has no width
+     to spare. Borders make the footprint exactly the arrow, so this is both
+     visibly larger and narrower than what it replaces. It also drops the
+     dependency on a symbol-font fallback: none of the pack faces carry ▾.
+     font-size:0 hides the glyph that is still in the HTML for the no-CSS
+     case; the box below is what gets painted. */
+  font-size: 0; line-height: 0;
+  width: 0; height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
   /* Inherits the button's own foreground, so it stays legible whether the
      theme paints a resting button dark, light, or an accent gradient. */
+  border-top: 9px solid currentColor;
   color: inherit;
   transition: none;
 }
@@ -1643,14 +1673,6 @@ a:hover, .text-link:hover {
   font-family: var(--font-mono); font-size: 11px; font-weight: bold;
   color: inherit;
 }
-.network-option-sub {
-  font-family: var(--font-mono); font-size: 8px;
-  /* Inherited rather than --text-muted: on a theme whose selected state is an
-     accent gradient, the muted token is unreadable. Opacity keeps it
-     subordinate against whatever foreground the theme chose. */
-  color: inherit; opacity: 0.7;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 .network-option-check {
   margin-left: auto; font-size: 11px; color: inherit;
   visibility: hidden;
@@ -1661,9 +1683,31 @@ a:hover, .text-link:hover {
   image-rendering: pixelated; /* Retro pixelated logo scaling */
   border: 2px solid var(--border-dark);
 }
+/* The brand row is icon + wordmark + caret inside a fixed-width sidebar, so
+   a wide face can make the row outgrow the button and push the caret past
+   its edge — which is what Radie does on the modern skins.
+
+   The wordmark is the part that yields. That takes min-width:0 on
+   .logo-wordmark, which is the actual flex child: a flex item defaults to
+   min-width:auto and refuses to shrink below its own content, and setting
+   it on the inner .wordmark-text alone does nothing because the wrapper is
+   what the flex algorithm is sizing. The icon and caret are pinned so they
+   are never the thing that gets squashed. */
+.sidebar-logo .logo-combo > img,
+.sidebar-logo .logo-caret {
+  flex-shrink: 0;
+}
+.logo-wordmark {
+  min-width: 0;
+}
 .wordmark-text {
   font-family: var(--font-mono); font-size: 16px; font-weight: bold;
   color: var(--green);
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* A logotype keeps the spacing its own face was drawn with; the skins that
+     used to add tracking here no longer do (see the modern block above). */
+  letter-spacing: 0;
 }
 
 /* Sidebar Nav Tab Buttons */
@@ -2271,6 +2315,14 @@ body.theme-custom-glass .btn-play.running:active {
    strings) wrap instead of being clipped, and the leading level tag keeps its
    alignment spaces via pre-wrap. */
 .log-entry { white-space: pre-wrap; word-break: break-word; }
+/* The timestamp and level columns are held open by width, not by the space
+   padding in the log string: a font pack can point --font-mono at a
+   proportional face, and spaces stop lining up the moment it does. `ch` is
+   the width of "0" in whatever face is active, so the columns track the font
+   instead of assuming one. */
+.log-ts  { display: inline-block; min-width: 10.5ch; }
+.log-tag { display: inline-block; min-width: 8.5ch; }
+.log-msg { white-space: pre-wrap; }
 .log-entry.info  { color: var(--green-dim); }
 .log-entry.ok    { color: var(--status-online); }
 .log-entry.warn  { color: #e6b23a; }
@@ -7319,4 +7371,217 @@ body.theme-win95 .toggle-wrap.on .tgl-knob,
 body.theme-win98 .toggle-wrap.on .tgl-knob {
   background: #000080;
   border-color: #000080;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   FONT PACKS
+   Settings → Theme → Font swaps a `font-*` class on <body>. Each pack
+   only re-points --font-ui / --font-mono, so every rule in this sheet
+   that already uses those variables follows along for free.
+
+   Placed at the very end of the file on purpose: the shared modern
+   layout block sets `font-family: ... !important` on `body.theme-*`,
+   which has the same specificity as `body.font-*`. Later wins, so the
+   user's font choice has to be declared after it.
+
+   The @font-face blocks declare `font-weight: 100 900` over files that
+   each hold one static weight. Neither brand face has a real bold, and
+   this sheet carries 112 `font-weight: bold` rules; claiming the range
+   marks the face as an exact match at any weight, so no platform ever
+   fabricates a bold variant out of it.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Radium brand faces (shipped from the creator kit) ────────────── */
+
+/* Futura Cyrillic Bold carries the UI. It is a true text face: 389
+   glyphs, real lowercase, only ~6% wider than Tahoma, and it carries a
+   `gasp` table, so it grid-fits and stays crisp down at 8-11px. */
+@font-face {
+  font-family: 'Radium UI';
+  src: url('assets/fonts/futura-cyrillic-bold.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Radie is the logo face, and only that. It draws lowercase as capital
+   letterforms, runs ~60% wider than Tahoma, and — being an unhinted CFF
+   display face with no `gasp` — goes soft and mushy at UI sizes. Using
+   it for body text is what made the launcher look stretched and blurry,
+   so it is scoped to the brand moments below. */
+@font-face {
+  font-family: 'Radium Display';
+  src: url('assets/fonts/radie-regular.otf') format('opentype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* An installed Minecraft face, wrapped so a Regular-only file gets the
+   same weight-range treatment as the brand faces above. */
+@font-face {
+  font-family: 'Minecraft Pack';
+  src: local('Minecraft'), local('Minecraftia'), local('Monocraft'),
+       local('MinecraftRegular'), local('Minecraft Regular');
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+/* ── The packs ────────────────────────────────────────────────────── */
+
+/* iOS — real San Francisco when the system has it (macOS/iOS, or a
+   Windows box with SF Pro installed), Inter as the web stand-in. Both
+   ship real weights, so nothing here needs a synthesis guard. */
+body.font-ios {
+  --font-ui:   -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+               'Inter', 'Helvetica Neue', 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+}
+
+/* The sidebar wordmark, across every pack.
+
+   The modern skins set `letter-spacing: 1.5px !important` on this element,
+   tuned for the stock face. On a seven-letter network name that is 10.5px of
+   pure tracking — on its own enough to push "VANILLA" into an ellipsis — and
+   the !important means even an inline style could not override it. The packs
+   opt out so the budget goes to the letters instead of the gaps between them.
+
+   Sizes below are set to leave real slack, not to just barely fit: the face
+   that actually renders depends on what is installed and whether the Google
+   fonts reached the machine, and metrics differ enough between those that an
+   exact fit here truncates on a real install. */
+/* Inter/SF run wider than the Lucida Console this row was laid out against.
+   15px leaves ~13px to spare measured against the widest face the stack can
+   fall back to, which is the margin that was missing when this truncated. */
+body.font-ios .wordmark-text { font-size: 15px; }
+
+/* Minecraft — a locally installed face first, else the Pixelify Sans pixel
+   webfont, which ships a real bold. */
+body.font-minecraft {
+  --font-ui:   'Minecraft Pack', 'Pixelify Sans', 'Lucida Console', monospace;
+  --font-mono: 'Minecraft Pack', 'Pixelify Sans', 'Lucida Console', monospace;
+}
+
+/* Radium — Radie on everything, by explicit request.
+
+   Radie is a display face: 99 codepoints, no lowercase (it draws minuscule
+   letters as capitals), ~60% wider than Tahoma, unhinted CFF outlines. It
+   is doing a job it was not cut for, so the rules under this block exist to
+   make that survivable rather than to second-guess it.
+
+   Futura sits directly behind it in every stack. That is load-bearing, not
+   decorative: Radie has no arrows, box-drawing, ticks or window-control
+   glyphs, so without a real second face those characters would scatter
+   across whatever each platform happened to substitute. */
+body.font-radium {
+  --font-ui:      'Radium Display', 'Radium UI', 'Century Gothic',
+                  'Segoe UI Symbol', sans-serif;
+  --font-display: 'Radium Display', 'Radium UI', 'Century Gothic',
+                  'Segoe UI Symbol', sans-serif;
+  --font-mono:    'Radium Display', 'Radium UI', 'Century Gothic',
+                  'Segoe UI Symbol', monospace;
+}
+
+/* This sheet adds tracking to ~42 rules, tuned for Tahoma and Lucida
+   Console. Radie already carries far more sidebearing than either, so that
+   tracking now lands on top of a face that does not need it and pushes
+   labels into their container edges. Pull it back to neutral and let the
+   font's own spacing do the work. */
+body.font-radium .sg-title,
+body.font-radium .ds-title,
+body.font-radium .qs-label,
+body.font-radium .sc-label,
+body.font-radium .ls-header,
+body.font-radium .mode-label,
+body.font-radium .dlp-phase,
+body.font-radium .dlp-bottom,
+body.font-radium .nav-btn,
+body.font-radium .titlebar-app-name {
+  letter-spacing: 0;
+}
+
+/* The sidebar brand row. Radie is ~60% wider per character than the faces
+   this row was laid out for, so at the stock 16px the wordmark plus the
+   38px mark, the gaps and the caret no longer fit the sidebar — the caret
+   ends up outside the button on the modern skins, which are the tightest.
+
+   The wordmark is what shrinks, since it is the part that got wider: at
+   12px Radie the logotype still occupies roughly the same width as the
+   other packs do at 16px, and leaves ~12px to spare. "VANILLA" is the
+   binding case at 7 characters, not "RADIUM" — size against that one or it
+   fits until the user switches network. The mark keeps its designed 38px. */
+body.font-radium .wordmark-text { font-size: 12px; }
+
+/* Radie has no hinting, so the 8-9px readouts this UI is full of collapse
+   into grey mush. Lift the floor to where the outlines still resolve. */
+body.font-radium .dlp-bottom,
+body.font-radium .qs-label,
+body.font-radium .sc-label,
+body.font-radium .ls-header,
+body.font-radium .sg-title,
+body.font-radium .mode-label,
+body.font-radium .ds-title,
+body.font-radium .hero-status-inline,
+body.font-radium .dlp-sub,
+body.font-radium .cfg-hint {
+  font-size: 10px;
+}
+
+/* Radie has no tabular figures — its GSUB table carries only 'liga' — so
+   `font-variant-numeric: tabular-nums` had nothing to select here and was
+   removed rather than left in looking load-bearing. The counting percentage
+   is instead held open by width, which works whatever the face. */
+body.font-radium .dlp-pct {
+  /* No `display` here: .dlp-top is a flex container, so this span is already
+     blockified and sizes to its content. min-width holds the box at the width
+     of the widest value it will ever show ("100%"), so the digits stop
+     shoving the phase label around as the download counts up. */
+  min-width: 4ch;
+  text-align: right;
+}
+
+/* Beat the modern-theme `font-family: 'Rajdhani' ... !important` on
+   <body> so a chosen pack applies on every skin, not just retro ones. */
+body.font-ios,
+body.font-minecraft,
+body.font-radium {
+  font-family: var(--font-ui) !important;
+}
+
+/* The handful of places that hardcode a face for a specific skin's
+   flavour — a font pack is an explicit user choice, so it overrules
+   the skin here too. */
+body.font-ios .hero-title,
+body.font-minecraft .hero-title,
+body.font-radium .hero-title,
+body.font-ios .titlebar-app-name,
+body.font-minecraft .titlebar-app-name,
+body.font-radium .titlebar-app-name,
+body.font-ios .wordmark-text,
+body.font-minecraft .wordmark-text,
+body.font-radium .wordmark-text {
+  font-family: var(--font-ui) !important;
+}
+
+/* Radie earns its width here and nowhere else. */
+body.font-radium .hero-title,
+body.font-radium .titlebar-app-name,
+body.font-radium .wordmark-text {
+  font-family: var(--font-display) !important;
+}
+
+/* Pixel faces have no hinting below ~10px and turn to mush, so lift the
+   smallest readouts to where the grid still resolves. */
+body.font-minecraft {
+  font-size: 13px;
+}
+body.font-minecraft .dlp-bottom,
+body.font-minecraft .qs-label,
+body.font-minecraft .sc-label,
+body.font-minecraft .ls-header,
+body.font-minecraft .sg-title,
+body.font-minecraft .mode-label,
+body.font-minecraft .ds-title,
+body.font-minecraft .hero-status-inline {
+  font-size: 10px;
 }

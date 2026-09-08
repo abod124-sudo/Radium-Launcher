@@ -15,4 +15,12 @@ try {
   // Network brand, applied before paint for the same reason as the theme.
   const savedNetwork = localStorage.getItem('radium-network');
   document.body.classList.add(savedNetwork === 'vanilla' ? 'network-vanilla' : 'network-radium');
+  // Font pack, likewise. The packs change the body font size and the sidebar
+  // wordmark size, so landing it after the config IPC reflows the layout in
+  // front of the user on every launch. Validated against the same list
+  // applyFont uses, so a hand-edited value cannot stamp a junk class.
+  const savedFont = localStorage.getItem('radium-font');
+  if (savedFont && ['ios', 'minecraft', 'radium'].indexOf(savedFont) !== -1) {
+    document.body.classList.add('font-' + savedFont);
+  }
 } catch (e) {}
