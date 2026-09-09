@@ -73,7 +73,6 @@ pub fn run() {
             // Debug
             cmd_debug_exec,
             cmd_debug_paths,
-            cmd_debug_append_diag,
             // Bug Report
             submit_bug_report,
         ])
@@ -205,32 +204,6 @@ fn cmd_debug_exec(app: tauri::AppHandle, mode: String) -> serde_json::Value {
             Ok(child) => serde_json::json!({ "ok": true, "pid": child.id() }),
             Err(e) => serde_json::json!({ "ok": false, "err": e.to_string() }),
         }
-    }
-}
-
-const NEWLINE: &str = "\n";
-
-/// TEMPORARY — appends one diagnostic line to `scroll-diag.log` in the app data
-/// directory, so a scroll trace can be read off disk instead of copied out of
-/// the log pane by hand. Remove together with the frontend scroll diagnostic.
-///
-/// Deliberately dumb: one fixed filename the caller cannot influence, append
-/// only, newline-terminated, and the line is truncated so a runaway caller
-/// cannot grow the file without bound.
-#[tauri::command]
-fn cmd_debug_append_diag(app: tauri::AppHandle, line: String) {
-    use std::io::Write;
-    let mut line: String =
-        line.chars().filter(|c| !c.is_control()).take(400).collect();
-    line.push_str(NEWLINE);
-    let dir = config::app_data_dir(&app);
-    let _ = std::fs::create_dir_all(&dir);
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("scroll-diag.log"))
-    {
-        let _ = f.write_all(line.as_bytes());
     }
 }
 

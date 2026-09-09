@@ -2348,6 +2348,9 @@ body.theme-custom-glass .btn-play.running:active {
    three buttons cannot fit a narrow window on one line. */
 .sg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .sg-row label { font-size: 11px; font-weight: bold; width: 140px; flex-shrink: 0; }
+/* Explanatory line under a setting. Muted and unbolded so it reads as prose
+   next to the bold labels rather than as another control. */
+.sg-hint { margin: 0; font-size: 10px; line-height: 1.45; color: var(--text-muted); }
 .cfg-input {
   flex: 1; background: var(--bg-dark);
   border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
@@ -2405,6 +2408,39 @@ body.theme-custom-glass .btn-play.running:active {
   box-shadow: 4px 4px 0 rgba(0,0,0,0.5);
   display: flex; flex-direction: column;
 }
+/* ── Lightbox ──────────────────────────────────────────────────────────
+   Sized to the picture and to the window, not to the shared 380px modal
+   width. The image is the content here, so it gets the room: the box grows
+   with it up to the viewport, and the picture itself is what stops growing
+   first. min() rather than a bare vh/vw so a small image is never stretched
+   past its natural size — the box shrink-wraps it instead. */
+.lightbox-overlay { background: rgba(0, 0, 0, 0.82); }
+/* Both selectors name their .modal-* base class as well. Those rules are
+   single-class too, and .modal-body sits further down the file, so a bare
+   .lightbox-body lost the padding fight on document order alone. */
+.modal-box.lightbox-box {
+  width: auto;
+  max-width: min(1400px, 94vw);
+  max-height: 94vh;
+}
+.modal-body.lightbox-body {
+  padding: 6px;
+  gap: 0;
+  /* min-height:0 lets the flex child actually shrink, which is what keeps a
+     tall image inside the box instead of pushing the title bar off screen. */
+  min-height: 0;
+  background: var(--bg-dark);
+}
+.lightbox-image {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  /* The title bar and this element's padding are the only other things in the
+     box, so the picture can have nearly all of the 94vh. */
+  max-height: calc(94vh - 52px);
+  object-fit: contain;
+}
+
 .modal-titlebar {
   background: linear-gradient(90deg, #1b2d18, #4b5845);
   padding: 5px 8px;
@@ -4707,9 +4743,32 @@ body:not(.network-vanilla) .network-only-vanilla { display: none !important; }
 .profile-roles[hidden] { display: none; }
 .inline-roles { margin-left: 6px; vertical-align: middle; }
 
-/* A staff member with two badges would otherwise wrap onto a second line and
-   make that one row taller than the rest of the table. */
+/* Handle + role badges share one narrow column, so they need an explicit
+   split: the badges are the fixed part and the handle is the part that gives.
+   nowrap alone (which is all this used to be) kept the row one line tall but
+   let the two run into each other — a long handle pushed the badges out of the
+   cell and was itself chopped mid-word, with no ellipsis to show it had been.
+   A flex row lets the handle shrink and ellipsize while the badges keep their
+   full width, so both stay readable however long the name is. */
 .people-username-cell { white-space: nowrap; }
+/* The flex row is a wrapper INSIDE the <td>, not the <td> itself.
+   display:flex on the <td> directly used to be what did this, and it broke
+   the one thing every other cell in the row gets for free: a <td> is
+   display:table-cell, which stretches to the row's full height and centers
+   its content via vertical-align:middle. The moment its display became flex
+   it stopped being a table cell for that purpose, so it sized to its own
+   ~27px of content inside a 37px row and sat near the top instead — every
+   username in the column sat visibly higher than the display name and bio
+   beside it. The <td> stays a plain table cell; only this inner span flexes. */
+.username-row {
+  display: flex; align-items: center; gap: 6px; min-width: 0; width: 100%;
+}
+/* min-width:0 is what actually lets it shrink: a flex item will not go below
+   its own content width without it, and then nothing ellipsizes. */
+.people-username-cell .text-link {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.people-username-cell .inline-roles { margin-left: 0; flex-shrink: 0; }
 
 .role-badge {
   font-family: var(--font-mono);
@@ -4717,7 +4776,15 @@ body:not(.network-vanilla) .network-only-vanilla { display: none !important; }
   line-height: 1;
   padding: 3px 5px;
   border: 1px solid;
-  color: var(--bg-dark);
+  /* Fixed, not var(--bg-dark). This used to borrow that variable purely as a
+     shorthand for "a dark colour" — every built-in skin keeps --bg-dark dark,
+     so it worked everywhere they applied. Liquid Glass sets --bg-dark to
+     transparent for its own surfaces, which this badge has nothing to do with,
+     and inherited it anyway: the text turned invisible, leaving a bare colour
+     chip where "DEV" or "MOD" should read. The badge's own background below is
+     already a fixed hue, independent of the active theme; the text needs the
+     same independence. */
+  color: #14171c;
   white-space: nowrap;
   cursor: default;
 }
@@ -6466,7 +6533,71 @@ body.theme-blackandwhite-inverted .people-avatar[src="logo.png"] {
   content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23e2e8f0'/%3E%3Cstop offset='100%25' stop-color='%23cbd5e1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='48' cy='38' r='18' fill='rgba(0,0,0,0.25)'/%3E%3Cpath d='M48 62c-15 0-26 8-26 14v4h52v-4c0-6-11-14-26-14z' fill='rgba(0,0,0,0.25)'/%3E%3C/svg%3E") !important;
 }
 
-/* Premium Circular Color Picker Swatches */
+/* ══════════════════════════════════════════════════════════════════════
+   SETTINGS — custom theme editor
+   Every surface here is drawn from the theme variables and the same
+   2px inset/outset border idiom as .settings-group / .cfg-input, so the
+   editor re-skins with the app. The markup used to inline hardcoded
+   rgba(0,0,0,.1) panels, which read as flat grey boxes on the light skins
+   and as nothing at all on the dark ones.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Shown by JS via .is-open rather than an inline display, so the flex
+   column here survives being toggled. */
+.ct-body { display: none; flex-direction: column; gap: 10px; margin-top: 2px; }
+.ct-body.is-open { display: flex; }
+
+.ct-radios { display: flex; align-items: center; gap: 16px; }
+.ct-radio {
+  display: flex; align-items: center; gap: 5px;
+  /* Overrides the fixed 140px column .sg-row gives its labels — these sit
+     inside the control side of the row, not the label column. */
+  width: auto; font-size: 11px; font-weight: bold; cursor: pointer;
+}
+.ct-radio input { margin: 0; cursor: pointer; accent-color: var(--green); }
+
+.ct-section {
+  background: var(--bg-main);
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  padding: 8px; display: flex; flex-direction: column; gap: 8px;
+}
+.ct-section-title {
+  font-family: var(--font-mono); font-size: 9px; font-weight: bold;
+  color: var(--green-dim); text-transform: uppercase; letter-spacing: 0.5px;
+  padding-bottom: 4px; border-bottom: 1px dashed var(--border-dark);
+}
+/* auto-fill rather than a fixed column count: the chips reflow to one
+   column in a narrow window instead of crushing their labels, and a
+   section with an odd number of colors no longer leaves a ragged hole. */
+.ct-swatches {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px;
+}
+.ct-swatch {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  background: var(--bg-dark);
+  border: 2px solid;
+  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+  padding: 4px 6px; font-size: 11px; color: var(--text);
+}
+.ct-swatch > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-swatch .ct-note { margin-left: auto; font-size: 9px; color: var(--text-muted); }
+/* Off-screen, not display:none — a hidden file input still has to be
+   clickable for btnBrowseBgFile to forward a click to it. */
+.ct-file-input { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.ct-grow { flex: 1; }
+/* Reset sits alone on the left, away from Export/Import. No danger tint:
+   half the skins restyle .btn-open-folder themselves and would drop it, so a
+   tint would show on some skins and not others. The button confirms through
+   resetThemeModal before it does anything. */
+.ct-actions {
+  display: flex; align-items: center; gap: 6px;
+  padding-top: 8px; border-top: 1px dashed var(--border-dark);
+}
+
+/* Round chips, so a color reads as a color and not as one more button.
+   Bordered with the theme's own line color rather than a fixed white, which
+   vanished against the light skins. */
 .theme-color-input {
   -webkit-appearance: none;
   border: none;
@@ -6484,9 +6615,8 @@ body.theme-blackandwhite-inverted .people-avatar[src="logo.png"] {
   padding: 0;
 }
 .theme-color-input::-webkit-color-swatch {
-  border: 1.5px solid rgba(255, 255, 255, 0.35) !important;
+  border: 1px solid var(--border-light) !important;
   border-radius: 50% !important;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2) !important;
   box-sizing: border-box;
 }
 

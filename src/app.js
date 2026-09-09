@@ -123,6 +123,55 @@ function setConfigInstallDir(dir, network = activeNetwork) {
   }
 }
 
+/// The Settings path span for a network. Both rows exist at once, so every
+/// read and write of a displayed path has to name which network it means.
+function installDirSpan(network = activeNetwork) {
+  return $(network === 'vanilla' ? 'cfgInstallDirVanilla' : 'cfgInstallDirRadium');
+}
+
+/// Best known install path for `network`: what Settings is showing (the
+/// resolved path, once checkInstall() has filled it in), else the configured
+/// override, else the default hint.
+function shownInstallDir(network = activeNetwork) {
+  return installDirSpan(network)?.textContent.trim()
+    || configInstallDir(network)
+    || defaultInstallDirHint(network);
+}
+
+/// Fill both install-location rows.
+///
+/// The inactive network has no checkInstall() result to draw on, so its
+/// resolved default comes straight from the backend — the same path its
+/// download would use.
+async function refreshInstallDirRows() {
+  for (const network of Object.keys(NETWORKS)) {
+    const span = installDirSpan(network);
+    if (!span) continue;
+    let dir = configInstallDir(network);
+    if (!dir) {
+      try {
+        dir = await window.radium?.getDefaultClientDir(network);
+      } catch (e) {
+        console.error('getDefaultClientDir error:', e);
+      }
+    }
+    span.textContent = dir || defaultInstallDirHint(network);
+  }
+}
+
+/// Mirrors `norm_dir` in config.rs: install paths reach the UI from the folder
+/// picker, config.json and the backend's own resolver, which disagree on
+/// separators and casing.
+function normDir(path) {
+  return String(path || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+/// The other network's currently resolved folder, as Settings is showing it.
+function otherNetworkInstallDir(network) {
+  const other = network === 'vanilla' ? 'radium' : 'vanilla';
+  return installDirSpan(other)?.textContent.trim() || configInstallDir(other) || '';
+}
+
 (function setupTauriShim() {
   const { invoke } = window.__TAURI__.core;
   const { listen } = window.__TAURI__.event;
@@ -161,9 +210,11 @@ function setConfigInstallDir(dir, network = activeNetwork) {
     pauseDownload:   () => invoke('pause_download'),
     resumableDownloadInfo: () => invoke('resumable_download_info', { network: activeNetwork }),
     uninstallClient: () => invoke('uninstall_client', { network: activeNetwork }),
-    openClientFolder: () => invoke('open_client_folder', { network: activeNetwork }),
-    selectFolder:     () => invoke('select_folder', { network: activeNetwork }),
-    getDefaultClientDir: () => invoke('get_default_client_dir', { network: activeNetwork }),
+    // These three take an explicit network: Settings lists both networks'
+    // install folders at once, so it has to address the inactive one too.
+    openClientFolder: (network = activeNetwork) => invoke('open_client_folder', { network }),
+    selectFolder:     (network = activeNetwork) => invoke('select_folder', { network }),
+    getDefaultClientDir: (network = activeNetwork) => invoke('get_default_client_dir', { network }),
     restoreDll:          () => invoke('restore_dll'),
     onDownloadProgress: async (cb) => {
       if (unlistenMap['download-progress']) unlistenMap['download-progress']();
@@ -824,6 +875,14 @@ async function loadVersion() {
   if (el && v) el.textContent = `v${v}`;
 }
 
+/// Show or hide the custom theme editor.
+///
+/// A class, not an inline display: the editor lays its sections out with
+/// flex, and writing `display: block` onto it from JS would collapse that.
+function setCustomThemeEditorOpen(open) {
+  $('customThemeGroup')?.classList.toggle('is-open', open);
+}
+
 // Helper to force modern style base and lock choices/color pickers when glass theme is active
 // Remembers the style base that was selected before glass forced "modern", so
 // toggling glass off restores the user's original Retro/Modern choice instead
@@ -836,6 +895,11 @@ function updateStyleBaseLocks(glassEnabled) {
   // The glass background picker stays editable while glass is on — it's the one
   // color that's specifically relevant in glass mode.
   const colorInputs = document.querySelectorAll('.theme-color-input:not(#theme-glassBg)');
+
+  // Say why. Half the editor dimming with no explanation is the single most
+  // confusing thing this panel did.
+  const lockNote = $('glassLockNote');
+  if (lockNote) lockNote.hidden = !glassEnabled;
 
   if (glassEnabled) {
     // Capture the current selection once, before it gets overridden below.
@@ -923,10 +987,7 @@ async function loadConfig() {
   
   // Set Custom Theme toggle and groups
   setToggle('tgl-customTheme', customOn);
-  const customGroup = $('customThemeGroup');
-  if (customGroup) {
-    customGroup.style.display = customOn ? 'block' : 'none';
-  }
+  setCustomThemeEditorOpen(customOn);
   
   const cfgThemeSelect = $('cfgTheme');
   if (cfgThemeSelect) {
@@ -987,6 +1048,10 @@ async function loadConfig() {
   // Network last, so the brand and capability gating are applied against a
   // fully-loaded config.
   applyNetworkUI(config.network === 'vanilla' ? 'vanilla' : 'radium');
+
+  // Both install rows, not just the active network's — after applyNetworkUI so
+  // the ACTIVE tag lands on the row the loaded config actually selected.
+  await refreshInstallDirRows();
 }
 
 // Every font pack the Font dropdown can select. Keeping the list here (rather
@@ -1018,6 +1083,80 @@ function applyFont(font) {
   return pack;
 }
 
+/// The custom palette is written as its own <style>, separate from the bulk of
+/// the generated theme CSS.
+///
+/// Dragging a colour picker fires `input` continuously, and each one used to
+/// rebuild and re-parse the whole ~25 KB custom stylesheet — measured at ~2.3 ms
+/// of parsing per event against ~0.13 ms for the palette alone, before any of
+/// the repainting that a full sheet swap also forces. That is what made the
+/// pickers feel sticky, and worst under Liquid Glass, where every panel carries
+/// a backdrop-filter that has to be re-run.
+///
+/// Only the eleven custom properties change while dragging; everything else in
+/// the sheet is fixed for a given style base / glass / background image. So the
+/// palette gets its own element that a colour change can rewrite on its own.
+const CUSTOM_VARS_STYLE_ID = 'custom-theme-vars';
+/// The stylesheet boot.js injects from cache before the first paint.
+const CUSTOM_BOOT_STYLE_ID = 'custom-theme-boot';
+let _customVarsFrame = 0;
+
+function customThemeVarsCss(colors) {
+  return `body.theme-custom {
+  --bg-dark: ${colors.bgDark};
+  --bg-main: ${colors.bgMain};
+  --bg-panel: ${colors.bgPanel};
+  --bg-btn: ${colors.bgBtn};
+  --border-light: ${colors.borderLight};
+  --border-dark: ${colors.borderDark};
+  --green: ${colors.green};
+  --green-dim: ${colors.greenDim};
+  --text: ${colors.text};
+  --text-muted: ${colors.textMuted};
+  --status-online: ${colors.statusOnline};
+}`;
+}
+
+/// Create or update the palette sheet.
+///
+/// Inserted before the main custom sheet, because that one redefines the same
+/// variables for glass mode at equal specificity — document order is what
+/// decides the winner, so the palette has to stay above it exactly as it did
+/// when both lived in one string.
+function writeCustomThemeVars(colors) {
+  // Drop any queued live-preview frame: it closes over an older palette, and
+  // landing after this write would put those colours back.
+  cancelAnimationFrame(_customVarsFrame);
+  _customVarsFrame = 0;
+
+  let el = document.getElementById(CUSTOM_VARS_STYLE_ID);
+  if (!el) {
+    el = document.createElement('style');
+    el.id = CUSTOM_VARS_STYLE_ID;
+    document.head.appendChild(el);
+  }
+  el.textContent = customThemeVarsCss(colors);
+  try {
+    localStorage.setItem('radium-custom-vars', el.textContent);
+  } catch (e) {}
+  return el;
+}
+
+/// Live-preview a palette change without rebuilding the whole stylesheet.
+///
+/// Coalesced onto an animation frame: a drag can fire several `input` events
+/// between two paints, and only the last one is worth applying.
+///
+/// Returns false when there is no palette sheet to update — the theme is not
+/// custom, or has not been applied yet — so the caller can fall back to a full
+/// applyTheme().
+function applyCustomThemeColors(colors) {
+  if (!document.getElementById(CUSTOM_VARS_STYLE_ID)) return false;
+  cancelAnimationFrame(_customVarsFrame);
+  _customVarsFrame = requestAnimationFrame(() => writeCustomThemeVars(colors));
+  return true;
+}
+
 function applyTheme(theme) {
   // Strip only the theme classes. This used to whitelist 'animations-enabled'
   // and drop everything else, which silently wiped unrelated state classes on
@@ -1031,6 +1170,10 @@ function applyTheme(theme) {
   // Remove existing custom style block if any
   const existingStyle = document.getElementById('custom-theme-style');
   if (existingStyle) existingStyle.remove();
+  document.getElementById(CUSTOM_VARS_STYLE_ID)?.remove();
+  // The pre-paint cache boot.js injects. Dropped here so the real stylesheet
+  // replaces it rather than stacking on top of it.
+  document.getElementById(CUSTOM_BOOT_STYLE_ID)?.remove();
 
   if (theme === 'custom') {
     document.body.classList.add('theme-custom');
@@ -1054,31 +1197,32 @@ function applyTheme(theme) {
     const styleBase = colors.styleBase || 'retro';
     document.body.classList.add('theme-custom-' + styleBase);
 
-    // Apply layout base classes (modern or retro) so they inherit structural rules from style.css
+    // Modern borrows theme-moderndark, which really does carry the rounded
+    // layout that style.css's base rules don't.
+    //
+    // Retro borrows nothing. It used to add theme-win98 "for structural rules",
+    // but that skin defines almost no structure — it is colours, two dither
+    // background-images and a set of Win9x literals (#ffffff wells, a #000080
+    // toggle, a #dfdcd4 dithered scrollbar track). style.css's own rules are
+    // already the retro layout, fully variable-driven: theme-steam-green has
+    // no rules at all, it *is* the base stylesheet. So borrowing win98 added
+    // nothing but its palette, which then fought the user's — a theme copied
+    // from Steam 2003 Green came out looking like Win98, and the scrollbar kept
+    // Win98's white dither over any colour chosen for it.
     if (styleBase === 'modern') {
       document.body.classList.add('theme-moderndark');
-    } else {
-      document.body.classList.add('theme-win98');
     }
 
     if (colors.glassEnabled) {
       document.body.classList.add('theme-custom-glass');
     }
 
+    // The palette lives in its own stylesheet so that dragging a colour picker
+    // rewrites ~400 bytes instead of re-parsing the ~25 KB below it on every
+    // input event. See applyCustomThemeColors().
+    writeCustomThemeVars(colors);
+
     let css = `
-      body.theme-custom {
-        --bg-dark: ${colors.bgDark};
-        --bg-main: ${colors.bgMain};
-        --bg-panel: ${colors.bgPanel};
-        --bg-btn: ${colors.bgBtn};
-        --border-light: ${colors.borderLight};
-        --border-dark: ${colors.borderDark};
-        --green: ${colors.green};
-        --green-dim: ${colors.greenDim};
-        --text: ${colors.text};
-        --text-muted: ${colors.textMuted};
-        --status-online: ${colors.statusOnline};
-      }
       body.theme-custom .titlebar {
         background: var(--bg-dark) !important;
         border-bottom: 2px solid var(--border-dark) !important;
@@ -1131,6 +1275,40 @@ function applyTheme(theme) {
         border-color: var(--green) !important;
       }
     `;
+
+    // 0. Repaint what the *base* stylesheet hardcodes.
+    //
+    // Retro no longer borrows a skin, so Win98's literals are gone at the
+    // source. What is left is style.css's own chrome gradient, which predates
+    // theming: both title bars are drawn with a fixed dark-to-panel green.
+    // Retro mirrors that stylesheet exactly now, so it wants the same gradient
+    // rebuilt from the palette — a flat fill was the last thing that still
+    // read as "not the skin I copied". Modern borrows theme-moderndark, whose
+    // title bar is flat, so it keeps the flat fill set above.
+    if (styleBase === 'retro') {
+      css += `
+        body.theme-custom.theme-custom-retro .titlebar,
+        body.theme-custom.theme-custom-retro .modal-titlebar {
+          background: linear-gradient(90deg, var(--border-dark), var(--bg-panel)) !important;
+          border-bottom: 2px solid var(--border-dark) !important;
+        }
+      `;
+    } else {
+      css += `
+        body.theme-custom .modal-titlebar {
+          background: var(--bg-dark) !important;
+          border-bottom: 2px solid var(--border-dark) !important;
+        }
+        /* The modern skins paint the switch knob a literal white, which
+           disappears on a light custom palette. */
+        body.theme-custom.theme-custom-modern .tgl-knob {
+          background: var(--text-muted) !important;
+        }
+        body.theme-custom.theme-custom-modern .toggle-wrap.on .tgl-knob {
+          background: var(--green) !important;
+        }
+      `;
+    }
 
     // 1. Layout-specific overrides (font matching)
     if (styleBase === 'modern') {
@@ -1234,6 +1412,23 @@ function applyTheme(theme) {
 
         body.theme-custom-glass .sidebar-logo {
           border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+        }
+
+        /* The network dropdown is a popup: it has to hide what it covers.
+           It takes its fill from --bg-panel, which glass redefines to
+           rgba(255,255,255,0.05) — so under this theme it turned into a
+           near-invisible sheet with the ROOMS and PEOPLE buttons reading
+           straight through it. Blur alone would not fix that; high-contrast
+           text stays legible through a blur. It needs an actual fill, so this
+           mixes one from the theme's own glass colour and keeps the frost
+           behind it. */
+        body.theme-custom-glass .network-menu {
+          background: color-mix(in srgb, ${safeGlassBg} 86%, #ffffff 14%) !important;
+          backdrop-filter: blur(24px) saturate(180%) !important;
+          -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+          border: 1px solid rgba(255, 255, 255, 0.18) !important;
+          border-radius: 14px !important;
+          box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55) !important;
         }
 
         /* Transparent scrollbar under custom glass theme */
@@ -1730,6 +1925,19 @@ function applyTheme(theme) {
       `;
     }
 
+    // Cached for the next launch. boot.js replays both this and the palette
+    // before the first paint; without them a custom theme renders as bare
+    // `theme-custom`, which has no rules of its own and so falls through to
+    // the :root defaults — the Steam 2003 Green palette. That was the skin
+    // flashing up for a moment on every start.
+    try {
+      localStorage.setItem('radium-custom-css', css);
+      localStorage.setItem(
+        'radium-custom-classes',
+        document.body.className.split(' ').filter(c => c.startsWith('theme-')).join(' ')
+      );
+    } catch (e) {}
+
     const style = document.createElement('style');
     style.id = 'custom-theme-style';
     style.textContent = css;
@@ -1855,9 +2063,8 @@ $('tgl-customTheme')?.addEventListener('click', () => {
   const customOn = !getToggle('tgl-customTheme');
   setToggle('tgl-customTheme', customOn);
   
-  const customGroup = $('customThemeGroup');
-  if (customGroup) customGroup.style.display = customOn ? 'block' : 'none';
-  
+  setCustomThemeEditorOpen(customOn);
+
   const cfgThemeSelect = $('cfgTheme');
   if (cfgThemeSelect) {
     cfgThemeSelect.disabled = customOn;
@@ -1878,7 +2085,14 @@ $('tgl-customTheme')?.addEventListener('click', () => {
   }
 });
 
-function updateCustomThemeFromUI() {
+/// Rebuild the custom theme from the editor controls.
+///
+/// `colorsOnly` marks the changes that touch nothing but the eleven palette
+/// variables — i.e. the colour pickers. Those take the cheap path that rewrites
+/// only the palette sheet. Anything structural (style base, Liquid Glass, a
+/// background image, loading a template) still rebuilds the whole stylesheet,
+/// because those change the rules themselves and not just their inputs.
+function updateCustomThemeFromUI(colorsOnly = false) {
   const isModern = $('styleBaseModern')?.checked === true;
   const customColors = {
     bgDark:       $('theme-bgDark')?.value || '#21281e',
@@ -1899,7 +2113,12 @@ function updateCustomThemeFromUI() {
   };
   config.customTheme = customColors;
   config.baselineTheme = $('cfgTheme')?.value || 'steam-green';
-  applyTheme('custom'); // live preview is immediate; only the persist is debounced
+  // Live preview is immediate either way; only the persist is debounced.
+  // applyCustomThemeColors returns false if there is no palette sheet yet
+  // (custom theme not applied), in which case the full build has to run.
+  if (!colorsOnly || !applyCustomThemeColors(customColors)) {
+    applyTheme('custom');
+  }
   debouncedAutoSaveTheme('custom', customColors);
 }
 
@@ -2120,7 +2339,14 @@ $('themeTemplateSelect')?.addEventListener('change', () => {
     updateStyleBaseLocks(getToggle('tgl-glassEnabled'));
 
     updateCustomThemeFromUI();
-    toast('Template loaded! Adjust colors as desired.', 'ok');
+
+    // Snap back to the placeholder. This copies a palette once; it does not
+    // track anything. Leaving the skin's name selected made it look like the
+    // theme still *was* that skin, which stopped being true the moment the
+    // next colour was changed.
+    const label = $('themeTemplateSelect').selectedOptions[0]?.textContent || 'Template';
+    $('themeTemplateSelect').value = '';
+    toast(`Copied the ${label} colours — edit any of them below.`, 'ok');
   }
 });
 
@@ -2128,7 +2354,7 @@ $('themeTemplateSelect')?.addEventListener('change', () => {
 ['theme-bgDark', 'theme-bgMain', 'theme-bgPanel', 'theme-bgBtn', 'theme-borderLight', 'theme-borderDark', 'theme-green', 'theme-greenDim', 'theme-text', 'theme-textMuted', 'theme-statusOnline', 'theme-glassBg'].forEach(id => {
   $(id)?.addEventListener('input', () => {
     if (getToggle('tgl-customTheme')) {
-      updateCustomThemeFromUI();
+      updateCustomThemeFromUI(true);
     }
   });
 });
@@ -2326,8 +2552,7 @@ $('resetThemeConfirmBtn')?.addEventListener('click', async () => {
   
   // Reset custom theme toggle and groups
   setToggle('tgl-customTheme', false);
-  const customGroup = $('customThemeGroup');
-  if (customGroup) customGroup.style.display = 'none';
+  setCustomThemeEditorOpen(false);
 
   const cfgThemeSelect = $('cfgTheme');
   if (cfgThemeSelect) {
@@ -2476,10 +2701,12 @@ async function checkInstall() {
   }
   isInstalled = result?.installed ?? false;
   const qscC = $('qsc-client');
-  const installDirSpan = $('cfgInstallDir');
+  // Only the active network's row: `result` describes the network checkInstall
+  // was called for. The other row is filled by refreshInstallDirRows().
+  const activeDirSpan = installDirSpan();
 
-  if (installDirSpan && result?.clientDir) {
-    installDirSpan.textContent = result.clientDir;
+  if (activeDirSpan && result?.clientDir) {
+    activeDirSpan.textContent = result.clientDir;
   }
 
   // The backend renames a client folder aside when it finds one network holding
@@ -3154,8 +3381,7 @@ $('btnReinstall')?.addEventListener('click', () => {
   // Show the current install directory in the modal so the user can confirm
   const dirSpan = $('reinstallModalInstallDir');
   if (dirSpan) {
-    const currentDir = $('cfgInstallDir')?.textContent.trim() || configInstallDir() || defaultInstallDirHint();
-    dirSpan.textContent = currentDir;
+    dirSpan.textContent = shownInstallDir();
   }
   if (reinstallModal) reinstallModal.style.display = 'flex';
 });
@@ -3234,65 +3460,100 @@ $('btnOpenFolder')?.addEventListener('click', async () => {
   }
 });
 
-$('btnOpenFolderSettings')?.addEventListener('click', async () => {
-  addLog('Opening client folder from settings...', 'info');
-  const ok = await window.radium?.openClientFolder();
-  if (ok) {
-    toast('Client folder opened!', 'ok');
-  } else {
-    toast('Failed to open client folder (does it exist?).', 'error');
-  }
+/// Open / change / reset act on the network named by the clicked button, not
+/// on the active one — that is what lets Vanilla's folder be set while Radium
+/// is selected, and the other way round.
+function installRowNetwork(btn, attr) {
+  const name = btn.getAttribute(attr);
+  return NETWORKS[name] ? name : activeNetwork;
+}
+
+/// A folder change only invalidates launcher state when it moved the client
+/// the launcher is currently pointed at.
+async function afterInstallDirChange(network) {
+  if (network !== activeNetwork) return;
+  // The client at this new location may be a different install entirely — any
+  // cached update-check result is meaningless here, so force a fresh check.
+  clientUpdateInfo = null;
+  clientUpdateAutoChecked = false;
+  await checkInstall();
+}
+
+document.querySelectorAll('[data-open-folder]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const network = installRowNetwork(btn, 'data-open-folder');
+    const label = networkInfo(network).label;
+    addLog(`Opening ${label} client folder from settings...`, 'info');
+    const ok = await window.radium?.openClientFolder(network);
+    if (ok) {
+      toast(`${label} client folder opened!`, 'ok');
+    } else {
+      toast(`Failed to open the ${label} client folder (does it exist?).`, 'error');
+    }
+  });
 });
 
-$('btnChangeFolder')?.addEventListener('click', async () => {
-  addLog('Selecting install directory...', 'info');
-  const newDir = await window.radium?.selectFolder();
-  if (newDir) {
-    const span = $('cfgInstallDir');
-    if (span) {
-      span.textContent = newDir;
-      setConfigInstallDir(newDir);
-      const ok = await window.radium?.saveConfig(config);
-      if (ok) {
-        toast('Install location updated and saved!', 'ok');
-        addLog(`Selected and saved install directory: ${newDir}`, 'info');
-      } else {
-        toast('Failed to save install location.', 'error');
-      }
-      // The client at this new location may be a different install entirely —
-      // any cached update-check result is meaningless here, so force a fresh check.
-      clientUpdateInfo = null;
-      clientUpdateAutoChecked = false;
-      await checkInstall();
+document.querySelectorAll('[data-change-folder]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const network = installRowNetwork(btn, 'data-change-folder');
+    const label = networkInfo(network).label;
+    addLog(`Selecting ${label} install directory...`, 'info');
+    const newDir = await window.radium?.selectFolder(network);
+    if (!newDir) {
+      addLog(`${label} install directory selection cancelled.`, 'info');
+      return;
     }
-  } else {
-    addLog('Install directory selection cancelled.', 'info');
-  }
+    // The backend refuses to let both networks resolve to one folder — they
+    // install different games from different sources, so a shared folder means
+    // each download overwrites the other's client. It silently clears the
+    // colliding entry on the next config read, so catch it here instead and
+    // leave the user's existing setting alone.
+    const other = otherNetworkInstallDir(network);
+    if (other && normDir(other) === normDir(newDir)) {
+      const otherLabel = networkInfo(network === 'vanilla' ? 'radium' : 'vanilla').label;
+      toast(`That folder is already ${otherLabel}'s install location. Pick a different one.`, 'error', 4000);
+      addLog(`Rejected ${label} install directory: ${newDir} is already ${otherLabel}'s.`, 'warn');
+      return;
+    }
+
+    const span = installDirSpan(network);
+    if (!span) return;
+    span.textContent = newDir;
+    setConfigInstallDir(newDir, network);
+    const ok = await window.radium?.saveConfig(config);
+    if (ok) {
+      toast(`${label} install location updated and saved!`, 'ok');
+      addLog(`Selected and saved ${label} install directory: ${newDir}`, 'info');
+    } else {
+      toast(`Failed to save the ${label} install location.`, 'error');
+    }
+    await afterInstallDirChange(network);
+  });
 });
 
-$('btnResetFolder')?.addEventListener('click', async () => {
-  addLog('Resetting install directory...', 'info');
-  const defaultDir = await window.radium?.getDefaultClientDir();
-  if (defaultDir) {
-    const span = $('cfgInstallDir');
-    if (span) {
-      span.textContent = defaultDir;
-      // Stored as "" rather than the resolved path: an empty slot means "use
-      // this network's default", so a reset keeps tracking the default instead
-      // of pinning a literal path a later network switch could misapply.
-      setConfigInstallDir('');
-      const ok = await window.radium?.saveConfig(config);
-      if (ok) {
-        toast('Install location reset and saved!', 'ok');
-        addLog(`Reset and saved install directory: ${defaultDir}`, 'info');
-      } else {
-        toast('Failed to save reset location.', 'error');
-      }
-      clientUpdateInfo = null;
-      clientUpdateAutoChecked = false;
-      await checkInstall();
+document.querySelectorAll('[data-reset-folder]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const network = installRowNetwork(btn, 'data-reset-folder');
+    const label = networkInfo(network).label;
+    addLog(`Resetting ${label} install directory...`, 'info');
+    const defaultDir = await window.radium?.getDefaultClientDir(network);
+    if (!defaultDir) return;
+    const span = installDirSpan(network);
+    if (!span) return;
+    span.textContent = defaultDir;
+    // Stored as "" rather than the resolved path: an empty slot means "use
+    // this network's default", so a reset keeps tracking the default instead
+    // of pinning a literal path a later network switch could misapply.
+    setConfigInstallDir('', network);
+    const ok = await window.radium?.saveConfig(config);
+    if (ok) {
+      toast(`${label} install location reset and saved!`, 'ok');
+      addLog(`Reset and saved ${label} install directory: ${defaultDir}`, 'info');
+    } else {
+      toast(`Failed to save the reset ${label} location.`, 'error');
     }
-  }
+    await afterInstallDirChange(network);
+  });
 });
 
 // Exclude AV Warning Modal Actions
@@ -3369,8 +3630,7 @@ function showThirdPartyAvModal(thirdPartyAvs) {
 
   const clientPathCode = $('tpClientFolderPath');
   if (clientPathCode) {
-    const clientPath = $('cfgInstallDir')?.textContent.trim() || configInstallDir() || '';
-    clientPathCode.textContent = clientPath;
+    clientPathCode.textContent = shownInstallDir();
   }
 
   // The primary button doubles as "continue to launch" (from the Play flow) and
@@ -3397,7 +3657,7 @@ $('thirdPartyAvModalClose')?.addEventListener('click', hideThirdPartyAvModal);
 $('btnThirdPartyAvCancel')?.addEventListener('click', hideThirdPartyAvModal);
 
 $('btnCopyTpPath')?.addEventListener('click', async () => {
-  const clientPath = $('cfgInstallDir')?.textContent.trim() || configInstallDir() || '';
+  const clientPath = shownInstallDir();
   if (clientPath) {
     try {
       await navigator.clipboard.writeText(clientPath);
@@ -4331,139 +4591,6 @@ async function init() {
 
   // Disable default context menu
   document.addEventListener('contextmenu', e => e.preventDefault());
-
-  // Nearest ancestor that can actually be scrolled, or null.
-  function scrollableAncestor(el) {
-    let current = el;
-    while (current && current !== document.body && current !== document.documentElement) {
-      const style = window.getComputedStyle(current);
-      const overflowY = style.overflowY;
-      if ((overflowY === 'auto' || overflowY === 'scroll')
-          && current.scrollHeight > current.clientHeight) {
-        return current;
-      }
-      current = current.parentElement;
-    }
-    return null;
-  }
-
-  // A wheel delta in CSS pixels. deltaY is only in pixels when deltaMode is
-  // DOM_DELTA_PIXEL; some mice and drivers report lines or pages instead, and
-  // treating those as pixels scrolls by a few px per notch.
-  function wheelPixels(e, container) {
-    if (e.deltaMode === 1) return e.deltaY * 16;                  // lines
-    if (e.deltaMode === 2) return e.deltaY * container.clientHeight; // pages
-    return e.deltaY;
-  }
-
-  // Chromium/WebView2 can swallow a wheel event that lands on a scroll container
-  // with nothing to scroll — an `overflow: hidden` image frame, for instance —
-  // leaving the scrollable ancestor untouched and the view apparently stuck.
-  //
-  // This used to be handled by detecting that case up front and taking over:
-  // preventDefault() plus `scrollTop += deltaY`. That did unstick the page, but
-  // it swapped Chromium's smooth wheel animation for one discrete jump per
-  // notch on every scroll that happened to start over an image, and being
-  // non-passive it pushed each wheel event through the main thread before
-  // anything could move — while calling getComputedStyle() on every ancestor of
-  // every event. That is why scrolling felt smooth over a card's padding and
-  // rough the moment the pointer sat on the photo inside it.
-  //
-  // So: stay passive, let the browser scroll normally, and only step in if the
-  // container genuinely has not moved. The ordinary path is now untouched
-  // native scrolling, and the rescue costs nothing until it is actually needed.
-  // ─── TEMPORARY SCROLL DIAGNOSTIC — REMOVE ONCE THE STUTTER IS PINNED DOWN ───
-  //
-  // Emits one line to the launcher log per scroll burst. It answers the two
-  // questions the symptom cannot distinguish on its own:
-  //
-  //   rescued > 0  the container never moved by itself, so the wheel is being
-  //                trapped and this code is doing the scrolling — the jerk is
-  //                the rescue, and the frame times will look fine.
-  //   rescued = 0  the browser scrolled normally and the frame times are the
-  //                whole story: a slow median/worst means paint or compositing
-  //                cost (large images, rounded clipping, the transparent
-  //                window), not scrolling logic.
-  let burst = null;
-  let burstEndTimer = null;
-  let burstRaf = 0;
-  let lastFrameAt = 0;
-
-  function describeTarget(el) {
-    const cls = (el.className && typeof el.className === 'string')
-      ? '.' + el.className.trim().split(/\s+/)[0]
-      : '';
-    return el.tagName.toLowerCase() + cls;
-  }
-
-  function beginBurst(target) {
-    burst = { target: describeTarget(target), wheels: 0, rescued: 0, doubled: 0, frames: [] };
-    lastFrameAt = 0;
-    const tick = (t) => {
-      if (!burst) return;
-      if (lastFrameAt) burst.frames.push(t - lastFrameAt);
-      lastFrameAt = t;
-      burstRaf = requestAnimationFrame(tick);
-    };
-    burstRaf = requestAnimationFrame(tick);
-  }
-
-  function endBurst() {
-    if (!burst) return;
-    cancelAnimationFrame(burstRaf);
-    const f = burst.frames.slice().sort((a, b) => a - b);
-    const median = f.length ? f[Math.floor(f.length / 2)].toFixed(1) : '?';
-    const worst = f.length ? f[f.length - 1].toFixed(1) : '?';
-    const dropped = burst.frames.filter(d => d > 20).length;
-    const line =
-      `[scroll] over=${burst.target} wheels=${burst.wheels} rescued=${burst.rescued} ` +
-      `doubled=${burst.doubled} frames=${burst.frames.length} ` +
-      `median=${median}ms worst=${worst}ms dropped=${dropped}`;
-    addLog(line, dropped > 0 || burst.rescued > 0 ? 'warn' : 'info');
-    // TEMPORARY: also append to scroll-diag.log so the trace can be read off
-    // disk rather than copied out of the log pane.
-    try { window.__TAURI__?.core?.invoke('cmd_debug_append_diag', { line }); } catch (e) {}
-    burst = null;
-  }
-  // ─── END TEMPORARY SCROLL DIAGNOSTIC ────────────────────────────────────────
-
-  document.addEventListener('wheel', (e) => {
-    const target = e.target;
-    if (!(target instanceof Element)) return;
-    const tag = target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-    const container = scrollableAncestor(target);
-    if (!container) return;
-
-    const before = container.scrollTop;
-    const delta = wheelPixels(e, container);
-
-    // TEMPORARY: burst bookkeeping for the diagnostic above.
-    if (!burst) beginBurst(target);
-    burst.wheels++;
-    clearTimeout(burstEndTimer);
-    burstEndTimer = setTimeout(endBurst, 400);
-
-    // Two frames, not one: a smooth scroll may not have committed a new
-    // scrollTop by the very next frame, and nudging early would scroll twice.
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (container.scrollTop === before) {
-        container.scrollTop = before + delta;
-        if (burst) burst.rescued++; // TEMPORARY
-        // TEMPORARY: if a native scroll was merely slow rather than absent, it
-        // lands after this and carries the container well past where we put it.
-        // That distinguishes "the wheel really was trapped" from "this code
-        // gave up too early and scrolled on top of the browser".
-        const placedAt = container.scrollTop;
-        setTimeout(() => {
-          if (burst && Math.abs(container.scrollTop - placedAt) > Math.abs(delta) * 0.5) {
-            burst.doubled++;
-          }
-        }, 200);
-      }
-    }));
-  }, { passive: true });
 }
 
 init().catch(err => {
@@ -4643,6 +4770,69 @@ window.filterByCreator = function(username) {
   }
 };
 
+/// Snap a scrollable table's visible height to a whole number of rows.
+///
+/// `#peopleTableContainer` is `flex: 1`, so its height is whatever the window
+/// leaves over after the search bar and pagination row — never a clean
+/// multiple of one table row's height. At most window sizes that lands the
+/// container boundary in the middle of the last row: neither fully shown nor
+/// fully hidden, which reads as a rendering bug rather than "scroll for more."
+/// Capping the container just below its natural height, at the nearest whole
+/// row, leaves a little blank space beneath the table instead — normal for a
+/// native list view, and a row is never shown chopped in half.
+///
+/// Safe to call with zero or one rows: with nothing to measure it leaves the
+/// container's height alone.
+function snapTableRows(container) {
+  if (!container) return;
+  const thead = container.querySelector('thead');
+  const firstRow = container.querySelector('tbody tr');
+  if (!thead || !firstRow) return;
+
+  // Clear any earlier cap first, so a page with fewer rows (or a window that
+  // just grew) is measured against the container's real available space
+  // rather than a stale, shorter one from the last snap.
+  container.style.maxHeight = '';
+  const available = container.clientHeight;
+
+  const headH = thead.getBoundingClientRect().height;
+  const rowH = firstRow.getBoundingClientRect().height;
+  if (!(rowH > 0) || available <= headH) return;
+
+  const rows = Math.floor((available - headH) / rowH);
+  // An oddly short window should still show whatever partial content it can
+  // rather than the list collapsing to nothing.
+  if (rows < 1) return;
+
+  // `max-height` constrains the border box (the global reset puts every
+  // element on box-sizing: border-box), while `clientHeight` above measured
+  // the content box. Several skins redraw this container with their own
+  // border, so the gap between the two is read back from the element rather
+  // than assumed — a hardcoded border width would have undercounted on any
+  // skin that draws it thicker, clipping the last row by the difference
+  // instead of the many rows' worth this was meant to fix.
+  const cs = getComputedStyle(container);
+  const frame = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
+              + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+
+  container.style.maxHeight = Math.ceil(headH + rows * rowH + frame) + 'px';
+}
+
+// Re-snap on resize, not just on load: the row count is fixed once rendered,
+// but the available height changes as the window does. Only while People is
+// the visible tab — recomputing against a `display:none` panel would measure
+// zero and clear the cap for no reason, and the People tab re-snaps itself
+// anyway the next time it is opened.
+let _peopleResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_peopleResizeTimer);
+  _peopleResizeTimer = setTimeout(() => {
+    if (document.getElementById('tab-people')?.classList.contains('active')) {
+      snapTableRows($('peopleTableContainer'));
+    }
+  }, 150);
+});
+
 async function loadPeople() {
   const bodyEl = $('peopleListBody');
   if (!bodyEl) return;
@@ -4690,7 +4880,7 @@ async function loadPeople() {
             ${escapeHtml(person.displayName || person.userName)}
           </td>
           <td class="people-username-cell">
-            <span class="text-link">@${escapeHtml(person.userName)}</span><span class="profile-roles inline-roles"></span>
+            <span class="username-row"><span class="text-link" title="@${escapeHtml(person.userName)}">@${escapeHtml(person.userName)}</span><span class="profile-roles inline-roles"></span></span>
           </td>
           <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(person.bio || '')}">
             ${escapeHtml(person.bio || '')}
@@ -4721,6 +4911,10 @@ async function loadPeople() {
     if (btnPrev) btnPrev.disabled = true;
     if (btnNext) btnNext.disabled = true;
   }
+
+  // The row count just changed (a new page, a search, a first load), so the
+  // last row's fit against the container's height needs rechecking every time.
+  snapTableRows($('peopleTableContainer'));
 }
 
 // Wired here rather than beside loadFeed(): the `$` helper is declared further
@@ -5184,7 +5378,13 @@ async function showPhotoDetails(photo, backToView) {
   // stack a listener per visit.
   const imgWrapEl = document.querySelector('.photo-detail-img-wrap');
   if (imgWrapEl) {
-    imgWrapEl.onclick = () => showLightbox(photoImageUrl(photo, 1920));
+    imgWrapEl.onclick = () => showLightbox(photoImageUrl(photo, 1920), {
+      title: 'PHOTO',
+      alt: photo.caption || 'Photo',
+      // The already-loaded page copy, so a failed full-size fetch still shows
+      // the picture rather than an empty frame.
+      fallbackSrc: $('photoDetailImage')?.src
+    });
   }
 
   const captionEl = $('photoDetailCaption');
@@ -5468,7 +5668,11 @@ async function showPlayerDetails(person) {
     avatarEl.style.cursor = 'pointer';
     avatarEl.title = 'Click to view full size';
     avatarEl.onclick = () => {
-      showLightbox(personAvatarFullUrl(person));
+      showLightbox(personAvatarFullUrl(person), {
+        title: 'PROFILE IMAGE',
+        alt: `${person.displayName || person.userName} profile image`,
+        fallbackSrc: avatarEl.src
+      });
     };
   }
   
@@ -5825,34 +6029,67 @@ const lightboxModal = $('lightboxModal');
 const lightboxImage = $('lightboxImage');
 const lightboxCloseBtn = $('lightboxCloseBtn');
 
-function showLightbox(src) {
-  if (lightboxModal && lightboxImage) {
-    lightboxImage.classList.add('image-loading-placeholder');
-    lightboxImage.onload = () => lightboxImage.classList.remove('image-loading-placeholder');
-    lightboxImage.onerror = () => {
-      const avatarEl = $('peopleDetailAvatar');
-      if (avatarEl && lightboxImage.src !== avatarEl.src) {
-        lightboxImage.src = avatarEl.src;
-        lightboxImage.classList.remove('image-loading-placeholder');
-      } else {
-        lightboxImage.classList.remove('image-loading-placeholder');
-      }
-      lightboxImage.onerror = null;
-    };
-    lightboxImage.src = src;
-    lightboxModal.style.display = 'flex';
-  }
+/// Open the image preview.
+///
+/// `opts.title` names what is on screen — the box is shared between a player's
+/// avatar and a full-size photo, and it used to be hard-labelled "PROFILE IMAGE
+/// PREVIEW" for both, so opening a room photo announced it as somebody's
+/// profile picture.
+///
+/// `opts.fallbackSrc` is the smaller copy to drop back to if the full-size URL
+/// fails. That used to be hard-wired to the player-detail avatar, which is the
+/// wrong picture entirely when the thing being previewed is a photo — and on
+/// the photo screen it would swap in whichever profile happened to be loaded.
+function showLightbox(src, opts = {}) {
+  if (!lightboxModal || !lightboxImage) return;
+
+  const titleEl = $('lightboxTitle');
+  if (titleEl) titleEl.textContent = opts.title || 'IMAGE PREVIEW';
+  lightboxImage.alt = opts.alt || opts.title || 'Full size preview';
+
+  lightboxImage.classList.add('image-loading-placeholder');
+  lightboxImage.onload = () => lightboxImage.classList.remove('image-loading-placeholder');
+  lightboxImage.onerror = () => {
+    lightboxImage.onerror = null;
+    const fallback = opts.fallbackSrc;
+    if (fallback && lightboxImage.src !== fallback) {
+      lightboxImage.src = fallback;
+    } else {
+      lightboxImage.classList.remove('image-loading-placeholder');
+    }
+  };
+  lightboxImage.src = src;
+  lightboxModal.style.display = 'flex';
+  lightboxCloseBtn?.focus();
 }
 
 function hideLightbox() {
-  if (lightboxModal) {
-    lightboxModal.style.display = 'none';
+  if (!lightboxModal) return;
+  lightboxModal.style.display = 'none';
+  // Drop the picture so a large one is not held in memory behind a closed
+  // dialog, and so reopening never shows the previous image for a frame.
+  if (lightboxImage) {
+    lightboxImage.onload = null;
+    lightboxImage.onerror = null;
+    lightboxImage.src = 'data:,';
   }
+}
+
+function lightboxIsOpen() {
+  return !!lightboxModal && lightboxModal.style.display !== 'none';
 }
 
 lightboxCloseBtn?.addEventListener('click', hideLightbox);
 lightboxModal?.addEventListener('click', (e) => {
   if (e.target === lightboxModal) {
+    hideLightbox();
+  }
+});
+// Esc closes it, the way every other dialog on the desktop does. Bound on the
+// document because focus sits on the close button, not the overlay.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && lightboxIsOpen()) {
+    e.preventDefault();
     hideLightbox();
   }
 });

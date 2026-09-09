@@ -365,14 +365,18 @@
             <div class="native-search-bar mb-2">
               <input type="text" id="peopleSearch" class="cfg-input w-full" placeholder="Search people..." style="font-size: 11px;" autocomplete="off" />
             </div>
-            <!-- Table Container -->
-            <div class="native-table-container flex-1 overflow-auto bevel-inset" style="background: var(--bg-panel);">
+            <!-- Table Container. Given an id rather than only `.native-table-container`
+                 (there is only one on this tab) so app.js can size it precisely
+                 to a whole number of rows — see snapTableRows(). -->
+            <div class="native-table-container flex-1 overflow-auto bevel-inset" id="peopleTableContainer" style="background: var(--bg-panel);">
               <table class="native-table">
                 <thead>
                   <tr>
                     <th style="width: 38px;"></th>
                     <th style="width: 140px;">Display Name</th>
-                    <th style="width: 140px;">Username</th>
+                    <!-- Wider than Display Name: this column carries the role
+                         badges as well as the handle. -->
+                    <th style="width: 210px;">Username</th>
                     <th>Bio</th>
                   </tr>
                 </thead>
@@ -518,12 +522,27 @@
               <label for="cfgLaunchOptions">Launch Options</label>
               <input type="text" id="cfgLaunchOptions" class="cfg-input" placeholder="e.g. -fullscreen -windowed" />
             </div>
+          </div>
+
+          <!-- Install locations. Both networks are listed together on purpose:
+               each installs into its own folder, and when only the active
+               network had a row here, pointing Vanilla somewhere else meant
+               switching networks first and switching back afterwards. -->
+          <div class="settings-group">
+            <div class="sg-title">INSTALL LOCATIONS</div>
             <div class="sg-row">
-              <label>Install Location</label>
-              <span class="cfg-path-display" id="cfgInstallDir">%APPDATA%\com.radium.launcher\client</span>
-              <button class="btn-open-folder" id="btnChangeFolder" title="Change install directory">Change</button>
-              <button class="btn-open-folder" id="btnResetFolder" title="Reset to default directory">Reset</button>
-              <button class="btn-open-folder" id="btnOpenFolderSettings" title="Open client folder">Open</button>
+              <label>Radium Client</label>
+              <span class="cfg-path-display" id="cfgInstallDirRadium">%APPDATA%\com.radium.launcher\client</span>
+              <button class="btn-open-folder" data-change-folder="radium" title="Change the Radium install directory">Change</button>
+              <button class="btn-open-folder" data-reset-folder="radium" title="Reset the Radium install directory to its default">Reset</button>
+              <button class="btn-open-folder" data-open-folder="radium" title="Open the Radium client folder">Open</button>
+            </div>
+            <div class="sg-row">
+              <label>Vanilla Client</label>
+              <span class="cfg-path-display" id="cfgInstallDirVanilla">%APPDATA%\com.radium.launcher\client-vanilla</span>
+              <button class="btn-open-folder" data-change-folder="vanilla" title="Change the Vanilla install directory">Change</button>
+              <button class="btn-open-folder" data-reset-folder="vanilla" title="Reset the Vanilla install directory to its default">Reset</button>
+              <button class="btn-open-folder" data-open-folder="vanilla" title="Open the Vanilla client folder">Open</button>
             </div>
           </div>
 
@@ -564,25 +583,35 @@
                 <option value="radium">Radium</option>
               </select>
             </div>
-            
-            <div class="sg-toggle-row" style="margin-top: 10px;">
-              <span>Custom Theme</span>
+          </div>
+
+          <!-- ── Custom theme editor ──────────────────────────────────────
+               Its own group rather than a tail on THEME: it is a whole editor,
+               not one more setting, and every control here is built from the
+               same panel / inset-border idiom as the rest of Settings so it
+               inherits each skin. It used to carry hardcoded rgba() overlays,
+               which turned into flat grey boxes on the light skins. -->
+          <div class="settings-group">
+            <div class="sg-title">CUSTOM THEME</div>
+
+            <div class="sg-toggle-row">
+              <span>Use a custom theme</span>
               <div class="toggle-wrap" id="tgl-customTheme">
                 <div class="tgl-knob"></div>
               </div>
             </div>
+            <p class="sg-hint">Takes over from Active Skin above, which is why that dropdown greys out. Copy a skin's colours as a starting point, then change any of them — the window updates as you go.</p>
 
-            <!-- Custom Theme Color Pickers -->
-            <div id="customThemeGroup" style="display:none; margin-top: 12px; border-top: 1px dashed var(--border-light); padding-top: 12px;">
-              
-              <!-- Template Loader -->
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px; background: rgba(0,0,0,0.15); padding: 6px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
-                <label for="themeTemplateSelect" style="font-size: 11px; font-weight: bold; color: var(--text);">Start from Template:</label>
-                <select id="themeTemplateSelect" class="cfg-input" style="font-size: 11px; width: 55%;">
-                  <option value="" disabled selected>Select baseline...</option>
+            <div id="customThemeGroup" class="ct-body">
+
+              <div class="sg-row">
+                <label for="themeTemplateSelect">Copy Colours From</label>
+                <select id="themeTemplateSelect" class="cfg-input"
+                        title="Fills the colours below with a built-in skin's palette, as a starting point">
+                  <option value="" disabled selected>Pick a skin to copy...</option>
                   <option value="recroom">Rec Room</option>
-                <option value="steam-green">Steam 2003 Green</option>
-                <option value="steam2010">Steam 2010</option>
+                  <option value="steam-green">Steam 2003 Green</option>
+                  <option value="steam2010">Steam 2010</option>
                   <option value="win98">Windows 98 Gray</option>
                   <option value="win95">Windows 95 Teal</option>
                   <option value="winxp">Windows XP Blue</option>
@@ -590,143 +619,130 @@
                   <option value="winvista">Windows Vista Aero</option>
                   <option value="win7">Windows 7 Aero</option>
                   <option value="macosclassic">Mac OS Classic</option>
-                <option value="macosaqua">Mac OS X Aqua</option>
+                  <option value="macosaqua">Mac OS X Aqua</option>
                   <option value="moderndark">Modern Neon Dark</option>
                   <option value="modernlight">Modern Glass Light</option>
                   <option value="moderngreen">Modern Forest Green</option>
-                  <option value="blackandwhite">Black & White</option>
+                  <option value="blackandwhite">Black &amp; White</option>
                 </select>
               </div>
 
-              <!-- Style Base Selection -->
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px; background: rgba(0,0,0,0.15); padding: 6px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
-                <span style="font-size: 11px; font-weight: bold; color: var(--text);">Style Base:</span>
-                <div style="display: flex; gap: 12px;">
-                  <label style="font-size: 11px; display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text);">
-                    <input type="radio" name="themeStyleBase" id="styleBaseRetro" value="retro" checked style="cursor: pointer; accent-color: var(--green); margin: 0;"> Retro
+              <!-- Label only: the values stay retro/modern, which is what
+                   applyTheme and the saved config read. -->
+              <div class="sg-row">
+                <label>Window Style</label>
+                <div class="ct-radios">
+                  <label class="ct-radio" title="Square edges and bevelled borders, like the classic desktop skins">
+                    <input type="radio" name="themeStyleBase" id="styleBaseRetro" value="retro" checked> Square
                   </label>
-                  <label style="font-size: 11px; display: flex; align-items: center; gap: 4px; cursor: pointer; color: var(--text);">
-                    <input type="radio" name="themeStyleBase" id="styleBaseModern" value="modern" style="cursor: pointer; accent-color: var(--green); margin: 0;"> Modern
+                  <label class="ct-radio" title="Rounded corners and soft shadows, like the Modern skins">
+                    <input type="radio" name="themeStyleBase" id="styleBaseModern" value="modern"> Rounded
                   </label>
                 </div>
               </div>
 
-              <!-- Color Categories -->
-              <div style="display: flex; flex-direction: column; gap: 12px;">
-                
-                <!-- Category: Backgrounds -->
-                <div style="background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
-                  <div style="font-size: 10px; font-weight: bold; color: var(--green-dim); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">1. Backgrounds</div>
-                  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-bgDark" class="theme-color-input" value="#21281e">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Deep BG</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-bgMain" class="theme-color-input" value="#384232">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Main BG</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-bgPanel" class="theme-color-input" value="#4b5845">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Panel BG</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-bgBtn" class="theme-color-input" value="#5e6d56">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Button BG</span>
-                    </div>
+              <div class="ct-section">
+                <div class="ct-section-title">Backgrounds</div>
+                <div class="ct-swatches">
+                  <div class="ct-swatch" title="Deepest surface: title bar, text fields, the log area">
+                    <input type="color" id="theme-bgDark" class="theme-color-input" value="#21281e">
+                    <span>Fields &amp; Bars</span>
+                  </div>
+                  <div class="ct-swatch" title="The area behind the panels">
+                    <input type="color" id="theme-bgMain" class="theme-color-input" value="#384232">
+                    <span>Backdrop</span>
+                  </div>
+                  <div class="ct-swatch" title="Cards and grouped sections, like the boxes in this page">
+                    <input type="color" id="theme-bgPanel" class="theme-color-input" value="#4b5845">
+                    <span>Panels</span>
+                  </div>
+                  <div class="ct-swatch" title="Button and tab faces">
+                    <input type="color" id="theme-bgBtn" class="theme-color-input" value="#5e6d56">
+                    <span>Buttons</span>
                   </div>
                 </div>
-
-                <!-- Category: Borders & Accents -->
-                <div style="background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
-                  <div style="font-size: 10px; font-weight: bold; color: var(--green-dim); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">2. Borders & Accents</div>
-                  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-borderLight" class="theme-color-input" value="#829478">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Border Light</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-borderDark" class="theme-color-input" value="#1b2118">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Border Dark</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-green" class="theme-color-input" value="#00ff00">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Accent</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-greenDim" class="theme-color-input" value="#7ca969">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Muted Accent</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Category: Text & Status -->
-                <div style="background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
-                  <div style="font-size: 10px; font-weight: bold; color: var(--green-dim); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">3. Text & Status</div>
-                  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-text" class="theme-color-input" value="#d4e0ce">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Main Text</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04);">
-                      <input type="color" id="theme-textMuted" class="theme-color-input" value="#8da082">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Muted Text</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); grid-column: span 2;">
-                      <input type="color" id="theme-statusOnline" class="theme-color-input" value="#00ff00">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Status Online</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Category: Background & Glass -->
-                <div style="background: rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.05); padding: 8px; border-radius: 4px;">
-                  <div style="font-size: 10px; font-weight: bold; color: var(--green-dim); margin-bottom: 6px; letter-spacing: 0.5px; text-transform: uppercase;">4. Background & Glass</div>
-
-                  <!-- Liquid Glass Background Color (used when Liquid Glass is on and no image is set) -->
-                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(0,0,0,0.18); padding: 4px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.04); margin-bottom: 8px;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                      <input type="color" id="theme-glassBg" class="theme-color-input" value="#0b0c14">
-                      <span style="font-size: 11px; font-weight: 500; color: var(--text);">Glass Background</span>
-                    </div>
-                    <span style="font-size: 9px; color: var(--text-muted);">used when no image set</span>
-                  </div>
-
-                  <!-- Remote URL Input -->
-                  <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px;">
-                    <span style="font-size: 11px; color: var(--text-muted);">Remote Image URL</span>
-                    <input type="text" id="theme-bgImage" class="cfg-input" placeholder="https://example.com/image.jpg" style="font-size: 11px; width: 100%;" />
-                  </div>
-
-                  <!-- Local File Picker & Clear -->
-                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px;">
-                    <span style="font-size: 11px; color: var(--text-muted);">Local Background</span>
-                    <div style="display: flex; gap: 4px;">
-                      <!-- Hidden file input -->
-                      <input type="file" id="theme-bgFilePicker" accept="image/*" style="position: absolute; width: 0; height: 0; opacity: 0; overflow: hidden; pointer-events: none; z-index: -1;" />
-                      <button class="modal-btn" id="btnBrowseBgFile" style="font-size: 9px; padding: 2px 6px; min-width: 60px;">Choose File</button>
-                      <button class="modal-btn" id="btnClearBgImage" style="font-size: 9px; padding: 2px 6px; min-width: 50px;">Clear</button>
-                    </div>
-                  </div>
-
-                  <!-- Liquid Glass Toggle -->
-                  <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0;">
-                    <span style="font-size: 11px; color: var(--text-muted);">Liquid Glass Effect</span>
-                    <div class="toggle-wrap" id="tgl-glassEnabled" style="margin: 0;">
-                      <div class="tgl-knob"></div>
-                    </div>
-                  </div>
-                </div>
-
               </div>
 
-              <!-- Presets Import / Export / Reset -->
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 10px;">
-                <button class="modal-btn" id="btnResetTheme" style="font-size: 10px; padding: 3px 8px; min-width: 70px; background: rgba(220, 38, 38, 0.15) !important; border-color: rgba(220, 38, 38, 0.3) !important;">Reset Theme</button>
-                <div style="display: flex; gap: 8px;">
-                  <button class="modal-btn" id="btnExportTheme" style="font-size: 10px; padding: 3px 8px; min-width: 70px;">Export Theme</button>
-                  <button class="modal-btn" id="btnImportTheme" style="font-size: 10px; padding: 3px 8px; min-width: 70px;">Import Theme</button>
+              <div class="ct-section">
+                <div class="ct-section-title">Borders &amp; Accents</div>
+                <div class="ct-swatches">
+                  <div class="ct-swatch" title="Highlight side of every bevelled border">
+                    <input type="color" id="theme-borderLight" class="theme-color-input" value="#829478">
+                    <span>Light Edge</span>
+                  </div>
+                  <div class="ct-swatch" title="Shadow side of every bevelled border">
+                    <input type="color" id="theme-borderDark" class="theme-color-input" value="#1b2118">
+                    <span>Dark Edge</span>
+                  </div>
+                  <div class="ct-swatch" title="Highlights, the selected tab, and the brand text">
+                    <input type="color" id="theme-green" class="theme-color-input" value="#00ff00">
+                    <span>Accent</span>
+                  </div>
+                  <div class="ct-swatch" title="Section headings and quieter accent text">
+                    <input type="color" id="theme-greenDim" class="theme-color-input" value="#7ca969">
+                    <span>Accent (dim)</span>
+                  </div>
                 </div>
+              </div>
+
+              <div class="ct-section">
+                <div class="ct-section-title">Text &amp; Status</div>
+                <div class="ct-swatches">
+                  <div class="ct-swatch" title="Main text colour">
+                    <input type="color" id="theme-text" class="theme-color-input" value="#d4e0ce">
+                    <span>Text</span>
+                  </div>
+                  <div class="ct-swatch" title="Hints, placeholders and secondary labels">
+                    <input type="color" id="theme-textMuted" class="theme-color-input" value="#8da082">
+                    <span>Faint Text</span>
+                  </div>
+                  <div class="ct-swatch" title="The "server online" indicator">
+                    <input type="color" id="theme-statusOnline" class="theme-color-input" value="#00ff00">
+                    <span>Online Dot</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ct-section">
+                <div class="ct-section-title">Background Image &amp; Glass</div>
+                <!-- The toggle leads the section because it governs everything
+                     under it, and switching it on locks most of the editor.
+                     It used to sit last, below the controls it commands, so
+                     the greying-out arrived with no visible cause. -->
+                <div class="sg-toggle-row">
+                  <span>Liquid Glass effect</span>
+                  <div class="toggle-wrap" id="tgl-glassEnabled">
+                    <div class="tgl-knob"></div>
+                  </div>
+                </div>
+                <p class="sg-hint" id="glassLockNote" hidden>Liquid Glass paints its own translucent surfaces, so it forces the rounded window style and takes over the colours above. Switch it off to edit those again.</p>
+                <div class="sg-row">
+                  <label for="theme-bgImage">Image URL</label>
+                  <input type="text" id="theme-bgImage" class="cfg-input" placeholder="https://example.com/image.jpg" />
+                </div>
+                <div class="sg-row">
+                  <label>Or a local file</label>
+                  <span class="ct-grow"></span>
+                  <!-- Off-screen rather than display:none so the click that
+                       btnBrowseBgFile forwards still opens the picker. -->
+                  <input type="file" id="theme-bgFilePicker" class="ct-file-input" accept="image/*" />
+                  <button class="btn-open-folder" id="btnBrowseBgFile" title="Pick an image from this PC">Choose File</button>
+                  <button class="btn-open-folder" id="btnClearBgImage" title="Remove the background image">Clear</button>
+                </div>
+                <div class="ct-swatches">
+                  <div class="ct-swatch" title="Colour behind the frosted panels when no background image is set">
+                    <input type="color" id="theme-glassBg" class="theme-color-input" value="#0b0c14">
+                    <span>Glass Tint</span>
+                    <span class="ct-note">used when no image</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="ct-actions">
+                <button class="btn-open-folder" id="btnResetTheme" title="Discard this custom theme and go back to the selected skin">Reset Theme</button>
+                <span class="ct-grow"></span>
+                <button class="btn-open-folder" id="btnExportTheme" title="Save this theme to a file">Export</button>
+                <button class="btn-open-folder" id="btnImportTheme" title="Load a theme from a file">Import</button>
               </div>
             </div>
           </div>
@@ -1217,17 +1233,20 @@
     </div>
   </div>
 
-  <!-- Lightbox Modal -->
-  <div class="modal-overlay" id="lightboxModal" style="display:none">
-    <div class="modal-box" style="width: auto; max-width: 400px; margin: 20px;">
+  <!-- Lightbox Modal.
+       The box sizes to the picture rather than to a fixed width: this used to
+       be capped at 400px while asking the API for a 1920px image, so opening a
+       photo showed it *smaller* than the copy already on the page behind it.
+       The inner bevel frame is gone too — the box already draws a border, and
+       the two together read as a picture frame inside a picture frame. -->
+  <div class="modal-overlay lightbox-overlay" id="lightboxModal" style="display:none">
+    <div class="modal-box lightbox-box" role="dialog" aria-modal="true" aria-labelledby="lightboxTitle">
       <div class="modal-titlebar">
-        <span class="modal-title">PROFILE IMAGE PREVIEW</span>
-        <button class="modal-close-btn" id="lightboxCloseBtn">✕</button>
+        <span class="modal-title" id="lightboxTitle">IMAGE PREVIEW</span>
+        <button class="modal-close-btn" id="lightboxCloseBtn" title="Close (Esc)" aria-label="Close preview">✕</button>
       </div>
-      <div class="modal-body" style="padding: 8px;">
-        <div class="bevel-inset" style="padding: 4px; background: var(--bg-dark); display: flex; justify-content: center; align-items: center; box-sizing: border-box; width: 100%;">
-          <img id="lightboxImage" src="data:," alt="Full size preview" style="max-width: 100%; max-height: 60vh; object-fit: contain; display: block;" />
-        </div>
+      <div class="modal-body lightbox-body">
+        <img id="lightboxImage" class="lightbox-image" src="data:," alt="" />
       </div>
     </div>
   </div>
