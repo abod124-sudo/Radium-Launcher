@@ -96,11 +96,6 @@ impl Network {
 pub struct VanillaState {
     pub install_dir: String,
     pub game_exe_path: String,
-    /// Arguments passed to Vanilla's client. Per-network for the same reason
-    /// the install directory is: the two are different builds that take
-    /// different flags, and a flag that is right for one can stop the other
-    /// from starting. The flat `Config::launch_options` stays Radium's.
-    pub launch_options: String,
     /// Where to download the Vanilla client zip from. Empty until Vanilla
     /// actually ships a build - vanillarec.net currently lists every platform
     /// as "coming soon" with no download link, so the UI falls back to opening
@@ -117,7 +112,6 @@ impl Default for VanillaState {
         Self {
             install_dir: String::new(),
             game_exe_path: String::new(),
-            launch_options: String::new(),
             client_url: String::new(),
             client_version: String::new(),
             client_etag: String::new(),
@@ -149,13 +143,7 @@ pub struct Config {
     pub third_party_av_acknowledged: bool,
     pub theme: String,
     pub baseline_theme: String,
-    /// Font pack selected in Settings -> Theme -> Font: "default" | "ios" |
-    /// "minecraft" | "radium". Orthogonal to `theme`: it only re-points the
-    /// --font-ui / --font-mono CSS variables, so it composes with any skin,
-    /// custom themes included.
-    pub font: String,
     pub close_on_launch: bool,
-    pub launch_options: String,
     pub enable_animations: bool,
     pub disable_warnings: bool,
     pub custom_theme: Option<CustomThemeColors>,
@@ -319,9 +307,7 @@ impl Default for Config {
             third_party_av_acknowledged: false,
             theme: "steam-green".to_string(),
             baseline_theme: "steam-green".to_string(),
-            font: "default".to_string(),
             close_on_launch: false,
-            launch_options: String::new(),
             enable_animations: true,
             disable_warnings: false,
             custom_theme: None,
@@ -335,6 +321,10 @@ impl Default for Config {
         }
     }
 }
+
+/// A skin that used to ship and no longer does. `ensure_config` rewrites any
+/// config still naming it; see the migration there.
+const REMOVED_THEME: &str = "recroom";
 
 /// Returns the path to config.json inside the app data directory.
 pub fn get_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
@@ -465,38 +455,6 @@ pub fn path_is_inside_dir(path: &str, dir: &str) -> bool {
             norm_dir(path).starts_with(&dir)
         }
     }
-}
-
-/// Characters refused in launch options, as code points.
-///
-/// These reach a process spawn, so anything a shell would treat as syntax is
-/// out: command separators, redirection, quoting, substitution and newlines.
-const LAUNCH_OPTION_METACHARS: &[u32] = &[
-    0x3B, // ;   command separator
-    0x26, // &   background / chain
-    0x7C, // |   pipe
-    0x5E, // ^   cmd.exe escape
-    0x60, // `   substitution
-    0x24, // $   substitution
-    0x25, // %   cmd.exe variable
-    0x3E, // >   redirect out
-    0x3C, // <   redirect in
-    0x22, // "   double quote
-    0x27, // '   single quote
-    0x0D, //     carriage return
-    0x0A, //     line feed
-];
-
-/// Whether `options` is safe to pass to the client.
-///
-/// One function rather than a copy at each call site. The save path and the
-/// launch path used to carry their own lists, and the two had drifted: saving
-/// accepted quotes that launching then rejected, so Settings could store
-/// options that made the game refuse to start with no hint as to why.
-pub fn launch_options_are_safe(options: &str) -> bool {
-    !options
-        .chars()
-        .any(|c| LAUNCH_OPTION_METACHARS.contains(&(c as u32)))
 }
 
 /// Whether `dir` contains a game client. Uses the same lookup as launching, so
@@ -695,6 +653,19 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
         changed = true;
     }
 
+    // The Rec Room skin was removed. A config still naming it would leave the
+    // frontend stamping a `theme-recroom` class that no longer matches any rule
+    // (so the window paints in the base palette) and an Active Skin dropdown
+    // with nothing selected, since the <option> is gone too. Move those saves
+    // onto the default skin once, here, rather than leaving the stale name on
+    // disk to be re-read on every launch.
+    for slot in [&mut config.theme, &mut config.baseline_theme] {
+        if slot == REMOVED_THEME {
+            *slot = Config::default().theme;
+            changed = true;
+        }
+    }
+
     // Detect if client is/was installed in the old directory "%APPDATA%\radium-launcher\client"
     // or if the settings path points to it, and trigger a reset.
     if let Ok(data_dir) = app_handle.path().data_dir() {
@@ -831,49 +802,6 @@ mod tests {
     /// omits (or holds a stale value for) lands as the serde default.
     fn config_from_frontend_json(json: serde_json::Value) -> Config {
         serde_json::from_value::<Config>(json).expect("frontend config should deserialize")
-    }
-
-    /// The font pack round-trips through a save. It is not one of the
-    /// backend-managed fields, so nothing should be preserving or resetting
-    /// it behind the settings UI's back.
-    #[test]
-    fn font_pack_survives_a_save_round_trip() {
-        let incoming = config_from_frontend_json(serde_json::json!({
-            "theme": "moderndark",
-            "font": "minecraft"
-        }));
-        assert_eq!(incoming.font, "minecraft");
-
-        let json = serde_json::to_value(&incoming).expect("config should serialize");
-        assert_eq!(json["font"], "minecraft", "font is serialized as camelCase `font`");
-
-        let reloaded = config_from_frontend_json(json);
-        assert_eq!(reloaded.font, "minecraft");
-    }
-
-    /// A config written before the font setting existed has no `font` key at
-    /// all. It must land on the default pack rather than failing to load and
-    /// wiping every other setting with it.
-    #[test]
-    fn config_without_font_key_defaults_to_default_pack() {
-        let legacy = config_from_frontend_json(serde_json::json!({
-            "theme": "steam-green",
-            "minimizeOnLaunch": true
-        }));
-        assert_eq!(legacy.font, "default");
-    }
-
-    /// A font pack is not backend-managed, so a save must be able to change it
-    /// (unlike the client build fields, which the backend owns).
-    #[test]
-    fn preserve_backend_managed_fields_leaves_font_alone() {
-        let mut on_disk = Config::default();
-        on_disk.font = "radium".to_string();
-
-        let mut incoming = config_from_frontend_json(serde_json::json!({ "font": "ios" }));
-        incoming.preserve_backend_managed_fields(&on_disk);
-
-        assert_eq!(incoming.font, "ios", "the user's new font choice must win");
     }
 
     #[test]
@@ -1361,71 +1289,40 @@ mod tests {
         ));
     }
 
+    /// A config saved while the Rec Room skin still existed must not keep
+    /// naming it: the class it stamps matches nothing now, so the window would
+    /// paint in the base palette with an empty Active Skin dropdown.
     #[test]
-    fn launch_options_reject_everything_a_shell_would_read_as_syntax() {
-        assert!(launch_options_are_safe("-fullscreen -windowed"));
-        assert!(launch_options_are_safe(""));
-        assert!(launch_options_are_safe("-width 1920 -height 1080"));
+    fn a_config_naming_the_removed_skin_falls_back_to_the_default() {
+        let mut cfg: Config = serde_json::from_str(
+            r#"{"theme":"recroom","baselineTheme":"recroom","minimizeOnLaunch":true}"#,
+        )
+        .expect("it should still load");
 
-        for bad in [
-            "-a; calc",
-            "-a & calc",
-            "-a | calc",
-            "-a > out.txt",
-            "-a < in.txt",
-            "-a ^ b",
-            "-a `whoami`",
-            "-a $HOME",
-            "-a %APPDATA%",
-        ] {
-            assert!(!launch_options_are_safe(bad), "{bad:?} was accepted");
+        // Same rewrite ensure_config performs on load.
+        for slot in [&mut cfg.theme, &mut cfg.baseline_theme] {
+            if slot == REMOVED_THEME {
+                *slot = Config::default().theme;
+            }
         }
 
-        // Newlines, spelled by code point so the test is checking the byte
-        // rather than whatever an editor left in the file.
-        let cr = char::from_u32(0x0D).unwrap();
-        let lf = char::from_u32(0x0A).unwrap();
-        assert!(!launch_options_are_safe(&format!("-a{cr}calc")));
-        assert!(!launch_options_are_safe(&format!("-a{lf}calc")));
-
-        // Quotes. The save path used to allow these while the launch path
-        // refused them, so options could be stored that would not start.
-        let single = char::from_u32(0x27).unwrap();
-        let double = char::from_u32(0x22).unwrap();
-        assert!(!launch_options_are_safe(&format!("-name {single}a b{single}")));
-        assert!(!launch_options_are_safe(&format!("-name {double}a b{double}")));
+        assert_eq!(cfg.theme, "steam-green");
+        assert_eq!(cfg.baseline_theme, "steam-green");
+        assert!(cfg.minimize_on_launch, "the rest of the config survives");
     }
 
+    /// Every config.json in the wild still carries the `launchOptions` and
+    /// `font` keys that Settings used to write. Those settings are gone, but
+    /// the keys stay on disk until the next save rewrites the file, so the
+    /// loader has to skip them rather than fail the whole parse and reset
+    /// every other setting the user has.
     #[test]
-    fn each_network_keeps_its_own_launch_options() {
-        // The two are different client builds taking different flags, so a
-        // config round trip must not let one network's options land on the
-        // other's slot - the bug the per-network install directory already had.
-        let mut cfg = Config::default();
-        cfg.launch_options = "-radium-only".to_string();
-        cfg.vanilla.launch_options = "-vanilla-only".to_string();
-
-        let json = serde_json::to_string(&cfg).expect("the config should serialize");
-        assert!(
-            json.contains("\"launchOptions\":\"-radium-only\""),
-            "Radium's options are not on the flat camelCase field: {json}"
-        );
-
-        let back: Config = serde_json::from_str(&json).expect("and deserialize");
-        assert_eq!(back.launch_options, "-radium-only");
-        assert_eq!(back.vanilla.launch_options, "-vanilla-only");
-    }
-
-    #[test]
-    fn a_config_written_before_vanilla_had_launch_options_still_loads() {
-        // #[serde(default)] on both the struct and the field is what keeps an
-        // existing config.json - which has no vanilla.launchOptions at all -
-        // from failing to parse and resetting every setting the user has.
-        let old = r#"{"launchOptions":"-keep-me","vanilla":{"installDir":"C:/v"}}"#;
+    fn a_config_written_when_launch_options_and_fonts_existed_still_loads() {
+        let old = r#"{"launchOptions":"-fullscreen","font":"minecraft","theme":"win98",
+                      "vanilla":{"installDir":"C:/v","launchOptions":"-windowed"}}"#;
         let cfg: Config = serde_json::from_str(old).expect("an older config should still load");
 
-        assert_eq!(cfg.launch_options, "-keep-me");
+        assert_eq!(cfg.theme, "win98");
         assert_eq!(cfg.vanilla.install_dir, "C:/v");
-        assert_eq!(cfg.vanilla.launch_options, "");
     }
 }

@@ -13,24 +13,21 @@
   --text-muted:   #b8c9b2; /* Lightened muted green for WCAG AA contrast compliance */
   --status-online:#00ff00; /* Legible green for online status */
   
+  /* The retro skins' pair. The modern skins re-point both to the iOS system
+     face at the bottom of this sheet; everything else inherits these. */
   --font-ui:      'Tahoma', 'Verdana', sans-serif;
   /* Despite the name, this is the dense/technical text face — log lines,
-     paths, small readouts — not a promise of fixed advance widths. A font
-     pack may point it at a proportional face; anything that needs a real
-     character grid must hold its columns by width, the way .log-ts and
-     .log-tag do, not by padding text with spaces. */
+     paths, small readouts — not a promise of fixed advance widths. The
+     modern skins point it at SF Mono; anything that needs a real character
+     grid must hold its columns by width, the way .log-ts and .log-tag do,
+     not by padding text with spaces. */
   --font-mono:    'Lucida Console', 'Courier New', monospace;
   /* The log pane, and nothing else. Held apart from --font-mono precisely so
-     the font packs cannot reach it: the log is diagnostic output that gets
-     read closely and pasted into bug reports, and its timestamp and level
-     columns only line up under a real fixed-advance face. A display face like
-     Radie (no lowercase, ~60% wider than Tahoma) or a pixel face makes it
-     harder to read a stack of paths and URLs, which is the one place in the
-     app where legibility beats flavour. No font pack re-points this. */
+     a skin cannot reach it: the log is diagnostic output that gets read
+     closely and pasted into bug reports, and its timestamp and level columns
+     only line up under a real fixed-advance face. It is the one place in the
+     app where legibility beats flavour, so no skin re-points this. */
   --font-log:     'Lucida Console', 'Consolas', 'Courier New', monospace;
-  /* The face for brand moments — wordmark, titlebar, hero. Defined here so it
-     resolves under every pack; packs re-point it, they do not introduce it. */
-  --font-display: 'Lucida Console', 'Courier New', monospace;
   --titlebar-h:   30px;
 }
 
@@ -79,7 +76,15 @@ body.theme-winxp .titlebar {
   height: 32px;
   background: linear-gradient(180deg, #0058e6 0%, #3a93ff 8%, #0058e6 45%, #002f9e 100%);
   border-bottom: none;
-  border-radius: 6px 6px 0 0;
+  /* No radius of its own. `body` carries the window's rounded top *and*
+     `overflow: hidden`, so it already clips this bar to its padding box - a
+     curve of (body radius - body border-width). Naming a second radius here
+     re-rounds the bar inside that clip, and any value that is not exactly the
+     clip's leaves a crescent of `body` showing between the two arcs: the
+     double corner. This skin asked for 6px against a clip of 5px. Letting the
+     clip do the work also keeps the shape right if the frame's border width
+     ever changes. */
+  border-radius: 0;
 }
 body.theme-winxp .titlebar-app-name {
   color: #ffffff;
@@ -174,17 +179,33 @@ body.theme-winxp .nav-btn.active {
 body.theme-winvista {
   --bg-dark:      #e2e8f0; /* Soft recessed glass blue-grey */
   --bg-main:      #1f2d3d; /* Dark Vista Aero frame background */
-  --bg-panel:     rgba(226, 232, 240, 0.85); /* Semi-transparent glass dialog panel */
-  --bg-btn:       rgba(241, 245, 249, 0.8);
-  --border-light: rgba(255, 255, 255, 0.6); /* Transparent glass edge */
+  /* Opaque, not rgba. These used to be translucent, which sounds right for an
+     Aero skin but is not what they sit on: the app paints them over `body`,
+     which is --bg-main (dark navy), so every panel and the sidebar composited
+     ~12% darker than the value written here (measured rgb(197,204,213) for a
+     panel declared as rgb(226,232,240)). That dimmed the whole skin and pulled
+     the sidebar wordmark down to 4.1:1. The glass look lives in the gradients
+     below, which do not need the surfaces underneath them to be see-through. */
+  --bg-panel:     #eef2f7; /* Glass dialog panel */
+  --bg-btn:       #f1f5f9;
+  /* The soft edge of a bevel, and a real colour rather than a white wash. As
+     rgba(255,255,255,0.6) it was invisible on every surface in this skin - each
+     2px bevel in the sheet (toggles, sort buttons, inputs, the log pane, the
+     grid containers) draws --border-dark on two sides and --border-light on the
+     other two, so controls rendered as half-boxes. Slightly darker than the
+     surfaces it edges, the way Win7's #dbe4f0 is; --border-dark stays the
+     strong side, so the bevel still reads as a bevel. */
+  --border-light: #d7e1ee;
   --border-dark:  #708090;
   --green:        #0055cc; /* Vista Aero Blue - darkened for contrast */
   --green-dim:    #004488;
   --text:         #1a2a3a;
   --text-muted:   #3b4d5e;
-  --status-online:#008000;
+  /* #008000 lands at 4.17:1 on this skin's near-white log pane and status
+     cards, just under AA. */
+  --status-online:#007000;
   --status-offline: #a00000; /* Contrast error/offline text */
-  --btn-primary-text: #ffffff; /* Improved button contrast */
+  --btn-primary-text: #ffffff; /* Hero CTA label, see .btn-download-big below */
   border: 4px solid rgba(0, 0, 0, 0.8);
   box-shadow: 0 0 15px rgba(0, 0, 0, 0.6), inset 1px 1px 0 rgba(255, 255, 255, 0.2);
   border-radius: 6px 6px 0 0;
@@ -196,7 +217,8 @@ body.theme-winvista .titlebar {
     linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.05) 49%, rgba(0, 0, 0, 0.35) 50%, rgba(255, 255, 255, 0.05) 100%),
     linear-gradient(90deg, #1d2d3d, #0d131a);
   border-bottom: 1px solid rgba(255,255,255,0.2);
-  border-radius: 2px 2px 0 0;
+  /* No radius of its own - `body` clips this bar. See theme-winxp .titlebar. */
+  border-radius: 0;
   position: relative;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.3);
@@ -236,18 +258,20 @@ body.theme-winvista .tb-ctrl:hover {
   border-color: rgba(255,255,255,0.25);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 0 4px rgba(255,255,255,0.3);
 }
+/* The white glyph sat at 4.12:1 on the old #d35252 and 4.13:1 on its hover.
+   A deeper red is closer to the real Vista close button anyway. */
 body.theme-winvista .tb-ctrl.cls {
   background: 
     linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.25) 51%, rgba(255,255,255,0.05) 100%),
-    #d35252;
+    #c23b3b;
   border-color: #551111;
 }
 body.theme-winvista .tb-ctrl.cls:hover {
   background: 
     linear-gradient(180deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.1) 50%, rgba(0,0,0,0.25) 51%, rgba(255,255,255,0.1) 100%),
-    #e04343;
+    #cf3a3a;
   border-color: #7a1500;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 0 8px rgba(224, 67, 67, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 0 8px rgba(207, 58, 58, 0.6);
 }
 body.theme-winvista .btn-download-big, 
 body.theme-winvista .btn-play, 
@@ -262,7 +286,14 @@ body.theme-winvista .btn-uninstall,
 body.theme-winvista .nav-btn {
   border-radius: 4px;
   border: 1px solid #707070;
-  background: linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.25) 50%, rgba(0,0,0,0.03) 51%, rgba(255,255,255,0.25) 100%);
+  /* Opaque. The same glass ramp as before, but composited onto its own light
+     base instead of onto whatever happens to be behind the button. Left
+     translucent, a button over the dark hero artwork - PLAY, DOWNLOAD, the
+     gear - painted its lower half at about rgb(64,64,64) while the label
+     stayed #1a2a3a, which is 1.5:1: the text simply vanished. The :hover and
+     :active states below were already opaque, which is why only the resting
+     state was affected. */
+  background: linear-gradient(180deg, #fdfeff 0%, #f2f6fa 50%, #e2e9f2 51%, #f2f6fa 100%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 1px 1px 2px rgba(0,0,0,0.15);
   color: #1a2a3a;
   transition: all 0.2s;
@@ -307,6 +338,33 @@ body.theme-winvista .nav-btn {
 }
 body.theme-winvista .nav-btn.active {
   padding: 6px 10px;
+}
+
+/* The hero CTA. It is the one button in this skin that sits on the dark
+   artwork rather than on a panel, and Vista drew a primary command button in
+   blue with a white label - which is what --btn-primary-text was declared for
+   and never wired to. The ramp is a touch darker than Vista's default so the
+   label clears 4.5:1 at every stop the text crosses, not just the middle. */
+body.theme-winvista .btn-download-big,
+body.theme-winvista .btn-play {
+  background: linear-gradient(180deg, #3d8fd4 0%, #1467b4 45%, #0d5195 55%, #2277c6 100%);
+  border-color: #17578f;
+  color: var(--btn-primary-text);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+}
+body.theme-winvista .btn-download-big:hover,
+body.theme-winvista .btn-play:hover {
+  background: linear-gradient(180deg, #58a4e2 0%, #2179c6 45%, #17629f 55%, #3a8bd6 100%);
+  border-color: #1d6ba8;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 0 6px rgba(60, 127, 177, 0.55);
+  color: var(--btn-primary-text);
+}
+body.theme-winvista .btn-download-big:active,
+body.theme-winvista .btn-play:active {
+  background: linear-gradient(180deg, #0d5195 0%, #0b4680 50%, #0a4076 51%, #10589f 100%);
+  border-color: #0a3a63;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+  color: var(--btn-primary-text);
 }
 
 /* Windows 7 Aero Theme overrides */
@@ -387,7 +445,8 @@ body.theme-win7 .titlebar {
     linear-gradient(90deg,
       #7db3e8 0%, #b3d4f7 30%, #cce4fc 50%, #b3d4f7 70%, #7db3e8 100%);
   border-bottom: 1px solid rgba(0, 0, 0, 0.3);
-  border-radius: 3px 3px 0 0;
+  /* No radius of its own - `body` clips this bar. See theme-winxp .titlebar. */
+  border-radius: 0;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(0,0,0,0.15);
 }
 body.theme-win7 .titlebar-app-name {
@@ -531,7 +590,16 @@ body.theme-win7 ::-webkit-scrollbar-thumb:hover {
 
 /* Windows 95 Teal Theme overrides */
 body.theme-win95 {
-  --bg-dark:      #008080;
+  /* --bg-dark is the recessed *content* colour: list views, text fields, the
+     log pane, the Rooms/People/photo detail panes. Windows 95 painted those
+     white. #008080 was the *desktop wallpaper*, and this app is the window,
+     not the shell around it - there is nowhere for a wallpaper colour to go.
+     Wherever it was put it ended up under text: as --bg-dark it carried
+     --text-muted (#555) at 1.56:1, and moving it to --bg-main just relocated
+     the same problem onto the Rooms/People panel and the window frame.
+     So: chrome grey and white, the two colours a Win95 window actually used.
+     Every sibling skin (98, XP, Vista, 7, Classic) is built the same way. */
+  --bg-dark:      #ffffff;
   --bg-main:      #c0c0c0;
   --bg-panel:     #c0c0c0;
   --bg-btn:       #c0c0c0;
@@ -584,7 +652,8 @@ body.theme-royalenoir .titlebar {
   height: 32px;
   background: linear-gradient(180deg, #444444 0%, #1e1e1e 50%, #0c0c0c 100%);
   border-bottom: 1px solid #141414;
-  border-radius: 6px 6px 0 0;
+  /* No radius of its own - `body` clips this bar. See theme-winxp .titlebar. */
+  border-radius: 0;
 }
 body.theme-royalenoir .titlebar-app-name {
 
@@ -838,7 +907,9 @@ body.theme-moderngreen,
 body.theme-modernlight,
 body.theme-blackandwhite,
 body.theme-blackandwhite-inverted {
-  font-family: 'Rajdhani', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+  /* No font-family here: the modern skins' face is set at the bottom of this
+     sheet, where it can also carry the brand-element overrides that go with
+     it. See MODERN SKIN TYPEFACE. */
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5) !important;
   border: 1px solid var(--border-dark) !important;
   border-radius: 12px 12px 0 0 !important;
@@ -1045,11 +1116,9 @@ body.theme-blackandwhite .version-tag {
   border: 1px solid var(--border-light) !important;
   border-radius: 8px !important;
   box-shadow: none !important;
-  /* `inherit`, not a --font-* token: the modern skins set their face on
-     <body>, and a chosen font pack overrides it there. Inheriting follows
-     whichever of the two is in force; naming a token here would pin this to
-     Tahoma and leave the badge as the one element in the sidebar not in the
-     skin's own face. */
+  /* `inherit`, not a --font-* token: naming one here would pin the badge to
+     Tahoma and leave it as the one element in the sidebar not in the skin's
+     own face. Inheriting follows whatever <body> is set to. */
   font-family: inherit !important;
   padding: 6px !important;
 }
@@ -1167,9 +1236,9 @@ body.theme-blackandwhite-inverted .wordmark-text {
   text-transform: uppercase !important;
   /* No letter-spacing here. It used to track this at 1.5px, which on a
      seven-letter network name is 10.5px of pure tracking in a row that has
-     no width to spare — enough on its own to push "VANILLA" into an ellipsis
-     once a font pack widened the letters. A logotype should keep the spacing
-     its own face was drawn with. */
+     no width to spare — enough on its own to push "VANILLA" into an
+     ellipsis under a face as wide as SF or Inter. A logotype should keep the
+     spacing its own face was drawn with. */
   font-weight: 700 !important;
 }
 
@@ -1730,7 +1799,7 @@ a:hover, .text-link:hover {
 }
 /* The brand row is icon + wordmark + caret inside a fixed-width sidebar, so
    a wide face can make the row outgrow the button and push the caret past
-   its edge — which is what Radie does on the modern skins.
+   its edge — which is what the modern skins' wider face does here.
 
    The wordmark is the part that yields. That takes min-width:0 on
    .logo-wordmark, which is the actual flex child: a flex item defaults to
@@ -2471,7 +2540,7 @@ body.theme-blackandwhite-inverted .manage-sep {
 
 /* Addressed by id, not class. The gear borrows .nav-btn for each skin's button
    styling, and the skins size and move that class for a sidebar row: `margin`
-   pins it (theme-recroom sets `margin: 2px`, which left the gear stranded
+   pins it (some skins set `margin: 2px`, which left the gear stranded
    mid-bar), `padding` leaves a 34px square button about 10px of content box
    (which squashed the gear to a sliver), and several add
    `transform: translateX(4px)` on hover — an item sliding toward the content it
@@ -2537,7 +2606,7 @@ body.theme-macosaqua #btnManageClient[aria-expanded="false"]:focus-visible {
   fill: currentColor;
   /* An inline SVG rather than the U+2699 glyph it was: that character renders
      as a thin outline in some fonts and a colour emoji in others, so the button
-     looked different depending on the font pack. This is the same solid gear
+     looked different depending on the skin. This is the same solid gear
      everywhere and takes the theme's text colour. */
   pointer-events: none;
 }
@@ -2691,8 +2760,8 @@ body.animations-enabled.theme-blackandwhite-inverted .hero-gear[aria-expanded="f
    alignment spaces via pre-wrap. */
 .log-entry { white-space: pre-wrap; word-break: break-word; }
 /* The timestamp and level columns are held open by width, not by the space
-   padding in the log string. The log is pinned to --font-log, which no font
-   pack re-points, but `ch` (the width of "0" in the active face) still beats
+   padding in the log string. The log is pinned to --font-log, which no skin
+   re-points, but `ch` (the width of "0" in the active face) still beats
    padding with spaces: it survives a missing font falling back to whatever
    monospace the platform substitutes. */
 .log-ts  { display: inline-block; min-width: 10.5ch; }
@@ -2743,7 +2812,13 @@ body.animations-enabled.theme-blackandwhite-inverted .hero-gear[aria-expanded="f
 .tgl-knob {
   position: absolute; width: 10px; height: 10px;
   background: var(--bg-btn);
-  border: 1px solid var(--border-light);
+  /* --border-dark, not --border-light. The knob is --bg-btn on a --bg-dark
+     track, and on every light skin those two are near-identical off-whites, so
+     with a light edge as well the switch showed nothing at all until it was
+     turned on: measured 1.15 on Win7, 1.22 on XP, 1.18 on Rec Room, 1.05 on
+     Modern Light. --border-dark is the one token every palette guarantees to
+     contrast with its own surfaces. */
+  border: 1px solid var(--border-dark);
   top: 1px; left: 1px;
 }
 .toggle-wrap.on .tgl-knob {
@@ -2779,7 +2854,7 @@ body.theme-blackandwhite-inverted .toast {
   border-radius: 8px !important;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
   /* Inherited for the same reason as the version badge below the sidebar:
-     follow the body's face, whether that is the skin's or a font pack's. */
+     follow whatever face the active skin sets on <body>. */
   font-family: inherit !important;
   font-size: 12px !important;
   padding: 9px 14px !important;
@@ -3115,14 +3190,17 @@ body.theme-winvista .modal-close-btn {
   border: 1px solid #551111 !important;
   background: 
     linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.25) 51%, rgba(255,255,255,0.05) 100%),
-    #d35252 !important;
+    #c23b3b !important; /* matches the window close button */
   color: #ffffff !important;
   border-radius: 2px !important;
 }
 body.theme-winvista .modal-btn {
   border-radius: 4px !important;
   border: 1px solid #707070 !important;
-  background: linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.25) 50%, rgba(0,0,0,0.03) 51%, rgba(255,255,255,0.25) 100%) !important;
+  /* Opaque, matching the action buttons above. Translucent, this resolved
+     against the modal's blue client gradient instead of its own base, so the
+     same button looked different inside a dialog than outside one. */
+  background: linear-gradient(180deg, #fdfeff 0%, #f2f6fa 50%, #e2e9f2 51%, #f2f6fa 100%) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 1px 1px 2px rgba(0,0,0,0.15) !important;
   color: #1a2a3a !important;
   transition: all 0.2s !important;
@@ -3309,7 +3387,8 @@ body.theme-royalenoir .btn-exclude-av:active {
 body.theme-winvista .btn-exclude-av {
   border-radius: 4px !important;
   border: 1px solid #707070 !important;
-  background: linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.25) 50%, rgba(0,0,0,0.03) 51%, rgba(255,255,255,0.25) 100%) !important;
+  /* Opaque, matching the action buttons above. */
+  background: linear-gradient(180deg, #fdfeff 0%, #f2f6fa 50%, #e2e9f2 51%, #f2f6fa 100%) !important;
   color: #1a2a3a !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 1px 1px 2px rgba(0,0,0,0.15) !important;
 }
@@ -3940,13 +4019,13 @@ body.theme-winvista .native-panel {
 body.theme-winvista #roomsDetailView .bevel-inset,
 body.theme-winvista #peopleDetailView .bevel-inset,
 body.theme-winvista #tab-photo-detail .bevel-inset {
-  background: rgba(226, 232, 240, 0.85) !important;
+  background: #eef2f7 !important;
 }
 body.theme-winvista .launch-panel,
 body.theme-winvista .download-section,
 body.theme-winvista .hero-section,
 body.theme-winvista .qs-card {
-  background: rgba(226, 232, 240, 0.85) !important;
+  background: #eef2f7 !important;
   border: 1px solid #708090 !important;
   border-radius: 4px !important;
   box-shadow: 0 1px 4px rgba(0,0,0,0.1) !important;
@@ -3966,11 +4045,15 @@ body.theme-winvista .mode-toggle-wrap {
 body.theme-winvista .mode-btn {
   background: #e2e8f0 !important;
   border-right: 1px solid #708090 !important;
-  color: #607080 !important;
+  color: #4a5b6c !important; /* #607080 was 4.0:1 here */
 }
+/* The selected half. It was #0088ff on rgba(255,255,255,0.6), and this control
+   sits on the dark hero, so the "translucent white" resolved to mid-grey and
+   the label came out at 1.9:1 - the active mode was the harder of the two to
+   read. Opaque highlight, and the skin's own accent instead of a stray blue. */
 body.theme-winvista .mode-btn.active {
-  background: rgba(255,255,255,0.6) !important;
-  color: #0088ff !important;
+  background: linear-gradient(180deg, #ffffff 0%, #d7e9fa 100%) !important;
+  color: #0d4d92 !important;
 }
 body.theme-winvista .photo-card {
   border: 1px solid #a0b0c0 !important;
@@ -3979,7 +4062,7 @@ body.theme-winvista .photo-card {
   box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
 }
 body.theme-winvista .photo-card:hover {
-  border-color: #0088ff !important;
+  border-color: #3c7fb1 !important; /* the hover blue the buttons use */
 }
 body.theme-winvista .photo-detail-img-wrap {
   border: 1px solid #a0b0c0 !important;
@@ -4006,6 +4089,75 @@ body.theme-winvista .panel-header h2 {
   color: #1a2a3a !important;
   text-shadow: none !important;
   font-family: 'Segoe UI', Tahoma, sans-serif !important;
+}
+
+/* Settings fields and the log pane. Vista's dialogs used plain white text
+   fields, and this skin already paints its grids and dialog surfaces white
+   (see the bevel block above) - these three were the only recessed surfaces
+   left on the flat --bg-dark, which made Settings look unfinished next to the
+   rest of the skin. XP and Win7 carry the same rule for the same reason. */
+body.theme-winvista .cfg-input,
+body.theme-winvista .cfg-path-display,
+body.theme-winvista .log-output {
+  background: #ffffff !important;
+  color: #1a2a3a !important;
+  border: 1px solid #7a8b9c !important;
+  border-radius: 3px !important;
+}
+
+/* Log severity colours. The shared palette is picked for the dark skins and
+   is unreadable on a white pane: #e6b23a measured 1.6:1 and #ff6666 2.3:1.
+   info and ok already follow --green-dim / --status-online, so only the two
+   hardcoded levels need a value here. */
+body.theme-winvista .log-entry.warn  { color: #8a5a00; }
+body.theme-winvista .log-entry.error { color: #cc0000; }
+
+/* The offline dot. --status-offline was declared in this skin's palette and
+   then never referenced by anything; the dots kept the shared #ff4444, which
+   is a dark-skin red sitting on a near-white card. */
+body.theme-winvista .qs-card.offline .qs-icon-indicator,
+body.theme-winvista .status-card.offline .sc-dot {
+  background: var(--status-offline) !important;
+}
+
+/* The switch in Settings. Off, the knob was --bg-btn (near-white) with a
+   --border-light edge on a --bg-dark track: three shades of the same
+   off-white, so the control showed nothing at all until it was switched on.
+   Vista drew these as a rounded well with a raised pill, so that is what this
+   is. Border widths are left at the base 2px on purpose - the knob is
+   positioned against that inner box, and changing it moves the knob off
+   centre. */
+body.theme-winvista .toggle-wrap {
+  background: #ffffff;
+  border-color: #7a8b9c;
+  border-radius: 9px;
+}
+body.theme-winvista .tgl-knob {
+  background: linear-gradient(180deg, #fdfefe 0%, #c3d2e0 100%);
+  border-color: #6b7c8d;
+  border-radius: 50%;
+}
+body.theme-winvista .toggle-wrap.on {
+  background: linear-gradient(180deg, #bfe0ff 0%, #8ec4f0 100%);
+  border-color: #3c7fb1;
+}
+body.theme-winvista .toggle-wrap.on .tgl-knob {
+  background: linear-gradient(180deg, #4f9fe0 0%, #0055cc 100%);
+  border-color: #004488;
+}
+
+/* Sidebar. The base draws its two dividers as 2px dashed, which is the retro
+   idiom every other rule in this skin overrides - it was the one piece of
+   Win98 left in an Aero window. Hairlines, as Win7 does. */
+body.theme-winvista .sidebar {
+  border-right: 1px solid #a8b8c8 !important;
+  box-shadow: none !important;
+}
+body.theme-winvista .sidebar-logo {
+  border-bottom: 1px solid #c3d0dd !important;
+}
+body.theme-winvista .sidebar-footer {
+  border-top: 1px solid #c3d0dd !important;
 }
 
 /* Windows 7 Aero — Override retro bevels & borders in all tabs/panels */
@@ -4997,6 +5149,13 @@ body.theme-macosclassic th {
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.15) 0%, rgba(0, 0, 0, 0.65) 100%);
 }
 
+/* Only the avatar overlaps the banner. The whole row used to be pulled up by
+   -55px, which put the handle entirely on the card below the banner and left
+   the display name straddling its edge (measured: 12px of a 24px line over the
+   banner, 0px for the handle). Both were painted white "for contrast on the
+   banner overlay", so on every light skin the name was half-legible and the
+   handle invisible. Pulling the avatar alone keeps it exactly where it was -
+   39px into the banner - and lets the text below use the card's own colours. */
 .profile-header-content {
   display: flex;
   flex-direction: row;
@@ -5004,7 +5163,6 @@ body.theme-macosclassic th {
   gap: 16px;
   align-items: flex-end;
   position: relative;
-  margin-top: -55px; /* Overlap avatar onto banner */
   z-index: 2;
 }
 
@@ -5013,6 +5171,11 @@ body.theme-macosclassic th {
   flex-shrink: 0;
   width: 80px;
   height: 80px;
+  /* Overlap the banner on its own, rather than dragging the identity text up
+     with it. flex-start pins the top so the negative margin lifts the avatar
+     instead of the row. */
+  align-self: flex-start;
+  margin-top: -55px;
 }
 
 .profile-avatar-image {
@@ -5042,8 +5205,8 @@ body.theme-macosclassic th {
 .profile-display-name {
   font-size: 20px;
   font-weight: bold;
-  color: #ffffff; /* Contrast on banner overlay */
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  /* On the card, not the banner - see .profile-header-content above. */
+  color: var(--text);
   line-height: 1.2;
 }
 
@@ -5056,9 +5219,8 @@ body.theme-macosclassic th {
 
 .profile-username {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85); /* Contrast on banner overlay */
+  color: var(--text-muted);
   font-family: var(--font-mono);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
 
 .profile-status-badge {
@@ -6477,6 +6639,17 @@ body.theme-blackandwhite-inverted .toggle-wrap.on .tgl-knob {
   background: #ffffff !important;
 }
 
+/* The off-state knob on the light modern skins. The group rule above paints it
+   #ffffff with no border, which reads on the dark skins but not here: the
+   track is --bg-dark, which is #f8fafc on Modern Light and pure white on
+   Black & White (Inverted), so the knob measured 1.05 and 1.00 against it and
+   the switch looked empty until it was turned on. The on-state knobs keep
+   their white/black, since by then the track carries the accent. */
+body.theme-modernlight .tgl-knob,
+body.theme-blackandwhite-inverted .tgl-knob {
+  background: var(--text-muted) !important;
+}
+
 /* ==========================================================================
    Black & White Theme (Dark & Light) Accents & UI Styling
    ========================================================================== */
@@ -7004,8 +7177,14 @@ body.theme-blackandwhite-inverted .people-avatar[src="logo.png"] {
 }
 .ct-radio input { margin: 0; cursor: pointer; accent-color: var(--green); }
 
+/* --bg-dark, the recessed *content* colour, not --bg-main. --bg-main is the
+   surface behind the window in some skins - dark navy on Vista, desktop teal
+   on Win95 - so painting an inset box inside a light panel with it produced a
+   dark box carrying --text and --green-dim at 1.05 and 1.45. Every skin's
+   --bg-dark is a content surface its own text is legible on, which is what the
+   inset bevel below implies this box is. */
 .ct-section {
-  background: var(--bg-main);
+  background: var(--bg-dark);
   border: 2px solid;
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 8px; display: flex; flex-direction: column; gap: 8px;
@@ -7355,372 +7534,6 @@ body.theme-macosaqua ::-webkit-scrollbar-thumb:hover { background: linear-gradie
 
 
 /* ════════════════════════════════════════════════════════════════════════
-   REC ROOM — 2020 "watch" UI: warm glassy background, vibrant glossy color
-   tiles for nav + stats, light glass panels, candy buttons. (Sounds wired in JS.)
-   ════════════════════════════════════════════════════════════════════════ */
-body.theme-recroom {
-  --bg-dark:      #ffe9c6;
-  --bg-main:      #ffdfb0;
-  --bg-panel:     rgba(255,255,255,0.78);
-  --bg-btn:       #ffffff;
-  --border-light: rgba(255,255,255,0.85);
-  --border-dark:  rgba(120,80,30,0.18);
-  --green:        #ff7a1a;       /* warm Rec Room accent */
-  --green-dim:    #e8650a;
-  --text:         #3a2a14;       /* warm dark brown — readable on light glass */
-  --text-muted:   #8a6a3a;
-  --status-online:#33ab43;
-  font-family: 'Nunito','Segoe UI',system-ui,-apple-system,sans-serif !important;
-  border: none !important;                 /* single clean rounded corner (no double outline) */
-  border-radius: 16px 16px 0 0 !important;
-  box-shadow: 0 14px 44px rgba(60,40,10,0.45) !important;
-  /* Transparent warm overlay — the desktop shows through like the in-game watch. */
-  background:
-    radial-gradient(120% 90% at 50% -20%, rgba(255,244,216,0.55) 0%, transparent 60%),
-    radial-gradient(110% 80% at 100% 105%, rgba(255,150,90,0.30), transparent 60%),
-    radial-gradient(110% 80% at 0% 105%, rgba(120,210,255,0.22), transparent 60%),
-    linear-gradient(180deg, rgba(255,225,173,0.42) 0%, rgba(255,205,148,0.38) 55%, rgba(255,188,124,0.38) 100%) !important;
-  background-attachment: fixed !important;
-  background-size: cover !important;
-}
-
-/* Make the body a stacking context so the scan band can sit BEHIND the UI. */
-body.theme-recroom { isolation: isolate !important; }
-
-/* ── Amber CRT scan band that drifts top→bottom on the background only (behind
-   all panels/tiles). It has a long fading trail above the bright head, loops
-   fully off-screen so it never pops mid-screen, and never blocks clicks. ── */
-body.theme-recroom::after {
-  content: '' !important;
-  position: absolute !important;
-  left: 0 !important; right: 0 !important;
-  top: 0 !important;
-  height: 48% !important;
-  border-radius: inherit !important;
-  pointer-events: none !important;
-  z-index: -1 !important;               /* behind the content, above the bg */
-  background:
-    repeating-linear-gradient(0deg, rgba(255,205,70,0.5) 0px, rgba(255,205,70,0.5) 1px, transparent 1px, transparent 3px),
-    linear-gradient(180deg, transparent 0%, rgba(255,196,50,0.10) 70%, rgba(255,214,96,0.30) 92%, rgba(255,236,170,0.45) 100%) !important;
-  /* Trail: invisible at the top, ramping to full at the bright head (bottom). */
-  -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.18) 55%, #000 100%) !important;
-  mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.18) 55%, #000 100%) !important;
-  filter: drop-shadow(0 0 9px rgba(255,196,50,0.5)) !important;
-  will-change: transform !important;
-  opacity: 0 !important;
-}
-body.theme-recroom.animations-enabled::after {
-  opacity: 1 !important;
-  animation: rrScanSweep 5s linear infinite !important;
-}
-@keyframes rrScanSweep {
-  0%   { transform: translateY(-110%); }
-  100% { transform: translateY(250%); }
-}
-body.theme-recroom .app-layout,
-body.theme-recroom .main-content,
-body.theme-recroom .tab-panel,
-body.theme-recroom .settings-body,
-body.theme-recroom .log-section { background: transparent !important; }
-
-/* Glassy warm titlebar */
-body.theme-recroom .titlebar {
-  height: 40px !important;
-  background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.22) 100%) !important;
-  backdrop-filter: blur(16px) saturate(150%) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
-  border-bottom: 1px solid rgba(255,255,255,0.55) !important;
-  /* The window (body) is already rounded 16px with overflow:hidden, so it clips
-     the titlebar to that curve. Rounding the titlebar again here inset a second,
-     smaller arc within the body's corner — the visible "double corner". Keep the
-     titlebar square and let the body provide the single rounded corner. */
-  border-radius: 0 !important;
-  padding: 0 12px !important;
-}
-body.theme-recroom .titlebar-app-name { color: #6b4a1e !important; font-weight: 800 !important; letter-spacing: .5px !important; text-shadow: 0 1px 0 rgba(255,255,255,0.6) !important; }
-body.theme-recroom .tb-ctrl {
-  width: 28px !important; height: 22px !important; border-radius: 9px !important;
-  background: rgba(255,255,255,0.55) !important; border: 1px solid rgba(255,255,255,0.7) !important; color: #6b4a1e !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.8) !important;
-}
-body.theme-recroom .tb-ctrl:hover { background: #ff9a3c !important; border-color: #ff8a1a !important; color: #fff !important; }
-body.theme-recroom .tb-ctrl.cls:hover { background: #ff5e5b !important; border-color: #ff5e5b !important; color: #fff !important; }
-
-/* Glassy warm sidebar */
-body.theme-recroom .sidebar {
-  background: linear-gradient(180deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.28) 100%) !important;
-  backdrop-filter: blur(18px) saturate(150%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(150%) !important;
-  border-right: 1px solid rgba(255,255,255,0.55) !important;
-  box-shadow: inset -1px 0 0 rgba(255,255,255,0.5) !important;
-}
-body.theme-recroom .sidebar-logo,
-body.theme-recroom .sidebar-footer { border-color: rgba(150,110,50,0.25) !important; }
-
-/* Vibrant glossy watch-style nav tiles (one colour each) */
-body.theme-recroom .nav-btn {
-  margin: 6px 2px !important;
-  padding: 12px 12px !important;
-  border-radius: 18px !important;
-  border: 1px solid rgba(255,255,255,0.5) !important;
-  color: #ffffff !important; font-weight: 800 !important; text-align: center !important; letter-spacing: .5px !important;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.35) !important;
-  /* 3D raised watch tile: glossy top, curved-bottom shade, extruded base, float */
-  box-shadow:
-    inset 0 2px 1px rgba(255,255,255,0.7),
-    inset 0 -7px 11px rgba(0,0,0,0.22),
-    0 6px 0 rgba(0,0,0,0.18),
-    0 13px 18px -6px rgba(40,25,5,0.5) !important;
-  transition: transform .1s ease, box-shadow .1s ease, filter .12s ease !important;
-}
-body.theme-recroom .nav-btn:hover {
-  transform: translateY(-2px) !important; filter: brightness(1.07) !important;
-  box-shadow:
-    inset 0 2px 1px rgba(255,255,255,0.75),
-    inset 0 -7px 11px rgba(0,0,0,0.22),
-    0 8px 0 rgba(0,0,0,0.18),
-    0 17px 24px -6px rgba(40,25,5,0.55) !important;
-}
-body.theme-recroom .nav-btn:active {
-  transform: translateY(3px) !important;
-  box-shadow:
-    inset 0 2px 5px rgba(0,0,0,0.32),
-    0 1px 0 rgba(0,0,0,0.18),
-    0 4px 9px -3px rgba(40,25,5,0.5) !important;
-}
-body.theme-recroom .nav-btn.active {
-  transform: translateY(-1px) !important;
-  box-shadow:
-    inset 0 2px 1px rgba(255,255,255,0.8),
-    inset 0 -7px 11px rgba(0,0,0,0.2),
-    0 0 0 2px rgba(255,255,255,0.85),
-    0 7px 0 rgba(0,0,0,0.18),
-    0 15px 22px -6px rgba(40,25,5,0.55) !important;
-}
-body.theme-recroom #nav-home     { background: linear-gradient(180deg, #ff7d72 0%, #e2392f 100%) !important; }
-body.theme-recroom #nav-rooms    { background: linear-gradient(180deg, #3fd0c9 0%, #1d9b96 100%) !important; }
-body.theme-recroom #nav-people   { background: linear-gradient(180deg, #ff90bd 0%, #ef5d97 100%) !important; }
-body.theme-recroom #nav-status   { background: linear-gradient(180deg, #5cb3ff 0%, #1f7fe0 100%) !important; }
-body.theme-recroom #nav-settings { background: linear-gradient(180deg, #a684ff 0%, #7a3fe0 100%) !important; }
-
-/* Light glass panels (dark text for readability) */
-body.theme-recroom .launch-panel,
-body.theme-recroom .download-section,
-body.theme-recroom .settings-group,
-body.theme-recroom .bevel-inset,
-body.theme-recroom .bevel-outset,
-body.theme-recroom .border,
-body.theme-recroom .native-grid-container,
-body.theme-recroom .native-table-container,
-body.theme-recroom .photo-card,
-body.theme-recroom .modal-box {
-  background: rgba(255,255,255,0.74) !important;
-  backdrop-filter: blur(14px) saturate(160%) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
-  border: 1px solid rgba(255,255,255,0.75) !important;
-  border-radius: 18px !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 8px 24px -10px rgba(120,70,20,0.4) !important;
-  color: #3a2a14 !important;
-}
-/* Console stays dark so coloured log text remains legible */
-body.theme-recroom .log-output {
-  background: rgba(20,28,40,0.9) !important;
-  border: 1px solid rgba(255,255,255,0.16) !important;
-  border-radius: 14px !important;
-  color: #e8eef5 !important;
-}
-body.theme-recroom .panel-header { border-bottom: 1px solid rgba(150,110,50,0.25) !important; }
-
-/* Colourful watch-style stat tiles */
-body.theme-recroom .qs-card {
-  border: 1px solid rgba(255,255,255,0.55) !important;
-  border-radius: 20px !important; color: #ffffff !important;
-  box-shadow:
-    inset 0 2px 1px rgba(255,255,255,0.65),
-    inset 0 -9px 14px rgba(0,0,0,0.2),
-    0 7px 0 rgba(0,0,0,0.16),
-    0 15px 22px -8px rgba(40,25,5,0.45) !important;
-  transition: transform .12s ease, box-shadow .12s ease, filter .12s ease !important;
-}
-body.theme-recroom .qs-card:hover {
-  transform: translateY(-2px) !important; filter: brightness(1.05) !important;
-  box-shadow:
-    inset 0 2px 1px rgba(255,255,255,0.7),
-    inset 0 -9px 14px rgba(0,0,0,0.2),
-    0 9px 0 rgba(0,0,0,0.16),
-    0 19px 26px -8px rgba(40,25,5,0.5) !important;
-}
-body.theme-recroom #qsc-status  { background: linear-gradient(180deg, #6fe07a 0%, #33ab43 100%) !important; }
-body.theme-recroom #qsc-players { background: linear-gradient(180deg, #5cb3ff 0%, #1f7fe0 100%) !important; }
-body.theme-recroom #qsc-client  { background: linear-gradient(180deg, #ffc24a 0%, #f08a1f 100%) !important; }
-body.theme-recroom .qs-card .qs-label,
-body.theme-recroom .qs-card .qs-value {
-  color: #ffffff !important;
-  font-weight: 800 !important;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.38) !important;
-}
-body.theme-recroom .qs-card .qs-label { letter-spacing: .4px !important; opacity: .95 !important; }
-/* The status dot is a white pip on the tile rather than a coloured square. */
-body.theme-recroom .qs-card .qs-icon-indicator {
-  border-radius: 50% !important;
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.55) !important;
-}
-
-/* Mode toggle pill */
-body.theme-recroom .mode-toggle-wrap { background: rgba(255,255,255,0.5) !important; border: 1px solid rgba(255,255,255,0.6) !important; border-radius: 20px !important; overflow: hidden !important; }
-body.theme-recroom .mode-btn { background: transparent !important; color: #7a5a2a !important; border: none !important; font-weight: 700 !important; }
-body.theme-recroom .mode-btn.active { background: linear-gradient(180deg, #ff9a3c, #f0731a) !important; color: #fff !important; border-radius: 18px !important; }
-
-/* Progress bar — a soft rounded capsule rather than the retro block ticker,
-   which suits this theme and matches the watch's rounded language. Being a
-   solid fill, applyBarFill() gives it exact percentages instead of snapping
-   to whole blocks. */
-body.theme-recroom .dlp-bar-wrap {
-  background: rgba(255,255,255,0.55) !important;
-  border: 1px solid rgba(255,255,255,0.7) !important;
-  border-radius: 999px !important;
-  overflow: hidden !important;
-  box-shadow: inset 0 2px 4px rgba(120,80,30,0.18) !important;
-}
-body.theme-recroom .dlp-bar-fill {
-  background: linear-gradient(180deg, #ffb04a 0%, #f0731a 100%) !important;
-  border-radius: 999px !important;
-  transition: width 0.25s ease !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55) !important;
-}
-
-/* Secondary buttons — colour-coded watch-menu tiles.
-   The in-game menu never uses neutral buttons: every action is a saturated
-   tile with a bold white label, a light rim, an extruded bottom edge and a
-   press that pushes the tile down into its own shadow. Each action borrows
-   the hue of its closest counterpart on the watch. */
-body.theme-recroom .btn-refresh,
-body.theme-recroom .btn-save,
-body.theme-recroom .btn-test-server,
-body.theme-recroom .btn-cancel-dl,
-body.theme-recroom .btn-open-folder,
-body.theme-recroom .btn-reinstall,
-body.theme-recroom .btn-uninstall,
-body.theme-recroom .btn-kill,
-body.theme-recroom .btn-exclude-av,
-body.theme-recroom .modal-btn,
-body.theme-recroom .launch-secondary-actions button {
-  --rr-top:  #a684ff;
-  --rr-face: #7a3fe0;
-  --rr-edge: #5a27b5;
-  background: linear-gradient(180deg, var(--rr-top) 0%, var(--rr-face) 100%) !important;
-  border: 1px solid rgba(255,255,255,0.45) !important;
-  border-radius: 16px !important;
-  color: #ffffff !important; font-weight: 800 !important;
-  letter-spacing: .3px !important;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.32) !important;
-  box-shadow:
-    inset 0 2px 1px rgba(255,255,255,0.55),
-    inset 0 -6px 10px rgba(0,0,0,0.20),
-    0 4px 0 var(--rr-edge),
-    0 10px 15px -6px rgba(40,25,5,0.5) !important;
-  transition: transform .1s ease, box-shadow .1s ease, filter .12s ease !important;
-}
-/* Per-action hues, mirroring the watch-menu tile colours. Qualified with
-   `button` so these match the specificity of the `.launch-secondary-actions
-   button` selector above and win on source order — without it the group
-   default repaints every one of these buttons purple. */
-body.theme-recroom button.btn-open-folder { --rr-top:#3fd0c9; --rr-face:#1d9b96; --rr-edge:#15736f; }
-body.theme-recroom button.btn-reinstall   { --rr-top:#5cb3ff; --rr-face:#1f7fe0; --rr-edge:#1660ab; }
-body.theme-recroom button.btn-exclude-av  { --rr-top:#a684ff; --rr-face:#7a3fe0; --rr-edge:#5a27b5; }
-body.theme-recroom button.btn-test-server { --rr-top:#6fe07a; --rr-face:#33ab43; --rr-edge:#248232; }
-body.theme-recroom button.btn-uninstall,
-body.theme-recroom button.btn-cancel-dl,
-body.theme-recroom button.btn-kill,
-body.theme-recroom button.modal-btn-danger { --rr-top:#ff7d72; --rr-face:#e2392f; --rr-edge:#ab2620; }
-body.theme-recroom .btn-refresh:hover,
-body.theme-recroom .btn-save:hover,
-body.theme-recroom .btn-test-server:hover,
-body.theme-recroom .btn-cancel-dl:hover,
-body.theme-recroom .btn-open-folder:hover,
-body.theme-recroom .btn-reinstall:hover,
-body.theme-recroom .btn-uninstall:hover,
-body.theme-recroom .btn-kill:hover,
-body.theme-recroom .btn-exclude-av:hover,
-body.theme-recroom .modal-btn:hover,
-body.theme-recroom .launch-secondary-actions button:hover {
-  transform: translateY(-2px) !important;
-  filter: brightness(1.06) !important;
-  box-shadow:
-    inset 0 2px 1px rgba(255,255,255,0.6),
-    inset 0 -6px 10px rgba(0,0,0,0.20),
-    0 6px 0 var(--rr-edge),
-    0 14px 20px -6px rgba(40,25,5,0.55) !important;
-}
-body.theme-recroom .btn-refresh:active,
-body.theme-recroom .btn-save:active,
-body.theme-recroom .btn-test-server:active,
-body.theme-recroom .btn-cancel-dl:active,
-body.theme-recroom .btn-open-folder:active,
-body.theme-recroom .btn-reinstall:active,
-body.theme-recroom .btn-uninstall:active,
-body.theme-recroom .btn-kill:active,
-body.theme-recroom .btn-exclude-av:active,
-body.theme-recroom .modal-btn:active,
-body.theme-recroom .launch-secondary-actions button:active {
-  transform: translateY(3px) !important;
-  box-shadow:
-    inset 0 2px 6px rgba(0,0,0,0.3),
-    0 1px 0 var(--rr-edge),
-    0 4px 9px -3px rgba(40,25,5,0.5) !important;
-}
-
-/* Primary buttons — vibrant green candy gel */
-body.theme-recroom .btn-play,
-body.theme-recroom .btn-download-big,
-body.theme-recroom .modal-btn-primary {
-  background: linear-gradient(180deg, #74e57f 0%, #2faa3e 100%) !important;
-  border: 1px solid #238a31 !important; border-radius: 16px !important;
-  color: #ffffff !important; font-weight: 800 !important; text-shadow: 0 1px 3px rgba(0,60,15,0.45) !important;
-  box-shadow:
-    inset 0 2px 1px rgba(255,255,255,0.7),
-    inset 0 -7px 11px rgba(0,80,20,0.3),
-    0 6px 0 #1f7a2c,
-    0 13px 18px -6px rgba(20,90,30,0.55) !important;
-  transition: transform .1s ease, box-shadow .1s ease, filter .12s ease !important;
-}
-body.theme-recroom .btn-play:hover,
-body.theme-recroom .btn-download-big:hover,
-body.theme-recroom .modal-btn-primary:hover {
-  background: linear-gradient(180deg, #88ef92 0%, #34bd46 100%) !important;
-  transform: translateY(-2px) !important;
-  box-shadow:
-    inset 0 2px 1px rgba(255,255,255,0.8),
-    inset 0 -7px 11px rgba(0,80,20,0.3),
-    0 8px 0 #1f7a2c,
-    0 17px 24px -6px rgba(20,90,30,0.6) !important;
-}
-body.theme-recroom .btn-play:active,
-body.theme-recroom .btn-download-big:active,
-body.theme-recroom .modal-btn-primary:active {
-  transform: translateY(3px) !important;
-  box-shadow: inset 0 2px 6px rgba(0,60,15,0.4), 0 1px 0 #1f7a2c, 0 4px 9px -3px rgba(20,90,30,0.5) !important;
-}
-
-/* Inputs — white rounded */
-body.theme-recroom .cfg-input,
-body.theme-recroom input[type="text"],
-body.theme-recroom textarea,
-body.theme-recroom select {
-  background: rgba(255,255,255,0.92) !important; border: 1px solid rgba(120,80,30,0.25) !important; border-radius: 12px !important;
-  color: #3a2a14 !important; box-shadow: inset 0 1px 2px rgba(120,70,20,0.15) !important;
-}
-body.theme-recroom .cfg-input:focus,
-body.theme-recroom input[type="text"]:focus,
-body.theme-recroom textarea:focus,
-body.theme-recroom select:focus { border-color: #ff7a1a !important; box-shadow: 0 0 0 3px rgba(255,150,70,0.3) !important; outline: none !important; }
-
-/* Warm scrollbar */
-body.theme-recroom ::-webkit-scrollbar { width: 10px !important; background: transparent !important; }
-body.theme-recroom ::-webkit-scrollbar-thumb { background: rgba(255,150,70,0.5) !important; border-radius: 6px !important; border: none !important; }
-body.theme-recroom ::-webkit-scrollbar-thumb:hover { background: rgba(255,130,40,0.75) !important; }
-
-/* ════════════════════════════════════════════════════════════════════════
    FIXES — modal titlebar theming
    ════════════════════════════════════════════════════════════════════════ */
 
@@ -7730,22 +7543,11 @@ body.theme-recroom ::-webkit-scrollbar-thumb:hover { background: rgba(255,130,40
 /* The newer themes restyled .modal-box but not its titlebar/close button, so
    the title bar fell back to the default green. Theme them to match. */
 
-/* Rec Room */
-body.theme-recroom .modal-titlebar {
-  background: linear-gradient(90deg, #ff8a3c 0%, #ff5e9e 100%) !important;
-  border-bottom: none !important; border-radius: 18px 18px 0 0 !important;
-}
-body.theme-recroom .modal-title { color: #ffffff !important; text-shadow: 0 1px 2px rgba(0,0,0,0.25) !important; }
-body.theme-recroom .modal-close-btn {
-  background: rgba(255,255,255,0.25) !important; border: 1px solid rgba(255,255,255,0.55) !important;
-  color: #ffffff !important; border-radius: 8px !important;
-}
-body.theme-recroom .modal-close-btn:hover { background: #ff5e5b !important; border-color: #ff5e5b !important; color: #ffffff !important; }
-
 /* Steam 2010 */
 body.theme-steam2010 .modal-titlebar {
   background: linear-gradient(180deg, #4c4c4c 0%, #2f2f2f 100%) !important;
-  border-bottom: 1px solid #161616 !important; border-radius: 3px 3px 0 0 !important;
+  border-bottom: 1px solid #161616 !important;
+  border-radius: 0 !important; /* clipped by .modal-box */
 }
 body.theme-steam2010 .modal-title { color: #cfcfcf !important; text-shadow: 0 1px 1px #000 !important; }
 body.theme-steam2010 .modal-close-btn {
@@ -7757,7 +7559,8 @@ body.theme-steam2010 .modal-close-btn:hover { background: #b3413b !important; bo
 /* Mac OS X Aqua */
 body.theme-macosaqua .modal-titlebar {
   background: linear-gradient(180deg, #f6f6f6 0%, #d8d8d8 100%) !important;
-  border-bottom: 1px solid #b0b0b0 !important; border-radius: 10px 10px 0 0 !important;
+  border-bottom: 1px solid #b0b0b0 !important;
+  border-radius: 0 !important; /* clipped by .modal-box */
 }
 body.theme-macosaqua .modal-title { color: #3a3a3a !important; text-shadow: 0 1px 0 rgba(255,255,255,0.8) !important; }
 body.theme-macosaqua .modal-close-btn {
@@ -7769,13 +7572,27 @@ body.theme-macosaqua .modal-close-btn {
 body.theme-macosaqua .modal-close-btn:hover { filter: brightness(1.08) !important; }
 
 /* ── Transparent-window corner fixes ── */
-/* Root must be transparent so the body's rounded corners reveal the desktop
-   (not a white corner) on the transparent window. */
-html { background: transparent !important; background-color: transparent !important; }
+/* The root has to stay see-through so `body`'s rounded corners reveal the
+   desktop behind this (undecorated, transparent) window - but it cannot get
+   there via `background: transparent`, which is what this rule used to say.
+
+   The canvas takes its background from the *body* whenever the root's
+   background-image is `none` and its background-color is transparent, and it
+   paints that as a full-viewport rectangle with square corners, ignoring
+   body's border-radius. So `background: transparent` here did the opposite of
+   what it intended: it handed --bg-main to the canvas, which then stuck out
+   past the rounded frame as a second, squared-off corner. Very visible on the
+   XP skin, whose --bg-main is a pale blue against a dark desktop.
+
+   Declaring a background-image that draws nothing satisfies "not none", so the
+   propagation stops, and the root still paints nothing at all. */
+html {
+  background-color: transparent !important;
+  background-image: linear-gradient(transparent, transparent) !important;
+}
 
 /* Clip modal titlebar/footer to the rounded modal-box corners so they don't
    poke out as square notches. */
-body.theme-recroom .modal-box,
 body.theme-steam2010 .modal-box,
 body.theme-macosaqua .modal-box,
 body.theme-win7 .modal-box { overflow: hidden !important; }
@@ -7969,215 +7786,59 @@ body.theme-win98 .toggle-wrap.on .tgl-knob {
   border-color: #000080;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   FONT PACKS
-   Settings → Theme → Font swaps a `font-*` class on <body>. Each pack
-   only re-points --font-ui / --font-mono, so every rule in this sheet
-   that already uses those variables follows along for free.
+/* ══════════════════════════════════════════════════════════════════
+   MODERN SKIN TYPEFACE
 
-   Placed at the very end of the file on purpose: the shared modern
-   layout block sets `font-family: ... !important` on `body.theme-*`,
-   which has the same specificity as `body.font-*`. Later wins, so the
-   user's font choice has to be declared after it.
+   The modern skins run on the iOS system face; the retro skins keep the
+   Tahoma / Lucida Console pair from :root. There is no font setting — the
+   skin decides, so a face never lands on a skin it was not chosen against.
 
-   The @font-face blocks declare `font-weight: 100 900` over files that
-   each hold one static weight. Neither brand face has a real bold, and
-   this sheet carries 112 `font-weight: bold` rules; claiming the range
-   marks the face as an exact match at any weight, so no platform ever
-   fabricates a bold variant out of it.
-   ═══════════════════════════════════════════════════════════════════ */
+   Declared as --font-ui / --font-mono rather than a bare font-family, so
+   every rule in this sheet that already reads those tokens follows along.
 
-/* ── Radium brand faces (shipped from the creator kit) ────────────── */
+   Placed at the very end of the file on purpose: the shared modern layout
+   block above sets several properties `!important` on the same
+   `body.theme-*` selectors, which is equal specificity. Later wins.
+   ══════════════════════════════════════════════════════════════════ */
 
-/* Futura Cyrillic Bold carries the UI. It is a true text face: 389
-   glyphs, real lowercase, only ~6% wider than Tahoma, and it carries a
-   `gasp` table, so it grid-fits and stays crisp down at 8-11px. */
-@font-face {
-  font-family: 'Radium UI';
-  src: url('assets/fonts/futura-cyrillic-bold.ttf') format('truetype');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-/* Radie is the logo face, and only that. It draws lowercase as capital
-   letterforms, runs ~60% wider than Tahoma, and — being an unhinted CFF
-   display face with no `gasp` — goes soft and mushy at UI sizes. Using
-   it for body text is what made the launcher look stretched and blurry,
-   so it is scoped to the brand moments below. */
-@font-face {
-  font-family: 'Radium Display';
-  src: url('assets/fonts/radie-regular.otf') format('opentype');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-/* An installed Minecraft face, wrapped so a Regular-only file gets the
-   same weight-range treatment as the brand faces above. */
-@font-face {
-  font-family: 'Minecraft Pack';
-  src: local('Minecraft'), local('Minecraftia'), local('Monocraft'),
-       local('MinecraftRegular'), local('Minecraft Regular');
-  font-weight: 100 900;
-  font-style: normal;
-}
-
-/* ── The packs ────────────────────────────────────────────────────── */
-
-/* iOS — real San Francisco when the system has it (macOS/iOS, or a
-   Windows box with SF Pro installed), Inter as the web stand-in. Both
-   ship real weights, so nothing here needs a synthesis guard. */
-body.font-ios {
+/* Real San Francisco when the machine has it (macOS/iOS, or a Windows box
+   with SF Pro installed), Inter as the web stand-in. Both ship real weights,
+   so this sheet's 112 `font-weight: bold` rules never make a platform
+   fabricate a bold out of a single-weight file. */
+body.theme-moderndark,
+body.theme-moderngreen,
+body.theme-modernlight,
+body.theme-blackandwhite,
+body.theme-blackandwhite-inverted {
   --font-ui:   -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
                'Inter', 'Helvetica Neue', 'Segoe UI', sans-serif;
   --font-mono: 'SF Mono', 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
-}
-
-/* The sidebar wordmark, across every pack.
-
-   The modern skins set `letter-spacing: 1.5px !important` on this element,
-   tuned for the stock face. On a seven-letter network name that is 10.5px of
-   pure tracking — on its own enough to push "VANILLA" into an ellipsis — and
-   the !important means even an inline style could not override it. The packs
-   opt out so the budget goes to the letters instead of the gaps between them.
-
-   Sizes below are set to leave real slack, not to just barely fit: the face
-   that actually renders depends on what is installed and whether the Google
-   fonts reached the machine, and metrics differ enough between those that an
-   exact fit here truncates on a real install. */
-/* Inter/SF run wider than the Lucida Console this row was laid out against.
-   15px leaves ~13px to spare measured against the widest face the stack can
-   fall back to, which is the margin that was missing when this truncated. */
-body.font-ios .wordmark-text { font-size: 15px; }
-
-/* Minecraft — a locally installed face first, else the Pixelify Sans pixel
-   webfont, which ships a real bold. */
-body.font-minecraft {
-  --font-ui:   'Minecraft Pack', 'Pixelify Sans', 'Lucida Console', monospace;
-  --font-mono: 'Minecraft Pack', 'Pixelify Sans', 'Lucida Console', monospace;
-}
-
-/* Radium — Radie on everything, by explicit request.
-
-   Radie is a display face: 99 codepoints, no lowercase (it draws minuscule
-   letters as capitals), ~60% wider than Tahoma, unhinted CFF outlines. It
-   is doing a job it was not cut for, so the rules under this block exist to
-   make that survivable rather than to second-guess it.
-
-   Futura sits directly behind it in every stack. That is load-bearing, not
-   decorative: Radie has no arrows, box-drawing, ticks or window-control
-   glyphs, so without a real second face those characters would scatter
-   across whatever each platform happened to substitute. */
-body.font-radium {
-  --font-ui:      'Radium Display', 'Radium UI', 'Century Gothic',
-                  'Segoe UI Symbol', sans-serif;
-  --font-display: 'Radium Display', 'Radium UI', 'Century Gothic',
-                  'Segoe UI Symbol', sans-serif;
-  --font-mono:    'Radium Display', 'Radium UI', 'Century Gothic',
-                  'Segoe UI Symbol', monospace;
-}
-
-/* This sheet adds tracking to ~42 rules, tuned for Tahoma and Lucida
-   Console. Radie already carries far more sidebearing than either, so that
-   tracking now lands on top of a face that does not need it and pushes
-   labels into their container edges. Pull it back to neutral and let the
-   font's own spacing do the work. */
-body.font-radium .sg-title,
-body.font-radium .ds-title,
-body.font-radium .qs-label,
-body.font-radium .sc-label,
-body.font-radium .ls-header,
-body.font-radium .mode-label,
-body.font-radium .dlp-phase,
-body.font-radium .dlp-bottom,
-body.font-radium .nav-btn,
-body.font-radium .titlebar-app-name {
-  letter-spacing: 0;
-}
-
-/* The sidebar brand row. Radie is ~60% wider per character than the faces
-   this row was laid out for, so at the stock 16px the wordmark plus the
-   38px mark, the gaps and the caret no longer fit the sidebar — the caret
-   ends up outside the button on the modern skins, which are the tightest.
-
-   The wordmark is what shrinks, since it is the part that got wider: at
-   12px Radie the logotype still occupies roughly the same width as the
-   other packs do at 16px, and leaves ~12px to spare. "VANILLA" is the
-   binding case at 7 characters, not "RADIUM" — size against that one or it
-   fits until the user switches network. The mark keeps its designed 38px. */
-body.font-radium .wordmark-text { font-size: 12px; }
-
-/* Radie has no hinting, so the 8-9px readouts this UI is full of collapse
-   into grey mush. Lift the floor to where the outlines still resolve. */
-body.font-radium .dlp-bottom,
-body.font-radium .qs-label,
-body.font-radium .sc-label,
-body.font-radium .ls-header,
-body.font-radium .sg-title,
-body.font-radium .mode-label,
-body.font-radium .ds-title,
-body.font-radium .hero-status-inline,
-body.font-radium .dlp-sub,
-body.font-radium .cfg-hint {
-  font-size: 10px;
-}
-
-/* Radie has no tabular figures — its GSUB table carries only 'liga' — so
-   `font-variant-numeric: tabular-nums` had nothing to select here and was
-   removed rather than left in looking load-bearing. The counting percentage
-   is instead held open by width, which works whatever the face. */
-body.font-radium .dlp-pct {
-  /* No `display` here: .dlp-top is a flex container, so this span is already
-     blockified and sizes to its content. min-width holds the box at the width
-     of the widest value it will ever show ("100%"), so the digits stop
-     shoving the phase label around as the download counts up. */
-  min-width: 4ch;
-  text-align: right;
-}
-
-/* Beat the modern-theme `font-family: 'Rajdhani' ... !important` on
-   <body> so a chosen pack applies on every skin, not just retro ones. */
-body.font-ios,
-body.font-minecraft,
-body.font-radium {
   font-family: var(--font-ui) !important;
 }
 
-/* The handful of places that hardcode a face for a specific skin's
-   flavour — a font pack is an explicit user choice, so it overrules
-   the skin here too. */
-body.font-ios .hero-title,
-body.font-minecraft .hero-title,
-body.font-radium .hero-title,
-body.font-ios .titlebar-app-name,
-body.font-minecraft .titlebar-app-name,
-body.font-radium .titlebar-app-name,
-body.font-ios .wordmark-text,
-body.font-minecraft .wordmark-text,
-body.font-radium .wordmark-text {
+/* The titlebar name reads --font-mono from its base rule. On these skins that
+   is SF Mono, which is not what the rest of the brand row is set in — the
+   wordmark next to it already inherits the UI face. Match them. */
+body.theme-moderndark .titlebar-app-name,
+body.theme-moderngreen .titlebar-app-name,
+body.theme-modernlight .titlebar-app-name,
+body.theme-blackandwhite .titlebar-app-name,
+body.theme-blackandwhite-inverted .titlebar-app-name {
   font-family: var(--font-ui) !important;
 }
 
-/* Radie earns its width here and nowhere else. */
-body.font-radium .hero-title,
-body.font-radium .titlebar-app-name,
-body.font-radium .wordmark-text {
-  font-family: var(--font-display) !important;
-}
-
-/* Pixel faces have no hinting below ~10px and turn to mush, so lift the
-   smallest readouts to where the grid still resolves. */
-body.font-minecraft {
-  font-size: 13px;
-}
-body.font-minecraft .dlp-bottom,
-body.font-minecraft .qs-label,
-body.font-minecraft .sc-label,
-body.font-minecraft .ls-header,
-body.font-minecraft .sg-title,
-body.font-minecraft .mode-label,
-body.font-minecraft .ds-title,
-body.font-minecraft .hero-status-inline {
-  font-size: 10px;
+/* The sidebar wordmark. SF and Inter run wider than the Lucida Console this
+   row was laid out against, so at the stock 16px "VANILLA" — seven letters,
+   the binding case, not "RADIUM" — truncated. 15px leaves ~13px to spare
+   measured against the widest face the stack can fall back to, which is the
+   margin that was missing. Sized to leave real slack rather than to just
+   barely fit: which face actually renders depends on what is installed and
+   whether the Google font reached the machine, and their metrics differ
+   enough that an exact fit here truncates on a real install. */
+body.theme-moderndark .wordmark-text,
+body.theme-moderngreen .wordmark-text,
+body.theme-modernlight .wordmark-text,
+body.theme-blackandwhite .wordmark-text,
+body.theme-blackandwhite-inverted .wordmark-text {
+  font-size: 15px;
 }

@@ -9,7 +9,7 @@
   <title>Radium Launcher</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=Orbitron:wght@400;500;700;900&family=Inter:wght@400;700&family=Pixelify+Sans:wght@400;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -152,8 +152,7 @@
              per-theme rules paint these buttons through it. -->
         <!-- Rows keep the btn-* classes every theme was authored against, so
              each skin paints them as it always has: bevelled on the Win9x
-             skins, flat on the modern ones, and in theme-recroom's case a
-             different hue per action. `launch-secondary-actions` is the
+             skins, flat on the modern ones. `launch-secondary-actions` is the
              container hook a dozen of those rules go through. .manage-item then
              carries the menu layout on top, forced by id because those same
              rules size the buttons for a row rather than a list. -->
@@ -548,25 +547,6 @@
 
         <div class="settings-body">
 
-
-
-          <!-- Launch options. Listed per network for the same reason the
-               install locations below are: the two are different client builds
-               that take different flags, and a flag that suits one can stop the
-               other from starting. Both rows are shown at once so setting the
-               inactive network's options doesn't mean switching to it and back. -->
-          <div class="settings-group">
-            <div class="sg-title">LAUNCH OPTIONS</div>
-            <div class="sg-row">
-              <label for="cfgLaunchOptionsRadium">Radium Client</label>
-              <input type="text" id="cfgLaunchOptionsRadium" class="cfg-input" placeholder="e.g. -fullscreen -windowed" />
-            </div>
-            <div class="sg-row">
-              <label for="cfgLaunchOptionsVanilla">Vanilla Client</label>
-              <input type="text" id="cfgLaunchOptionsVanilla" class="cfg-input" placeholder="e.g. -fullscreen -windowed" />
-            </div>
-          </div>
-
           <!-- Install locations. Both networks are listed together on purpose:
                each installs into its own folder, and when only the active
                network had a row here, pointing Vanilla somewhere else meant
@@ -595,7 +575,6 @@
             <div class="sg-row">
               <label for="cfgTheme">Active Skin</label>
               <select id="cfgTheme" class="cfg-input">
-                <option value="recroom">Rec Room</option>
                 <option value="steam-green">Steam 2003 Green</option>
                 <option value="steam2010">Steam 2010</option>
                 <option value="win98">Windows 98 Gray</option>
@@ -611,19 +590,6 @@
                 <option value="moderngreen">Modern Forest Green</option>
                 <option value="blackandwhite">Black & White</option>
                 <option value="blackandwhite-inverted">Black & White (Inverted)</option>
-              </select>
-            </div>
-
-            <!-- Font pack. Independent of the skin: it only re-points the
-                 --font-ui / --font-mono variables, so it composes with every
-                 skin above and with a custom theme. -->
-            <div class="sg-row">
-              <label for="cfgFont">Font</label>
-              <select id="cfgFont" class="cfg-input">
-                <option value="default">Theme Default</option>
-                <option value="ios">iOS (San Francisco)</option>
-                <option value="minecraft">Minecraft</option>
-                <option value="radium">Radium</option>
               </select>
             </div>
           </div>
@@ -652,7 +618,6 @@
                 <select id="themeTemplateSelect" class="cfg-input"
                         title="Fills the colours below with a built-in skin's palette, as a starting point">
                   <option value="" disabled selected>Pick a skin to copy...</option>
-                  <option value="recroom">Rec Room</option>
                   <option value="steam-green">Steam 2003 Green</option>
                   <option value="steam2010">Steam 2010</option>
                   <option value="win98">Windows 98 Gray</option>

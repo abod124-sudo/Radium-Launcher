@@ -236,16 +236,11 @@ pub fn launch_game(
 
 /// Spawn a legacy `.bat` launch script via `cmd /c start`. The path is quoted
 /// explicitly (via `raw_arg`) so a client directory containing characters like
-/// `&` — legal in Windows folder names — can't break cmd's parsing. Launch
-/// options are already validated to exclude quotes and shell metacharacters.
+/// `&` — legal in Windows folder names — can't break cmd's parsing.
 #[cfg(target_os = "windows")]
-fn spawn_bat(exe_path: &str, launch_opts: &str, work_dir: &str) -> std::io::Result<std::process::Child> {
+fn spawn_bat(exe_path: &str, work_dir: &str) -> std::io::Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
-    let mut line = format!("start \"\" \"{}\"", exe_path);
-    for opt in launch_opts.split_whitespace() {
-        line.push(' ');
-        line.push_str(opt);
-    }
+    let line = format!("start \"\" \"{}\"", exe_path);
     let mut cmd = Command::new("cmd.exe");
     cmd.raw_arg("/c")
         .raw_arg(line)
@@ -255,12 +250,9 @@ fn spawn_bat(exe_path: &str, launch_opts: &str, work_dir: &str) -> std::io::Resu
 }
 
 #[cfg(not(target_os = "windows"))]
-fn spawn_bat(exe_path: &str, launch_opts: &str, work_dir: &str) -> std::io::Result<std::process::Child> {
+fn spawn_bat(exe_path: &str, work_dir: &str) -> std::io::Result<std::process::Child> {
     let mut cmd = Command::new("cmd.exe");
     cmd.arg("/c").arg("start").arg("").arg(exe_path);
-    for opt in launch_opts.split_whitespace() {
-        cmd.arg(opt);
-    }
     cmd.current_dir(work_dir);
     cmd.spawn()
 }
@@ -326,34 +318,13 @@ fn launch_game_impl(
         .map(|f| f.to_string_lossy().to_lowercase())
         .unwrap_or_default();
 
-    // Launch options are per-network, like the install directory: the two are
-    // different builds that take different flags, and one client's flag can
-    // stop the other from starting. Radium's arrive as a flat config field;
-    // Vanilla's live in its own sub-object and are read from disk, the same
-    // way its exe path is above.
-    let launch_opts = match network {
-        config::Network::Radium => config
-            .get("launchOptions")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        config::Network::Vanilla => cfg.vanilla.launch_options.clone(),
-    };
-    let launch_opts = launch_opts.trim();
-
-    // Shares its list with the save path, so nothing can be stored from
-    // Settings that is then refused here.
-    if !config::launch_options_are_safe(launch_opts) {
-        return Err("Launch options contain invalid or dangerous characters.".into());
-    }
-
     // 6. Spawn the process (DETACHED_PROCESS = 0x00000008)
     #[cfg(target_os = "windows")]
     use std::os::windows::process::CommandExt;
 
     let is_bat = file_lower.ends_with(".bat");
     let child = if is_bat {
-        spawn_bat(&exe_path, launch_opts, &work_dir)
+        spawn_bat(&exe_path, &work_dir)
             .map_err(|e| format!("Failed to launch batch file: {}", e))?
     } else {
         let mut cmd = Command::new(exe);
@@ -361,9 +332,6 @@ fn launch_game_impl(
         // is launched plain.
         if file_lower == "recroom.exe" {
             cmd.arg(if play_mode == "vr" { "+mode:vr" } else { "+mode:screen" });
-        }
-        for opt in launch_opts.split_whitespace() {
-            cmd.arg(opt);
         }
         cmd.current_dir(&work_dir);
         #[cfg(target_os = "windows")]

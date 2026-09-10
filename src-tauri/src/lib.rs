@@ -230,13 +230,6 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             if bad_dir(&cfg.install_dir) || bad_dir(&cfg.vanilla.install_dir) {
                 return false;
             }
-            // Both networks' options are user-settable, so both get checked,
-            // against the same list the launch path uses.
-            if !config::launch_options_are_safe(&cfg.launch_options)
-                || !config::launch_options_are_safe(&cfg.vanilla.launch_options)
-            {
-                return false;
-            }
 
             // Preserve backend-managed fields from the on-disk config. The
             // settings UI keeps a full in-memory copy of the config and writes
@@ -556,14 +549,10 @@ async fn submit_bug_report(
                         "value": format!(
                             "Minimize on Launch: {}
 Close on Launch: {}
-Install Location: {}
-Launch Options (Radium): {}
-Launch Options (Vanilla): {}",
+Install Location: {}",
                             cfg.minimize_on_launch,
                             cfg.close_on_launch,
-                            if cfg.install_dir.is_empty() { "Default" } else { "Custom" },
-                            if cfg.launch_options.is_empty() { "None" } else { &cfg.launch_options },
-                            if cfg.vanilla.launch_options.is_empty() { "None" } else { &cfg.vanilla.launch_options }
+                            if cfg.install_dir.is_empty() { "Default" } else { "Custom" }
                         ),
                         "inline": false
                     }

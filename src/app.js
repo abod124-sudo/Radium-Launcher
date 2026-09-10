@@ -123,21 +123,6 @@ function setConfigInstallDir(dir, network = activeNetwork) {
   }
 }
 
-/// Launch options are per-network for the same reason install directories are:
-/// the two are different client builds that take different flags. Radium's live
-/// on the flat `config.launchOptions`, Vanilla's on
-/// `config.vanilla.launchOptions`.
-function configLaunchOptions(network = activeNetwork) {
-  if (!config) return '';
-  return (network === 'vanilla' ? config.vanilla?.launchOptions : config.launchOptions) || '';
-}
-
-/// The Settings input for a network's launch options. Both rows exist at once,
-/// so every read and write has to name which network it means.
-function launchOptionsInput(network = activeNetwork) {
-  return $(network === 'vanilla' ? 'cfgLaunchOptionsVanilla' : 'cfgLaunchOptionsRadium');
-}
-
 /// The Settings path span for a network. Both rows exist at once, so every
 /// read and write of a displayed path has to name which network it means.
 function installDirSpan(network = activeNetwork) {
@@ -1088,9 +1073,6 @@ async function loadConfig() {
   if (!config.apiUrl)   config.apiUrl   = 'https://api.radie.app/';
   if (!config.playMode) config.playMode = 'screen';
 
-  setValue('cfgLaunchOptionsRadium', configLaunchOptions('radium'));
-  setValue('cfgLaunchOptionsVanilla', configLaunchOptions('vanilla'));
-
   setToggle('tgl-minimizeOnLaunch', config.minimizeOnLaunch !== false);
   setToggle('tgl-closeOnLaunch',    config.closeOnLaunch    === true);
   setToggle('tgl-autoUpdate',       config.autoUpdate       !== false);
@@ -1153,13 +1135,6 @@ async function loadConfig() {
 
   applyTheme(activeTheme);
 
-  // Font pack. Order against applyTheme does not matter — each rebuilds
-  // body.className filtering only its own prefix, so neither can wipe the
-  // other. Read back from applyFont so an unknown value in config.json falls
-  // back to 'default' in the dropdown too, not just on <body>.
-  const activeFont = applyFont(config.font || 'default');
-  setValue('cfgFont', activeFont);
-
   // Defender Exclusion State
   const btnExcludeAv = $('btnExcludeAv');
   if (btnExcludeAv) {
@@ -1173,35 +1148,6 @@ async function loadConfig() {
   // Both install rows, not just the active network's — after applyNetworkUI so
   // the ACTIVE tag lands on the row the loaded config actually selected.
   await refreshInstallDirRows();
-}
-
-// Every font pack the Font dropdown can select. Keeping the list here (rather
-// than reading the <option> values) means applyFont can reject a stale or
-// hand-edited config value instead of stamping a junk class onto <body>.
-const FONT_PACKS = ['default', 'ios', 'minecraft', 'radium'];
-
-// Swaps the `font-*` class on <body>. Each pack re-points --font-ui and
-// --font-mono in style.css; 'default' just removes the class and lets the
-// active skin's own faces show through.
-function applyFont(font) {
-  const pack = FONT_PACKS.includes(font) ? font : 'default';
-
-  document.body.className = document.body.className
-    .split(' ')
-    .filter(c => c && !c.startsWith('font-'))
-    .join(' ');
-
-  if (pack !== 'default') document.body.classList.add('font-' + pack);
-
-  // Mirrored to localStorage for boot.js, which replays it before first paint.
-  // Without this the pack can only land after the getConfig() IPC resolves, so
-  // the window paints in the theme's stock face and then reflows — the packs
-  // change body font-size and eight readout sizes, so the jump is visible.
-  try {
-    localStorage.setItem('radium-font', pack);
-  } catch (e) {}
-
-  return pack;
 }
 
 /// The custom palette is written as its own <style>, separate from the bulk of
@@ -2137,49 +2083,6 @@ $('cfgTheme')?.addEventListener('change', () => {
   autoSaveTheme(selectedTheme, null);
 });
 
-// Persists just the font pack, same shape as autoSaveTheme: the choice
-// should survive a restart without the user hitting "Save Settings".
-async function autoSaveFont(newFont) {
-  if (!config || Object.keys(config).length === 0) return; // config not loaded yet
-  try {
-    const ok = await window.radium?.saveConfig({ ...config, font: newFont });
-    if (ok) {
-      // Merge onto whatever `config` holds *now*, not onto the snapshot taken
-      // before the await. Three functions write the whole config (this one,
-      // autoSaveTheme, autoSaveSettings); assigning a pre-await snapshot would
-      // roll back any field a save that resolved in the meantime had set.
-      config = { ...config, font: newFont };
-    } else {
-      // A `false` return is a validation refusal from cmd_save_config, not an
-      // exception, so the catch below never sees it. Say so — the pack is
-      // applied to the DOM either way, and staying silent means the user finds
-      // out only when it reverts on the next launch.
-      console.warn('autoSaveFont: backend rejected the config write');
-      reportFontSaveFailure();
-    }
-  } catch (e) {
-    console.warn('autoSaveFont: failed to persist', e);
-    reportFontSaveFailure();
-  }
-}
-
-// Mirrors how autoSaveSettings reports a failed write: a line in the Logs tab
-// so it is discoverable after the fact, and an indicator that fades rather
-// than sticking on screen.
-function reportFontSaveFailure() {
-  addLog('Font change could not be saved — it will revert on restart.', 'error');
-  showAutosaveIndicator('error', '✕ Font not saved');
-  setTimeout(() => {
-    const el = $('autosaveIndicator');
-    if (el) el.classList.remove('visible');
-  }, 2000);
-}
-
-$('cfgFont')?.addEventListener('change', () => {
-  const selectedFont = applyFont($('cfgFont').value);
-  autoSaveFont(selectedFont);
-});
-
 $('tgl-customTheme')?.addEventListener('click', () => {
   const customOn = !getToggle('tgl-customTheme');
   setToggle('tgl-customTheme', customOn);
@@ -2425,19 +2328,6 @@ const THEME_PRESETS = {
     text:        '#1a1a1a',
     textMuted:   '#666666',
     statusOnline:'#28c840'
-  },
-  'recroom': {
-    bgDark:      '#ffe9c6',
-    bgMain:      '#ffdfb0',
-    bgPanel:     '#fff6e6',
-    bgBtn:       '#ffffff',
-    borderLight: '#ffffff',
-    borderDark:  '#c9963f',
-    green:       '#ff7a1a',
-    greenDim:    '#e8650a',
-    text:        '#3a2a14',
-    textMuted:   '#8a6a3a',
-    statusOnline:'#33ab43'
   }
 };
 
@@ -2708,8 +2598,6 @@ $('resetThemeConfirmBtn')?.addEventListener('click', async () => {
 // Replaces the old manual Save button. Collects the full settings state and
 // persists it to config.json. A small indicator in the header gives feedback.
 
-let _autoSaveTimer = null;
-
 function showAutosaveIndicator(state, text) {
   const el = $('autosaveIndicator');
   if (!el) return;
@@ -2761,18 +2649,11 @@ async function autoSaveSettings() {
     playMode,
     theme:            saveTheme,
     baselineTheme:    selectedTheme,
-    font:             $('cfgFont')?.value || 'default',
-    launchOptions:    launchOptionsInput('radium')?.value.trim() || '',
     customTheme:      customColors,
-    network:          activeNetwork,
-    // Spread through rather than replaced: the install fields in here are owned
-    // by the Change / Reset Folder buttons and the backend, and this form must
-    // not clobber them. Launch options are the one thing in it this form does
-    // own, so that key — and only that key — is overwritten.
-    vanilla: {
-      ...(config.vanilla || {}),
-      launchOptions: launchOptionsInput('vanilla')?.value.trim() || ''
-    }
+    network:          activeNetwork
+    // No `vanilla` key here either, for the same reason as `installDir`: every
+    // field in that sub-object is owned by the Change / Reset Folder buttons or
+    // by the backend, so the `...config` spread carries it through untouched.
   };
 
   config.customTheme  = customColors;
@@ -2803,18 +2684,6 @@ async function autoSaveSettings() {
     if (el) el.classList.remove('visible');
   }, 2000);
 }
-
-// Debounce helper for text inputs — waits 800ms after the user stops typing
-function debounceAutoSave() {
-  clearTimeout(_autoSaveTimer);
-  _autoSaveTimer = setTimeout(autoSaveSettings, 800);
-}
-
-// Wire up text inputs. Both networks' launch options, so editing the inactive
-// network's row saves the same way the active one's does.
-$('cfgLaunchOptionsRadium')?.addEventListener('input', debounceAutoSave);
-$('cfgLaunchOptionsVanilla')?.addEventListener('input', debounceAutoSave);
-
 
 // Check client installation state
 /// One log line per session about a set-aside folder, not one per autosave.
