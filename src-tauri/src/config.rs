@@ -96,6 +96,11 @@ impl Network {
 pub struct VanillaState {
     pub install_dir: String,
     pub game_exe_path: String,
+    /// Arguments passed to Vanilla's client. Per-network for the same reason
+    /// the install directory is: the two are different builds that take
+    /// different flags, and a flag that is right for one can stop the other
+    /// from starting. The flat `Config::launch_options` stays Radium's.
+    pub launch_options: String,
     /// Where to download the Vanilla client zip from. Empty until Vanilla
     /// actually ships a build - vanillarec.net currently lists every platform
     /// as "coming soon" with no download link, so the UI falls back to opening
@@ -112,6 +117,7 @@ impl Default for VanillaState {
         Self {
             install_dir: String::new(),
             game_exe_path: String::new(),
+            launch_options: String::new(),
             client_url: String::new(),
             client_version: String::new(),
             client_etag: String::new(),
@@ -459,6 +465,38 @@ pub fn path_is_inside_dir(path: &str, dir: &str) -> bool {
             norm_dir(path).starts_with(&dir)
         }
     }
+}
+
+/// Characters refused in launch options, as code points.
+///
+/// These reach a process spawn, so anything a shell would treat as syntax is
+/// out: command separators, redirection, quoting, substitution and newlines.
+const LAUNCH_OPTION_METACHARS: &[u32] = &[
+    0x3B, // ;   command separator
+    0x26, // &   background / chain
+    0x7C, // |   pipe
+    0x5E, // ^   cmd.exe escape
+    0x60, // `   substitution
+    0x24, // $   substitution
+    0x25, // %   cmd.exe variable
+    0x3E, // >   redirect out
+    0x3C, // <   redirect in
+    0x22, // "   double quote
+    0x27, // '   single quote
+    0x0D, //     carriage return
+    0x0A, //     line feed
+];
+
+/// Whether `options` is safe to pass to the client.
+///
+/// One function rather than a copy at each call site. The save path and the
+/// launch path used to carry their own lists, and the two had drifted: saving
+/// accepted quotes that launching then rejected, so Settings could store
+/// options that made the game refuse to start with no hint as to why.
+pub fn launch_options_are_safe(options: &str) -> bool {
+    !options
+        .chars()
+        .any(|c| LAUNCH_OPTION_METACHARS.contains(&(c as u32)))
 }
 
 /// Whether `dir` contains a game client. Uses the same lookup as launching, so
@@ -1321,5 +1359,73 @@ mod tests {
             r"C:/data/client/RecRoom.exe",
             r"C:\data\client"
         ));
+    }
+
+    #[test]
+    fn launch_options_reject_everything_a_shell_would_read_as_syntax() {
+        assert!(launch_options_are_safe("-fullscreen -windowed"));
+        assert!(launch_options_are_safe(""));
+        assert!(launch_options_are_safe("-width 1920 -height 1080"));
+
+        for bad in [
+            "-a; calc",
+            "-a & calc",
+            "-a | calc",
+            "-a > out.txt",
+            "-a < in.txt",
+            "-a ^ b",
+            "-a `whoami`",
+            "-a $HOME",
+            "-a %APPDATA%",
+        ] {
+            assert!(!launch_options_are_safe(bad), "{bad:?} was accepted");
+        }
+
+        // Newlines, spelled by code point so the test is checking the byte
+        // rather than whatever an editor left in the file.
+        let cr = char::from_u32(0x0D).unwrap();
+        let lf = char::from_u32(0x0A).unwrap();
+        assert!(!launch_options_are_safe(&format!("-a{cr}calc")));
+        assert!(!launch_options_are_safe(&format!("-a{lf}calc")));
+
+        // Quotes. The save path used to allow these while the launch path
+        // refused them, so options could be stored that would not start.
+        let single = char::from_u32(0x27).unwrap();
+        let double = char::from_u32(0x22).unwrap();
+        assert!(!launch_options_are_safe(&format!("-name {single}a b{single}")));
+        assert!(!launch_options_are_safe(&format!("-name {double}a b{double}")));
+    }
+
+    #[test]
+    fn each_network_keeps_its_own_launch_options() {
+        // The two are different client builds taking different flags, so a
+        // config round trip must not let one network's options land on the
+        // other's slot - the bug the per-network install directory already had.
+        let mut cfg = Config::default();
+        cfg.launch_options = "-radium-only".to_string();
+        cfg.vanilla.launch_options = "-vanilla-only".to_string();
+
+        let json = serde_json::to_string(&cfg).expect("the config should serialize");
+        assert!(
+            json.contains("\"launchOptions\":\"-radium-only\""),
+            "Radium's options are not on the flat camelCase field: {json}"
+        );
+
+        let back: Config = serde_json::from_str(&json).expect("and deserialize");
+        assert_eq!(back.launch_options, "-radium-only");
+        assert_eq!(back.vanilla.launch_options, "-vanilla-only");
+    }
+
+    #[test]
+    fn a_config_written_before_vanilla_had_launch_options_still_loads() {
+        // #[serde(default)] on both the struct and the field is what keeps an
+        // existing config.json - which has no vanilla.launchOptions at all -
+        // from failing to parse and resetting every setting the user has.
+        let old = r#"{"launchOptions":"-keep-me","vanilla":{"installDir":"C:/v"}}"#;
+        let cfg: Config = serde_json::from_str(old).expect("an older config should still load");
+
+        assert_eq!(cfg.launch_options, "-keep-me");
+        assert_eq!(cfg.vanilla.install_dir, "C:/v");
+        assert_eq!(cfg.vanilla.launch_options, "");
     }
 }

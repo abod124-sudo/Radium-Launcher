@@ -4,6 +4,7 @@ pub mod download;
 pub mod game;
 pub mod scraper;
 pub mod server;
+pub mod thumbs;
 pub mod updater;
 pub mod vanilla;
 
@@ -24,6 +25,45 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_shell::init())
+        // Every remote image in the UI is loaded through here rather than
+        // straight from its origin, so it arrives downscaled to the size the
+        // card draws it at and is kept on disk. See the `thumbs` module for
+        // what that is worth: Vanilla's room images are 2560x1440 PNGs served
+        // with no cache headers at all.
+        //
+        // Asynchronous, so a slow origin blocks only its own `<img>` rather
+        // than the webview's main thread.
+        .register_asynchronous_uri_scheme_protocol("radiumimg", |_ctx, request, responder| {
+            let target = thumb_request(request.uri());
+            tauri::async_runtime::spawn(async move {
+                responder.respond(match target {
+                    Some((url, width)) => match thumbs::thumbnail(&url, width).await {
+                        // The content type comes back with the bytes: a
+                        // thumbnail is JPEG unless the source needed an alpha
+                        // channel, in which case it stays PNG.
+                        Ok((bytes, mime)) => tauri::http::Response::builder()
+                            .status(200)
+                            .header("Content-Type", mime)
+                            // A custom scheme is a separate origin from the
+                            // page, so this matches what Tauri's own asset
+                            // protocol sends. `<img>` does not need it, but
+                            // anything that ever reads one of these with
+                            // fetch() would.
+                            .header("Access-Control-Allow-Origin", "*")
+                            // The bytes are already keyed by URL and width and
+                            // are re-derived on a miss, so letting the webview
+                            // hold them saves even the file read.
+                            .header("Cache-Control", "public, max-age=86400")
+                            .body(bytes)
+                            .unwrap_or_else(|_| empty_response(500)),
+                        // The `<img>` fires `error` and the shared handler in
+                        // app.js swaps in the bundled placeholder.
+                        Err(_) => empty_response(502),
+                    },
+                    None => empty_response(400),
+                });
+            });
+        })
         .invoke_handler(tauri::generate_handler![
             // Config
             cmd_get_config,
@@ -38,6 +78,7 @@ pub fn run() {
             server::fetch_user_rooms,
             server::fetch_user_feed,
             server::fetch_recent_photos,
+            server::prefetch_network_data,
             // Scraper
             scraper::fetch_room_web_details,
             scraper::fetch_user_web_details,
@@ -79,6 +120,17 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
 
+            // The scheme handler above runs without an app handle, so the
+            // thumbnail directory has to be resolved here and handed over.
+            // Under the cache dir rather than app data: losing it costs a
+            // refetch, and nothing in it is worth backing up.
+            thumbs::init(
+                app.path()
+                    .app_cache_dir()
+                    .unwrap_or_else(|_| std::env::temp_dir().join("radium-launcher"))
+                    .join("thumbs"),
+            );
+
             // Start game monitoring background task
             game::start_game_monitor(app_handle.clone());
 
@@ -99,6 +151,57 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// The image URL and width a `radiumimg://` request is asking for.
+///
+/// Tauri hands the request as an absolute URI, which on Windows is
+/// `http://radiumimg.localhost/thumb?...` and elsewhere `radiumimg://thumb?...`
+/// — so only the query is read, and the host and path are ignored rather than
+/// matched against a platform-specific shape.
+///
+/// Returns `None` for anything malformed; the URL itself is checked against the
+/// allowed image hosts in `thumbs`, not here.
+fn thumb_request(uri: &tauri::http::Uri) -> Option<(String, u32)> {
+    let query = uri.query()?;
+    let mut url = None;
+    let mut width = None;
+
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=')?;
+        match key {
+            "url" => url = Some(percent_decode(value)),
+            "w" => width = value.parse::<u32>().ok(),
+            _ => {}
+        }
+    }
+    Some((url?, width?))
+}
+
+/// Undo the `encodeURIComponent` the frontend applied to the image URL.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn empty_response(status: u16) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(status)
+        .body(Vec::new())
+        .expect("a status-only response is always well-formed")
 }
 
 // Config commands - thin wrappers that pass the app handle
@@ -127,8 +230,11 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             if bad_dir(&cfg.install_dir) || bad_dir(&cfg.vanilla.install_dir) {
                 return false;
             }
-            let opt = &cfg.launch_options;
-            if opt.contains(';') || opt.contains('&') || opt.contains('|') || opt.contains('\r') || opt.contains('\n') || opt.contains('`') || opt.contains('$') || opt.contains('%') || opt.contains('>') || opt.contains('<') || opt.contains('^') {
+            // Both networks' options are user-settable, so both get checked,
+            // against the same list the launch path uses.
+            if !config::launch_options_are_safe(&cfg.launch_options)
+                || !config::launch_options_are_safe(&cfg.vanilla.launch_options)
+            {
                 return false;
             }
 
@@ -448,11 +554,16 @@ async fn submit_bug_report(
                     {
                         "name": "Options",
                         "value": format!(
-                            "Minimize on Launch: {}\nClose on Launch: {}\nInstall Location: {}\nLaunch Options: {}",
+                            "Minimize on Launch: {}
+Close on Launch: {}
+Install Location: {}
+Launch Options (Radium): {}
+Launch Options (Vanilla): {}",
                             cfg.minimize_on_launch,
                             cfg.close_on_launch,
                             if cfg.install_dir.is_empty() { "Default" } else { "Custom" },
-                            if cfg.launch_options.is_empty() { "None" } else { &cfg.launch_options }
+                            if cfg.launch_options.is_empty() { "None" } else { &cfg.launch_options },
+                            if cfg.vanilla.launch_options.is_empty() { "None" } else { &cfg.vanilla.launch_options }
                         ),
                         "inline": false
                     }
@@ -533,4 +644,48 @@ async fn submit_bug_report(
     LAST_SUBMISSION_TIME.store(now, Ordering::SeqCst);
 
     Ok("Bug report successfully submitted. Thank you!".to_string())
+}
+
+#[cfg(test)]
+mod csp_tests {
+    /// The CSP is written twice — `app.security.csp` in `tauri.conf.json`, and a
+    /// `<meta http-equiv>` in `index.html` — and a browser enforces the
+    /// *intersection* of the two. A source added to only one is therefore still
+    /// blocked, silently, and only at runtime. That is exactly how the
+    /// `radiumimg:` thumbnail scheme first shipped: allowed in the config,
+    /// missing from the meta tag, so every room image failed to load.
+    #[test]
+    fn the_two_copies_of_the_csp_agree() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("the config is JSON");
+        let configured = conf["app"]["security"]["csp"]
+            .as_str()
+            .expect("tauri.conf.json declares a csp");
+
+        let html = include_str!("../../src/index.html");
+        let meta = html
+            .split_once(r#"http-equiv="Content-Security-Policy" content=""#)
+            .and_then(|(_, rest)| rest.split_once('"'))
+            .map(|(csp, _)| csp)
+            .expect("index.html declares a CSP meta tag");
+
+        // Compared directive by directive: the two differ in whitespace and in
+        // whether they end with a `;`, neither of which changes the policy.
+        let directives = |csp: &str| {
+            let mut parts: Vec<String> = csp
+                .split(';')
+                .map(|d| d.split_whitespace().collect::<Vec<_>>().join(" "))
+                .filter(|d| !d.is_empty())
+                .collect();
+            parts.sort();
+            parts
+        };
+
+        assert_eq!(
+            directives(configured),
+            directives(meta),
+            "the CSP in tauri.conf.json and the one in src/index.html have drifted; \
+             whichever source is missing from either is blocked at runtime"
+        );
+    }
 }

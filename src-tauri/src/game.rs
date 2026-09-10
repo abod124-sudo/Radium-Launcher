@@ -326,18 +326,24 @@ fn launch_game_impl(
         .map(|f| f.to_string_lossy().to_lowercase())
         .unwrap_or_default();
 
-    let launch_opts = config
-        .get("launchOptions")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim();
+    // Launch options are per-network, like the install directory: the two are
+    // different builds that take different flags, and one client's flag can
+    // stop the other from starting. Radium's arrive as a flat config field;
+    // Vanilla's live in its own sub-object and are read from disk, the same
+    // way its exe path is above.
+    let launch_opts = match network {
+        config::Network::Radium => config
+            .get("launchOptions")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        config::Network::Vanilla => cfg.vanilla.launch_options.clone(),
+    };
+    let launch_opts = launch_opts.trim();
 
-    // Validate launch options (block shell metacharacters)
-    if launch_opts.contains(';') || launch_opts.contains('&') || launch_opts.contains('|') || 
-       launch_opts.contains('\r') || launch_opts.contains('\n') || launch_opts.contains('`') || 
-       launch_opts.contains('$') || launch_opts.contains('%') || launch_opts.contains('>') || 
-       launch_opts.contains('<') || launch_opts.contains('^') || launch_opts.contains('\'') || 
-       launch_opts.contains('"') {
+    // Shares its list with the save path, so nothing can be stored from
+    // Settings that is then refused here.
+    if !config::launch_options_are_safe(launch_opts) {
         return Err("Launch options contain invalid or dangerous characters.".into());
     }
 

@@ -24,6 +24,9 @@ zip = "2"
 regex = "1"
 futures-util = "0.3"
 rfd = "0.15"
+# Decode/resize/re-encode only. Default features pull in every format there is;
+# the images this touches are the PNGs and JPEGs the two networks serve.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
@@ -31,6 +34,18 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Threading",
 ] }
+
+# Optimise dependencies even in dev builds, while leaving this crate itself
+# unoptimised so an edit still recompiles quickly.
+#
+# Without this, `npm run dev` runs the `image` crate and its PNG inflate at
+# opt-level 0, where downscaling one 2560x1440 room thumbnail takes 1.36 s
+# against 0.10 s built with optimisations — measured 2026-09-10 on the same
+# file. A grid of twelve cards is the difference between a moment of work and
+# a visibly stuttering desktop. Dependencies are compiled once and cached, so
+# this costs one slow rebuild and nothing after it.
+[profile.dev.package."*"]
+opt-level = 3
 
 [profile.release]
 panic = "abort"

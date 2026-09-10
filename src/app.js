@@ -123,6 +123,21 @@ function setConfigInstallDir(dir, network = activeNetwork) {
   }
 }
 
+/// Launch options are per-network for the same reason install directories are:
+/// the two are different client builds that take different flags. Radium's live
+/// on the flat `config.launchOptions`, Vanilla's on
+/// `config.vanilla.launchOptions`.
+function configLaunchOptions(network = activeNetwork) {
+  if (!config) return '';
+  return (network === 'vanilla' ? config.vanilla?.launchOptions : config.launchOptions) || '';
+}
+
+/// The Settings input for a network's launch options. Both rows exist at once,
+/// so every read and write has to name which network it means.
+function launchOptionsInput(network = activeNetwork) {
+  return $(network === 'vanilla' ? 'cfgLaunchOptionsVanilla' : 'cfgLaunchOptionsRadium');
+}
+
 /// The Settings path span for a network. Both rows exist at once, so every
 /// read and write of a displayed path has to name which network it means.
 function installDirSpan(network = activeNetwork) {
@@ -250,6 +265,12 @@ function otherNetworkInstallDir(network) {
     fetchUserRooms:       (args) => invoke('fetch_user_rooms', { args: { ...args, network: activeNetwork } }),
     fetchUserFeed:        (args) => invoke('fetch_user_feed', { args: { ...args, network: activeNetwork } }),
     fetchRecentPhotos:    (args) => invoke('fetch_recent_photos', { args: { ...args, network: activeNetwork } }),
+    // Fire-and-forget: warms the active network's caches so the first visit to
+    // Rooms or People reads a list that is already downloaded. Callers don't
+    // await it, so a failure is swallowed here rather than surfacing as an
+    // unhandled rejection — there is nothing to tell the user, and the tab
+    // that needs the data will fetch it itself.
+    prefetchNetworkData:  ()     => invoke('prefetch_network_data', { network: activeNetwork }).catch(() => {}),
     fetchPhotoWebDetails: (photoId) => invoke('fetch_photo_web_details', { photoId: String(photoId), network: activeNetwork }),
     fetchPhotoComments:   (photoId) => invoke('fetch_photo_comments', { photoId: String(photoId), network: activeNetwork }),
 
@@ -329,33 +350,121 @@ document.addEventListener('error', handleImageSettled, true);
 // don't have them and fall through to the existing behaviour.
 const RADIUM_IMG_BASE = 'https://img.radie.app';
 
-function roomThumbUrl(room, width) {
+/// Base URL of the launcher's thumbnail cache.
+///
+/// Tauri serves a custom scheme as `http://<scheme>.localhost` on Windows and
+/// `<scheme>://localhost` everywhere else. Rather than sniff the platform, ask
+/// Tauri how it rewrites the asset protocol and take the same shape — the
+/// backend reads only the query, so the host and path don't have to match.
+const THUMB_BASE = (() => {
+  try {
+    // Hands back the fully-formed origin for this platform with the path we
+    // passed on the end, which is exactly the shape we want — and it keeps
+    // working if Tauri ever changes how it rewrites schemes.
+    const built = window.__TAURI_INTERNALS__.convertFileSrc('thumb', 'radiumimg');
+    if (built) return built;
+  } catch (e) { /* fall through */ }
+  return navigator.userAgent.includes('Windows')
+    ? 'http://radiumimg.localhost/thumb'
+    : 'radiumimg://localhost/thumb';
+})();
+
+/// Point an `<img>` at the launcher's thumbnail cache instead of the origin.
+///
+/// The backend fetches the image once, scales it to `width` and keeps the
+/// result on disk. This matters most on Vanilla, which serves room images as
+/// the file the game uploaded: measured 2026-09-09, a room thumbnail is a
+/// 2560x1440 PNG of about 3 MB — drawn in a card roughly 200 px wide. Twelve of
+/// those is ~35 MB off the network and well over a hundred megabytes of decoded
+/// bitmap, and since the responses carry no cache headers whatsoever it was
+/// paid again on every single visit to the tab.
+///
+/// `width` is the size the element is drawn at in CSS pixels. It is multiplied
+/// by the display's pixel ratio here, in one place, so every caller can name
+/// the size from its own stylesheet and not think about it. Windows defaults to
+/// 125% or 150% scaling on most laptops, and asking for a 480 px image to fill
+/// a 480 px box on a 1.5x screen is a 1.5x upscale — which reads as a blurry
+/// thumbnail, not as a scaling setting.
+///
+/// Local paths (`./images.png`) and anything that isn't http(s) come back
+/// untouched — there is nothing to fetch or shrink.
+function thumbSrc(url, width) {
+  if (!url || !/^https?:\/\//i.test(url)) return url;
+  return `${THUMB_BASE}?url=${encodeURIComponent(url)}&w=${devicePx(width)}`;
+}
+
+/// Device pixels for a size given in CSS pixels.
+///
+/// Clamped at 3 so an unusual display setting can't turn a thumbnail request
+/// into a demand for an enormous image. Shared with the Radium CDN URLs below,
+/// which name their own size in the query string: asking the CDN for 96 px and
+/// then asking the thumbnail cache for 144 got a 96 px image stretched to 144,
+/// which is exactly the blur this was meant to remove.
+function devicePx(cssWidth) {
+  const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
+  return Math.round(cssWidth * ratio);
+}
+
+/// Source width needed to fill a *square* avatar slot `cssSize` across.
+///
+/// Every avatar in the app is a square box with `object-fit: cover`, and the
+/// pictures behind them are usually not square. Vanilla lets a player use any
+/// screenshot as a profile picture, and most are 16:9 — measured 2026-09-10,
+/// two of three sampled profile pictures were 2560x1440, and only one was a
+/// square 256x256. Cover crops to the shorter side, so a 16:9 source
+/// contributes just 9/16 of its width to a square slot: sizing the request by
+/// the slot's width gets a picture that is sharp in a landscape card and
+/// visibly soft here. Square or portrait sources need less than this, and are
+/// over-asked for slightly rather than the common case being under-asked.
+const AVATAR_SOURCE_ASPECT = 16 / 9;
+function avatarWidth(cssSize) {
+  return Math.round(cssSize * AVATAR_SOURCE_ASPECT);
+}
+
+/// Where a room's image really lives, before the thumbnail cache. Used
+/// directly only where the full-resolution original is the point.
+function roomSourceUrl(room, width) {
   if (!room) return './images.png';
   if (room.ThumbUrl) return room.ThumbUrl;
   const name = room.ImageName || room.imageName || '';
-  return name ? `${RADIUM_IMG_BASE}/${name}?width=${width}` : './images.png';
+  return name ? `${RADIUM_IMG_BASE}/${name}?width=${devicePx(width)}` : './images.png';
 }
 
-function photoImageUrl(photo, width) {
+function roomThumbUrl(room, width) {
+  return thumbSrc(roomSourceUrl(room, width), width);
+}
+
+/// See [roomSourceUrl].
+function photoSourceUrl(photo, width) {
   if (!photo) return './images.png';
   if (photo.ThumbUrl) return photo.ThumbUrl;
   const name = photo.ImageName || photo.imageName || '';
-  return name ? `${RADIUM_IMG_BASE}/${name}?width=${width}` : './images.png';
+  return name ? `${RADIUM_IMG_BASE}/${name}?width=${devicePx(width)}` : './images.png';
+}
+
+function photoImageUrl(photo, width) {
+  return thumbSrc(photoSourceUrl(photo, width), width);
 }
 
 /// Placeholder avatar for a network. Radium has a real DefaultProfileImage on
 /// its CDN; Vanilla has no such asset, so fall back to the bundled image.
 function defaultAvatarUrl(width) {
   if (activeNetwork !== 'radium') return './images.png';
-  return `${RADIUM_IMG_BASE}/DefaultProfileImage?width=${width}&cropSquare=1`;
+  return thumbSrc(`${RADIUM_IMG_BASE}/DefaultProfileImage?width=${devicePx(width)}&cropSquare=1`, width);
 }
 
-function personAvatarUrl(person, width) {
-  if (!person) return defaultAvatarUrl(width);
-  if (person.AvatarUrl) return person.AvatarUrl;
+/// `size` is the width of the square slot in CSS pixels, not the width of the
+/// image to fetch — see [avatarWidth], which is what turns one into the other.
+function personAvatarUrl(person, size) {
+  if (!person) return defaultAvatarUrl(size);
+  // Vanilla hands back the picture at whatever shape the player uploaded, so
+  // the cover crop has to be paid for.
+  if (person.AvatarUrl) return thumbSrc(person.AvatarUrl, avatarWidth(size));
   const name = person.profileImage || '';
-  if (!name || name === 'DefaultProfileImage') return defaultAvatarUrl(width);
-  return `${RADIUM_IMG_BASE}/${name}?width=${width}&cropSquare=1`;
+  if (!name || name === 'DefaultProfileImage') return defaultAvatarUrl(size);
+  // Radium's CDN crops to a square itself (`cropSquare=1`), so what comes back
+  // already fills the slot and its width is the slot's width.
+  return thumbSrc(`${RADIUM_IMG_BASE}/${name}?width=${devicePx(size)}&cropSquare=1`, size);
 }
 
 // ── Network photo feed ───────────────────────────────────────────────────
@@ -408,7 +517,7 @@ function applyPhotoAttribution(card, { creatorName, creatorUsername, roomName, a
     const avatarEl = card.querySelector('.creator-avatar');
     if (avatarEl) {
       avatarEl.classList.add('image-loading-placeholder');
-      avatarEl.src = avatar;
+      avatarEl.src = thumbSrc(avatar, avatarWidth(36));
     }
   }
 }
@@ -450,7 +559,8 @@ function buildPhotoCard(photo, backToView) {
   card.innerHTML = `
     <div class="feed-post-header">
       <img class="feed-post-avatar creator-avatar image-loading-placeholder"
-           src="${escapeHtml(photo.CreatorAvatarUrl || defaultAvatarUrl(96))}"
+           src="${escapeHtml(thumbSrc(photo.CreatorAvatarUrl, avatarWidth(36)) || defaultAvatarUrl(36))}"
+           loading="lazy" decoding="async"
            data-fallback="./images.png" />
       <div class="feed-post-header-text">
         <div class="feed-post-creator creator-name">${escapeHtml(embedded ? creator : 'Loading...')}</div>
@@ -465,7 +575,8 @@ function buildPhotoCard(photo, backToView) {
     ${caption ? `<div class="feed-post-description">${escapeHtml(caption)}</div>` : ''}
     <div class="feed-post-image-wrap image-wrap">
       <img class="feed-post-image image-loading-placeholder"
-           src="${escapeHtml(photoImageUrl(photo, 480))}"
+           src="${escapeHtml(photoImageUrl(photo, 800))}"
+           loading="lazy" decoding="async"
            data-fallback="./images.png" />
     </div>
     ${tagged.length ? `<div class="feed-post-tagged"><span class="feed-tagged-label">In this photo:</span></div>` : ''}
@@ -545,7 +656,7 @@ function relativeTime(timestamp) {
   return new Date(then).toLocaleString();
 }
 
-async function loadFeed(append = false) {
+async function loadFeed(append = false, { refresh = false } = {}) {
   const grid = $('feedGrid');
   const empty = $('feedEmptyMsg');
   if (!grid || feedLoading) return;
@@ -572,7 +683,10 @@ async function loadFeed(append = false) {
   feedLoading = true;
   let res = null;
   try {
-    res = await window.radium?.fetchRecentPhotos({ skip: feedSkip, take: feedTake });
+    // `refresh` reaches the backend, which holds the recent-photo list briefly
+    // so paging on scroll doesn't re-download the pages already on screen.
+    // Pressing Refresh has to go past that or it would show the same photos.
+    res = await window.radium?.fetchRecentPhotos({ skip: feedSkip, take: feedTake, refresh: refresh && !append });
   } catch (e) {
     console.error('loadFeed error:', e);
   }
@@ -829,12 +943,18 @@ document.querySelectorAll('.sidebar-nav .nav-btn').forEach(btn => {
     const p = $('tab-' + tabName);
     if (p) p.classList.add('active');
 
-    // Lazy load data when switching tabs
+    // Lazy load data when switching tabs — but only data we don't already have.
+    // Coming back to a tab you were just on now shows what was there, which is
+    // both instant and where you left off; a page older than LIST_STALE_MS is
+    // refreshed underneath the rows rather than in place of them.
     if (tabName === 'rooms') {
       loadFilters();
-      loadRooms();
+      if (!listIsFresh(roomsKey(), roomsRenderKey, roomsRenderAt)) loadRooms();
     } else if (tabName === 'people') {
-      loadPeople();
+      if (!listIsFresh(peopleKey(), peopleRenderKey, peopleRenderAt)) loadPeople();
+      // The table is already rendered, but its height is measured against a
+      // panel that was display:none until a moment ago.
+      else snapTableRows($('peopleTableContainer'));
     } else if (tabName === 'feed') {
       // Only reload an empty feed, so returning to the tab keeps your place
       // in the list instead of jumping back to the top.
@@ -968,7 +1088,8 @@ async function loadConfig() {
   if (!config.apiUrl)   config.apiUrl   = 'https://api.radie.app/';
   if (!config.playMode) config.playMode = 'screen';
 
-  setValue('cfgLaunchOptions', config.launchOptions || '');
+  setValue('cfgLaunchOptionsRadium', configLaunchOptions('radium'));
+  setValue('cfgLaunchOptionsVanilla', configLaunchOptions('vanilla'));
 
   setToggle('tgl-minimizeOnLaunch', config.minimizeOnLaunch !== false);
   setToggle('tgl-closeOnLaunch',    config.closeOnLaunch    === true);
@@ -2641,12 +2762,17 @@ async function autoSaveSettings() {
     theme:            saveTheme,
     baselineTheme:    selectedTheme,
     font:             $('cfgFont')?.value || 'default',
-    launchOptions:    $('cfgLaunchOptions')?.value.trim() || '',
+    launchOptions:    launchOptionsInput('radium')?.value.trim() || '',
     customTheme:      customColors,
     network:          activeNetwork,
-    // Passed through untouched: no setting on this form owns anything in it,
-    // and the backend re-injects the install fields it manages anyway.
-    vanilla:          config.vanilla || {}
+    // Spread through rather than replaced: the install fields in here are owned
+    // by the Change / Reset Folder buttons and the backend, and this form must
+    // not clobber them. Launch options are the one thing in it this form does
+    // own, so that key — and only that key — is overwritten.
+    vanilla: {
+      ...(config.vanilla || {}),
+      launchOptions: launchOptionsInput('vanilla')?.value.trim() || ''
+    }
   };
 
   config.customTheme  = customColors;
@@ -2684,8 +2810,10 @@ function debounceAutoSave() {
   _autoSaveTimer = setTimeout(autoSaveSettings, 800);
 }
 
-// Wire up text inputs
-$('cfgLaunchOptions')?.addEventListener('input', debounceAutoSave);
+// Wire up text inputs. Both networks' launch options, so editing the inactive
+// network's row saves the same way the active one's does.
+$('cfgLaunchOptionsRadium')?.addEventListener('input', debounceAutoSave);
+$('cfgLaunchOptionsVanilla')?.addEventListener('input', debounceAutoSave);
 
 
 // Check client installation state
@@ -2764,6 +2892,9 @@ async function checkInstall() {
     // Show download section, hide launch panel
     const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
     document.body.classList.remove('client-installed');
+  // The gear that opens it lives in the installed-only bar and has just
+  // disappeared; an open menu would be left hanging over the download CTA.
+  closeManageMenu();
     const qi = $('qsInstalled'); if (qi) qi.textContent = 'NOT INSTALLED';
     if (qscC) {
       qscC.classList.add('not-installed');
@@ -3058,6 +3189,9 @@ async function runClientDownload({ resuming = false } = {}) {
   // progress block) is hidden, so the status would otherwise be invisible.
   const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
   document.body.classList.remove('client-installed');
+  // The gear that opens it lives in the installed-only bar and has just
+  // disappeared; an open menu would be left hanging over the download CTA.
+  closeManageMenu();
 
   setDownloadUI(true, { resuming });
   if (resuming) {
@@ -3153,6 +3287,9 @@ async function offerResumeIfAny() {
 
   const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
   document.body.classList.remove('client-installed');
+  // The gear that opens it lives in the installed-only bar and has just
+  // disappeared; an open menu would be left hanging over the download CTA.
+  closeManageMenu();
   setPausedUI({ downloaded: info.downloaded, total: info.total });
 
   const pctTxt = info.total > 0 ? ` (${Math.floor((info.downloaded / info.total) * 100)}%)` : '';
@@ -3195,51 +3332,42 @@ function formatPatchNotes(notes) {
 // States: 'hidden' (no client installed), 'check' (installed, no known
 // update — click to re-check), 'checking' (check in progress),
 // 'update' (update available — click to install it).
+/// Drive the Check for Updates row in the gear menu.
+///
+/// It lives in that menu rather than in the Client Status tile, where it used
+/// to share a line with the status value. That tile is one equal third of the
+/// stats row, so the button never reliably fitted beside the value — there was
+/// a whole `fitUpdateLabel()` routine picking the longest of three wordings
+/// that would fit at the current window width, re-run on every resize. A menu
+/// row is as wide as the menu, so the full wording simply fits and all of that
+/// is gone.
+///
+/// Hidden through the attribute, not an inline `display`: the menu's layout
+/// rule forces `display: flex !important`, which an inline style cannot beat.
 function setClientUpdateButton(state, info) {
   const btn = $('btnClientUpdateAction');
   if (!btn) return;
   if (state === 'hidden') {
-    btn.style.display = 'none';
+    btn.hidden = true;
     return;
   }
-  btn.style.display = 'block';
+  btn.hidden = false;
   btn.disabled = state === 'checking';
+
+  // The row is an icon plus a label, so only the label is rewritten — setting
+  // textContent here would drop the icon with it.
+  const label = btn.querySelector('span');
   if (state === 'checking') {
-    btn.textContent = '⟳ Checking...';
+    if (label) label.textContent = 'Checking...';
     btn.dataset.mode = 'checking';
   } else if (state === 'update') {
-    btn.textContent = '⬇ Update';
+    if (label) label.textContent = 'Install Update';
     btn.dataset.mode = 'update';
   } else {
+    if (label) label.textContent = 'Check for Updates';
     btn.dataset.mode = 'check';
-    fitUpdateLabel();
   }
 }
-
-// The Client Status card is one equal third of the stats row, and the update
-// button shares a line with the status value, so the full wording only fits on
-// a reasonably wide window. Use the longest label that actually fits rather
-// than permanently shortening it for everyone.
-const UPDATE_CHECK_LABELS = ['⟳ Check for Updates', '⟳ Check Updates', '⟳ Check'];
-
-function fitUpdateLabel() {
-  const btn = $('btnClientUpdateAction');
-  if (!btn || btn.dataset.mode !== 'check' || btn.style.display === 'none') return;
-  const card = $('qsc-client');
-  const val  = $('qsInstalled');
-  if (!card || !val) { btn.textContent = UPDATE_CHECK_LABELS[UPDATE_CHECK_LABELS.length - 1]; return; }
-  const cs = getComputedStyle(card);
-  const inner = card.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0);
-  for (const label of UPDATE_CHECK_LABELS) {
-    btn.textContent = label;
-    if (!(inner > 0)) return;   // not laid out yet; leave the longest and re-fit on resize
-    const need = val.getBoundingClientRect().width + 6 + btn.getBoundingClientRect().width;
-    if (need <= inner) return;
-  }
-  // none fit — the loop leaves the shortest label in place
-}
-
-window.addEventListener('resize', fitUpdateLabel);
 
 $('btnClientUpdateAction')?.addEventListener('click', () => {
   const btn = $('btnClientUpdateAction');
@@ -3390,6 +3518,9 @@ $('reinstallConfirmBtn')?.addEventListener('click', () => {
   closeReinstallModal();
   const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
   document.body.classList.remove('client-installed');
+  // The gear that opens it lives in the installed-only bar and has just
+  // disappeared; an open menu would be left hanging over the download CTA.
+  closeManageMenu();
   isInstalled = false;
   addLog('Reinstall initiated.', 'info');
   toast('Starting reinstall...', 'info');
@@ -4413,7 +4544,7 @@ function pulseNetworkSwitcher() {
 function closeNetworkMenu() {
   const menu = $('networkMenu');
   const btn = $('networkSwitcher');
-  if (menu) menu.hidden = true;
+  hideDropdown(menu);
   if (btn) {
     btn.setAttribute('aria-expanded', 'false');
     btn.classList.remove('active');
@@ -4423,7 +4554,7 @@ function closeNetworkMenu() {
 function openNetworkMenu() {
   const menu = $('networkMenu');
   const btn = $('networkSwitcher');
-  if (menu) menu.hidden = false;
+  showDropdown(menu);
   if (btn) {
     btn.setAttribute('aria-expanded', 'true');
     // Borrows the current-tab look while open, which every theme already
@@ -4485,6 +4616,25 @@ async function setNetwork(name) {
   hidePlayerDetails();
   resetFeed();
 
+  // Rooms and People are rendered per network, so drop what the old one left
+  // on screen. Without this the reload below would dim the previous network's
+  // rows and leave them readable while the new network's list downloads.
+  roomsRenderKey = '';
+  peopleRenderKey = '';
+  filtersRenderKey = '';
+  const roomsGridEl = $('roomsGrid');
+  if (roomsGridEl) {
+    roomsGridEl.innerHTML = '';
+    delete roomsGridEl.dataset.listPlaceholder;
+    endListLoad(roomsGridEl);
+  }
+  const peopleBodyEl = $('peopleListBody');
+  if (peopleBodyEl) {
+    peopleBodyEl.innerHTML = '';
+    delete peopleBodyEl.dataset.listPlaceholder;
+    endListLoad(peopleBodyEl);
+  }
+
   // Cached client-update state belongs to the old network's client.
   clientUpdateInfo = null;
   clientUpdateAutoChecked = false;
@@ -4510,9 +4660,13 @@ async function setNetwork(name) {
   } else if (openTab === 'tab-feed') {
     // FEED only exists on networks that publish one; leaving the user parked
     // on a tab whose nav button just disappeared would strand them.
-    if (networkInfo().hasPhotoFeed) loadFeed();
+    if (networkInfo().hasPhotoFeed) loadFeed(false, { refresh: true });
     else switchTab('home');
   }
+
+  // Warm the new network's bulk sets now, while the user is reading whatever
+  // tab they're on, rather than on the click that opens Rooms or People.
+  window.radium?.prefetchNetworkData();
 }
 
 $('networkSwitcher')?.addEventListener('click', (e) => {
@@ -4526,6 +4680,122 @@ document.querySelectorAll('#networkMenu .network-option').forEach(opt => {
     e.stopPropagation();
     setNetwork(opt.dataset.network);
   });
+});
+
+
+// ── Dropdown show/hide ───────────────────────────────────────────────────
+// Shared by the two dropdowns in the launcher: the gear on the hero and the
+// network switcher in the sidebar.
+
+/// How long a menu's exit animation is given before the element is hidden.
+/// Must match the `manageMenuOut` / `networkMenuLift` durations in style.css.
+const MENU_EXIT_MS = 140;
+
+/// Per-menu counter, bumped by every show and every hide, so a hide that is
+/// still waiting out its animation can tell whether it is still the current
+/// one. Keyed by element rather than by id so both menus share one mechanism.
+const menuCloseTokens = new WeakMap();
+
+/// Hide a dropdown, letting its exit animation play first where there is one.
+///
+/// `hidden` removes the element outright, so a close cannot be animated by CSS
+/// alone — the element has to stay in the layout until the animation is done.
+/// It is marked `.is-closing`, which is what the exit keyframes hang off, and
+/// hidden once that has had its time.
+function hideDropdown(menu) {
+  if (!menu || menu.hidden) return;
+
+  const token = (menuCloseTokens.get(menu) || 0) + 1;
+  menuCloseTokens.set(menu, token);
+
+  const finish = () => {
+    // Reopening during the exit bumps the token, so this timer belongs to a
+    // close the user has already undone and must not hide anything.
+    if (menuCloseTokens.get(menu) !== token) return;
+    menu.classList.remove('is-closing');
+    menu.hidden = true;
+  };
+
+  menu.classList.add('is-closing');
+
+  // The retro skins have no exit animation and neither does anyone with the
+  // animations setting off; waiting on a timer for them would only make
+  // dismissal feel sluggish. getAnimations() flushes pending style, so the
+  // class added a line above is already accounted for.
+  const animating =
+    typeof menu.getAnimations === 'function' && menu.getAnimations().length > 0;
+  if (!animating) {
+    finish();
+    return;
+  }
+
+  // A timer rather than an `animationend` listener: a minimised or hidden
+  // window pauses animations, and that event would never arrive — leaving the
+  // menu stuck open on screen the next time the window was restored.
+  setTimeout(finish, MENU_EXIT_MS);
+}
+
+/// Show a dropdown, cancelling any exit still in flight.
+function showDropdown(menu) {
+  if (!menu) return;
+  menuCloseTokens.set(menu, (menuCloseTokens.get(menu) || 0) + 1);
+  menu.classList.remove('is-closing');
+  menu.hidden = false;
+}
+
+// ── Manage-client menu ───────────────────────────────────────────────────
+// The gear on the hero. Modelled on the network switcher above, down to the
+// aria-expanded flag and the two ways out, so both dropdowns in the launcher
+// behave the same.
+
+function closeManageMenu() {
+  const menu = $('manageMenu');
+  const btn = $('btnManageClient');
+  hideDropdown(menu);
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('active');
+  }
+}
+
+function openManageMenu() {
+  const menu = $('manageMenu');
+  const btn = $('btnManageClient');
+  showDropdown(menu);
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'true');
+    // Borrows the current-tab look while open, as the network switcher does.
+    btn.classList.add('active');
+  }
+  menu?.querySelector('button')?.focus();
+}
+
+$('btnManageClient')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const expanded = $('btnManageClient')?.getAttribute('aria-expanded') === 'true';
+  if (expanded) closeManageMenu(); else openManageMenu();
+});
+
+// Every item starts something that takes over the screen — a folder, a modal, a
+// re-download — so the menu closes behind the click rather than lingering over
+// whatever it opened. Registered in the capture phase so it runs before each
+// button's own handler, which may replace the button or navigate away.
+$('manageMenu')?.addEventListener('click', (e) => {
+  if (e.target.closest('button')) closeManageMenu();
+}, true);
+
+// Dismissal: anywhere outside, or Escape. Mirrors the network menu below.
+document.addEventListener('click', (e) => {
+  const menu = $('manageMenu');
+  if (!menu || menu.hidden) return;
+  if (menu.contains(e.target) || $('btnManageClient')?.contains(e.target)) return;
+  closeManageMenu();
+});
+document.addEventListener('keydown', (e) => {
+  const menu = $('manageMenu');
+  if (!menu || menu.hidden || e.key !== 'Escape') return;
+  closeManageMenu();
+  $('btnManageClient')?.focus();
 });
 
 // Dismissal: anywhere outside, or Escape.
@@ -4589,6 +4859,13 @@ async function init() {
     clearInterval(playerPollInterval);
   });
 
+  // With startup done and nothing else competing for the connection, start
+  // downloading the lists Rooms and People are going to want. Last, and
+  // awaited by nothing: on Vanilla these are megabytes, and the point is that
+  // they arrive while the user is still on Home rather than on the click that
+  // opens the tab.
+  window.radium?.prefetchNetworkData();
+
   // Disable default context menu
   document.addEventListener('contextmenu', e => e.preventDefault());
 }
@@ -4610,6 +4887,60 @@ let peopleSkip = 0;
 const peopleTake = 15;
 let peopleSearchQuery = '';
 let peopleSequenceId = 0;
+
+// What the Rooms grid, People table and Filters rail are currently showing, and
+// when. Opening a tab used to refetch unconditionally: the list blanked to
+// "Loading...", the identical page came back over the identical round-trips, and
+// the view you had just been reading rebuilt itself in front of you. A list is
+// now refetched only when the query behind it changed, or when what is on screen
+// has aged past LIST_STALE_MS.
+let roomsRenderKey = '';
+let roomsRenderAt = 0;
+let peopleRenderKey = '';
+let peopleRenderAt = 0;
+let filtersRenderKey = '';
+
+/// How old a rendered list may be before reopening its tab refreshes it.
+const LIST_STALE_MS = 5 * 60 * 1000;
+
+/// Everything that decides what a page of rooms contains. Two renders with the
+/// same key are the same page, so the second one is not worth fetching.
+function roomsKey() {
+  return JSON.stringify([activeNetwork, roomsSkip, activeRoomsSort, roomsSearchQuery, activeRoomsTag]);
+}
+
+function peopleKey() {
+  return JSON.stringify([activeNetwork, peopleSkip, peopleSearchQuery]);
+}
+
+function listIsFresh(key, renderedKey, renderedAt) {
+  return key === renderedKey && Date.now() - renderedAt < LIST_STALE_MS;
+}
+
+/// Put a list into its loading state, showing the placeholder only when there
+/// is nothing worth keeping on screen.
+///
+/// Blanking a populated list on every page click and every keystroke of a
+/// search is most of why paging felt slow even when the data arrived quickly:
+/// what people were reading vanished first, and the layout collapsed with it.
+/// Dimming the rows that are there keeps the page still, and they are replaced
+/// the moment the new ones land.
+///
+/// `data-list-placeholder` marks a container whose only content is a loading
+/// line, an empty-state or an error — nothing a reader would mind losing, so
+/// those are replaced rather than dimmed.
+function beginListLoad(el, placeholder) {
+  if (!el) return;
+  if (!el.children.length || el.dataset.listPlaceholder === '1') {
+    el.innerHTML = placeholder;
+    el.dataset.listPlaceholder = '1';
+  }
+  el.classList.add('is-refreshing');
+}
+
+function endListLoad(el) {
+  el?.classList.remove('is-refreshing');
+}
 
 /// Text for a pagination readout.
 ///
@@ -4638,6 +4969,12 @@ function escapeHtml(str) {
 async function loadFilters() {
   const listEl = $('roomsFiltersList');
   if (!listEl) return;
+
+  // The rail's contents depend on nothing but the network — on Vanilla it is a
+  // tally over the whole cached room set — so once it is built, reopening the
+  // tab has nothing to learn by building it again.
+  if (filtersRenderKey === activeNetwork && listEl.children.length) return;
+
   listEl.innerHTML = '<div style="font-size: 10px; color: var(--text-muted); padding: 4px;">Loading filters...</div>';
   
   const res = await window.radium?.fetchFilters();
@@ -4675,7 +5012,10 @@ async function loadFilters() {
       });
       listEl.appendChild(btn);
     });
+    filtersRenderKey = activeNetwork;
   } else {
+    // Left unset so the next visit retries rather than caching the failure.
+    filtersRenderKey = '';
     listEl.innerHTML = '<div style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px;">Error loading filters</div>';
   }
 }
@@ -4687,8 +5027,9 @@ async function loadRooms() {
   
   roomsSequenceId++;
   const currentSeq = roomsSequenceId;
+  const key = roomsKey();
   
-  gridEl.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading rooms...</div>';
+  beginListLoad(gridEl, '<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading rooms...</div>');
   emptyEl?.classList.add('hidden');
   
   const res = await window.radium?.fetchRooms({
@@ -4700,17 +5041,25 @@ async function loadRooms() {
   });
   
   if (currentSeq !== roomsSequenceId) return;
+  endListLoad(gridEl);
   
   if (res && res.success && res.data) {
     const rooms = res.data.Results || [];
     const total = res.data.TotalResults || 0;
+    roomsRenderKey = key;
+    roomsRenderAt = Date.now();
     
     gridEl.innerHTML = '';
     if (rooms.length === 0) {
+      gridEl.dataset.listPlaceholder = '1';
       emptyEl?.classList.remove('hidden');
     } else {
+      delete gridEl.dataset.listPlaceholder;
       rooms.forEach(room => {
-        const thumbUrl = roomThumbUrl(room, 480);
+        // The grid is 2 columns, 3 on a wide window, so a card reaches about
+        // 550 CSS px maximised — 480 was an upscale before the pixel ratio was
+        // even applied.
+        const thumbUrl = roomThumbUrl(room, 560);
         
         const card = document.createElement('div');
         card.className = 'room-card';
@@ -4720,7 +5069,7 @@ async function loadRooms() {
         const roomName = room.Name || room.name || 'Unknown Room';
         const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
         card.innerHTML = `
-          <img class="room-card-image image-loading-placeholder"  data-fallback="./images.png" src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(roomName)}" />
+          <img class="room-card-image image-loading-placeholder" loading="lazy" decoding="async" data-fallback="./images.png" src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(roomName)}" />
           <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
           <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         `;
@@ -4752,6 +5101,10 @@ async function loadRooms() {
     // object's message, or a prefix of an unparseable response body), and the
     // CSP allows inline handlers — so unescaped it is a script-injection path
     // into a webview that can reach every backend command.
+    // Cleared so the next visit retries instead of treating the error as the
+    // rendered page.
+    roomsRenderKey = '';
+    gridEl.dataset.listPlaceholder = '1';
     gridEl.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${escapeHtml(res?.error || 'Failed to fetch rooms')}</div>`;
     const btnPrev = $('btnRoomsPrev');
     const btnNext = $('btnRoomsNext');
@@ -4839,8 +5192,9 @@ async function loadPeople() {
   
   peopleSequenceId++;
   const currentSeq = peopleSequenceId;
+  const key = peopleKey();
   
-  bodyEl.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading players...</td></tr>';
+  beginListLoad(bodyEl, '<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading players...</td></tr>');
   
   const res = await window.radium?.fetchPeople({
     skip: peopleSkip,
@@ -4849,18 +5203,23 @@ async function loadPeople() {
   });
   
   if (currentSeq !== peopleSequenceId) return;
+  endListLoad(bodyEl);
   
   if (res && res.success && res.data) {
     const people = res.data.Results || [];
     const total = res.data.TotalResults || 0;
+    peopleRenderKey = key;
+    peopleRenderAt = Date.now();
     
     bodyEl.innerHTML = '';
     if (people.length === 0) {
+      bodyEl.dataset.listPlaceholder = '1';
       bodyEl.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">No players found.</td></tr>';
     } else {
+      delete bodyEl.dataset.listPlaceholder;
       people.forEach(person => {
-        const avatarUrl = personAvatarUrl(person, 50);
-        const fallbackAvatar = defaultAvatarUrl(50);
+        const avatarUrl = personAvatarUrl(person, 24);
+        const fallbackAvatar = defaultAvatarUrl(24);
         // Vanilla publishes no presence, so `isOnline` arrives as null and the
         // dot stays neutral rather than asserting a definite "offline".
         const presence = person.isOnline == null
@@ -4873,7 +5232,7 @@ async function loadPeople() {
         };
         row.innerHTML = `
           <td>
-            <img class="people-avatar image-loading-placeholder"  data-fallback="${escapeHtml(fallbackAvatar)}" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(person.userName)}" />
+            <img class="people-avatar image-loading-placeholder" loading="lazy" decoding="async" data-fallback="${escapeHtml(fallbackAvatar)}" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(person.userName)}" />
           </td>
           <td>
             <span class="status-dot ${presence.cls}" title="${presence.title}"></span>
@@ -4905,6 +5264,8 @@ async function loadPeople() {
     if (btnNext) btnNext.disabled = (peopleSkip + peopleTake >= total);
   } else {
     // Escaped for the same reason as the rooms error above.
+    peopleRenderKey = '';
+    bodyEl.dataset.listPlaceholder = '1';
     bodyEl.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${escapeHtml(res?.error || 'Failed to fetch players')}</td></tr>`;
     const btnPrev = $('btnPeoplePrev');
     const btnNext = $('btnPeopleNext');
@@ -4919,7 +5280,7 @@ async function loadPeople() {
 
 // Wired here rather than beside loadFeed(): the `$` helper is declared further
 // down this file, so a top-level call up there hits its temporal dead zone.
-$('btnFeedRefresh')?.addEventListener('click', () => loadFeed());
+$('btnFeedRefresh')?.addEventListener('click', () => loadFeed(false, { refresh: true }));
 
 // Event listeners for Rooms search / sort / pagination
 let roomsSearchTimeout;
@@ -5370,7 +5731,7 @@ async function showPhotoDetails(photo, backToView) {
     imgEl.classList.add('image-loading-placeholder');
     imgEl.onload = () => imgEl.classList.remove('image-loading-placeholder');
     imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.classList.remove('image-loading-placeholder'); imgEl.onerror = null; };
-    imgEl.src = photoImageUrl(photo, 720);
+    imgEl.src = photoImageUrl(photo, 1000);
   }
 
   // The page shows the photo scaled to fit; the lightbox is how you actually
@@ -5378,7 +5739,10 @@ async function showPhotoDetails(photo, backToView) {
   // stack a listener per visit.
   const imgWrapEl = document.querySelector('.photo-detail-img-wrap');
   if (imgWrapEl) {
-    imgWrapEl.onclick = () => showLightbox(photoImageUrl(photo, 1920), {
+    // The one image the user has deliberately opened goes straight to the
+    // origin: the thumbnail cache exists to stop a grid pulling megabytes it
+    // draws at 200 px, not to downscale a photo someone asked to look at.
+    imgWrapEl.onclick = () => showLightbox(photoSourceUrl(photo, 1920), {
       title: 'PHOTO',
       alt: photo.caption || 'Photo',
       // The already-loaded page copy, so a failed full-size fetch still shows
@@ -5451,7 +5815,7 @@ async function showPhotoDetails(photo, backToView) {
     // first time an image fails, so a panel opened twice would otherwise have
     // no fallback left the second time.
     creatorAvatarEl.dataset.fallback = './images.png';
-    creatorAvatarEl.src = defaultAvatarUrl(34);
+    creatorAvatarEl.src = defaultAvatarUrl(32);
   }
   const roomLinkEl = $('photoDetailRoomLink');
   if (roomLinkEl) roomLinkEl.hidden = true;
@@ -5480,7 +5844,7 @@ async function showPhotoDetails(photo, backToView) {
       if (avatarSrc && creatorAvatarEl) {
         creatorAvatarEl.classList.add('image-loading-placeholder');
         creatorAvatarEl.dataset.fallback = './images.png';
-        creatorAvatarEl.src = avatarSrc;
+        creatorAvatarEl.src = thumbSrc(avatarSrc, avatarWidth(32));
       } else if (creatorAvatarEl) {
         creatorAvatarEl.classList.remove('image-loading-placeholder');
       }
@@ -5580,7 +5944,7 @@ async function showRoomDetails(room) {
   const creatorAvatarEl = $('roomsDetailCreatorAvatar');
   if (creatorAvatarEl) {
     creatorAvatarEl.classList.add('image-loading-placeholder');
-    creatorAvatarEl.src = defaultAvatarUrl(34);
+    creatorAvatarEl.src = defaultAvatarUrl(32);
   }
   
   const roomId = room.RoomId || room.roomId || '—';
@@ -5627,7 +5991,7 @@ async function showRoomDetails(room) {
     if (descEl) descEl.textContent = webDetails.description || 'No description available.';
     if (webDetails.creatorAvatar && creatorAvatarEl) {
       creatorAvatarEl.classList.add('image-loading-placeholder');
-      creatorAvatarEl.src = webDetails.creatorAvatar;
+      creatorAvatarEl.src = thumbSrc(webDetails.creatorAvatar, avatarWidth(32));
     } else if (creatorAvatarEl) {
       creatorAvatarEl.classList.remove('image-loading-placeholder');
     }
@@ -5657,7 +6021,7 @@ async function showPlayerDetails(person) {
   const detail = $('peopleDetailView');
   if (!list || !detail) return;
   
-  const avatarUrl = personAvatarUrl(person, 96);
+  const avatarUrl = personAvatarUrl(person, 80);
   
   const avatarEl = $('peopleDetailAvatar');
   if (avatarEl) {
@@ -5950,7 +6314,7 @@ async function loadPlayerRooms(userId, append = false) {
       const roomName = room.Name || room.name || 'Unknown Room';
       const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
       roomCard.innerHTML = `
-        <img class="room-card-image image-loading-placeholder" src="${escapeHtml(imgUrl)}"  data-fallback="./images.png" alt="${escapeHtml(roomName)}" />
+        <img class="room-card-image image-loading-placeholder" loading="lazy" decoding="async" src="${escapeHtml(imgUrl)}" data-fallback="./images.png" alt="${escapeHtml(roomName)}" />
         <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
         <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
         <div class="room-card-stats">

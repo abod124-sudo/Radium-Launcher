@@ -335,6 +335,18 @@ pub async fn fetch_user_feed(args: Value) -> Value {
     }
 }
 
+/// Warm a network's caches before the user opens a tab that needs them.
+///
+/// Fire-and-forget: nothing waits on it and it reports nothing, so the
+/// frontend can call it once the launcher is idle after boot. Only Vanilla has
+/// anything to warm — Radium's lists are server-paged and each page is small.
+#[tauri::command]
+pub async fn prefetch_network_data(network: Option<String>) {
+    if Network::parse(network.as_deref()) == Network::Vanilla {
+        vanilla::prefetch();
+    }
+}
+
 /// Fetch the recent photo feed.
 #[tauri::command]
 pub async fn fetch_recent_photos(args: Value) -> Value {
@@ -342,6 +354,11 @@ pub async fn fetch_recent_photos(args: Value) -> Value {
     let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(100);
 
     if network_of(&args) == Network::Vanilla {
+        // An explicit Refresh must go back to the network rather than be
+        // served the list the tab is already showing.
+        if args.get("refresh").and_then(|v| v.as_bool()).unwrap_or(false) {
+            vanilla::invalidate_feed().await;
+        }
         return vanilla::fetch_recent_photos(skip, take).await;
     }
 

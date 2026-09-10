@@ -29,7 +29,8 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
-use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -164,8 +165,14 @@ fn paginate(results: Vec<Value>, skip: i64, take: i64, fetched_everything: bool)
     let skip = skip.max(0) as usize;
     let take = take.max(1) as usize;
     let total_fetched = results.len();
-
     let rows: Vec<Value> = results.into_iter().skip(skip).take(take).collect();
+    page_of(rows, skip, total_fetched, fetched_everything)
+}
+
+/// [`paginate`] for rows already cut out of a longer list, given how long that
+/// list was. Split out so a caller holding a cached list can slice the dozen
+/// rows it needs rather than copy all five hundred to hand them over.
+fn page_of(rows: Vec<Value>, skip: usize, total_fetched: usize, fetched_everything: bool) -> Page {
     let shown = skip + rows.len();
 
     if fetched_everything {
@@ -259,6 +266,16 @@ const BULK_TTL: Duration = Duration::from_secs(10 * 60);
 /// Timeout for a bulk download. Generous because these are megabytes, not the
 /// kilobytes the other calls move.
 const BULK_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// How long to leave a failed background refresh alone before trying again.
+const BULK_RETRY_DELAY: Duration = Duration::from_secs(60);
+
+/// How long a resolved player record is reused before it is looked up again.
+///
+/// Longer than [`BULK_TTL`]: what this caches is a username, an avatar URL and
+/// three staff flags, none of which change on the timescale a room's cheer
+/// count does.
+const CREATOR_TTL: Duration = Duration::from_secs(30 * 60);
 
 /// Tag kind on a room. Vanilla publishes three, and only one is worth browsing:
 ///
@@ -499,8 +516,123 @@ struct PlayersSnapshot {
     fetched: Instant,
 }
 
-static ROOMS_CACHE: OnceLock<AsyncMutex<Option<Arc<RoomsSnapshot>>>> = OnceLock::new();
-static PLAYERS_CACHE: OnceLock<AsyncMutex<Option<Arc<PlayersSnapshot>>>> = OnceLock::new();
+/// Age of a cached bulk set, so [`BulkCache`] can tell fresh from stale
+/// without knowing what it is holding.
+trait Fetched {
+    fn fetched(&self) -> Instant;
+}
+impl Fetched for RoomsSnapshot {
+    fn fetched(&self) -> Instant {
+        self.fetched
+    }
+}
+impl Fetched for PlayersSnapshot {
+    fn fetched(&self) -> Instant {
+        self.fetched
+    }
+}
+
+/// One bulk set, served stale while it is being replaced.
+///
+/// The TTL used to be a hard expiry: the first request after ten minutes paid
+/// for the whole download again, so opening People at the wrong moment sat on
+/// "Loading players..." for as long as a cold start had. A set past its TTL is
+/// still perfectly usable — these are room and player listings, not a bank
+/// balance — so it is handed back immediately and a replacement is downloaded
+/// behind the request. Only a caller that finds *nothing* cached waits.
+struct BulkCache<T> {
+    value: AsyncMutex<Option<Arc<T>>>,
+    /// Set while a background refresh is running, so a burst of stale reads
+    /// starts one download rather than one each.
+    refreshing: AtomicBool,
+    /// When a failed refresh may be retried. Without it a dead endpoint would
+    /// be re-attempted by every request, each starting a multi-megabyte
+    /// download that is going to fail.
+    retry_at: StdMutex<Option<Instant>>,
+}
+
+impl<T> BulkCache<T> {
+    const fn new() -> Self {
+        Self {
+            value: AsyncMutex::const_new(None),
+            refreshing: AtomicBool::new(false),
+            retry_at: StdMutex::new(None),
+        }
+    }
+}
+
+impl<T: Fetched + Send + Sync + 'static> BulkCache<T> {
+    /// The cached set, downloading it first only if there isn't one yet.
+    async fn get<F, Fut>(&'static self, fetch: F) -> Result<Arc<T>, String>
+    where
+        F: Fn() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<Arc<T>, String>> + Send + 'static,
+    {
+        // Anything already downloaded answers from memory, fresh or not.
+        {
+            let guard = self.value.lock().await;
+            if let Some(snap) = guard.as_ref() {
+                let snap = snap.clone();
+                drop(guard);
+                if snap.fetched().elapsed() >= BULK_TTL {
+                    self.spawn_refresh(fetch);
+                }
+                return Ok(snap);
+            }
+        }
+
+        // Cold. This caller has to wait, and holds the lock while it does so a
+        // burst at startup shares one download instead of starting one each.
+        let mut guard = self.value.lock().await;
+        if let Some(snap) = guard.as_ref() {
+            // Another caller won the race and downloaded it while we queued.
+            return Ok(snap.clone());
+        }
+        let snap = fetch().await?;
+        *guard = Some(snap.clone());
+        Ok(snap)
+    }
+
+    /// Download a replacement behind the request that found the set stale.
+    ///
+    /// The lock is taken only to store the result, never across the download,
+    /// so readers keep being served the old set for however long it takes.
+    fn spawn_refresh<F, Fut>(&'static self, fetch: F)
+    where
+        F: Fn() -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<Arc<T>, String>> + Send + 'static,
+    {
+        {
+            let retry = self.retry_at.lock().unwrap_or_else(|e| e.into_inner());
+            if retry.map(|at| Instant::now() < at).unwrap_or(false) {
+                return;
+            }
+        }
+        if self.refreshing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+
+        tokio::spawn(async move {
+            match fetch().await {
+                Ok(snap) => {
+                    *self.value.lock().await = Some(snap);
+                    *self.retry_at.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                }
+                // A refresh that fails is no reason to throw away a list we
+                // already have: serving it a while longer beats emptying the
+                // tab, and backing off beats hammering a host that is down.
+                Err(_) => {
+                    *self.retry_at.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(Instant::now() + BULK_RETRY_DELAY);
+                }
+            }
+            self.refreshing.store(false, Ordering::SeqCst);
+        });
+    }
+}
+
+static ROOMS_CACHE: BulkCache<RoomsSnapshot> = BulkCache::new();
+static PLAYERS_CACHE: BulkCache<PlayersSnapshot> = BulkCache::new();
 
 /// Download a `/ws` bulk endpoint and parse it into `T`.
 ///
@@ -527,61 +659,53 @@ async fn ws_get<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String>
         .map_err(|e| format!("Unexpected response from {}: {}", path, e))
 }
 
-/// Every public room, cached.
-///
-/// Callers are serialized on the lock, so a burst of requests during startup
-/// downloads once and the rest wait for that result rather than each starting
-/// their own copy.
+/// Download and parse the room dump.
+async fn download_rooms() -> Result<Arc<RoomsSnapshot>, String> {
+    let raw: Vec<RawRoomRecord> = ws_get("/ws/getrooms").await?;
+    Ok(Arc::new(RoomsSnapshot {
+        rooms: raw.into_iter().filter_map(RoomRow::from_raw).collect(),
+        fetched: Instant::now(),
+    }))
+}
+
+/// Download and parse the player dump.
+async fn download_players() -> Result<Arc<PlayersSnapshot>, String> {
+    let raw: Vec<RawPlayer> = ws_get("/ws/getplayers").await?;
+    let mut players: Vec<PlayerRow> = raw.into_iter().filter_map(PlayerRow::from_raw).collect();
+    // The dump arrives in no useful order. Sorting once here is what lets
+    // every later page be a slice.
+    players.sort_by_key(|p| p.id);
+    Ok(Arc::new(PlayersSnapshot { players, fetched: Instant::now() }))
+}
+
+/// Every public room, cached. See [`BulkCache`] for what "cached" costs a
+/// caller once the set is past its TTL: nothing.
 async fn rooms_snapshot() -> Result<Arc<RoomsSnapshot>, String> {
-    let cell = ROOMS_CACHE.get_or_init(|| AsyncMutex::new(None));
-    let mut guard = cell.lock().await;
-
-    if let Some(snap) = guard.as_ref() {
-        if snap.fetched.elapsed() < BULK_TTL {
-            return Ok(snap.clone());
-        }
-    }
-
-    match ws_get::<Vec<RawRoomRecord>>("/ws/getrooms").await {
-        Ok(raw) => {
-            let snap = Arc::new(RoomsSnapshot {
-                rooms: raw.into_iter().filter_map(RoomRow::from_raw).collect(),
-                fetched: Instant::now(),
-            });
-            *guard = Some(snap.clone());
-            Ok(snap)
-        }
-        // A refresh that fails is no reason to throw away a list we already
-        // have: serving it a while longer beats emptying the Rooms tab.
-        Err(e) => guard.as_ref().cloned().ok_or(e),
-    }
+    ROOMS_CACHE.get(download_rooms).await
 }
 
 /// Every registered player, cached. See [`rooms_snapshot`].
 async fn players_snapshot() -> Result<Arc<PlayersSnapshot>, String> {
-    let cell = PLAYERS_CACHE.get_or_init(|| AsyncMutex::new(None));
-    let mut guard = cell.lock().await;
+    PLAYERS_CACHE.get(download_players).await
+}
 
-    if let Some(snap) = guard.as_ref() {
-        if snap.fetched.elapsed() < BULK_TTL {
-            return Ok(snap.clone());
-        }
-    }
-
-    match ws_get::<Vec<RawPlayer>>("/ws/getplayers").await {
-        Ok(raw) => {
-            let mut players: Vec<PlayerRow> =
-                raw.into_iter().filter_map(PlayerRow::from_raw).collect();
-            // The dump arrives in no useful order. Sorting once here is what
-            // lets every later page be a slice.
-            players.sort_by_key(|p| p.id);
-
-            let snap = Arc::new(PlayersSnapshot { players, fetched: Instant::now() });
-            *guard = Some(snap.clone());
-            Ok(snap)
-        }
-        Err(e) => guard.as_ref().cloned().ok_or(e),
-    }
+/// Start downloading both bulk sets, without waiting for either.
+///
+/// Called when the launcher settles after boot, and after a switch to Vanilla,
+/// so the sets are already in memory by the time a tab asks for them. Before
+/// this, the download began on the click that opened Rooms or People — which
+/// is exactly when the user is watching, and the player dump is 5 MB over the
+/// wire and 51 MB parsed.
+///
+/// Safe to call repeatedly: a set that is already cached and fresh returns
+/// immediately, and concurrent cold callers share one download.
+pub fn prefetch() {
+    tokio::spawn(async {
+        let _ = rooms_snapshot().await;
+    });
+    tokio::spawn(async {
+        let _ = players_snapshot().await;
+    });
 }
 
 // ─── Normalizers ──────────────────────────────────────────────────────────
@@ -722,6 +846,12 @@ type CreatorMap = HashMap<i64, CreatorInfo>;
 /// `players?ids=` caps at [`PLAYERS_BATCH_CAP`] rows, so larger sets are split
 /// into chunks issued concurrently.
 ///
+/// Resolved players are kept in [`CREATOR_CACHE`] and only the ids missing from
+/// it are asked for. Every list in the app went through here on every page:
+/// paging Rooms forward and back, retyping a search, or simply returning to a
+/// tab re-resolved the same handful of creators over a proxy round-trip the
+/// user waited on. Warm, a page that repeats ids costs no request at all.
+///
 /// Failures are swallowed: an unresolved player degrades one card to "Unknown"
 /// or drops a badge, which beats failing the whole page over it.
 async fn resolve_creators(ids: &BTreeSet<i64>) -> CreatorMap {
@@ -730,7 +860,24 @@ async fn resolve_creators(ids: &BTreeSet<i64>) -> CreatorMap {
         return map;
     }
 
-    let chunks: Vec<String> = ids
+    // Serve what the cache holds; ask the proxy only for the rest.
+    let mut missing: Vec<i64> = Vec::new();
+    {
+        let cache = creator_cache().lock().unwrap_or_else(|e| e.into_inner());
+        for id in ids {
+            match cache.get(id) {
+                Some((info, at)) if at.elapsed() < CREATOR_TTL => {
+                    map.insert(*id, info.clone());
+                }
+                _ => missing.push(*id),
+            }
+        }
+    }
+    if missing.is_empty() {
+        return map;
+    }
+
+    let chunks: Vec<String> = missing
         .iter()
         .map(|i| i.to_string())
         .collect::<Vec<_>>()
@@ -743,12 +890,13 @@ async fn resolve_creators(ids: &BTreeSet<i64>) -> CreatorMap {
     }))
     .await;
 
+    let mut fetched: Vec<(i64, CreatorInfo)> = Vec::new();
     for data in responses.into_iter().flatten() {
         for p in results_of(&data) {
             let Some(id) = p.get("id").and_then(|v| v.as_i64()) else {
                 continue;
             };
-            map.insert(
+            fetched.push((
                 id,
                 CreatorInfo {
                     username: str_field(&p, "username").unwrap_or_default().to_string(),
@@ -757,10 +905,39 @@ async fn resolve_creators(ids: &BTreeSet<i64>) -> CreatorMap {
                     is_moderator: p["isModerator"].as_bool().unwrap_or(false),
                     is_community_team: p["isCommunityTeam"].as_bool().unwrap_or(false),
                 },
-            );
+            ));
         }
     }
+
+    {
+        let mut cache = creator_cache().lock().unwrap_or_else(|e| e.into_inner());
+        // Bounded so a long session browsing People — where every page resolves
+        // a fresh batch of ids — can't grow this without limit. Dropping the
+        // lot costs one round-trip on the next page, which is what this looked
+        // like before the cache existed.
+        if cache.len() + fetched.len() > CREATOR_CACHE_CAP {
+            cache.clear();
+        }
+        let now = Instant::now();
+        for (id, info) in fetched {
+            cache.insert(id, (info.clone(), now));
+            map.insert(id, info);
+        }
+    }
+
     map
+}
+
+/// Cap on [`CREATOR_CACHE`]. Roughly a thousand pages' worth of creators, well
+/// past any one browsing session, at a few hundred bytes each.
+const CREATOR_CACHE_CAP: usize = 20_000;
+
+/// Players already resolved through the proxy, with when. See
+/// [`resolve_creators`].
+static CREATOR_CACHE: OnceLock<StdMutex<HashMap<i64, (CreatorInfo, Instant)>>> = OnceLock::new();
+
+fn creator_cache() -> &'static StdMutex<HashMap<i64, (CreatorInfo, Instant)>> {
+    CREATOR_CACHE.get_or_init(Default::default)
 }
 
 /// Fill in `CreatorUsername` / `CreatorAvatarUrl` on a page of normalized
@@ -991,27 +1168,29 @@ pub async fn fetch_people(skip: i64, take: i64, query: &str) -> Value {
     };
 
     let query = query.trim().to_lowercase();
+    let skip = skip.max(0) as usize;
+    let take = take.max(1) as usize;
 
-    let mut matched: Vec<&PlayerRow> = if query.is_empty() {
-        snap.players.iter().collect()
+    // Browsing with no search is a plain slice of an already-sorted roster.
+    // Taking a reference to every one of the hundreds of thousands of players
+    // first, only to drop all but fifteen, is work this did on every page
+    // click — and the roster is the largest thing the launcher holds.
+    let (page, total): (Vec<&PlayerRow>, i64) = if query.is_empty() {
+        (
+            snap.players.iter().skip(skip).take(take).collect(),
+            snap.players.len() as i64,
+        )
     } else {
-        snap.players
+        let mut matched: Vec<&PlayerRow> = snap
+            .players
             .iter()
             .filter(|p| p.username_lc.contains(&query) || p.display_name_lc.contains(&query))
-            .collect()
-    };
-
-    if !query.is_empty() {
+            .collect();
         // Stable within a rank, so equally-good matches stay in join order.
         matched.sort_by_key(|p| match_rank(p, &query));
-    }
-
-    let total = matched.len() as i64;
-    let page: Vec<&PlayerRow> = matched
-        .into_iter()
-        .skip(skip.max(0) as usize)
-        .take(take.max(1) as usize)
-        .collect();
+        let total = matched.len() as i64;
+        (matched.into_iter().skip(skip).take(take).collect(), total)
+    };
 
     // The bulk record has no moderator or community-team flag, so the rows on
     // screen — and only those — get them from the proxied lookup.
@@ -1130,23 +1309,94 @@ pub async fn fetch_user_rooms(user_id: &str, skip: i64, take: i64) -> Value {
     })
 }
 
+/// How long the recent-photo list is reused. Short, because the FEED tab's
+/// whole point is that it is recent — but long enough that scrolling through
+/// it does not re-download the pages already on screen.
+const FEED_TTL: Duration = Duration::from_secs(60);
+
+/// Photos fetched per trip to the feed endpoint.
+///
+/// `count` is rounded up to a multiple of this, so the request that loads the
+/// FEED tab also covers the next several scrolls. Asking for exactly the page
+/// in hand would mean a fresh request per page, each one re-downloading every
+/// page before it — which is the shape this cache exists to fix. Five pages'
+/// worth is a small enough first request to not be felt and a long enough
+/// runway that most sessions never make a second one.
+const FEED_CHUNK: i64 = 60;
+
+/// How many rows to ask the feed endpoint for, to serve `skip`..`skip + take`.
+fn feed_fetch_count(skip: i64, take: i64) -> i64 {
+    let needed = fetch_count(skip, take);
+    let rounded = ((needed + FEED_CHUNK - 1) / FEED_CHUNK) * FEED_CHUNK;
+    rounded.min(MAX_FETCH_COUNT)
+}
+
+struct FeedSnapshot {
+    rows: Vec<Value>,
+    /// What `count` this list was fetched with. A deeper page needs to know
+    /// whether a short list is everything Vanilla has or just as much as was
+    /// asked for last time.
+    requested: i64,
+    fetched: Instant,
+}
+
+static FEED_CACHE: AsyncMutex<Option<Arc<FeedSnapshot>>> = AsyncMutex::const_new(None);
+
+/// Drop the cached photo list, so the next read goes back to the network.
+/// Called by the FEED tab's Refresh button, which otherwise would have shown
+/// the same photos again for as long as [`FEED_TTL`].
+pub async fn invalidate_feed() {
+    *FEED_CACHE.lock().await = None;
+}
+
 /// Recent photo feed. Also backs the room-photos view, which filters this feed
 /// by room id the same way it does for Radium.
+///
+/// `/api/website/images/recent` takes a `count` and no offset, so every page
+/// has to ask for its whole prefix and throw away the rows it already showed:
+/// page 2 re-downloaded page 1, page 5 re-downloaded pages 1-4, and the FEED
+/// tab pages on scroll. The longest list fetched is cached, so those pages are
+/// slices of it instead of four more round-trips.
 pub async fn fetch_recent_photos(skip: i64, take: i64) -> Value {
-    let count = fetch_count(skip, take);
-    let path = format!("/api/website/images/recent?count={}", count);
-    match api_get_json(&path).await {
-        Ok(d) => {
-            let rows = results_of(&d);
-            let complete = (rows.len() as i64) < count;
-            let page = paginate(rows, skip, take, complete);
-            let mut photos: Vec<Value> = page.rows.iter().map(normalize_photo).collect();
-            attach_photo_creators(&mut photos).await;
-            json!({ "success": true, "data": {
-                "Results": photos, "TotalResults": page.total, "TotalKnown": page.total_known } })
+    let count = feed_fetch_count(skip, take);
+
+    let mut guard = FEED_CACHE.lock().await;
+    let usable = guard
+        .as_ref()
+        .filter(|s| s.fetched.elapsed() < FEED_TTL && s.requested >= count)
+        .cloned();
+
+    let snap = match usable {
+        Some(s) => s,
+        None => {
+            let path = format!("/api/website/images/recent?count={}", count);
+            match api_get_json(&path).await {
+                Ok(d) => {
+                    let snap = Arc::new(FeedSnapshot {
+                        rows: results_of(&d),
+                        requested: count,
+                        fetched: Instant::now(),
+                    });
+                    *guard = Some(snap.clone());
+                    snap
+                }
+                Err(e) => return json!({ "success": false, "error": e }),
+            }
         }
-        Err(e) => json!({ "success": false, "error": e }),
-    }
+    };
+    drop(guard);
+
+    // Fewer rows than were asked for means the feed ended, so the total is
+    // exact rather than the running estimate page_of() otherwise reports.
+    let complete = (snap.rows.len() as i64) < snap.requested;
+    let skip_n = skip.max(0) as usize;
+    let take_n = take.max(1) as usize;
+    let rows: Vec<Value> = snap.rows.iter().skip(skip_n).take(take_n).cloned().collect();
+    let page = page_of(rows, skip_n, snap.rows.len(), complete);
+    let mut photos: Vec<Value> = page.rows.iter().map(normalize_photo).collect();
+    attach_photo_creators(&mut photos).await;
+    json!({ "success": true, "data": {
+        "Results": photos, "TotalResults": page.total, "TotalKnown": page.total_known } })
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -1471,6 +1721,64 @@ mod tests {
         assert_eq!(fetch_count(0, 12), 13);
         assert_eq!(fetch_count(24, 12), 37);
         assert_eq!(fetch_count(10_000, 12), MAX_FETCH_COUNT);
+    }
+
+    #[test]
+    fn feed_fetches_in_chunks_so_scrolling_reuses_one_download() {
+        // The first page pulls a chunk, and the next four pages have to fall
+        // inside it or the cache never gets a hit.
+        assert_eq!(feed_fetch_count(0, 12), FEED_CHUNK);
+        for page in 0..4 {
+            assert_eq!(
+                feed_fetch_count(page * 12, 12),
+                FEED_CHUNK,
+                "page {} left the first chunk",
+                page
+            );
+        }
+        // Page 6 needs rows 60..72, so it pulls the next chunk up.
+        assert_eq!(feed_fetch_count(60, 12), 2 * FEED_CHUNK);
+        // And rounding up never carries a request past the ceiling, including
+        // at the boundary where the cap is not a whole number of chunks.
+        assert_eq!(feed_fetch_count(10_000, 12), MAX_FETCH_COUNT);
+        for skip in (0..600).step_by(12) {
+            assert!(
+                feed_fetch_count(skip, 12) <= MAX_FETCH_COUNT,
+                "skip {} rounded past the cap",
+                skip
+            );
+        }
+    }
+
+    #[test]
+    fn a_page_taken_from_a_cached_list_totals_the_same_as_a_fetched_one() {
+        // page_of() is what lets a cached feed be sliced instead of copied, so
+        // it has to agree with paginate() on every total it reports.
+        let rows: Vec<Value> = (0..30).map(|i| json!({ "photoId": i })).collect();
+
+        for &(skip, take, complete) in &[
+            (0i64, 12i64, true),
+            (12, 12, true),
+            (24, 12, true),
+            (0, 12, false),
+            (12, 12, false),
+            (24, 12, false),
+            (48, 12, false),
+        ] {
+            let whole = paginate(rows.clone(), skip, take, complete);
+            let skip_n = skip as usize;
+            let take_n = take as usize;
+            let sliced: Vec<Value> = rows.iter().skip(skip_n).take(take_n).cloned().collect();
+            let part = page_of(sliced, skip_n, rows.len(), complete);
+
+            assert_eq!(part.rows, whole.rows, "rows differ at skip {}", skip);
+            assert_eq!(part.total, whole.total, "total differs at skip {}", skip);
+            assert_eq!(
+                part.total_known, whole.total_known,
+                "total_known differs at skip {}",
+                skip
+            );
+        }
     }
 
     #[test]

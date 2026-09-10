@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net;" />
+  <!-- Mirrors app.security.csp in src-tauri/tauri.conf.json. Both apply, and a
+       browser enforces the intersection, so a source added to only one of them
+       is still blocked — change them together. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost radiumimg: http://radiumimg.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net;" />
   <title>Radium Launcher</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -107,6 +110,10 @@
              Fixed brand art (creator-kit pattern + wordmark). It stays green
              in every theme the way a store header image would. The primary
              action sits on a scrim across its lower edge. -->
+        <!-- Wrapped so the manage menu has somewhere unclipped to hang from:
+             .home-hero clips to its own rounded corners, so a dropdown opened
+             inside it would be cut off at the edge. -->
+        <div class="home-hero-wrap">
         <div class="home-hero">
           <div class="home-hero-art" aria-hidden="true"></div>
           <div class="home-hero-mark" role="img" aria-label="Radium"></div>
@@ -123,6 +130,13 @@
                 <button class="mode-btn" id="modeVR" data-mode="vr">VR</button>
               </div>
             </div>
+            <!-- Wears .nav-btn for the same reason the network options do: every
+                 skin already paints that class, so the gear matches its
+                 surroundings on all of them without a rule per theme. -->
+            <button class="nav-btn hero-gear" id="btnManageClient"
+                    aria-haspopup="menu" aria-expanded="false"
+                    aria-controls="manageMenu" aria-label="Manage client"
+                    title="Manage client"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.48.48 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.47.47 0 0 0-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg></button>
           </div>
           <!-- Same scrim, no client installed: DOWNLOAD takes PLAY's place so
                both states read identically. The hero above already carries the
@@ -131,6 +145,42 @@
             <button class="btn-download-big" id="btnDownload">⬇ DOWNLOAD</button>
             <span class="hero-note" id="heroDownloadNote" style="display:none"></span>
           </div>
+        </div>
+
+        <!-- The four client actions, previously a panel of their own below.
+             `launch-secondary-actions` is kept on the container because a dozen
+             per-theme rules paint these buttons through it. -->
+        <!-- Rows keep the btn-* classes every theme was authored against, so
+             each skin paints them as it always has: bevelled on the Win9x
+             skins, flat on the modern ones, and in theme-recroom's case a
+             different hue per action. `launch-secondary-actions` is the
+             container hook a dozen of those rules go through. .manage-item then
+             carries the menu layout on top, forced by id because those same
+             rules size the buttons for a row rather than a list. -->
+        <div class="manage-menu launch-secondary-actions" id="manageMenu"
+             role="menu" aria-label="Manage client" hidden>
+          <button class="btn-refresh manage-item" role="menuitem" id="btnClientUpdateAction" title="Check for client updates" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+            <span>Check for Updates</span>
+          </button>
+          <button class="btn-open-folder manage-item" role="menuitem" id="btnOpenFolder" title="Open client folder">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
+            <span>Open Folder</span>
+          </button>
+          <button class="btn-reinstall manage-item" role="menuitem" id="btnReinstall" title="Re-download client">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            <span>Reinstall</span>
+          </button>
+          <button class="btn-exclude-av manage-item" role="menuitem" id="btnExcludeAv" title="Add Windows Defender exclusion for the client folder">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1.2 15.6L6.6 12.4 8 11l2.8 2.8L16 8.6 17.4 10l-6.6 6.6z"/></svg>
+            <span>Exclude AV</span>
+          </button>
+          <div class="manage-sep" role="separator"></div>
+          <button class="btn-uninstall manage-item danger" role="menuitem" id="btnUninstall" title="Uninstall client">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            <span>Uninstall</span>
+          </button>
+        </div>
         </div>
 
         <!-- Download slot. Holds only the progress panel now that the CTA
@@ -195,22 +245,7 @@
               <span class="qs-label">Client Status</span>
               <span class="qs-icon-indicator"></span>
             </div>
-            <div class="qs-value-row">
-              <div class="qs-value" id="qsInstalled">—</div>
-              <button class="btn-refresh qs-update-btn" id="btnClientUpdateAction" style="display:none" title="Check for client updates"></button>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── Client management ───────────────────────────────────
-             Keeps .launch-panel so the per-theme panel styling still applies. -->
-        <div class="launch-panel manage-panel installed-only" id="launchPanel">
-          <div class="manage-title">MANAGE CLIENT</div>
-          <div class="manage-actions launch-secondary-actions">
-            <button class="btn-open-folder" id="btnOpenFolder" title="Open client folder">Open Folder</button>
-            <button class="btn-reinstall" id="btnReinstall" title="Re-download client">Reinstall</button>
-            <button class="btn-exclude-av" id="btnExcludeAv" title="Add Windows Defender exclusion for the client folder">Exclude AV</button>
-            <button class="btn-uninstall" id="btnUninstall" title="Uninstall client">Uninstall</button>
+            <div class="qs-value" id="qsInstalled">—</div>
           </div>
         </div>
 
@@ -515,12 +550,20 @@
 
 
 
-          <!-- Game Path / Executable -->
+          <!-- Launch options. Listed per network for the same reason the
+               install locations below are: the two are different client builds
+               that take different flags, and a flag that suits one can stop the
+               other from starting. Both rows are shown at once so setting the
+               inactive network's options doesn't mean switching to it and back. -->
           <div class="settings-group">
             <div class="sg-title">LAUNCH OPTIONS</div>
             <div class="sg-row">
-              <label for="cfgLaunchOptions">Launch Options</label>
-              <input type="text" id="cfgLaunchOptions" class="cfg-input" placeholder="e.g. -fullscreen -windowed" />
+              <label for="cfgLaunchOptionsRadium">Radium Client</label>
+              <input type="text" id="cfgLaunchOptionsRadium" class="cfg-input" placeholder="e.g. -fullscreen -windowed" />
+            </div>
+            <div class="sg-row">
+              <label for="cfgLaunchOptionsVanilla">Vanilla Client</label>
+              <input type="text" id="cfgLaunchOptionsVanilla" class="cfg-input" placeholder="e.g. -fullscreen -windowed" />
             </div>
           </div>
 

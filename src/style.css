@@ -1030,6 +1030,38 @@ body.theme-blackandwhite-inverted .sidebar-footer {
   border-top: 1px solid rgba(0,0,0,0.06) !important;
 }
 
+/* The version badge kept its Win9x inset bevel (a 2px dark-top frame) and the
+   Lucida Console face from --font-mono on every modern skin: the footer around
+   it was modernised, the badge inside it was not, leaving the one corner of the
+   sidebar still drawn like Windows 98.
+
+   Split light from dark the same way the footer above is, rather than using
+   --border-light for all five: on the light skins that token is a translucent
+   *white*, which is legible as an edge on the dark art it frames elsewhere but
+   disappears against this badge's own pale background. */
+body.theme-moderndark .version-tag,
+body.theme-moderngreen .version-tag,
+body.theme-blackandwhite .version-tag {
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  /* `inherit`, not a --font-* token: the modern skins set their face on
+     <body>, and a chosen font pack overrides it there. Inheriting follows
+     whichever of the two is in force; naming a token here would pin this to
+     Tahoma and leave the badge as the one element in the sidebar not in the
+     skin's own face. */
+  font-family: inherit !important;
+  padding: 6px !important;
+}
+body.theme-modernlight .version-tag,
+body.theme-blackandwhite-inverted .version-tag {
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  font-family: inherit !important;
+  padding: 6px !important;
+}
+
 /* Nav Tab Buttons */
 body.theme-moderndark .nav-btn,
 body.theme-moderngreen .nav-btn,
@@ -1208,6 +1240,7 @@ body.theme-moderndark .download-section,
 body.theme-moderndark .qs-card,
 body.theme-moderndark .log-output,
 body.theme-moderndark .settings-group,
+body.theme-moderndark .home-hero,
 body.theme-moderndark .modal-box,
 body.theme-moderngreen .bevel-outset,
 body.theme-moderngreen .launch-panel,
@@ -1215,6 +1248,7 @@ body.theme-moderngreen .download-section,
 body.theme-moderngreen .qs-card,
 body.theme-moderngreen .log-output,
 body.theme-moderngreen .settings-group,
+body.theme-moderngreen .home-hero,
 body.theme-moderngreen .modal-box,
 body.theme-modernlight .bevel-outset,
 body.theme-modernlight .launch-panel,
@@ -1222,6 +1256,7 @@ body.theme-modernlight .download-section,
 body.theme-modernlight .qs-card,
 body.theme-modernlight .log-output,
 body.theme-modernlight .settings-group,
+body.theme-modernlight .home-hero,
 body.theme-modernlight .modal-box,
 body.theme-blackandwhite .bevel-outset,
 body.theme-blackandwhite .launch-panel,
@@ -1229,6 +1264,7 @@ body.theme-blackandwhite .download-section,
 body.theme-blackandwhite .qs-card,
 body.theme-blackandwhite .log-output,
 body.theme-blackandwhite .settings-group,
+body.theme-blackandwhite .home-hero,
 body.theme-blackandwhite .modal-box,
 body.theme-blackandwhite-inverted .bevel-outset,
 body.theme-blackandwhite-inverted .launch-panel,
@@ -1236,6 +1272,7 @@ body.theme-blackandwhite-inverted .download-section,
 body.theme-blackandwhite-inverted .qs-card,
 body.theme-blackandwhite-inverted .log-output,
 body.theme-blackandwhite-inverted .settings-group,
+body.theme-blackandwhite-inverted .home-hero,
 body.theme-blackandwhite-inverted .modal-box {
   border: 1px solid var(--border-light) !important;
   border-radius: 10px !important;
@@ -2074,7 +2111,6 @@ body.theme-blackandwhite-inverted .btn-download-big {
 .home-hero {
   position: relative;
   height: 232px;
-  margin-bottom: 10px;
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
   overflow: hidden;
@@ -2083,6 +2119,29 @@ body.theme-blackandwhite-inverted .btn-download-big {
 .home-hero-art {
   position: absolute; inset: 0;
   background: url('assets/brand-pattern.png') center / cover no-repeat;
+  /* Rounds its own edge instead of relying only on .home-hero's overflow clip,
+     so neither this layer nor the scrim above it paints a square corner for
+     that clip to cut. `inherit` rather than a number, so the retro skins
+     (radius 0) and the modern ones (10px) both stay right. */
+  border-radius: inherit;
+
+  /* The artwork stops before the bottom of the banner rather than being hidden
+     there by the scrim on top of it.
+
+     The scrim is a vertical fade, so it is weakest at its top edge — and along
+     that edge the artwork still shows through. Across the middle of the banner
+     that is invisible, because the PLAY button and the mode toggle sit on it,
+     and on the right the gear covers part of it. The only places the fading
+     artwork is left exposed are the two bottom corners, which is why it looked
+     like a corner bug and why several rounds of adjusting the scrim's opacity
+     and colour did not touch it — they were all changing the bottom of the
+     band, and the green was near its top.
+
+     Masking the layer means there is simply no artwork painted in the lower
+     part of the banner, at any opacity, in any corner. What shows there is the
+     hero's own panel colour, which is a UI colour and matches every skin. */
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,0) 84%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,0) 84%);
 }
 .home-hero-mark {
   position: relative;
@@ -2130,9 +2189,45 @@ body.network-vanilla .status-dot.unknown {
    controls stay legible over the bright pattern. */
 .home-hero-bar {
   position: absolute; left: 0; right: 0; bottom: 0;
+  /* Same reason as .home-hero-art above: round the layer's own bottom corners
+     rather than leaving them square for the parent's clip to cut. Only the
+     bottom two, since the bar sits at the bottom edge. */
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
   display: flex; align-items: center; gap: 16px;
-  padding: 12px 16px;
-  background: linear-gradient(180deg, rgba(6,10,7,0) 0%, rgba(6,10,7,0.80) 42%, rgba(6,10,7,0.94) 100%);
+  /* The generous top padding is the scrim's runway, not spacing. The bar is
+     pinned to the bottom and its content is centred between the paddings, so
+     growing the top padding raises the bar's top edge without moving the PLAY
+     button — it only gives the gradient below somewhere to fade.
+
+     It needs that room. This gradient used to run over the bar's natural ~69px
+     and top out at 0.94 opacity, so the bright artwork read through it the
+     whole way down. Across the middle nothing showed, because the PLAY button
+     and the mode toggle cover it; at the two ends of the bar nothing does, and
+     the green came through at the bottom-left and bottom-right corners.
+
+     Steepening the ramp inside 69px would have traded the green for a visible
+     horizontal edge where the scrim started. Over ~100px it can instead reach
+     fully opaque with about a third of the bar to spare — so the corners are
+     flat — and still fade smoothly enough that the art dissolves into the band
+     rather than meeting a line.
+
+     The colour is a neutral black. It used to be #060A07, a green-black picked
+     to sit with the branding — but green is its dominant channel (6, 10, 7),
+     and the panel around the hero is blue-dominant (#16181f). So the band read
+     as *green* against its own surroundings even where it was fully opaque and
+     no artwork was showing at all: the tint was the scrim itself, not the art
+     coming through. Raising the opacity, which is what the first two attempts
+     at this did, only showed more of it. A scrim over brand art wants to be
+     neutral anyway, so the fade does not shift the artwork's hue on its way
+     down. */
+  padding: 44px 16px 12px;
+  background: linear-gradient(180deg,
+    rgba(0,0,0,0) 0%,
+    rgba(0,0,0,0.55) 30%,
+    rgba(0,0,0,0.92) 58%,
+    rgba(0,0,0,1) 72%,
+    rgba(0,0,0,1) 100%);
 }
 .hero-mode { display: flex; flex-direction: column; gap: 4px; }
 .hero-mode-label {
@@ -2259,31 +2354,303 @@ body.theme-custom-glass .btn-play.running:active {
 .qs-card.update-available .qs-value { color: #ffaa00; text-shadow: none; }
 /* Update control sits beside the status value rather than under it; it drops
    to its own line only if the card gets too narrow to hold both. */
-.qs-value-row {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  margin-top: auto;
-}
-.qs-value-row .qs-value { min-width: 0; }
-.qs-update-btn { width: auto; font-size: 9px; padding: 3px 7px; margin-left: auto; white-space: nowrap; }
 
-/* ── Home: client management ──────────────────────────────────────────── */
-.manage-panel {
+/* ── Home: client management ───────────────────────────────────────────
+   These four actions used to be a panel of their own under the hero, spending
+   a permanent row of the Home tab on buttons most people press once. They now
+   hang off a gear in the hero's action bar, the way a store page files its
+   install actions behind one. */
+.home-hero-wrap { position: relative; margin-bottom: 10px; }
+
+/* Layout only. The gear wears .nav-btn, so each skin paints it exactly as it
+   paints the sidebar's buttons. */
+.hero-gear {
+  flex-shrink: 0;
+  width: 34px; height: 34px;
+  padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+
+/* Dropped below the hero rather than inside it: .home-hero clips to its own
+   rounded corners, so a menu opened within it would be cut off at the edge.
+
+   The base here is the Win9x shape, the way the rest of this stylesheet is —
+   style.css *is* the retro layout, and the modern skins override it further
+   down. Built to match .network-menu, the launcher's other dropdown, so the two
+   are not two different ideas of what a menu looks like. */
+.manage-menu {
+  position: absolute;
+  top: 100%; right: 12px;
+  z-index: 60;
+  min-width: 194px;
+  margin-top: -2px;
+  padding: 4px;
   background: var(--bg-panel);
-  border: 2px solid;
-  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  flex-direction: column; gap: 8px;
-  padding: 10px 14px;
-  margin-top: 10px;
+  border: 1px solid var(--border-dark);
+  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+  display: flex; flex-direction: column; gap: 3px;
+  /* Grows out of the gear it hangs from rather than its own middle. */
+  transform-origin: top right;
 }
-.manage-title {
-  font-family: var(--font-mono); font-size: 9px; font-weight: bold;
-  letter-spacing: 1px; color: var(--green-dim);
-  padding-bottom: 6px; border-bottom: 1px dashed var(--border-dark);
+/* Needed because .manage-menu sets `display: flex`, which would otherwise beat
+   the `[hidden]` attribute's own display rule. */
+.manage-menu[hidden] { display: none; }
+
+/* Layout only — the look comes from each row's btn-* class, which every skin
+   paints. Scoped by id because those same theme rules set `padding`, `margin`
+   and `text-align` with !important, sized for the horizontal row of buttons
+   these used to be rather than for a menu line. */
+/* Rows that are not currently applicable — Check for Updates before a client
+   is installed — are hidden by the `hidden` attribute. It needs !important
+   because the layout rule below forces `display: flex` the same way, and the
+   attribute's own UA rule would lose to it. */
+#manageMenu .manage-item[hidden] { display: none !important; }
+
+#manageMenu .manage-item {
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 7px 10px !important;
+  text-align: left !important;
 }
-/* Wraps by design: four buttons on a narrow window flow onto a second line
-   instead of forcing the window to scroll sideways. */
-.manage-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.manage-actions .btn-uninstall { margin-left: auto; }
+.manage-item svg {
+  width: 14px; height: 14px;
+  flex-shrink: 0;
+  fill: currentColor;
+  opacity: 0.8;
+}
+.manage-item:hover svg,
+.manage-item:focus-visible svg { opacity: 1; }
+
+/* A groove, the classic separator: one dark line and one light one. The modern
+   skins flatten it to a single hairline below. */
+.manage-sep {
+  height: 0;
+  margin: 3px 1px;
+  border-top: 1px solid var(--border-dark);
+  border-bottom: 1px solid var(--border-light);
+}
+
+/* Uninstall is the one irreversible action here, so it sits under a rule and
+   goes red on hover instead of looking like the three routine ones. Solid
+   rather than a tint, because a translucent red over the grey --bg-btn of the
+   Win9x palettes comes out muddy. */
+.manage-item.danger:hover,
+.manage-item.danger:focus-visible {
+  background: #b5342a !important;
+  color: #ffffff !important;
+}
+
+/* ── Modern skins ───────────────────────────────────────────────────────
+   Only the panel and the separator. The rows are left to each theme's own
+   button rules — that is the whole reason they kept their btn-* classes. */
+body.theme-moderndark .manage-menu,
+body.theme-moderngreen .manage-menu,
+body.theme-modernlight .manage-menu,
+body.theme-blackandwhite .manage-menu,
+body.theme-blackandwhite-inverted .manage-menu {
+  padding: 6px;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  gap: 3px;
+}
+body.theme-moderndark .manage-sep,
+body.theme-moderngreen .manage-sep,
+body.theme-modernlight .manage-sep,
+body.theme-blackandwhite .manage-sep,
+body.theme-blackandwhite-inverted .manage-sep {
+  height: 1px;
+  border: 0;
+  margin: 5px 2px;
+  background: var(--border-dark);
+}
+
+/* Addressed by id, not class. The gear borrows .nav-btn for each skin's button
+   styling, and the skins size and move that class for a sidebar row: `margin`
+   pins it (theme-recroom sets `margin: 2px`, which left the gear stranded
+   mid-bar), `padding` leaves a 34px square button about 10px of content box
+   (which squashed the gear to a sliver), and several add
+   `transform: translateX(4px)` on hover — an item sliding toward the content it
+   opens, which reads as a glitch on a lone icon button in a horizontal bar. */
+#btnManageClient {
+  margin-left: auto !important; /* past PLAY MODE, to the far end of the bar */
+  padding: 0 !important;
+}
+#btnManageClient:hover,
+#btnManageClient:focus-visible {
+  transform: none !important;
+}
+
+/* Seven skins express the nav hover as a *translucent* wash — moderndark and
+   friends use `rgba(255,255,255,0.05)`, modernlight `rgba(0,0,0,0.03)`,
+   steam2010 `rgba(255,255,255,0.07)`, macosaqua `rgba(31,111,235,0.12)`. Each
+   is a shorthand `background`, so it replaces the opaque panel colour rather
+   than layering over it. In the sidebar that is invisible: the button sits on a
+   solid panel. Here it sits on the hero art, so hovering the gear made it turn
+   see-through and the green pattern showed through the button.
+   
+   Restored as an opaque colour mixed to the same intent — the panel nudged
+   toward the text colour, which comes out as a light wash on the dark skins and
+   a dark one on the light skins, exactly like the tints above but composited
+   here instead of against whatever happens to be behind.
+
+   Restricted to the closed state. While the menu is open the gear also wears
+   .active, and each skin paints that deliberately — moderndark gives it a
+   purple gradient, macosaqua a blue one. Those rules are declared after the
+   skin's own :hover, so they already win it; the only thing that was beating
+   them was this rule's id, which swapped the gradient for --bg-main and turned
+   the open gear near-black under the cursor. The active backgrounds are all
+   opaque, so nothing here is needed while it is open. */
+body.theme-moderndark #btnManageClient[aria-expanded="false"]:hover,
+body.theme-moderngreen #btnManageClient[aria-expanded="false"]:hover,
+body.theme-modernlight #btnManageClient[aria-expanded="false"]:hover,
+body.theme-blackandwhite #btnManageClient[aria-expanded="false"]:hover,
+body.theme-blackandwhite-inverted #btnManageClient[aria-expanded="false"]:hover,
+body.theme-steam2010 #btnManageClient[aria-expanded="false"]:hover,
+body.theme-macosaqua #btnManageClient[aria-expanded="false"]:hover,
+body.theme-moderndark #btnManageClient[aria-expanded="false"]:focus-visible,
+body.theme-moderngreen #btnManageClient[aria-expanded="false"]:focus-visible,
+body.theme-modernlight #btnManageClient[aria-expanded="false"]:focus-visible,
+body.theme-blackandwhite #btnManageClient[aria-expanded="false"]:focus-visible,
+body.theme-blackandwhite-inverted #btnManageClient[aria-expanded="false"]:focus-visible,
+body.theme-steam2010 #btnManageClient[aria-expanded="false"]:focus-visible,
+body.theme-macosaqua #btnManageClient[aria-expanded="false"]:focus-visible {
+  /* Painted as a background-image over an opaque background-color rather than
+     as one colour, because --bg-panel is itself translucent on
+     theme-modernlight (rgba(255,255,255,0.85)) — mixing against it alone left
+     the button 87% opaque and the hero art still faintly showing. --bg-main is
+     a solid hex on every skin, so compositing over it lands opaque regardless
+     of what the panel colour is. */
+  background-color: var(--bg-main) !important;
+  background-image: linear-gradient(
+      color-mix(in srgb, var(--text) 12%, var(--bg-panel)),
+      color-mix(in srgb, var(--text) 12%, var(--bg-panel))
+    ) !important;
+}
+.hero-gear svg {
+  width: 17px; height: 17px;
+  flex-shrink: 0;
+  fill: currentColor;
+  /* An inline SVG rather than the U+2699 glyph it was: that character renders
+     as a thin outline in some fonts and a colour emoji in others, so the button
+     looked different depending on the font pack. This is the same solid gear
+     everywhere and takes the theme's text colour. */
+  pointer-events: none;
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────
+   Gated twice: on the launcher's own animations setting, and on the modern
+   skins. Every other animation in this file is scoped the same way, and for the
+   same reason — a Win9x menu appeared, it did not glide in, so easing one onto
+   a skin built to look like Windows 98 reads as the wrong decade rather than as
+   polish. The retro skins get the menu with no motion at all. */
+body.animations-enabled.theme-moderndark .manage-menu:not([hidden]),
+body.animations-enabled.theme-moderngreen .manage-menu:not([hidden]),
+body.animations-enabled.theme-modernlight .manage-menu:not([hidden]),
+body.animations-enabled.theme-blackandwhite .manage-menu:not([hidden]),
+body.animations-enabled.theme-blackandwhite-inverted .manage-menu:not([hidden]) {
+  animation: manageMenuIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes manageMenuIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.95); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The rows arrive just behind the panel, close enough together to read as one
+   movement rather than a queue. */
+body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item,
+body.animations-enabled.theme-moderngreen .manage-menu:not([hidden]) .manage-item,
+body.animations-enabled.theme-modernlight .manage-menu:not([hidden]) .manage-item,
+body.animations-enabled.theme-blackandwhite .manage-menu:not([hidden]) .manage-item,
+body.animations-enabled.theme-blackandwhite-inverted .manage-menu:not([hidden]) .manage-item {
+  animation: manageItemIn 0.18s ease both;
+}
+body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item:nth-of-type(1),
+body.animations-enabled.theme-moderngreen .manage-menu:not([hidden]) .manage-item:nth-of-type(1),
+body.animations-enabled.theme-modernlight .manage-menu:not([hidden]) .manage-item:nth-of-type(1),
+body.animations-enabled.theme-blackandwhite .manage-menu:not([hidden]) .manage-item:nth-of-type(1),
+body.animations-enabled.theme-blackandwhite-inverted .manage-menu:not([hidden]) .manage-item:nth-of-type(1) { animation-delay: 0.03s; }
+body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item:nth-of-type(2),
+body.animations-enabled.theme-moderngreen .manage-menu:not([hidden]) .manage-item:nth-of-type(2),
+body.animations-enabled.theme-modernlight .manage-menu:not([hidden]) .manage-item:nth-of-type(2),
+body.animations-enabled.theme-blackandwhite .manage-menu:not([hidden]) .manage-item:nth-of-type(2),
+body.animations-enabled.theme-blackandwhite-inverted .manage-menu:not([hidden]) .manage-item:nth-of-type(2) { animation-delay: 0.06s; }
+body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item:nth-of-type(3),
+body.animations-enabled.theme-moderngreen .manage-menu:not([hidden]) .manage-item:nth-of-type(3),
+body.animations-enabled.theme-modernlight .manage-menu:not([hidden]) .manage-item:nth-of-type(3),
+body.animations-enabled.theme-blackandwhite .manage-menu:not([hidden]) .manage-item:nth-of-type(3),
+body.animations-enabled.theme-blackandwhite-inverted .manage-menu:not([hidden]) .manage-item:nth-of-type(3) { animation-delay: 0.09s; }
+body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item:nth-of-type(4),
+body.animations-enabled.theme-moderngreen .manage-menu:not([hidden]) .manage-item:nth-of-type(4),
+body.animations-enabled.theme-modernlight .manage-menu:not([hidden]) .manage-item:nth-of-type(4),
+body.animations-enabled.theme-blackandwhite .manage-menu:not([hidden]) .manage-item:nth-of-type(4),
+body.animations-enabled.theme-blackandwhite-inverted .manage-menu:not([hidden]) .manage-item:nth-of-type(4) { animation-delay: 0.12s; }
+body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item:nth-of-type(5),
+body.animations-enabled.theme-moderngreen .manage-menu:not([hidden]) .manage-item:nth-of-type(5),
+body.animations-enabled.theme-modernlight .manage-menu:not([hidden]) .manage-item:nth-of-type(5),
+body.animations-enabled.theme-blackandwhite .manage-menu:not([hidden]) .manage-item:nth-of-type(5),
+body.animations-enabled.theme-blackandwhite-inverted .manage-menu:not([hidden]) .manage-item:nth-of-type(5) { animation-delay: 0.15s; }
+@keyframes manageItemIn {
+  from { opacity: 0; transform: translateX(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The exit. `hidden` would remove the element outright, so hideDropdown() in
+   app.js marks it `.is-closing` and holds it in the layout for MENU_EXIT_MS
+   before hiding it — keep that constant and this duration in step.
+
+   Quicker than the entrance and without the row stagger: an opening menu is
+   worth a moment because you are about to read it, while a closing one is
+   already answered and any delay past the click reads as lag. */
+body.animations-enabled.theme-moderndark .manage-menu.is-closing,
+body.animations-enabled.theme-moderngreen .manage-menu.is-closing,
+body.animations-enabled.theme-modernlight .manage-menu.is-closing,
+body.animations-enabled.theme-blackandwhite .manage-menu.is-closing,
+body.animations-enabled.theme-blackandwhite-inverted .manage-menu.is-closing {
+  animation: manageMenuOut 0.14s ease-in forwards;
+}
+body.animations-enabled.theme-moderndark .manage-menu.is-closing .manage-item,
+body.animations-enabled.theme-moderngreen .manage-menu.is-closing .manage-item,
+body.animations-enabled.theme-modernlight .manage-menu.is-closing .manage-item,
+body.animations-enabled.theme-blackandwhite .manage-menu.is-closing .manage-item,
+body.animations-enabled.theme-blackandwhite-inverted .manage-menu.is-closing .manage-item {
+  animation: none;
+}
+@keyframes manageMenuOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(-6px) scale(0.97); }
+}
+
+/* The gear turns as its menu opens, so the button reads as the thing holding
+   the list open rather than one that fired and forgot. */
+body.animations-enabled.theme-moderndark .hero-gear svg,
+body.animations-enabled.theme-moderngreen .hero-gear svg,
+body.animations-enabled.theme-modernlight .hero-gear svg,
+body.animations-enabled.theme-blackandwhite .hero-gear svg,
+body.animations-enabled.theme-blackandwhite-inverted .hero-gear svg {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+body.animations-enabled.theme-moderndark .hero-gear[aria-expanded="true"] svg,
+body.animations-enabled.theme-moderngreen .hero-gear[aria-expanded="true"] svg,
+body.animations-enabled.theme-modernlight .hero-gear[aria-expanded="true"] svg,
+body.animations-enabled.theme-blackandwhite .hero-gear[aria-expanded="true"] svg,
+body.animations-enabled.theme-blackandwhite-inverted .hero-gear[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+/* Hovering it while closed nudges the gear round, which is the movement an icon
+   button can afford — in place, not across the bar. Scoped to the closed state
+   so it can't fight the rule above. */
+body.animations-enabled.theme-moderndark .hero-gear[aria-expanded="false"]:hover svg,
+body.animations-enabled.theme-moderngreen .hero-gear[aria-expanded="false"]:hover svg,
+body.animations-enabled.theme-modernlight .hero-gear[aria-expanded="false"]:hover svg,
+body.animations-enabled.theme-blackandwhite .hero-gear[aria-expanded="false"]:hover svg,
+body.animations-enabled.theme-blackandwhite-inverted .hero-gear[aria-expanded="false"]:hover svg {
+  transform: rotate(45deg);
+}
 
 /* Explanatory copy under a settings row. */
 .sg-note {
@@ -2393,6 +2760,54 @@ body.theme-custom-glass .btn-play.running:active {
   box-shadow: 2px 2px 4px rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.2s;
 }
 .toast.show { opacity: 1; }
+
+/* Toasts kept the Win9x frame — a 2px outset bevel and a hard offset shadow —
+   on every modern skin, because .toast was never added to the surface rule that
+   modernises the panels. The banner has the same history and is now listed
+   there; a toast needs its own rule because of the status accent below. */
+body.theme-moderndark .toast,
+body.theme-moderngreen .toast,
+body.theme-modernlight .toast,
+body.theme-blackandwhite .toast,
+body.theme-blackandwhite-inverted .toast {
+  /* Long-hand rather than the `border` shorthand: the accent rules underneath
+     colour the left edge, and a shorthand here would flatten them back to the
+     frame colour whatever their specificity, since this carries !important. */
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-color: var(--border-light) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
+  /* Inherited for the same reason as the version badge below the sidebar:
+     follow the body's face, whether that is the skin's or a font pack's. */
+  font-family: inherit !important;
+  font-size: 12px !important;
+  padding: 9px 14px !important;
+}
+
+/* Restated with !important so the frame above cannot flatten the one thing that
+   distinguishes a failure from a success at a glance. */
+body.theme-moderndark .toast.ok,
+body.theme-moderngreen .toast.ok,
+body.theme-modernlight .toast.ok,
+body.theme-blackandwhite .toast.ok,
+body.theme-blackandwhite-inverted .toast.ok {
+  border-left: 4px solid var(--green) !important;
+}
+body.theme-moderndark .toast.error,
+body.theme-moderngreen .toast.error,
+body.theme-modernlight .toast.error,
+body.theme-blackandwhite .toast.error,
+body.theme-blackandwhite-inverted .toast.error {
+  border-left: 4px solid #ff4444 !important;
+}
+body.theme-moderndark .toast.info,
+body.theme-moderngreen .toast.info,
+body.theme-modernlight .toast.info,
+body.theme-blackandwhite .toast.info,
+body.theme-blackandwhite-inverted .toast.info {
+  border-left: 4px solid #4488ff !important;
+}
 
 /* ─── Update Modal ──────────────────────────────────────────────────────── */
 .modal-overlay {
@@ -4535,6 +4950,17 @@ body.theme-macosclassic th {
   background-size: 200% 200%;
 }
 
+/* A list whose next page is in flight. The rows already on screen stay put and
+   readable rather than being replaced by a "Loading..." line, so paging and
+   typing in a search don't collapse the layout on every request; they are
+   dimmed and made inert so a click can't land on a row that is about to be
+   swapped out from under it. */
+.is-refreshing {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+
 #photoDetailImage.image-loading-placeholder {
   aspect-ratio: 16/9;
   min-height: 220px;
@@ -5672,8 +6098,9 @@ body.animations-enabled.theme-modernlight .room-card:hover {
 }
 
 /* Runs when `hidden` is removed, which is the only moment the menu appears.
-   There is no matching exit: the attribute hides it instantly, and faking a
-   close would mean holding the menu open past the click that dismissed it. */
+   The matching exit is below: it does mean holding the menu on screen past the
+   click that dismissed it, which is why it is short and why hideDropdown()
+   skips the wait entirely on skins that have no exit animation. */
 :is(body.animations-enabled.theme-moderndark,
     body.animations-enabled.theme-moderngreen,
     body.animations-enabled.theme-modernlight,
@@ -5694,6 +6121,27 @@ body.animations-enabled.theme-modernlight .room-card:hover {
 }
 body.animations-enabled .network-menu:not([hidden]) .network-option:nth-of-type(1) { animation-delay: 0.04s; }
 body.animations-enabled .network-menu:not([hidden]) .network-option:nth-of-type(2) { animation-delay: 0.09s; }
+
+/* The exit, mirroring the drop. The options do not stagger back out — see the
+   note on the manage menu's exit for why a close should not be made to wait. */
+body.animations-enabled.theme-moderndark .network-menu.is-closing,
+body.animations-enabled.theme-moderngreen .network-menu.is-closing,
+body.animations-enabled.theme-modernlight .network-menu.is-closing,
+body.animations-enabled.theme-blackandwhite .network-menu.is-closing,
+body.animations-enabled.theme-blackandwhite-inverted .network-menu.is-closing {
+  animation: networkMenuLift 0.14s ease-in forwards;
+}
+body.animations-enabled.theme-moderndark .network-menu.is-closing .network-option,
+body.animations-enabled.theme-moderngreen .network-menu.is-closing .network-option,
+body.animations-enabled.theme-modernlight .network-menu.is-closing .network-option,
+body.animations-enabled.theme-blackandwhite .network-menu.is-closing .network-option,
+body.animations-enabled.theme-blackandwhite-inverted .network-menu.is-closing .network-option {
+  animation: none;
+}
+@keyframes networkMenuLift {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(-6px) scale(0.98); }
+}
 
 /* The switch itself. A ring drawn on a pseudo-element rather than an animated
    box-shadow colour, so it needs no colour-mixing to fade out — it just uses
@@ -7117,12 +7565,6 @@ body.theme-recroom .qs-card .qs-icon-indicator {
   border-radius: 50% !important;
   box-shadow: 0 0 0 2px rgba(255,255,255,0.55) !important;
 }
-/* Section headings read as labels on the warm background, not dim mono text. */
-body.theme-recroom .manage-title {
-  color: #7a4a12 !important;
-  font-weight: 800 !important;
-  border-bottom-color: rgba(150,110,50,0.28) !important;
-}
 
 /* Mode toggle pill */
 body.theme-recroom .mode-toggle-wrap { background: rgba(255,255,255,0.5) !important; border: 1px solid rgba(255,255,255,0.6) !important; border-radius: 20px !important; overflow: hidden !important; }
@@ -7182,7 +7624,7 @@ body.theme-recroom .launch-secondary-actions button {
 /* Per-action hues, mirroring the watch-menu tile colours. Qualified with
    `button` so these match the specificity of the `.launch-secondary-actions
    button` selector above and win on source order — without it the group
-   default repaints every manage-panel button purple. */
+   default repaints every one of these buttons purple. */
 body.theme-recroom button.btn-open-folder { --rr-top:#3fd0c9; --rr-face:#1d9b96; --rr-edge:#15736f; }
 body.theme-recroom button.btn-reinstall   { --rr-top:#5cb3ff; --rr-face:#1f7fe0; --rr-edge:#1660ab; }
 body.theme-recroom button.btn-exclude-av  { --rr-top:#a684ff; --rr-face:#7a3fe0; --rr-edge:#5a27b5; }
@@ -7191,13 +7633,6 @@ body.theme-recroom button.btn-uninstall,
 body.theme-recroom button.btn-cancel-dl,
 body.theme-recroom button.btn-kill,
 body.theme-recroom button.modal-btn-danger { --rr-top:#ff7d72; --rr-face:#e2392f; --rr-edge:#ab2620; }
-/* The update button sits on the orange Client Status tile, where another
-   saturated colour would fight it — white reads cleanly instead. */
-body.theme-recroom button.qs-update-btn {
-  --rr-top:#ffffff; --rr-face:#fff1de; --rr-edge:#d79a3f;
-  color:#7a4a12 !important; text-shadow:none !important;
-}
-
 body.theme-recroom .btn-refresh:hover,
 body.theme-recroom .btn-save:hover,
 body.theme-recroom .btn-test-server:hover,
