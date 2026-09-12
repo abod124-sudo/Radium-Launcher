@@ -50,6 +50,14 @@ jobs:
       # This launcher downloads a zip and an installer and then executes both,
       # so a known-vulnerable TLS, HTTP or archive crate is not a theoretical
       # problem. Checked against the RustSec advisory database.
+      #
+      # `working-directory` is required: Cargo.lock lives in src-tauri, not
+      # the repo root, and the action's default (`.`) finds nothing there to
+      # scan. Without this it doesn't fail loudly — cargo audit comes back
+      # empty and the action's own JSON parse of that blows up with
+      # "Unexpected end of JSON input", which is what actually happened on
+      # the first run of this workflow.
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: src-tauri
