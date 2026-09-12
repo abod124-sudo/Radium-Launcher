@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -24,6 +24,67 @@ const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 /// any client installed under a different build id is treated as outdated and
 /// the user is prompted to re-download. (See `check_install` -> `clientOutdated`.)
 pub const REQUIRED_CLIENT_BUILD: &str = "recroom-baby-2016";
+
+/// SHA-256 of the zip [`REQUIRED_CLIENT_BUILD`] names, lowercase hex.
+///
+/// What gets extracted here is executable code, and the URL it comes from is
+/// scraped off a web page — so TLS proves only that the page and the CDN were
+/// reached, not that the bytes are the build this launcher was tested against.
+/// A pin turns that into something checkable.
+///
+/// `None` disables the check, which is the state to avoid: set it whenever
+/// `REQUIRED_CLIENT_BUILD` is bumped, by downloading the zip once and running
+///
+/// ```text
+/// certutil -hashfile client.zip SHA256
+/// ```
+///
+/// A mismatch aborts before extraction, so a wrong value here is a loud
+/// failure rather than a silent one.
+pub const EXPECTED_CLIENT_SHA256: Option<&str> = None;
+
+/// Lowercase hex SHA-256 of a file, read in chunks so a multi-gigabyte zip is
+/// never held in memory.
+pub fn sha256_file(path: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+
+    let mut file = fs::File::open(path).map_err(|e| format!("Failed to open for hashing: {}", e))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1024 * 1024];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| format!("Failed to read while hashing: {}", e))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect())
+}
+
+/// Lowercase hex SHA-256 of bytes already in memory.
+pub fn sha256_of(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
+}
+
+/// Compare a computed digest against an expected one, case- and
+/// `sha256:`-prefix-insensitively.
+pub fn digest_matches(actual: &str, expected: &str) -> bool {
+    let expected = expected
+        .trim()
+        .trim_start_matches("sha256:")
+        .trim_start_matches("SHA256:");
+    actual.eq_ignore_ascii_case(expected.trim())
+}
 
 /// Basename of the download artifacts for `network`.
 ///
@@ -156,10 +217,17 @@ async fn fetch_download_page_html() -> Result<String, String> {
 /// downloads page's "Windows" card, e.g.
 /// `<h3>Windows</h3><p>0.9.2</p><p><a href="...windows.zip">Download</a></p>`.
 fn extract_windows_card(html: &str) -> Option<(String, String)> {
-    let re = regex::Regex::new(
-        r#"(?s)<h3>\s*Windows\s*</h3>\s*<p>([^<]+)</p>\s*<p><a href="([^"]+)""#,
-    )
-    .ok()?;
+    // Compiled once: this runs on every update check, and building the pattern
+    // costs more than matching it against the page.
+    static RE: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
+    let re = RE
+        .get_or_init(|| {
+            regex::Regex::new(
+                r#"(?s)<h3>\s*Windows\s*</h3>\s*<p>([^<]+)</p>\s*<p><a href="([^"]+)""#,
+            )
+            .ok()
+        })
+        .as_ref()?;
     let c = re.captures(html)?;
     Some((
         c.get(1)?.as_str().trim().to_string(),
@@ -170,12 +238,18 @@ fn extract_windows_card(html: &str) -> Option<(String, String)> {
 /// Extract patch notes (version, date, bullet list) from the downloads page,
 /// newest first, as published on the site.
 fn extract_patch_notes(html: &str) -> Vec<Value> {
-    let block_re = regex::Regex::new(
-        r#"(?s)<div class="well patch-note"><h3>([^<]+)</h3><p class="muted">([^<]+)</p><ul>(.*?)</ul></div>"#,
-    );
-    let li_re = regex::Regex::new(r#"(?s)<li>(.*?)</li>"#);
+    static BLOCK: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
+    static LI: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
 
-    let (Ok(block_re), Ok(li_re)) = (block_re, li_re) else {
+    let block_re = BLOCK.get_or_init(|| {
+        regex::Regex::new(
+            r#"(?s)<div class="well patch-note"><h3>([^<]+)</h3><p class="muted">([^<]+)</p><ul>(.*?)</ul></div>"#,
+        )
+        .ok()
+    });
+    let li_re = LI.get_or_init(|| regex::Regex::new(r#"(?s)<li>(.*?)</li>"#).ok());
+
+    let (Some(block_re), Some(li_re)) = (block_re.as_ref(), li_re.as_ref()) else {
         return Vec::new();
     };
 
@@ -244,8 +318,18 @@ async fn resolve_download_info(
                     .into(),
             );
         }
-        if !url.starts_with("https://") {
+        // Parsed rather than prefix-matched: `starts_with("https://")` alone
+        // says nothing about where the bytes come from, and these bytes become
+        // executables. There is no build to pin a hash against, so the host is
+        // the only thing that can be checked — and a URL that isn't well-formed
+        // at all should fail here rather than at fetch time.
+        let parsed = reqwest::Url::parse(&url)
+            .map_err(|_| "The Vanilla client URL is not a valid URL.".to_string())?;
+        if parsed.scheme() != "https" {
             return Err("The Vanilla client URL must start with https://".into());
+        }
+        if parsed.host_str().unwrap_or("").is_empty() {
+            return Err("The Vanilla client URL has no host.".into());
         }
         return Ok((String::new(), url));
     }
@@ -347,7 +431,13 @@ pub async fn check_client_update(app: tauri::AppHandle, network: Option<String>)
         && !latest_version.is_empty()
         && !cfg.client_version_sync_prompted
     {
-        let mut updated_cfg = cfg.clone();
+        // Re-read rather than writing back the `cfg` captured at the top of
+        // this function. Two awaits have happened since — the download page
+        // fetch, and sometimes a HEAD for the ETag — which is seconds during
+        // which the settings UI can have saved a change the user just made.
+        // Saving the stale copy over it reverted that change silently. Only
+        // this one flag belongs to this function.
+        let mut updated_cfg = config::ensure_config(&app);
         updated_cfg.client_version_sync_prompted = true;
         let _ = config::save_config(&app, &updated_cfg);
         true
@@ -658,6 +748,33 @@ async fn download_client_impl(
         .map_err(|e| format!("Failed to finalize download: {}", e))?;
     let _ = fs::remove_file(&meta_path);
 
+    // Verify the pin before anything is extracted or the old install is
+    // touched. Only Radium has a build this launcher pins; a Vanilla zip comes
+    // from a URL the user supplied, so there is nothing to compare it against.
+    if network == Network::Radium {
+        if let Some(expected) = EXPECTED_CLIENT_SHA256 {
+            let _ = app.emit("download-progress", json!({
+                "phase": "extract",
+                "pct": 0,
+                "status": "Verifying download..."
+            }));
+            let zip_for_hash = client_zip.clone();
+            let actual = tokio::task::spawn_blocking(move || sha256_file(&zip_for_hash))
+                .await
+                .map_err(|e| format!("Verification task failed: {}", e))??;
+            if !digest_matches(&actual, expected) {
+                // The bytes are not the build this launcher was tested with, so
+                // they do not get to become executables on the user's disk.
+                let _ = fs::remove_file(&client_zip);
+                return Err(format!(
+                    "The downloaded client does not match the expected build \
+                     (expected {}, got {}). Nothing was installed.",
+                    expected, actual
+                ));
+            }
+        }
+    }
+
     // ── Phase 2: Extract ───────────────────────────────────────────────
     let _ = app.emit("download-progress", json!({
         "phase": "extract",
@@ -665,90 +782,25 @@ async fn download_client_impl(
         "status": "Preparing extraction..."
     }));
 
-    // Open and parse the archive BEFORE touching the existing install. Clearing
-    // first meant a corrupt or truncated download wiped a working client and
-    // then failed, leaving the user with nothing to launch and nothing to
-    // roll back to.
-    let zip_file = fs::File::open(&client_zip)
-        .map_err(|e| format!("Failed to open zip: {}", e))?;
-    let mut archive = zip::ZipArchive::new(zip_file)
-        .map_err(|e| format!("Failed to read zip archive: {}", e))?;
-
-    // The archive is readable, so the old install can go.
-    if Path::new(&client_dir).exists() {
-        let _ = safe_clear_client_dir(&client_dir);
-    }
-    fs::create_dir_all(&client_dir)
-        .map_err(|e| format!("Failed to create client dir: {}", e))?;
-
-    let entry_count = archive.len();
-    let mut was_cancelled = false;
-    last_emit = std::time::Instant::now() - EMIT_INTERVAL;
-
-    for i in 0..entry_count {
-        // Honor cancellation during extraction too — previously Cancel only
-        // worked during the download phase.
-        if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
-            was_cancelled = true;
-            break;
-        }
-
-        let mut entry = archive
-            .by_index(i)
-            .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
-
-        let out_path = match entry.enclosed_name() {
-            Some(p) => Path::new(&client_dir).join(p),
-            None => continue, // skip entries with unsafe paths
-        };
-
-        if entry.is_dir() {
-            fs::create_dir_all(&out_path)
-                .map_err(|e| format!("Failed to create dir {:?}: {}", out_path, e))?;
-        } else {
-            // Ensure parent directory exists.
-            if let Some(parent) = out_path.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create parent dir: {}", e))?;
-            }
-
-            let mut out_file = fs::File::create(&out_path)
-                .map_err(|e| format!("Failed to create file {:?}: {}", out_path, e))?;
-
-            std::io::copy(&mut entry, &mut out_file)
-                .map_err(|e| format!("Failed to write extracted data: {}", e))?;
-        }
-
-        // Emit extraction progress (throttled; a zip can hold thousands of entries).
-        if last_emit.elapsed() >= EMIT_INTERVAL || i + 1 == entry_count {
-            last_emit = std::time::Instant::now();
-            let pct = ((i + 1) as f64 / entry_count as f64 * 100.0) as i64;
-            let entry_name = entry.name().trim_end_matches('/').to_string();
-            // Just the file/folder name (drop the archive path) for a compact,
-            // readable "current file" display.
-            let entry_base = entry_name
-                .rsplit(['/', '\\'])
-                .next()
-                .unwrap_or("")
-                .to_string();
-            let _ = app.emit("download-progress", json!({
-                "phase": "extract",
-                "pct": pct,
-                "status": format!("Extracting: {} ({}/{})", entry_name, i + 1, entry_count),
-                "entry": entry_base,
-                "done": i + 1,
-                "totalEntries": entry_count
-            }));
-        }
-    }
-
-    // Cleanup zip file.
-    drop(archive);
-    let _ = fs::remove_file(&client_zip);
+    // Extraction is minutes of synchronous file I/O — `std::io::copy` over
+    // gigabytes, thousands of times. Run directly in this `async fn` it held a
+    // tokio worker for the whole install, starving every other command and the
+    // thumbnail pipeline sharing that runtime. `spawn_blocking` puts it on the
+    // blocking pool where it belongs; the app handle is cloned in so progress
+    // events still reach the frontend from there.
+    let was_cancelled = {
+        let app = app.clone();
+        let client_dir = client_dir.clone();
+        let client_zip = client_zip.clone();
+        tokio::task::spawn_blocking(move || extract_client_zip(&app, &client_zip, &client_dir))
+            .await
+            .map_err(|e| format!("Extraction task failed: {}", e))??
+    };
 
     if was_cancelled {
         // Remove the half-extracted client so it isn't detected as installed.
-        let _ = safe_clear_client_dir(&client_dir);
+        let client_dir = client_dir.clone();
+        let _ = tokio::task::spawn_blocking(move || safe_clear_client_dir(&client_dir)).await;
         return Err("Cancelled".into());
     }
 
@@ -787,6 +839,161 @@ async fn download_client_impl(
     }))
 }
 
+/// Largest total the extracted client may occupy.
+///
+/// Nothing upstream promises a sane archive: the Radium zip is resolved from a
+/// scraped page, and the Vanilla one is whatever URL the user typed into
+/// Settings. Without a ceiling an archive that decompresses to far more than it
+/// claims fills the disk before anything notices — the classic zip bomb, which
+/// costs a few bytes of archive per gigabyte written.
+///
+/// The real client is a few gigabytes, so this leaves generous headroom while
+/// still bounding the damage.
+const MAX_EXTRACTED_BYTES: u64 = 32 * 1024 * 1024 * 1024;
+
+/// Most entries the archive may hold.
+const MAX_ENTRIES: usize = 200_000;
+
+/// Extract the downloaded zip into `client_dir`, emitting progress as it goes.
+///
+/// Returns `Ok(true)` if cancellation was observed partway through, so the
+/// caller can clear the partial install. Runs on the blocking pool — see the
+/// call site.
+fn extract_client_zip(
+    app: &tauri::AppHandle,
+    client_zip: &Path,
+    client_dir: &str,
+) -> Result<bool, String> {
+    const EMIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
+    // Open and parse the archive BEFORE touching the existing install. Clearing
+    // first meant a corrupt or truncated download wiped a working client and
+    // then failed, leaving the user with nothing to launch and nothing to
+    // roll back to.
+    let zip_file =
+        fs::File::open(client_zip).map_err(|e| format!("Failed to open zip: {}", e))?;
+    let mut archive = zip::ZipArchive::new(zip_file)
+        .map_err(|e| format!("Failed to read zip archive: {}", e))?;
+
+    let entry_count = archive.len();
+    if entry_count > MAX_ENTRIES {
+        return Err(format!(
+            "Refusing to extract: the archive declares {} entries, over the {} limit.",
+            entry_count, MAX_ENTRIES
+        ));
+    }
+
+    // The declared total is only a claim — it is checked again against bytes
+    // actually written below — but rejecting up front avoids clearing a working
+    // install for an archive that was never going to fit.
+    let declared: u64 = (0..entry_count)
+        .filter_map(|i| archive.by_index_raw(i).ok().map(|e| e.size()))
+        .sum();
+    if declared > MAX_EXTRACTED_BYTES {
+        return Err(format!(
+            "Refusing to extract: the archive expands to {}, over the {} limit.",
+            human_bytes(declared),
+            human_bytes(MAX_EXTRACTED_BYTES)
+        ));
+    }
+
+    // The archive is readable and within budget, so the old install can go.
+    if Path::new(client_dir).exists() {
+        let _ = safe_clear_client_dir(client_dir);
+    }
+    fs::create_dir_all(client_dir)
+        .map_err(|e| format!("Failed to create client dir: {}", e))?;
+
+    let mut written: u64 = 0;
+    let mut last_emit = std::time::Instant::now() - EMIT_INTERVAL;
+
+    for i in 0..entry_count {
+        // Honor cancellation during extraction too — previously Cancel only
+        // worked during the download phase.
+        if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
+            return Ok(true);
+        }
+
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
+
+        let out_path = match entry.enclosed_name() {
+            Some(p) => Path::new(client_dir).join(p),
+            None => continue, // skip entries with unsafe paths
+        };
+
+        if entry.is_dir() {
+            fs::create_dir_all(&out_path)
+                .map_err(|e| format!("Failed to create dir {:?}: {}", out_path, e))?;
+        } else {
+            // Ensure parent directory exists.
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create parent dir: {}", e))?;
+            }
+
+            let mut out_file = fs::File::create(&out_path)
+                .map_err(|e| format!("Failed to create file {:?}: {}", out_path, e))?;
+
+            // Copy through a capped reader rather than trusting `entry.size()`:
+            // the header is written by whoever built the archive and a bomb
+            // simply lies in it, so the limit has to apply to bytes that
+            // actually land on disk.
+            let remaining = MAX_EXTRACTED_BYTES - written;
+            let copied = std::io::copy(&mut (&mut entry).take(remaining + 1), &mut out_file)
+                .map_err(|e| format!("Failed to write extracted data: {}", e))?;
+            if copied > remaining {
+                drop(out_file);
+                return Err(format!(
+                    "Refusing to extract: the archive expands past the {} limit.",
+                    human_bytes(MAX_EXTRACTED_BYTES)
+                ));
+            }
+            written += copied;
+        }
+
+        // Emit extraction progress (throttled; a zip can hold thousands of entries).
+        if last_emit.elapsed() >= EMIT_INTERVAL || i + 1 == entry_count {
+            last_emit = std::time::Instant::now();
+            let pct = ((i + 1) as f64 / entry_count as f64 * 100.0) as i64;
+            let entry_name = entry.name().trim_end_matches('/').to_string();
+            // Just the file/folder name (drop the archive path) for a compact,
+            // readable "current file" display.
+            let entry_base = entry_name
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let _ = app.emit("download-progress", json!({
+                "phase": "extract",
+                "pct": pct,
+                "status": format!("Extracting: {} ({}/{})", entry_name, i + 1, entry_count),
+                "entry": entry_base,
+                "done": i + 1,
+                "totalEntries": entry_count
+            }));
+        }
+    }
+
+    // Cleanup zip file.
+    drop(archive);
+    let _ = fs::remove_file(client_zip);
+
+    Ok(false)
+}
+
+/// Round a byte count for an error message the user will read.
+fn human_bytes(n: u64) -> String {
+    const GB: u64 = 1024 * 1024 * 1024;
+    const MB: u64 = 1024 * 1024;
+    if n >= GB {
+        format!("{:.1} GB", n as f64 / GB as f64)
+    } else {
+        format!("{} MB", n / MB)
+    }
+}
+
 // ─── Cancel download ────────────────────────────────────────────────────────
 
 /// Signal cancellation of the current download. The download loop checks this
@@ -795,7 +1002,7 @@ async fn download_client_impl(
 /// If nothing is actively downloading — e.g. the user cancels a *paused*
 /// download — there is no loop to observe the flag, so the partial file and its
 /// resume metadata are removed here directly.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn cancel_download(app: tauri::AppHandle, network: Option<String>) {
     DOWNLOAD_CANCELLED.store(true, Ordering::SeqCst);
     DOWNLOAD_PAUSED.store(false, Ordering::SeqCst);
@@ -811,7 +1018,7 @@ pub fn cancel_download(app: tauri::AppHandle, network: Option<String>) {
 /// Signal a pause of the current download. The loop checks this flag between
 /// chunks and stops, leaving the partial file in place so it can be resumed by
 /// calling `download_client` again.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pause_download() {
     DOWNLOAD_PAUSED.store(true, Ordering::SeqCst);
 }
@@ -872,7 +1079,12 @@ async fn uninstall_client_impl(
     let client_dir = config::get_client_dir_for(&app, &cfg, network);
 
     if Path::new(&client_dir).exists() {
-        safe_clear_client_dir(&client_dir)
+        // Deleting a multi-gigabyte install is seconds of synchronous I/O, so
+        // it goes to the blocking pool rather than parking a tokio worker.
+        let dir = client_dir.clone();
+        tokio::task::spawn_blocking(move || safe_clear_client_dir(&dir))
+            .await
+            .map_err(|e| format!("Uninstall task failed: {}", e))?
             .map_err(|e| format!("Failed to clear client dir: {}", e))?;
     }
 
@@ -914,15 +1126,19 @@ pub async fn check_install(
     }
 
     // Try to locate the bat file if the config path was empty or invalid.
+    // This walks the install tree, so on the miss path — which is the one that
+    // costs anything — it runs on the blocking pool. The hit path above does no
+    // I/O beyond two `exists()` calls and stays here.
     if exe_path.is_empty() {
-        exe_path = game::find_game_exe(&client_dir).unwrap_or_default();
+        let dir = client_dir.clone();
+        exe_path = tokio::task::spawn_blocking(move || game::find_game_exe(&dir))
+            .await
+            .map_err(|e| format!("Install scan failed: {}", e))?
+            .unwrap_or_default();
     }
 
     let installed = !exe_path.is_empty() && Path::new(&exe_path).exists();
     let is_running = game::check_game_running();
-
-    // DLL-restore feature is disabled — never report a missing patch DLL.
-    let dll_missing = false;
 
     // A client installed under a different build id (or with no recorded build,
     // e.g. installed by an older launcher) is outdated and needs re-downloading.
@@ -937,7 +1153,6 @@ pub async fn check_install(
         "exePath": exe_path,
         "clientDir": client_dir,
         "isRunning": is_running,
-        "dllMissing": dll_missing,
         "clientOutdated": client_outdated,
         "clientVersion": cfg.client_version_for(network),
         "network": network.as_str(),
@@ -987,17 +1202,11 @@ pub async fn select_folder(network: Option<String>) -> Result<Option<String>, St
 // ─── Default client directory ───────────────────────────────────────────────
 
 /// Return the default client directory path (`<app_data_dir>/client`).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_default_client_dir(app: tauri::AppHandle, network: Option<String>) -> String {
     let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let folder = config::default_client_folder(Network::parse(network.as_deref()));
     app_data_dir.join(folder).to_string_lossy().to_string()
-}
-
-/// Restore-DLL feature is disabled.
-#[tauri::command]
-pub async fn restore_dll(_app: tauri::AppHandle) -> Result<Value, String> {
-    Ok(json!({ "success": false, "error": "Restore DLL is disabled." }))
 }
 
 /// Distinctive Rec Room game files. The presence of any one marks a directory
@@ -1176,6 +1385,85 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod integrity_tests {
+    use super::*;
+
+    /// The known SHA-256 of the empty input, so the wiring is checked against a
+    /// value that does not come from this code.
+    const EMPTY_SHA256: &str =
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+    #[test]
+    fn hashing_a_file_and_hashing_bytes_agree() {
+        let dir = std::env::temp_dir().join(format!("radium-hash-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("payload.bin");
+        // Larger than the 1 MB read buffer, so the chunked loop is exercised
+        // rather than a single read.
+        let payload: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
+        fs::write(&path, &payload).expect("write");
+
+        assert_eq!(sha256_file(&path).expect("hash"), sha256_of(&payload));
+
+        fs::write(&path, b"").expect("write empty");
+        assert_eq!(sha256_file(&path).expect("hash"), EMPTY_SHA256);
+        assert_eq!(sha256_of(b""), EMPTY_SHA256);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_digest_matches_however_the_publisher_spelled_it() {
+        // GitHub publishes `sha256:<hex>`; a hash pasted from certutil comes
+        // back uppercase and padded with whitespace. Both name the same bytes.
+        let actual = EMPTY_SHA256;
+        assert!(digest_matches(actual, EMPTY_SHA256));
+        assert!(digest_matches(actual, &format!("sha256:{}", EMPTY_SHA256)));
+        assert!(digest_matches(actual, &EMPTY_SHA256.to_uppercase()));
+        assert!(digest_matches(actual, &format!("  sha256:{}  ", EMPTY_SHA256)));
+
+        // And a different file must not pass.
+        assert!(!digest_matches(actual, &sha256_of(b"x")));
+        assert!(!digest_matches(actual, ""));
+    }
+
+    #[test]
+    fn the_pinned_client_hash_is_well_formed_if_it_is_set() {
+        // A typo here would reject every download with a confusing mismatch,
+        // so the shape is checked even while the pin is unset.
+        if let Some(pin) = EXPECTED_CLIENT_SHA256 {
+            assert_eq!(pin.len(), 64, "a SHA-256 is 64 hex characters");
+            assert!(
+                pin.chars().all(|c| c.is_ascii_hexdigit()),
+                "the pin must be hex"
+            );
+            assert_eq!(pin, pin.to_lowercase(), "store the pin lowercase");
+        }
+    }
+}
+
+#[cfg(test)]
+mod extraction_budget_tests {
+    use super::*;
+
+    #[test]
+    fn the_budget_leaves_room_for_a_real_client() {
+        // The client is a few gigabytes; a ceiling under that would reject
+        // every legitimate download, which is a worse failure than the one this
+        // guards against.
+        const { assert!(MAX_EXTRACTED_BYTES >= 16 * 1024 * 1024 * 1024) };
+        const { assert!(MAX_ENTRIES >= 100_000) };
+    }
+
+    #[test]
+    fn sizes_are_reported_in_units_a_person_reads() {
+        assert_eq!(human_bytes(MAX_EXTRACTED_BYTES), "32.0 GB");
+        assert_eq!(human_bytes(512 * 1024 * 1024), "512 MB");
+        assert_eq!(human_bytes(3 * 1024 * 1024 * 1024), "3.0 GB");
+    }
 }
 
 #[cfg(test)]

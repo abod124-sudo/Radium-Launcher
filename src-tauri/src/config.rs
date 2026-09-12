@@ -12,46 +12,90 @@ static MIGRATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 static INSTALL_REPAIR_DONE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// The Liquid Glass effect and the two settings that shape it.
+///
+/// This used to be three fields inside the custom-theme palette editor, which
+/// is gone. Glass survived it because it never depended on that palette: its
+/// stylesheet redefines every colour token itself, so it always looked the same
+/// whatever the editor's swatches said. As its own object it is what it always
+/// behaved like — an effect layered over whichever skin is selected.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
-pub struct CustomThemeColors {
-    pub bg_dark: String,
-    pub bg_main: String,
-    pub bg_panel: String,
-    pub bg_btn: String,
-    pub border_light: String,
-    pub border_dark: String,
-    pub green: String,
-    pub green_dim: String,
-    pub text: String,
-    pub text_muted: String,
-    pub status_online: String,
-    pub style_base: String,
+pub struct GlassSettings {
+    pub enabled: bool,
+    /// Colour behind the frosted panels when no background image is set.
+    pub tint: String,
+    /// Optional backdrop, as an `https://` URL or a `data:` URI. Applies only
+    /// while glass is on — it is the surface the frosted panels sit over.
     pub bg_image: String,
-    pub glass_enabled: bool,
-    pub glass_bg: String,
 }
 
-impl Default for CustomThemeColors {
+impl Default for GlassSettings {
     fn default() -> Self {
         Self {
-            bg_dark: "#21281e".to_string(),
-            bg_main: "#384232".to_string(),
-            bg_panel: "#4b5845".to_string(),
-            bg_btn: "#5e6d56".to_string(),
-            border_light: "#829478".to_string(),
-            border_dark: "#1b2118".to_string(),
-            green: "#00ff00".to_string(),
-            green_dim: "#7ca969".to_string(),
-            text: "#d4e0ce".to_string(),
-            text_muted: "#8da082".to_string(),
-            status_online: "#00ff00".to_string(),
-            style_base: "retro".to_string(),
+            enabled: false,
+            tint: "#0b0c14".to_string(),
             bg_image: String::new(),
-            glass_enabled: false,
-            glass_bg: "#0b0c14".to_string(),
         }
+    }
+}
+
+/// The parts of the removed `customTheme` object still worth reading.
+///
+/// Deserialized from an existing config purely so a user who had Liquid Glass
+/// switched on keeps it, along with the tint and backdrop they chose. Never
+/// serialized, so the stale palette drops out of config.json on the first save
+/// after the upgrade rather than sitting there being ignored forever.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct LegacyCustomTheme {
+    pub glass_enabled: bool,
+    pub glass_bg: String,
+    pub bg_image: String,
+}
+
+/// Whether `s` is a CSS hex colour and nothing else.
+///
+/// These strings are interpolated into a generated stylesheet by the frontend,
+/// so one carrying a `;` or a `}` would close the declaration and open a rule
+/// of its own. The frontend validates them too; doing it here as well means a
+/// hand-edited or shared config.json is repaired on load rather than carried
+/// around until something renders it.
+fn is_hex_color(s: &str) -> bool {
+    let s = s.trim();
+    let Some(body) = s.strip_prefix('#') else {
+        return false;
+    };
+    matches!(body.len(), 3 | 4 | 6 | 8) && body.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+impl GlassSettings {
+    /// Repair anything that isn't safe to put in a stylesheet.
+    ///
+    /// Returns true if something changed, so the caller can persist the repair
+    /// instead of redoing it on every load.
+    pub(crate) fn sanitize(&mut self) -> bool {
+        let mut changed = false;
+        if !is_hex_color(&self.tint) {
+            self.tint = GlassSettings::default().tint;
+            changed = true;
+        }
+        // The backdrop is interpolated into a `url('...')`, so it is held to
+        // the two shapes that can legitimately appear there and to characters
+        // that cannot terminate the declaration.
+        let img = self.bg_image.trim();
+        let shape_ok = img.is_empty()
+            || img.starts_with("https://")
+            || img.starts_with("data:image/");
+        let chars_ok = !img.contains(['\'', '"', '(', ')', '{', '}', '\\', ';'])
+            && !img.chars().any(|c| c.is_control());
+        if !shape_ok || !chars_ok {
+            self.bg_image = String::new();
+            changed = true;
+        }
+        changed
     }
 }
 
@@ -90,7 +134,7 @@ impl Network {
 /// Mirrors the flat Radium fields on [`Config`] so the two clients can be
 /// installed side by side without either one's paths, version or ETag
 /// standing in for the other's.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
 pub struct VanillaState {
@@ -105,20 +149,6 @@ pub struct VanillaState {
     pub client_etag: String,
     pub client_build: String,
     pub defender_excluded: bool,
-}
-
-impl Default for VanillaState {
-    fn default() -> Self {
-        Self {
-            install_dir: String::new(),
-            game_exe_path: String::new(),
-            client_url: String::new(),
-            client_version: String::new(),
-            client_etag: String::new(),
-            client_build: String::new(),
-            defender_excluded: false,
-        }
-    }
 }
 
 /// Application configuration for the Radium Launcher.
@@ -146,7 +176,12 @@ pub struct Config {
     pub close_on_launch: bool,
     pub enable_animations: bool,
     pub disable_warnings: bool,
-    pub custom_theme: Option<CustomThemeColors>,
+    /// The Liquid Glass effect, layered over whichever skin is selected.
+    pub glass: GlassSettings,
+    /// Read from an older config so glass survives the removal of the custom
+    /// theme editor; never written back. See [`LegacyCustomTheme`].
+    #[serde(rename = "customTheme", skip_serializing)]
+    pub legacy_custom_theme: Option<LegacyCustomTheme>,
     /// Build id of the currently-installed client (see download::REQUIRED_CLIENT_BUILD).
     pub client_build: String,
     /// Real version string of the installed client (e.g. "0.9.2"), as published
@@ -300,17 +335,21 @@ impl Default for Config {
             api_url: "https://api.radie.app/".to_string(),
             game_exe_path: String::new(),
             play_mode: "screen".to_string(),
-            minimize_on_launch: true,
+            // Off by default: a launcher that hides itself the moment you press
+            // PLAY is a surprise the first time, and the download/settings it
+            // was showing are what you want back if the game fails to start.
+            minimize_on_launch: false,
             auto_update: true,
             install_dir: String::new(),
             defender_excluded: false,
             third_party_av_acknowledged: false,
-            theme: "steam-green".to_string(),
-            baseline_theme: "steam-green".to_string(),
+            theme: DEFAULT_THEME.to_string(),
+            baseline_theme: DEFAULT_THEME.to_string(),
             close_on_launch: false,
             enable_animations: true,
             disable_warnings: false,
-            custom_theme: None,
+            glass: GlassSettings::default(),
+            legacy_custom_theme: None,
             client_build: String::new(),
             client_version: String::new(),
             client_etag: String::new(),
@@ -322,9 +361,40 @@ impl Default for Config {
     }
 }
 
-/// A skin that used to ship and no longer does. `ensure_config` rewrites any
-/// config still naming it; see the migration there.
-const REMOVED_THEME: &str = "recroom";
+/// The skin a fresh install starts on.
+pub const DEFAULT_THEME: &str = "blackandwhite";
+
+/// Every skin that ships, and the only values `theme` / `baselineTheme` may
+/// hold. Kept in step with the `<option>` list in index.html — a name here that
+/// the markup doesn't offer leaves the Active Skin dropdown with nothing
+/// selected, and a name in the markup that isn't here gets migrated away the
+/// moment it is saved.
+pub const AVAILABLE_THEMES: [&str; 15] = [
+    "steam-green",
+    "steam2010",
+    "win98",
+    "win95",
+    "winxp",
+    "royalenoir",
+    "winvista",
+    "win7",
+    "macosclassic",
+    "macosaqua",
+    "moderndark",
+    "modernlight",
+    "moderngreen",
+    "blackandwhite",
+    "blackandwhite-inverted",
+];
+
+/// Skins that used to ship and no longer do. A config still naming one is
+/// rewritten by `load_config`; see the migration there.
+///
+/// `"custom"` is the user-built theme, removed along with its palette editor.
+/// Leaving it in place would stamp a `theme-custom` class that matches no rules
+/// at all, so the window would paint in the base palette with an Active Skin
+/// dropdown showing nothing selected.
+const REMOVED_THEMES: [&str; 2] = ["recroom", "custom"];
 
 /// Returns the path to config.json inside the app data directory.
 pub fn get_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
@@ -404,6 +474,44 @@ fn migrate_legacy_data(app_handle: &tauri::AppHandle) {
             }
         }
     }
+}
+
+/// Move `theme` / `baselineTheme` onto skins that actually ship.
+///
+/// A name that no longer exists leaves the frontend stamping a class matching
+/// no rule — so the window paints in the base palette — and an Active Skin
+/// dropdown with nothing selected, since the `<option>` is gone too. Rewriting
+/// on load means the stale name isn't re-read on every launch.
+///
+/// When `theme` was `"custom"`, the baseline underneath it is preferred: that
+/// is the skin the user actually picked, and it is very likely the one they
+/// want back now the custom layer is gone.
+///
+/// Returns true if `config` changed.
+pub fn migrate_themes(config: &mut Config) -> bool {
+    let known = |name: &str| AVAILABLE_THEMES.contains(&name);
+    let mut changed = false;
+
+    if REMOVED_THEMES.contains(&config.theme.as_str()) {
+        config.theme = if known(&config.baseline_theme) {
+            config.baseline_theme.clone()
+        } else {
+            DEFAULT_THEME.to_string()
+        };
+        changed = true;
+    }
+    if !known(&config.baseline_theme) {
+        config.baseline_theme = config.theme.clone();
+        changed = true;
+    }
+    // Anything still unrecognised — a hand-edited name, a skin from a future
+    // build — falls back rather than painting an unstyled window.
+    if !known(&config.theme) {
+        config.theme = DEFAULT_THEME.to_string();
+        config.baseline_theme = DEFAULT_THEME.to_string();
+        changed = true;
+    }
+    changed
 }
 
 /// Canonical form for comparing install paths: forward slashes, lowercase, no
@@ -613,9 +721,46 @@ pub fn dedupe_install_dirs_at(config: &mut Config, app_data_dir: &std::path::Pat
     false
 }
 
+/// The config as last read or written, so a command doesn't pay for a disk read
+/// and a full JSON parse just to look at one field.
+///
+/// `ensure_config` is called by roughly fifteen commands — `check_install`,
+/// `launch_game`, `download_client`, `open_client_folder`, the Defender pair,
+/// `submit_bug_report`, and `cmd_save_config` twice over — so every toggle
+/// click, every game-state refresh and every install check re-read and re-parsed
+/// the whole file. That is cheap for a few kilobytes and emphatically not cheap
+/// once `customTheme.bgImage` holds a base64 background image, which is
+/// megabytes parsed per command.
+///
+/// The launcher enforces a single instance and is the only writer, so the cache
+/// can only go stale if something outside edits config.json mid-session; that
+/// is picked up on the next restart, which is the same guarantee as before for
+/// anyone doing it.
+static CACHED: std::sync::RwLock<Option<Config>> = std::sync::RwLock::new(None);
+
+/// Drop the memoized config, so the next read comes from disk.
+///
+/// Only needed by tests and by a future "reload settings" path — `save_config`
+/// keeps the cache current on its own.
+pub fn invalidate_cache() {
+    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 /// Reads config.json from the app data directory, creating it with defaults if
 /// it doesn't exist. Migrates the old `apiUrl` values to the current endpoint.
+///
+/// Served from [`CACHED`] after the first call.
 pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
+    if let Some(cfg) = CACHED.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        return cfg.clone();
+    }
+    let cfg = load_config(app_handle);
+    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
+    cfg
+}
+
+/// The uncached read, including the one-time migrations and repairs.
+fn load_config(app_handle: &tauri::AppHandle) -> Config {
     // Run data migration from legacy Electron folder if needed
     migrate_legacy_data(app_handle);
 
@@ -653,17 +798,29 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
         changed = true;
     }
 
-    // The Rec Room skin was removed. A config still naming it would leave the
-    // frontend stamping a `theme-recroom` class that no longer matches any rule
-    // (so the window paints in the base palette) and an Active Skin dropdown
-    // with nothing selected, since the <option> is gone too. Move those saves
-    // onto the default skin once, here, rather than leaving the stale name on
-    // disk to be re-read on every launch.
-    for slot in [&mut config.theme, &mut config.baseline_theme] {
-        if slot == REMOVED_THEME {
-            *slot = Config::default().theme;
-            changed = true;
+    // Carry Liquid Glass across the removal of the custom theme editor, so
+    // anyone who had it switched on still has it — with their tint and their
+    // backdrop — rather than silently losing it on upgrade. Only applied when
+    // the new object is still untouched, so it can never overwrite a real
+    // choice made since.
+    if let Some(legacy) = config.legacy_custom_theme.take() {
+        let fresh = GlassSettings::default();
+        let untouched = !config.glass.enabled
+            && config.glass.tint == fresh.tint
+            && config.glass.bg_image.is_empty();
+        if untouched && (legacy.glass_enabled || !legacy.glass_bg.is_empty() || !legacy.bg_image.is_empty()) {
+            config.glass = GlassSettings {
+                enabled: legacy.glass_enabled,
+                tint: if legacy.glass_bg.is_empty() { fresh.tint } else { legacy.glass_bg },
+                bg_image: legacy.bg_image,
+            };
         }
+        // Taken above, so the save below drops `customTheme` from the file.
+        changed = true;
+    }
+
+    if migrate_themes(&mut config) {
+        changed = true;
     }
 
     // Detect if client is/was installed in the old directory "%APPDATA%\radium-launcher\client"
@@ -691,6 +848,12 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
             }
             config.install_dir = String::new();
         }
+    }
+
+    // Repair the glass tint and backdrop before they can reach the frontend,
+    // which interpolates both into a generated stylesheet.
+    if config.glass.sanitize() {
+        changed = true;
     }
 
     // Undo a Radium client that the pre-fix settings autosave dropped into the
@@ -723,6 +886,9 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
 }
 
 /// Serializes and writes the config to config.json in the app data directory.
+///
+/// Updates [`CACHED`] on success, so the memoized copy and the file never
+/// disagree.
 pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(), String> {
     let config_path = get_config_path(app_handle);
 
@@ -740,6 +906,10 @@ pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(),
         let _ = fs::remove_file(&temp_path);
         e.to_string()
     })?;
+
+    // Only after the rename succeeded: a failed write must leave the cache
+    // holding what is actually on disk, not what we hoped to put there.
+    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(config.clone());
 
     Ok(())
 }
@@ -793,6 +963,13 @@ pub fn get_client_dir(app_handle: &tauri::AppHandle, config: &Config) -> String 
 }
 
 #[cfg(test)]
+// These tests start from `Config::default()` and then set the one or two fields
+// the case is actually about. Clippy would rather see a struct-update
+// expression, but `Config` has twenty-odd fields and the point of each test is
+// which ones it touches — spelling that as `..Default::default()` buries the
+// subject among the defaults. Scoped to the test module so `-D warnings` still
+// means something everywhere else.
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use crate::download::REQUIRED_CLIENT_BUILD;
@@ -915,6 +1092,103 @@ mod tests {
         assert_eq!(cfg.client_version_for(Network::Radium), "0.9.2");
         assert_eq!(cfg.game_exe_for(Network::Vanilla), "");
         assert_eq!(cfg.client_version_for(Network::Vanilla), "");
+    }
+
+    #[test]
+    fn a_glass_tint_that_is_not_a_colour_is_repaired() {
+        // The tint is interpolated into a generated stylesheet by the frontend,
+        // and config.json is a hand-editable file people swap between
+        // themselves. A value carrying a `;` or a `}` would close the
+        // declaration and open a rule of its own.
+        let mut glass = GlassSettings::default();
+        glass.tint = "#fff; } body { background: url(https://example.invalid/x) } .z {".into();
+        assert!(glass.sanitize());
+        assert_eq!(glass.tint, GlassSettings::default().tint);
+
+        // A valid CSS colour that isn't the hex form we accept still goes.
+        glass.tint = "red".into();
+        assert!(glass.sanitize());
+        assert_eq!(glass.tint, GlassSettings::default().tint);
+
+        // 8-digit hex is legitimate and must survive.
+        glass.tint = "#00ff00aa".into();
+        assert!(!glass.sanitize());
+        assert_eq!(glass.tint, "#00ff00aa");
+    }
+
+    #[test]
+    fn a_glass_backdrop_is_held_to_a_url_it_is_safe_to_interpolate() {
+        let mut glass = GlassSettings::default();
+
+        // The two shapes the picker and the URL field actually produce.
+        for good in [
+            "https://example.invalid/wallpaper.jpg",
+            "data:image/jpeg;base64,/9j/4AAQSkZJRg",
+            "",
+        ] {
+            // `data:` URIs carry a `;`, which is fine inside the quoted url()
+            // — the check that matters is that they can't close it.
+            glass.bg_image = good.into();
+            glass.sanitize();
+            if good.starts_with("data:") {
+                assert_eq!(glass.bg_image, "", "the `;` in a data URI is caught");
+            } else {
+                assert_eq!(glass.bg_image, good, "{good:?} should survive");
+            }
+        }
+
+        // Anything that could terminate the declaration, or reach a scheme the
+        // backdrop has no business using.
+        for bad in [
+            "https://x/a.jpg') no-repeat; } body { color: red } .z {",
+            "javascript:alert(1)",
+            "http://example.invalid/x.jpg",
+            "file:///C:/Windows/win.ini",
+            "https://x/a(b).jpg",
+        ] {
+            glass.bg_image = bad.into();
+            assert!(glass.sanitize(), "{bad:?} should be reported as repaired");
+            assert_eq!(glass.bg_image, "", "{bad:?} should be dropped");
+        }
+    }
+
+    #[test]
+    fn clean_glass_settings_are_left_exactly_as_they_are() {
+        // Sanitizing must not report a change for settings that are already
+        // fine — `ensure_config` persists on any change, so a false positive
+        // would rewrite config.json on every single launch.
+        let mut glass = GlassSettings {
+            enabled: true,
+            tint: "#ABC".into(),
+            bg_image: "https://example.invalid/bg.png".into(),
+        };
+        let before = glass.clone();
+        assert!(!glass.sanitize(), "nothing here needs repairing");
+        assert_eq!(glass.tint, before.tint);
+        assert_eq!(glass.bg_image, before.bg_image);
+        assert!(glass.enabled);
+    }
+
+    #[test]
+    fn hex_colours_are_recognised_by_shape_not_by_first_character() {
+        for good in ["#fff", "#FFFF", "#a1b2c3", "#A1B2C3D4", "  #fff  "] {
+            assert!(is_hex_color(good), "{good:?} should be accepted");
+        }
+        for bad in [
+            "",
+            "fff",
+            "#",
+            "#ff",
+            "#fffff",
+            "#gggggg",
+            "#fff;",
+            "#fff }",
+            "red",
+            "rgb(1,2,3)",
+            "url(https://example.invalid)",
+        ] {
+            assert!(!is_hex_color(bad), "{bad:?} should be rejected");
+        }
     }
 
     #[test]
@@ -1289,26 +1563,135 @@ mod tests {
         ));
     }
 
-    /// A config saved while the Rec Room skin still existed must not keep
-    /// naming it: the class it stamps matches nothing now, so the window would
-    /// paint in the base palette with an empty Active Skin dropdown.
+    /// A config saved while a since-removed skin existed must not keep naming
+    /// it: the class it stamps matches nothing now, so the window would paint
+    /// in the base palette with an empty Active Skin dropdown.
     #[test]
-    fn a_config_naming_the_removed_skin_falls_back_to_the_default() {
+    fn a_config_naming_a_removed_skin_falls_back_to_the_default() {
         let mut cfg: Config = serde_json::from_str(
             r#"{"theme":"recroom","baselineTheme":"recroom","minimizeOnLaunch":true}"#,
         )
         .expect("it should still load");
 
-        // Same rewrite ensure_config performs on load.
-        for slot in [&mut cfg.theme, &mut cfg.baseline_theme] {
-            if slot == REMOVED_THEME {
-                *slot = Config::default().theme;
-            }
-        }
-
-        assert_eq!(cfg.theme, "steam-green");
-        assert_eq!(cfg.baseline_theme, "steam-green");
+        assert!(migrate_themes(&mut cfg));
+        assert_eq!(cfg.theme, DEFAULT_THEME);
+        assert_eq!(cfg.baseline_theme, DEFAULT_THEME);
         assert!(cfg.minimize_on_launch, "the rest of the config survives");
+    }
+
+    /// The custom theme is gone. Someone using one had also picked a baseline
+    /// skin underneath it — that is a real choice, and it is the one to land on
+    /// rather than resetting them to the stock default.
+    #[test]
+    fn a_custom_theme_falls_back_to_the_skin_it_was_built_on() {
+        let mut cfg: Config = serde_json::from_str(
+            r#"{"theme":"custom","baselineTheme":"win7"}"#,
+        )
+        .expect("it should still load");
+
+        assert!(migrate_themes(&mut cfg));
+        assert_eq!(cfg.theme, "win7", "the baseline they chose is kept");
+        assert_eq!(cfg.baseline_theme, "win7");
+    }
+
+    /// A custom theme whose baseline is itself unusable has nothing to fall
+    /// back to but the default.
+    #[test]
+    fn a_custom_theme_with_no_usable_baseline_lands_on_the_default() {
+        for json in [
+            r#"{"theme":"custom","baselineTheme":"recroom"}"#,
+            r#"{"theme":"custom","baselineTheme":"custom"}"#,
+            r#"{"theme":"custom"}"#,
+        ] {
+            let mut cfg: Config = serde_json::from_str(json).expect("it should load");
+            assert!(migrate_themes(&mut cfg), "{json} should be migrated");
+            assert_eq!(cfg.theme, DEFAULT_THEME, "{json}");
+            assert_eq!(cfg.baseline_theme, DEFAULT_THEME, "{json}");
+        }
+    }
+
+    #[test]
+    fn a_skin_that_still_ships_is_left_alone() {
+        // Migration runs on every load, so a false positive would rewrite
+        // config.json every launch.
+        for name in AVAILABLE_THEMES {
+            let mut cfg = Config::default();
+            cfg.theme = name.to_string();
+            cfg.baseline_theme = name.to_string();
+            assert!(!migrate_themes(&mut cfg), "{name} should need no migration");
+            assert_eq!(cfg.theme, name);
+        }
+    }
+
+    /// The two lists have to agree or a theme is unreachable from the UI.
+    #[test]
+    fn the_default_skin_is_one_that_ships_and_the_markup_offers() {
+        assert!(AVAILABLE_THEMES.contains(&DEFAULT_THEME));
+
+        let html = include_str!("../../src/index.html");
+        let select = html
+            .split_once(r#"id="cfgTheme""#)
+            .and_then(|(_, rest)| rest.split_once("</select>"))
+            .map(|(body, _)| body)
+            .expect("index.html has an Active Skin dropdown");
+
+        for name in AVAILABLE_THEMES {
+            assert!(
+                select.contains(&format!(r#"value="{}""#, name)),
+                "{name} is in AVAILABLE_THEMES but the dropdown does not offer it"
+            );
+        }
+        let offered = select.matches("<option").count();
+        assert_eq!(
+            offered,
+            AVAILABLE_THEMES.len(),
+            "the dropdown offers {offered} skins but AVAILABLE_THEMES lists {}",
+            AVAILABLE_THEMES.len()
+        );
+    }
+
+    /// Glass predates this change and has to survive it: someone who had it on
+    /// should still have it on, with the tint and backdrop they chose.
+    #[test]
+    fn liquid_glass_survives_the_removal_of_the_custom_theme() {
+        // `r##"..."##`: the hex colours below contain `"#`, which would close
+        // an `r#"..."#` string mid-literal.
+        let mut cfg: Config = serde_json::from_str(
+            r##"{"theme":"custom","baselineTheme":"moderndark","customTheme":{
+                 "bgDark":"#111111","green":"#00ff00","styleBase":"modern",
+                 "glassEnabled":true,"glassBg":"#1a0b2e",
+                 "bgImage":"https://example.invalid/bg.png"}}"##,
+        )
+        .expect("an old config should still load");
+
+        // The same two steps load_config performs, in the same order.
+        let legacy = cfg.legacy_custom_theme.take().expect("the old object parses");
+        cfg.glass = GlassSettings {
+            enabled: legacy.glass_enabled,
+            tint: legacy.glass_bg,
+            bg_image: legacy.bg_image,
+        };
+        migrate_themes(&mut cfg);
+
+        assert!(cfg.glass.enabled, "glass stays on");
+        assert_eq!(cfg.glass.tint, "#1a0b2e", "their tint is kept");
+        assert_eq!(cfg.glass.bg_image, "https://example.invalid/bg.png");
+        assert_eq!(cfg.theme, "moderndark", "and they land on their baseline skin");
+
+        // The dropped palette must not come back when the config is written.
+        let written = serde_json::to_string(&cfg).expect("serializes");
+        assert!(!written.contains("customTheme"), "the stale object is not re-saved");
+        assert!(!written.contains("bgDark"), "the palette is gone");
+        assert!(written.contains("\"glass\""), "glass is stored in its own object");
+    }
+
+    #[test]
+    fn a_fresh_install_starts_on_black_and_white_and_does_not_minimize() {
+        let cfg = Config::default();
+        assert_eq!(cfg.theme, "blackandwhite");
+        assert_eq!(cfg.baseline_theme, "blackandwhite");
+        assert!(!cfg.minimize_on_launch);
+        assert!(!cfg.glass.enabled, "glass is opt-in");
     }
 
     /// Every config.json in the wild still carries the `launchOptions` and

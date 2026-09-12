@@ -1668,7 +1668,7 @@ mod tests {
         let prefix = player(2, "nillabean", "nillabean");
         let middle = player(3, "notnilla", "notnilla");
 
-        let mut rows = vec![&middle, &prefix, &exact];
+        let mut rows = [&middle, &prefix, &exact];
         rows.sort_by_key(|p| match_rank(p, "nilla"));
         let got: Vec<&str> = rows.iter().map(|p| p.username.as_str()).collect();
         assert_eq!(got, ["nilla", "nillabean", "notnilla"]);

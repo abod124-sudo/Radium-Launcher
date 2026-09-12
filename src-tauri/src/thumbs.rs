@@ -97,6 +97,22 @@ const PRUNE_INTERVAL: Duration = Duration::from_secs(10 * 60);
 /// Timeout for pulling one original. Generous: these are multi-megabyte PNGs.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(45);
 
+/// Largest original this will pull down.
+///
+/// The body is buffered whole, six fetches can overlap, and each then becomes a
+/// bitmap several times its encoded size, so an unbounded read is the one way a
+/// single image can cost the launcher hundreds of megabytes. The biggest thing
+/// either network actually serves is a 2560x1440 PNG at around 3 MB, so 24 MB
+/// is a wide margin over the real traffic.
+const MAX_SOURCE_BYTES: u64 = 24 * 1024 * 1024;
+
+/// Largest source dimensions the decoder will accept.
+///
+/// `image`'s default `Limits` caps allocation at 512 MB but sets no bound on
+/// width or height, which is what lets a tiny crafted file ask for an enormous
+/// canvas. Nothing either network serves is anywhere near this.
+const MAX_SOURCE_DIMENSION: u32 = 8192;
+
 /// How many originals may be in flight at once.
 ///
 /// Roughly what a browser allows per host. Vanilla's image endpoint is slow and
@@ -237,10 +253,36 @@ async fn cached(dir: &Path, base: &str) -> Option<(Vec<u8>, &'static str)> {
 static IN_FLIGHT: OnceLock<std::sync::Mutex<HashMap<String, Arc<AsyncMutex<()>>>>> =
     OnceLock::new();
 
-fn in_flight_lock(name: &str) -> Arc<AsyncMutex<()>> {
-    let map = IN_FLIGHT.get_or_init(Default::default);
-    let mut map = map.lock().unwrap_or_else(|e| e.into_inner());
-    map.entry(name.to_string()).or_default().clone()
+fn in_flight_map() -> &'static std::sync::Mutex<HashMap<String, Arc<AsyncMutex<()>>>> {
+    IN_FLIGHT.get_or_init(Default::default)
+}
+
+/// A lock for one cache entry, paired with a guard that removes it again.
+///
+/// Handing back the bare `Arc` left the key in the map forever. Every distinct
+/// (url, width) pair added one — and browsing Rooms, People and the feed mints
+/// a new pair per image per size — so the map grew for the life of the process.
+/// `CREATOR_CACHE` in `vanilla.rs` is bounded for exactly this reason; this one
+/// was not.
+fn in_flight_lock(name: &str) -> (Arc<AsyncMutex<()>>, InFlightEntry) {
+    let mut map = in_flight_map().lock().unwrap_or_else(|e| e.into_inner());
+    let lock = map.entry(name.to_string()).or_default().clone();
+    (lock, InFlightEntry(name.to_string()))
+}
+
+/// Drops the map entry once the last waiter on it is gone.
+struct InFlightEntry(String);
+
+impl Drop for InFlightEntry {
+    fn drop(&mut self) {
+        let mut map = in_flight_map().lock().unwrap_or_else(|e| e.into_inner());
+        // Two strong references means the map's own plus this holder's, so
+        // nobody else is waiting and the entry can go. A higher count means
+        // another request is queued on this exact image and still needs it.
+        if map.get(&self.0).map(Arc::strong_count).unwrap_or(0) <= 2 {
+            map.remove(&self.0);
+        }
+    }
 }
 
 fn is_fresh(path: &Path) -> bool {
@@ -273,8 +315,9 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
     }
 
     // One downloader per entry; everyone else waits here and then re-reads the
-    // file the winner wrote.
-    let gate = in_flight_lock(&base);
+    // file the winner wrote. `_entry` removes the map slot when the last waiter
+    // on this image is done — see `InFlightEntry`.
+    let (gate, _entry) = in_flight_lock(&base);
     let _held = gate.lock().await;
 
     if let Some(d) = dir {
@@ -297,7 +340,20 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
         if !response.status().is_success() {
             return Err(format!("HTTP error: {}", response.status()));
         }
-        response.bytes().await.map_err(|e| e.to_string())?
+
+        // Refuse an oversized body before reading it. The whole response is
+        // buffered in memory, six of them can be in flight at once, and each
+        // then becomes a decoded bitmap several times its size — so an image
+        // host serving something enormous, by malice or by mistake, is the
+        // launcher's memory problem. The declared length is only a hint, so
+        // the stream below is capped too.
+        if let Some(len) = response.content_length() {
+            if len > MAX_SOURCE_BYTES {
+                return Err(format!("Image too large: {} bytes.", len));
+            }
+        }
+
+        read_capped(response, MAX_SOURCE_BYTES).await?
         // The slot is released here, before the CPU work below: waiting on a
         // core is no reason to hold a network slot a neighbouring card wants.
     };
@@ -309,8 +365,7 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
         if let Some((ext, mime)) = sniff_image(&original) {
             let bytes = original.to_vec();
             if let Some(d) = dir {
-                write_atomic(&d.join(format!("{}.{}", base, ext)), &bytes);
-                maybe_prune();
+                store(d.join(format!("{}.{}", base, ext)), bytes.clone());
             }
             return Ok((bytes, mime));
         }
@@ -330,8 +385,7 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
     };
 
     if let Some(d) = dir {
-        write_atomic(&d.join(format!("{}.{}", base, ext)), &encoded);
-        maybe_prune();
+        store(d.join(format!("{}.{}", base, ext)), encoded.clone());
     }
 
     let mime = CACHE_FORMATS
@@ -342,6 +396,28 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
     Ok((encoded, mime))
 }
 
+/// Read a response body, refusing to buffer more than `max` bytes.
+///
+/// `Response::bytes()` reads to the end however long that is; a server can
+/// under-declare `Content-Length` or omit it entirely, so the cap has to apply
+/// to bytes as they arrive rather than to the header.
+async fn read_capped(response: reqwest::Response, max: u64) -> Result<Vec<u8>, String> {
+    use futures_util::StreamExt;
+
+    let mut out: Vec<u8> = Vec::with_capacity(
+        response.content_length().unwrap_or(0).min(max) as usize,
+    );
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        if out.len() as u64 + chunk.len() as u64 > max {
+            return Err("Image too large.".to_string());
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
 /// Decode, shrink to `width`, and re-encode. Returns the bytes and the file
 /// extension the chosen format wants.
 ///
@@ -349,7 +425,19 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
 /// worst at and most of why the originals run to megabytes. PNG only where the
 /// image actually needs an alpha channel; see [`has_transparency`].
 fn downscale(bytes: &[u8], width: u32) -> Result<(Vec<u8>, &'static str), String> {
-    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
+    // Decoded through a reader with explicit limits rather than
+    // `load_from_memory`, whose defaults bound allocation but not dimensions —
+    // so a small file declaring an enormous canvas got as far as trying to
+    // allocate for it. Refusing by dimension rejects that on the header.
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_SOURCE_DIMENSION);
+    limits.max_image_height = Some(MAX_SOURCE_DIMENSION);
+
+    let mut reader = image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?;
+    reader.limits(limits);
+    let img = reader.decode().map_err(|e| e.to_string())?;
 
     // An image already at or below the target is re-encoded but not resized —
     // Radium's CDN already serves the size we asked it for, and enlarging it
@@ -391,8 +479,25 @@ fn has_transparency(img: &DynamicImage) -> bool {
 
 /// Write via a temporary file and rename, so a half-written thumbnail is never
 /// visible to a concurrent reader or left behind by a crash mid-write.
+///
+/// Store-and-prune are both filesystem work called from an async path, so they
+/// go to the blocking pool together and nothing waits on either — the bytes are
+/// already in hand to return, and a cache write that loses a race costs one
+/// refetch.
+fn store(path: PathBuf, bytes: Vec<u8>) {
+    tokio::task::spawn_blocking(move || {
+        write_atomic(&path, &bytes);
+        maybe_prune();
+    });
+}
+
 fn write_atomic(path: &Path, bytes: &[u8]) {
-    let tmp = path.with_extension("part");
+    // Distinct per format, so a PNG and a JPEG under the same cache base can
+    // never collide on one temp name.
+    let tmp = path.with_extension(format!(
+        "{}.part",
+        path.extension().and_then(|e| e.to_str()).unwrap_or("bin")
+    ));
     if std::fs::write(&tmp, bytes).is_ok() && std::fs::rename(&tmp, path).is_err() {
         let _ = std::fs::remove_file(&tmp);
     }

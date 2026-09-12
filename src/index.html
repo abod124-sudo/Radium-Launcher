@@ -5,11 +5,14 @@
   <!-- Mirrors app.security.csp in src-tauri/tauri.conf.json. Both apply, and a
        browser enforces the intersection, so a source added to only one of them
        is still blocked — change them together. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: asset: https://asset.localhost radiumimg: http://radiumimg.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https: asset: https://asset.localhost radiumimg: http://radiumimg.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net;" />
   <title>Radium Launcher</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Inter ships with the launcher rather than being fetched from Google on
+       every start. It used to be a render-blocking stylesheet request to
+       fonts.googleapis.com ahead of first paint — in a desktop app that is
+       expected to work with no network at all, where it simply fell back to a
+       system face after the wait. Bundling it also lets the CSP drop two
+       external origins. See the @font-face block in style.css. -->
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -572,7 +575,12 @@
           <!-- Theme -->
           <div class="settings-group">
             <div class="sg-title">THEME</div>
-            <div class="sg-row">
+            <!-- Dimmed by JS while Liquid Glass is on: glass repaints every
+                 surface itself and stands in for whichever skin is picked
+                 here, so changing this selection would have no visible
+                 effect until glass is switched off again. -->
+            <p class="sg-hint" id="activeSkinLockNote" hidden>Liquid Glass paints its own surfaces and takes over from the skin below while it's on. Switch it off above to change skins again.</p>
+            <div class="sg-row" id="activeSkinRow">
               <label for="cfgTheme">Active Skin</label>
               <select id="cfgTheme" class="cfg-input">
                 <option value="steam-green">Steam 2003 Green</option>
@@ -594,163 +602,45 @@
             </div>
           </div>
 
-          <!-- ── Custom theme editor ──────────────────────────────────────
-               Its own group rather than a tail on THEME: it is a whole editor,
-               not one more setting, and every control here is built from the
-               same panel / inset-border idiom as the rest of Settings so it
-               inherits each skin. It used to carry hardcoded rgba() overlays,
-               which turned into flat grey boxes on the light skins. -->
+          <!-- ── Liquid Glass ─────────────────────────────────────────────
+               Its own group rather than a tail on THEME, because it is not one
+               more skin: it repaints every surface and brings its own layout,
+               so while it is on it stands in for whichever skin is selected
+               above. That skin is remembered for when it is switched off. -->
           <div class="settings-group">
-            <div class="sg-title">CUSTOM THEME</div>
+            <div class="sg-title">LIQUID GLASS</div>
 
             <div class="sg-toggle-row">
-              <span>Use a custom theme</span>
-              <div class="toggle-wrap" id="tgl-customTheme">
+              <span>Liquid Glass effect</span>
+              <div class="toggle-wrap" id="tgl-glassEnabled">
                 <div class="tgl-knob"></div>
               </div>
             </div>
-            <p class="sg-hint">Takes over from Active Skin above, which is why that dropdown greys out. Copy a skin's colours as a starting point, then change any of them — the window updates as you go.</p>
+            <p class="sg-hint">Frosted, translucent surfaces over a tint or an image of your choosing. It takes over from Active Skin above while it is on.</p>
 
-            <div id="customThemeGroup" class="ct-body">
+            <div id="glassOptions" class="ct-body is-open">
+              <p class="sg-hint" id="glassOffNote" hidden>These apply once Liquid Glass is switched on.</p>
+
+              <div class="ct-swatches">
+                <div class="ct-swatch" title="Colour behind the frosted panels when no background image is set">
+                  <input type="color" id="theme-glassBg" class="theme-color-input" value="#0b0c14">
+                  <span>Glass Tint</span>
+                  <span class="ct-note">used when no image</span>
+                </div>
+              </div>
 
               <div class="sg-row">
-                <label for="themeTemplateSelect">Copy Colours From</label>
-                <select id="themeTemplateSelect" class="cfg-input"
-                        title="Fills the colours below with a built-in skin's palette, as a starting point">
-                  <option value="" disabled selected>Pick a skin to copy...</option>
-                  <option value="steam-green">Steam 2003 Green</option>
-                  <option value="steam2010">Steam 2010</option>
-                  <option value="win98">Windows 98 Gray</option>
-                  <option value="win95">Windows 95 Teal</option>
-                  <option value="winxp">Windows XP Blue</option>
-                  <option value="royalenoir">Windows XP Royale Noir</option>
-                  <option value="winvista">Windows Vista Aero</option>
-                  <option value="win7">Windows 7 Aero</option>
-                  <option value="macosclassic">Mac OS Classic</option>
-                  <option value="macosaqua">Mac OS X Aqua</option>
-                  <option value="moderndark">Modern Neon Dark</option>
-                  <option value="modernlight">Modern Glass Light</option>
-                  <option value="moderngreen">Modern Forest Green</option>
-                  <option value="blackandwhite">Black &amp; White</option>
-                </select>
+                <label for="theme-bgImage">Background image URL</label>
+                <input type="text" id="theme-bgImage" class="cfg-input" placeholder="https://example.com/image.jpg" />
               </div>
-
-              <!-- Label only: the values stay retro/modern, which is what
-                   applyTheme and the saved config read. -->
               <div class="sg-row">
-                <label>Window Style</label>
-                <div class="ct-radios">
-                  <label class="ct-radio" title="Square edges and bevelled borders, like the classic desktop skins">
-                    <input type="radio" name="themeStyleBase" id="styleBaseRetro" value="retro" checked> Square
-                  </label>
-                  <label class="ct-radio" title="Rounded corners and soft shadows, like the Modern skins">
-                    <input type="radio" name="themeStyleBase" id="styleBaseModern" value="modern"> Rounded
-                  </label>
-                </div>
-              </div>
-
-              <div class="ct-section">
-                <div class="ct-section-title">Backgrounds</div>
-                <div class="ct-swatches">
-                  <div class="ct-swatch" title="Deepest surface: title bar, text fields, the log area">
-                    <input type="color" id="theme-bgDark" class="theme-color-input" value="#21281e">
-                    <span>Fields &amp; Bars</span>
-                  </div>
-                  <div class="ct-swatch" title="The area behind the panels">
-                    <input type="color" id="theme-bgMain" class="theme-color-input" value="#384232">
-                    <span>Backdrop</span>
-                  </div>
-                  <div class="ct-swatch" title="Cards and grouped sections, like the boxes in this page">
-                    <input type="color" id="theme-bgPanel" class="theme-color-input" value="#4b5845">
-                    <span>Panels</span>
-                  </div>
-                  <div class="ct-swatch" title="Button and tab faces">
-                    <input type="color" id="theme-bgBtn" class="theme-color-input" value="#5e6d56">
-                    <span>Buttons</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="ct-section">
-                <div class="ct-section-title">Borders &amp; Accents</div>
-                <div class="ct-swatches">
-                  <div class="ct-swatch" title="Highlight side of every bevelled border">
-                    <input type="color" id="theme-borderLight" class="theme-color-input" value="#829478">
-                    <span>Light Edge</span>
-                  </div>
-                  <div class="ct-swatch" title="Shadow side of every bevelled border">
-                    <input type="color" id="theme-borderDark" class="theme-color-input" value="#1b2118">
-                    <span>Dark Edge</span>
-                  </div>
-                  <div class="ct-swatch" title="Highlights, the selected tab, and the brand text">
-                    <input type="color" id="theme-green" class="theme-color-input" value="#00ff00">
-                    <span>Accent</span>
-                  </div>
-                  <div class="ct-swatch" title="Section headings and quieter accent text">
-                    <input type="color" id="theme-greenDim" class="theme-color-input" value="#7ca969">
-                    <span>Accent (dim)</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="ct-section">
-                <div class="ct-section-title">Text &amp; Status</div>
-                <div class="ct-swatches">
-                  <div class="ct-swatch" title="Main text colour">
-                    <input type="color" id="theme-text" class="theme-color-input" value="#d4e0ce">
-                    <span>Text</span>
-                  </div>
-                  <div class="ct-swatch" title="Hints, placeholders and secondary labels">
-                    <input type="color" id="theme-textMuted" class="theme-color-input" value="#8da082">
-                    <span>Faint Text</span>
-                  </div>
-                  <div class="ct-swatch" title="The "server online" indicator">
-                    <input type="color" id="theme-statusOnline" class="theme-color-input" value="#00ff00">
-                    <span>Online Dot</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="ct-section">
-                <div class="ct-section-title">Background Image &amp; Glass</div>
-                <!-- The toggle leads the section because it governs everything
-                     under it, and switching it on locks most of the editor.
-                     It used to sit last, below the controls it commands, so
-                     the greying-out arrived with no visible cause. -->
-                <div class="sg-toggle-row">
-                  <span>Liquid Glass effect</span>
-                  <div class="toggle-wrap" id="tgl-glassEnabled">
-                    <div class="tgl-knob"></div>
-                  </div>
-                </div>
-                <p class="sg-hint" id="glassLockNote" hidden>Liquid Glass paints its own translucent surfaces, so it forces the rounded window style and takes over the colours above. Switch it off to edit those again.</p>
-                <div class="sg-row">
-                  <label for="theme-bgImage">Image URL</label>
-                  <input type="text" id="theme-bgImage" class="cfg-input" placeholder="https://example.com/image.jpg" />
-                </div>
-                <div class="sg-row">
-                  <label>Or a local file</label>
-                  <span class="ct-grow"></span>
-                  <!-- Off-screen rather than display:none so the click that
-                       btnBrowseBgFile forwards still opens the picker. -->
-                  <input type="file" id="theme-bgFilePicker" class="ct-file-input" accept="image/*" />
-                  <button class="btn-open-folder" id="btnBrowseBgFile" title="Pick an image from this PC">Choose File</button>
-                  <button class="btn-open-folder" id="btnClearBgImage" title="Remove the background image">Clear</button>
-                </div>
-                <div class="ct-swatches">
-                  <div class="ct-swatch" title="Colour behind the frosted panels when no background image is set">
-                    <input type="color" id="theme-glassBg" class="theme-color-input" value="#0b0c14">
-                    <span>Glass Tint</span>
-                    <span class="ct-note">used when no image</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="ct-actions">
-                <button class="btn-open-folder" id="btnResetTheme" title="Discard this custom theme and go back to the selected skin">Reset Theme</button>
+                <label>Or a local file</label>
                 <span class="ct-grow"></span>
-                <button class="btn-open-folder" id="btnExportTheme" title="Save this theme to a file">Export</button>
-                <button class="btn-open-folder" id="btnImportTheme" title="Load a theme from a file">Import</button>
+                <!-- Off-screen rather than display:none so the click that
+                     btnBrowseBgFile forwards still opens the picker. -->
+                <input type="file" id="theme-bgFilePicker" class="ct-file-input" accept="image/*" />
+                <button class="btn-open-folder" id="btnBrowseBgFile" title="Pick an image from this PC">Choose File</button>
+                <button class="btn-open-folder" id="btnClearBgImage" title="Remove the background image">Clear</button>
               </div>
             </div>
           </div>
@@ -1110,28 +1000,6 @@
     </div>
   </div>
 
-  <!-- Reset Theme Confirmation Modal -->
-  <div class="modal-overlay" id="resetThemeModal" style="display:none">
-    <div class="modal-box">
-      <div class="modal-titlebar">
-        <span class="modal-title">⚠ RESET THEME</span>
-        <button class="modal-close-btn" id="resetThemeModalClose">✕</button>
-      </div>
-      <div class="modal-body">
-        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
-          Are you sure you want to reset your custom theme settings?
-        </p>
-        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
-          This will revert all color settings to default Steam Green values, clear the background image, and disable Liquid Glass.
-        </p>
-      </div>
-      <div class="modal-footer">
-        <button class="modal-btn modal-btn-secondary" id="resetThemeCancelBtn">Cancel</button>
-        <button class="modal-btn modal-btn-primary modal-btn-danger" id="resetThemeConfirmBtn" style="background: rgba(220, 38, 38, 0.15) !important; border-color: rgba(220, 38, 38, 0.3) !important; color: #ff6b6b !important;">Reset Theme</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Exclude AV Warning Modal -->
   <div class="modal-overlay" id="excludeAvModal" style="display:none">
     <div class="modal-box">
@@ -1214,33 +1082,6 @@
     </div>
   </div>
   <!-- Missing Patch DLL Warning Modal -->
-  <div class="modal-overlay" id="dllMissingModal" style="display:none">
-    <div class="modal-box">
-      <div class="modal-titlebar">
-        <span class="modal-title">⚠ MISSING GAME PATCH FILE</span>
-        <button class="modal-close-btn" id="dllMissingModalClose">✕</button>
-      </div>
-      <div class="modal-body">
-        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
-          Critical game file is missing: Radeon.Core.BasePatch.dll
-        </p>
-        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
-          The patch DLL was not found in your game directory. This is usually caused by Windows Defender or other antivirus software removing it as a false positive.
-        </p>
-        <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 6px;">
-          Without this DLL, you will not be able to connect to the game servers. Would you like to restore the file now?
-        </p>
-        <p style="font-size: 11px; line-height: 1.3; color: var(--text-muted); margin-top: 10px; font-style: italic;">
-          Tip: After restoring, we highly recommend clicking "Exclude AV" in settings to prevent Windows Defender from deleting it again.
-        </p>
-      </div>
-      <div class="modal-footer">
-        <button class="modal-btn modal-btn-secondary" id="dllLaunchAnywayBtn">Launch Anyway</button>
-        <button class="modal-btn modal-btn-primary" id="dllRestoreBtn">Restore DLL</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Lightbox Modal.
        The box sizes to the picture rather than to a fixed width: this used to
        be capped at 400px while asking the API for a 1920px image, so opening a

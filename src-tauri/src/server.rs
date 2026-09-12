@@ -91,7 +91,6 @@ pub async fn ping_server(url: String) -> Value {
             // For the API a successful /health response means online; for the CDN
             // any response at all means the host is reachable.
             let online = if is_cdn { true } else { status.is_success() };
-            let _ = is_vanilla;
             json!({
                 "online": online,
                 "latency": latency,

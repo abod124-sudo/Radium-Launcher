@@ -1,3 +1,37 @@
+/* ══════════════════════════════════════════════════════════════════
+   Inter, bundled.
+
+   Loaded from the app's own files rather than fonts.googleapis.com: this is
+   a desktop launcher, and waiting on a third-party stylesheet before first
+   paint — then falling back to a system face anyway when there is no network
+   — is not a trade worth making. It also keeps fonts.googleapis.com and
+   fonts.gstatic.com out of the CSP entirely.
+
+   One variable file per subset covers 400-700, which is every weight the
+   sheet asks for. latin-ext is a separate file behind its own unicode-range,
+   so it is fetched only when a name on screen actually needs it.
+   ══════════════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('assets/fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+                 U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('assets/fonts/inter-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+                 U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF,
+                 U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* Radium Launcher Main CSS Stylesheet — Early 2000s Retro Skin */
 
 :root {
@@ -2358,8 +2392,7 @@ body:not(.client-installed) .not-installed-only { display: flex; }
 
 body.theme-moderndark .btn-play.running,
 body.theme-moderngreen .btn-play.running,
-body.theme-modernlight .btn-play.running,
-body.theme-custom-modern .btn-play.running {
+body.theme-modernlight .btn-play.running {
   background: #dc2626 !important;
   color: #ffffff !important;
   border-color: #ef4444 !important;
@@ -2367,12 +2400,11 @@ body.theme-custom-modern .btn-play.running {
 }
 body.theme-moderndark .btn-play.running:hover,
 body.theme-moderngreen .btn-play.running:hover,
-body.theme-modernlight .btn-play.running:hover,
-body.theme-custom-modern .btn-play.running:hover {
+body.theme-modernlight .btn-play.running:hover {
   background: #b91c1c !important;
   border-color: #dc2626 !important;
 }
-body.theme-custom-glass .btn-play.running {
+body.glass-enabled .btn-play.running {
   background: rgba(220, 38, 38, 0.25) !important;
   color: #ffffff !important;
   border-color: rgba(220, 38, 38, 0.45) !important;
@@ -2380,10 +2412,10 @@ body.theme-custom-glass .btn-play.running {
     inset 0 1px 0 rgba(255, 255, 255, 0.15),
     0 4px 14px rgba(220, 38, 38, 0.25) !important;
 }
-body.theme-custom-glass .btn-play.running:hover {
+body.glass-enabled .btn-play.running:hover {
   background: rgba(220, 38, 38, 0.35) !important;
 }
-body.theme-custom-glass .btn-play.running:active {
+body.glass-enabled .btn-play.running:active {
   transform: scale(0.97) !important;
 }
 
@@ -5759,8 +5791,7 @@ body.theme-moderndark .mode-slider,
 body.theme-moderngreen .mode-slider,
 body.theme-modernlight .mode-slider,
 body.theme-blackandwhite .mode-slider,
-body.theme-blackandwhite-inverted .mode-slider,
-body.theme-custom-modern .mode-slider {
+body.theme-blackandwhite-inverted .mode-slider {
   display: block;
   position: absolute;
   top: 3px;
@@ -5799,11 +5830,6 @@ body.theme-blackandwhite .mode-slider {
 body.theme-blackandwhite-inverted .mode-slider {
   background: #000000 !important;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35) !important;
-}
-
-body.theme-custom-modern .mode-slider {
-  background: var(--green) !important;
-  box-shadow: 0 2px 8px rgba(0, 255, 0, 0.2) !important;
 }
 
 /* 5. Modern Outline Action Buttons */
@@ -7167,33 +7193,17 @@ body.theme-blackandwhite-inverted .people-avatar[src="logo.png"] {
    column here survives being toggled. */
 .ct-body { display: none; flex-direction: column; gap: 10px; margin-top: 2px; }
 .ct-body.is-open { display: flex; }
+/* Liquid Glass off: its two settings still show — so it is clear what turning
+   it on will give you — but they are dimmed and their controls disabled, the
+   same "say why" treatment the note above them carries. */
+.ct-body.is-off { opacity: 0.5; }
+.ct-body.is-off .ct-swatch,
+.ct-body.is-off .sg-row { pointer-events: none; }
 
-.ct-radios { display: flex; align-items: center; gap: 16px; }
-.ct-radio {
-  display: flex; align-items: center; gap: 5px;
-  /* Overrides the fixed 140px column .sg-row gives its labels — these sit
-     inside the control side of the row, not the label column. */
-  width: auto; font-size: 11px; font-weight: bold; cursor: pointer;
-}
-.ct-radio input { margin: 0; cursor: pointer; accent-color: var(--green); }
+/* Same treatment, worn directly by a single row rather than a whole section —
+   Active Skin dims this way while Liquid Glass has taken over from it. */
+.sg-row.is-off { opacity: 0.5; pointer-events: none; }
 
-/* --bg-dark, the recessed *content* colour, not --bg-main. --bg-main is the
-   surface behind the window in some skins - dark navy on Vista, desktop teal
-   on Win95 - so painting an inset box inside a light panel with it produced a
-   dark box carrying --text and --green-dim at 1.05 and 1.45. Every skin's
-   --bg-dark is a content surface its own text is legible on, which is what the
-   inset bevel below implies this box is. */
-.ct-section {
-  background: var(--bg-dark);
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  padding: 8px; display: flex; flex-direction: column; gap: 8px;
-}
-.ct-section-title {
-  font-family: var(--font-mono); font-size: 9px; font-weight: bold;
-  color: var(--green-dim); text-transform: uppercase; letter-spacing: 0.5px;
-  padding-bottom: 4px; border-bottom: 1px dashed var(--border-dark);
-}
 /* auto-fill rather than a fixed column count: the chips reflow to one
    column in a narrow window instead of crushing their labels, and a
    section with an odd number of colors no longer leaves a ragged hole. */
@@ -7213,14 +7223,6 @@ body.theme-blackandwhite-inverted .people-avatar[src="logo.png"] {
    clickable for btnBrowseBgFile to forward a click to it. */
 .ct-file-input { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
 .ct-grow { flex: 1; }
-/* Reset sits alone on the left, away from Export/Import. No danger tint:
-   half the skins restyle .btn-open-folder themselves and would drop it, so a
-   tint would show on some skins and not others. The button confirms through
-   resetThemeModal before it does anything. */
-.ct-actions {
-  display: flex; align-items: center; gap: 6px;
-  padding-top: 8px; border-top: 1px dashed var(--border-dark);
-}
 
 /* Round chips, so a color reads as a color and not as one more button.
    Bordered with the theme's own line color rather than a fixed white, which

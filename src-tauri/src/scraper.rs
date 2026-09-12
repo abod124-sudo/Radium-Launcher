@@ -2,6 +2,7 @@ use crate::config::Network;
 use crate::vanilla;
 use regex::Regex;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::time::Duration;
 
 // ---------------------------------------------------------------------------
@@ -48,17 +49,104 @@ async fn http_get_text(url: &str) -> Result<String, String> {
         .await
         .map_err(|e| e.to_string())?;
 
+    // Checked like `server::http_get_json` and `vanilla::api_get_json` do.
+    // Without it the body of a 404 or a Cloudflare interstitial went straight
+    // into the patterns below, every capture missed, and the caller still
+    // reported `success: true` with empty strings — so a room whose page
+    // failed to load was indistinguishable from a room with no stats, and
+    // nothing said so in the log.
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("HTTP error: {}", status));
+    }
+
     response.text().await.map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
 // Helper: extract the first capture group from a regex match
 // ---------------------------------------------------------------------------
-fn first_capture(pattern: &str, text: &str) -> Option<String> {
-    Regex::new(pattern)
-        .ok()
-        .and_then(|re| re.captures(text))
-        .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
+
+/// Compile `pattern` once and keep it for the life of the process.
+///
+/// Every pattern in this module is a constant, but `first_capture` used to call
+/// `Regex::new` on each invocation — a full parse and DFA build per call. One
+/// room detail view runs five of these and a user detail view eight or more,
+/// several being the `[\s\S]*?` patterns that are the most expensive to
+/// construct, so the compile dominated the parse it was there to do.
+///
+/// Usage is `re!(PATTERN)`, which declares the `OnceLock` at the call site so
+/// each pattern gets its own slot without a separate `static` to keep in sync.
+macro_rules! re {
+    ($pattern:expr) => {{
+        static CELL: std::sync::OnceLock<Option<Regex>> = std::sync::OnceLock::new();
+        CELL.get_or_init(|| Regex::new($pattern).ok()).as_ref()
+    }};
+}
+
+/// First capture group of `re` in `text`.
+fn capture_of(re: Option<&Regex>, text: &str) -> Option<String> {
+    re?.captures(text)?
+        .get(1)
+        .map(|m| m.as_str().to_string())
+}
+
+/// The three profile/room stat patterns, which differ only by their label.
+///
+/// Built from a label at runtime before, which meant they could not be
+/// `re!`-ed like the rest. There are exactly three labels per page, so each
+/// gets its own compiled pattern.
+fn stat_capture(label: StatLabel, html: &str) -> String {
+    fn pattern(label: &str) -> String {
+        format!(
+            r#"<p class="font-bold text-\[14px\]!"[^>]*>([\d,]+)</p>\s*<p class="text-\[10px\]">{}</p>"#,
+            label
+        )
+    }
+    static CACHE: std::sync::OnceLock<HashMap<&'static str, Option<Regex>>> =
+        std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(|| {
+        StatLabel::ALL
+            .iter()
+            .map(|l| (l.as_str(), Regex::new(&pattern(l.as_str())).ok()))
+            .collect()
+    });
+
+    cache
+        .get(label.as_str())
+        .and_then(|re| capture_of(re.as_ref(), html))
+        .map(|v| unescape_html(&v))
+        .unwrap_or_default()
+}
+
+/// Stat labels the two profile pages publish.
+#[derive(Clone, Copy)]
+enum StatLabel {
+    Cheers,
+    Favorites,
+    Visits,
+    Friends,
+    Subscribers,
+}
+
+impl StatLabel {
+    const ALL: [StatLabel; 5] = [
+        StatLabel::Cheers,
+        StatLabel::Favorites,
+        StatLabel::Visits,
+        StatLabel::Friends,
+        StatLabel::Subscribers,
+    ];
+
+    fn as_str(self) -> &'static str {
+        match self {
+            StatLabel::Cheers => "CHEERS",
+            StatLabel::Favorites => "FAVORITES",
+            StatLabel::Visits => "VISITS",
+            StatLabel::Friends => "FRIENDS",
+            StatLabel::Subscribers => "SUBSCRIBERS",
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,42 +168,25 @@ pub async fn fetch_room_web_details(name: String, network: Option<String>) -> Va
 
     let base = "https://www.radie.app";
 
-    // Stat pattern shared by cheers / favorites / visits
-    let stat_pattern = |label: &str| -> String {
-        format!(
-            r#"<p class="font-bold text-\[14px\]!"[^>]*>([\d,]+)</p>\s*<p class="text-\[10px\]">{}</p>"#,
-            label
-        )
-    };
+    let description = capture_of(
+        re!(r#"</a>\s*<p>([\s\S]*?)</p>\s*<div class="flex border-\[#ccc\] border-t"#),
+        &html,
+    )
+    .map(|v| unescape_html(v.trim()))
+    .unwrap_or_default();
 
-    let cheers = first_capture(&stat_pattern("CHEERS"), &html)
-        .map(|v| unescape_html(&v))
-        .unwrap_or_default();
-
-    let favorites = first_capture(&stat_pattern("FAVORITES"), &html)
-        .map(|v| unescape_html(&v))
-        .unwrap_or_default();
-
-    let visits = first_capture(&stat_pattern("VISITS"), &html)
-        .map(|v| unescape_html(&v))
-        .unwrap_or_default();
-
-    let description_pattern =
-        r#"</a>\s*<p>([\s\S]*?)</p>\s*<div class="flex border-\[#ccc\] border-t"#;
-    let description = first_capture(description_pattern, &html)
-        .map(|v| unescape_html(v.trim()))
-        .unwrap_or_default();
-
-    let avatar_pattern = r#"href="/user/[^"]+"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)""#;
-    let creator_avatar = first_capture(avatar_pattern, &html)
-        .map(|v| resolve_url(&unescape_html(&v), base))
-        .unwrap_or_default();
+    let creator_avatar = capture_of(
+        re!(r#"href="/user/[^"]+"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)""#),
+        &html,
+    )
+    .map(|v| resolve_url(&unescape_html(&v), base))
+    .unwrap_or_default();
 
     json!({
         "success": true,
-        "cheers": cheers,
-        "favorites": favorites,
-        "visits": visits,
+        "cheers": stat_capture(StatLabel::Cheers, &html),
+        "favorites": stat_capture(StatLabel::Favorites, &html),
+        "visits": stat_capture(StatLabel::Visits, &html),
         "description": description,
         "creatorAvatar": creator_avatar,
     })
@@ -139,34 +210,19 @@ pub async fn fetch_user_web_details(name: String, network: Option<String>) -> Va
 
     let base = "https://www.radie.app";
 
-    let stat_pattern = |label: &str| -> String {
-        format!(
-            r#"<p class="font-bold text-\[14px\]!"[^>]*>([\d,]+)</p>\s*<p class="text-\[10px\]">{}</p>"#,
-            label
-        )
-    };
-
-    let friends = first_capture(&stat_pattern("FRIENDS"), &html)
-        .map(|v| unescape_html(&v))
-        .unwrap_or_default();
-
-    let subscribers = first_capture(&stat_pattern("SUBSCRIBERS"), &html)
-        .map(|v| unescape_html(&v))
-        .unwrap_or_default();
-
-    let visits = first_capture(&stat_pattern("VISITS"), &html)
-        .map(|v| unescape_html(&v))
-        .unwrap_or_default();
+    let friends = stat_capture(StatLabel::Friends, &html);
+    let subscribers = stat_capture(StatLabel::Subscribers, &html);
+    let visits = stat_capture(StatLabel::Visits, &html);
 
     // Status – extract user status from the profile card element
-    let status_raw = first_capture(
-        r#"<p[^>]*class="[^"]*text-\[#ccc\][^"]*text-\[10px\][^"]*"[^>]*>([\s\S]*?)</p>"#,
+    let status_raw = capture_of(
+        re!(r#"<p[^>]*class="[^"]*text-\[#ccc\][^"]*text-\[10px\][^"]*"[^>]*>([\s\S]*?)</p>"#),
         &html,
     )
     .unwrap_or_default();
 
     let status_inner = if status_raw.contains("<a") {
-        first_capture(r#">([^<]+)</a>"#, &status_raw).unwrap_or(status_raw)
+        capture_of(re!(r#">([^<]+)</a>"#), &status_raw).unwrap_or(status_raw)
     } else {
         status_raw
     };
@@ -183,30 +239,46 @@ pub async fn fetch_user_web_details(name: String, network: Option<String>) -> Va
         status_clean
     };
 
-    let bio_pattern = r#"<p class="whitespace-pre-wrap text-\[12px\]">([\s\S]*?)</p>"#;
-    let bio = first_capture(bio_pattern, &html)
-        .map(|v| unescape_html(v.trim()))
-        .unwrap_or_default();
+    let bio = capture_of(
+        re!(r#"<p class="whitespace-pre-wrap text-\[12px\]">([\s\S]*?)</p>"#),
+        &html,
+    )
+    .map(|v| unescape_html(v.trim()))
+    .unwrap_or_default();
 
-    let banner_pattern = r#"background-image:\s*url\(['"]?([^'"\)]+)['"]?\)"#;
-    let banner = first_capture(banner_pattern, &html)
-        .map(|v| resolve_url(&unescape_html(&v), base))
-        .unwrap_or_default();
+    let banner = capture_of(
+        re!(r#"background-image:\s*url\(['"]?([^'"\)]+)['"]?\)"#),
+        &html,
+    )
+    .map(|v| resolve_url(&unescape_html(&v), base))
+    .unwrap_or_default();
 
     // Try scraping avatar from og:image meta tag first, then fallback to img tags containing w-18.75 class
-    let avatar = if let Some(og_img) = first_capture(r#"<meta[^>]*property="og:image"[^>]*content="([^"]+)""#, &html) {
-        resolve_url(&unescape_html(&og_img), base)
-    } else if let Some(og_img_alt) = first_capture(r#"<meta[^>]*content="([^"]+)"[^>]*property="og:image""#, &html) {
-        resolve_url(&unescape_html(&og_img_alt), base)
-    } else if let Some(img_src) = first_capture(r#"<img[^>]*class="[^"]*w-18\.75[^"]*"[^>]*src="([^"]+)""#, &html) {
-        resolve_url(&unescape_html(&img_src), base)
-    } else if let Some(img_src_alt) = first_capture(r#"<img[^>]*src="([^"]+)"[^>]*class="[^"]*w-18\.75"#, &html) {
-        resolve_url(&unescape_html(&img_src_alt), base)
-    } else {
-        first_capture(r#"w-18\.75[\s\S]*?<img[^>]*src="([^"]+)""#, &html)
-            .map(|v| resolve_url(&unescape_html(&v), base))
-            .unwrap_or_default()
-    };
+    let avatar = capture_of(
+        re!(r#"<meta[^>]*property="og:image"[^>]*content="([^"]+)""#),
+        &html,
+    )
+    .or_else(|| {
+        capture_of(
+            re!(r#"<meta[^>]*content="([^"]+)"[^>]*property="og:image""#),
+            &html,
+        )
+    })
+    .or_else(|| {
+        capture_of(
+            re!(r#"<img[^>]*class="[^"]*w-18\.75[^"]*"[^>]*src="([^"]+)""#),
+            &html,
+        )
+    })
+    .or_else(|| {
+        capture_of(
+            re!(r#"<img[^>]*src="([^"]+)"[^>]*class="[^"]*w-18\.75"#),
+            &html,
+        )
+    })
+    .or_else(|| capture_of(re!(r#"w-18\.75[\s\S]*?<img[^>]*src="([^"]+)""#), &html))
+    .map(|v| resolve_url(&unescape_html(&v), base))
+    .unwrap_or_default();
 
 
     json!({
@@ -237,11 +309,8 @@ pub async fn fetch_photo_web_details(photo_id: String, network: Option<String>) 
         Err(e) => return json!({ "success": false, "error": e }),
     };
 
-    let creator_pattern = r#"href="/user/([^"\s?]+)""#;
-    let creator_username = first_capture(creator_pattern, &html).unwrap_or_default();
-
-    let room_pattern = r#"href="/room/([^"\s?]+)""#;
-    let room_name = first_capture(room_pattern, &html).unwrap_or_default();
+    let creator_username = capture_of(re!(r#"href="/user/([^"\s?]+)""#), &html).unwrap_or_default();
+    let room_name = capture_of(re!(r#"href="/room/([^"\s?]+)""#), &html).unwrap_or_default();
 
     json!({
         "success": true,

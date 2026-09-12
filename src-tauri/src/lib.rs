@@ -95,7 +95,6 @@ pub fn run() {
             download::open_client_folder,
             download::select_folder,
             download::get_default_client_dir,
-            download::restore_dll,
             // Game
             game::launch_game,
             game::kill_game,
@@ -179,13 +178,21 @@ fn thumb_request(uri: &tauri::http::Uri) -> Option<(String, u32)> {
 }
 
 /// Undo the `encodeURIComponent` the frontend applied to the image URL.
+///
+/// Decoding works over the bytes throughout. Re-slicing the `&str` by byte
+/// index instead — `&s[i + 1..i + 3]` — panics whenever those indices land
+/// inside a multi-byte character, which a `%` followed by one ASCII byte and
+/// then any non-ASCII character produces. That panic happens on a spawned task
+/// in the `radiumimg:` scheme handler, and the release profile sets
+/// `panic = "abort"`, so it would take the whole launcher down rather than fail
+/// one image. See `a_stray_percent_before_a_multibyte_char_does_not_panic`.
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+            if let Some(byte) = hex_pair(bytes[i + 1], bytes[i + 2]) {
                 out.push(byte);
                 i += 3;
                 continue;
@@ -197,6 +204,61 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// The byte two ASCII hex digits spell, or `None` if either isn't one.
+fn hex_pair(hi: u8, lo: u8) -> Option<u8> {
+    let digit = |b: u8| match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    };
+    Some(digit(hi)? * 16 + digit(lo)?)
+}
+
+#[cfg(test)]
+mod thumb_request_tests {
+    use super::*;
+
+    #[test]
+    fn a_stray_percent_before_a_multibyte_char_does_not_panic() {
+        // The exact shape that used to abort the process: a '%' followed by one
+        // ASCII byte and then a character whose bytes straddle the index the
+        // old `&s[i + 1..i + 3]` slice asked for.
+        assert_eq!(percent_decode("%aé"), "%aé");
+        assert_eq!(percent_decode("%é"), "%é");
+        assert_eq!(percent_decode("%%é"), "%%é");
+        assert_eq!(percent_decode("https://x/ü?%zz"), "https://x/ü?%zz");
+    }
+
+    #[test]
+    fn ordinary_escapes_still_decode() {
+        assert_eq!(
+            percent_decode("https%3A%2F%2Fapi.vanillarec.net%2Fimages%2Fa_b"),
+            "https://api.vanillarec.net/images/a_b"
+        );
+        // Lower and upper case hex, and a multi-byte character that was encoded
+        // properly, both round-trip.
+        assert_eq!(percent_decode("%c3%a9%C3%A9"), "éé");
+        // A truncated escape at the very end is passed through, not consumed.
+        assert_eq!(percent_decode("abc%4"), "abc%4");
+        assert_eq!(percent_decode("%"), "%");
+    }
+
+    #[test]
+    fn a_malformed_query_is_refused_rather_than_guessed_at() {
+        let parse = |q: &str| {
+            thumb_request(&format!("http://radiumimg.localhost/thumb?{}", q).parse().unwrap())
+        };
+        assert_eq!(
+            parse("url=https%3A%2F%2Fimg.radie.app%2FRoom_1&w=480"),
+            Some(("https://img.radie.app/Room_1".to_string(), 480))
+        );
+        assert_eq!(parse("url=https%3A%2F%2Fimg.radie.app%2FRoom_1"), None);
+        assert_eq!(parse("w=480"), None);
+        assert_eq!(parse("url=x&w=notanumber"), None);
+    }
+}
+
 fn empty_response(status: u16) -> tauri::http::Response<Vec<u8>> {
     tauri::http::Response::builder()
         .status(status)
@@ -205,13 +267,13 @@ fn empty_response(status: u16) -> tauri::http::Response<Vec<u8>> {
 }
 
 // Config commands - thin wrappers that pass the app handle
-#[tauri::command]
+#[tauri::command(async)]
 fn cmd_get_config(app: tauri::AppHandle) -> serde_json::Value {
     let cfg = config::ensure_config(&app);
     serde_json::to_value(&cfg).unwrap_or(serde_json::json!({}))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
     match serde_json::from_value::<config::Config>(config) {
         Ok(mut cfg) => {
@@ -229,6 +291,20 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             // Both networks' install dirs are user-settable, so both get checked.
             if bad_dir(&cfg.install_dir) || bad_dir(&cfg.vanilla.install_dir) {
                 return false;
+            }
+
+            // The glass tint and backdrop become CSS in a generated
+            // stylesheet, so anything that isn't one is repaired on the way in
+            // rather than stored and handed back to the renderer next load.
+            cfg.glass.sanitize();
+
+            // Only skins that actually ship. Without this a save could pin the
+            // window to a class with no rules behind it.
+            if !config::AVAILABLE_THEMES.contains(&cfg.theme.as_str()) {
+                cfg.theme = config::DEFAULT_THEME.to_string();
+            }
+            if !config::AVAILABLE_THEMES.contains(&cfg.baseline_theme.as_str()) {
+                cfg.baseline_theme = cfg.theme.clone();
             }
 
             // Preserve backend-managed fields from the on-disk config. The
@@ -257,7 +333,7 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
 }
 
 // Debug commands
-#[tauri::command]
+#[tauri::command(async)]
 fn cmd_debug_exec(app: tauri::AppHandle, mode: String) -> serde_json::Value {
     let bat_name = if mode == "vr" {
         "RecRoom_VR.bat"
@@ -306,7 +382,7 @@ fn cmd_debug_exec(app: tauri::AppHandle, mode: String) -> serde_json::Value {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn cmd_debug_paths(app: tauri::AppHandle) -> serde_json::Value {
     let cfg = config::ensure_config(&app);
     let client_dir = config::get_client_dir(&app, &cfg);

@@ -75,19 +75,29 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
         .to_string();
 
     // Find the installer asset: name contains "setup" and ends with ".exe" (case-insensitive)
-    let download_url = release["assets"]
-        .as_array()
-        .and_then(|assets| {
-            assets.iter().find(|asset| {
-                if let Some(name) = asset["name"].as_str() {
-                    let lower = name.to_lowercase();
-                    lower.contains("setup") && lower.ends_with(".exe")
-                } else {
-                    false
-                }
-            })
+    let asset = release["assets"].as_array().and_then(|assets| {
+        assets.iter().find(|asset| {
+            if let Some(name) = asset["name"].as_str() {
+                let lower = name.to_lowercase();
+                lower.contains("setup") && lower.ends_with(".exe")
+            } else {
+                false
+            }
         })
-        .and_then(|asset| asset["browser_download_url"].as_str())
+    });
+
+    let download_url = asset
+        .and_then(|a| a["browser_download_url"].as_str())
+        .unwrap_or("")
+        .to_string();
+
+    // GitHub publishes a content digest for release assets as `sha256:<hex>`.
+    // It is carried through to `download_update`, which refuses to run an
+    // installer whose bytes don't match it — the installer is executed and then
+    // elevated by NSIS, so "it came over TLS" is a weaker claim than we want to
+    // rely on alone. Empty when the API doesn't provide one.
+    let download_digest = asset
+        .and_then(|a| a["digest"].as_str())
         .unwrap_or("")
         .to_string();
 
@@ -97,6 +107,7 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
         "latestVersion": latest_version,
         "releaseUrl": release_url,
         "downloadUrl": download_url,
+        "downloadDigest": download_digest,
         "releaseNotes": release_notes
     })
 }
@@ -147,7 +158,12 @@ fn clean_stale_installers(temp_dir: &std::path::Path) {
 /// If `place_on_desktop` is true, the `/DESKTOP` flag is passed to the installer
 /// so it re-creates the desktop shortcut even when running in update mode.
 #[tauri::command]
-pub async fn download_update(app: tauri::AppHandle, url: String, place_on_desktop: bool) -> Result<serde_json::Value, String> {
+pub async fn download_update(
+    app: tauri::AppHandle,
+    url: String,
+    place_on_desktop: bool,
+    digest: Option<String>,
+) -> Result<serde_json::Value, String> {
     // Security check: restrict downloads to trusted official release URLs
     if !url.starts_with("https://github.com/abod124-sudo/Radium-Launcher/releases/download/") {
         return Err("Untrusted update download URL.".into());
@@ -193,6 +209,23 @@ pub async fn download_update(app: tauri::AppHandle, url: String, place_on_deskto
         .await
         .map_err(|e| format!("Failed to read update bytes: {}", e))?;
 
+    // Verify before anything is written where it could be executed. GitHub
+    // publishes the asset digest alongside the download URL; when it is
+    // present, bytes that don't match it are not an installer we are willing to
+    // run. When it is absent — an older API response, a release published
+    // before digests existed — this falls through, because failing closed would
+    // break updating entirely on a signal we don't control.
+    if let Some(expected) = digest.as_deref().filter(|d| !d.trim().is_empty()) {
+        let actual = crate::download::sha256_of(&bytes);
+        if !crate::download::digest_matches(&actual, expected) {
+            return Err(format!(
+                "The downloaded update does not match the digest GitHub published \
+                 for it (expected {}, got {}). Nothing was installed.",
+                expected, actual
+            ));
+        }
+    }
+
     std::fs::write(&installer_path, &bytes)
         .map_err(|e| format!("Failed to write installer to disk: {}", e))?;
 
@@ -223,7 +256,7 @@ pub async fn download_update(app: tauri::AppHandle, url: String, place_on_deskto
 
 
 /// Return the current application version string.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
 }

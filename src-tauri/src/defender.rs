@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use std::path::Path;
-use std::process::Command;
+use tokio::process::Command;
 
 use crate::config;
 use crate::download;
@@ -74,11 +74,13 @@ pub async fn add_defender_exclusion(app: tauri::AppHandle) -> Value {
     command.args(["-NoProfile", "-Command", &ps_command]);
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
 
-    match command.output() {
+    // Awaited, not blocked on: this waits for an elevated PowerShell process
+    // and, with it, for the user to answer a UAC prompt — which could be a long
+    // time to hold a tokio worker that other commands are queued behind.
+    match command.output().await {
         Ok(output) => {
             if output.status.success() {
                 json!({ "success": true })
@@ -133,11 +135,13 @@ pub async fn remove_defender_exclusion(app: tauri::AppHandle) -> Value {
     command.args(["-NoProfile", "-Command", &ps_command]);
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
 
-    match command.output() {
+    // Awaited, not blocked on: this waits for an elevated PowerShell process
+    // and, with it, for the user to answer a UAC prompt — which could be a long
+    // time to hold a tokio worker that other commands are queued behind.
+    match command.output().await {
         Ok(output) => {
             if output.status.success() {
                 json!({ "success": true })
@@ -191,11 +195,11 @@ pub async fn detect_antivirus() -> Vec<AntivirusProduct> {
             $result | Write-Output
         "#;
 
-        use std::os::windows::process::CommandExt;
         match Command::new(&powershell_path)
             .args(["-NoProfile", "-Command", ps_command])
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .output()
+            .await
         {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);

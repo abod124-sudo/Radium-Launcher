@@ -1,0 +1,55 @@
+name: CI
+
+# Runs on the Rust crate. The frontend has no build step — Tauri serves
+# `src/` as-is — so there is nothing to compile there.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Advisories land against dependencies that haven't changed, so the audit
+  # also runs on a schedule rather than only when someone pushes.
+  schedule:
+    - cron: '17 6 * * 1'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test and lint
+    # Windows: the crate has a `cfg(windows)` process-snapshot path with its own
+    # tests, and those are the ones most worth running.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # The Tauri build script needs the webview and GTK deps on Linux; on
+      # Windows the toolchain is enough.
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --lib --all-targets -- -D warnings
+
+  audit:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # This launcher downloads a zip and an installer and then executes both,
+      # so a known-vulnerable TLS, HTTP or archive crate is not a theoretical
+      # problem. Checked against the RustSec advisory database.
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

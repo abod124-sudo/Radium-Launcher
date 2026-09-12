@@ -173,13 +173,13 @@ fn any_process_running(_images: &[&str]) -> bool {
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
 
 /// Checks whether any recognised game executable is currently running.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_game_running() -> bool {
     any_process_running(&GAME_EXES)
 }
 
 /// Checks whether `steam.exe` is currently running.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_steam() -> bool {
     any_process_running(&["steam.exe"])
 }
@@ -187,7 +187,7 @@ pub fn check_steam() -> bool {
 /// Returns true if the required Rec Room Steam app (appid 92) is installed,
 /// by reading the Steam per-user registry key. Returns true on non-Windows so
 /// the check never blocks there.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_required_steam_app() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -223,7 +223,7 @@ pub fn check_required_steam_app() -> bool {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn launch_game(
     app: tauri::AppHandle,
     config: serde_json::Value,
@@ -249,12 +249,15 @@ fn spawn_bat(exe_path: &str, work_dir: &str) -> std::io::Result<std::process::Ch
     cmd.spawn()
 }
 
+/// There is no `cmd.exe` off Windows, and a `.bat` is not a thing to run there.
+/// Failing explicitly beats calling a binary that cannot exist and reporting
+/// whatever the OS says about the missing file.
 #[cfg(not(target_os = "windows"))]
-fn spawn_bat(exe_path: &str, work_dir: &str) -> std::io::Result<std::process::Child> {
-    let mut cmd = Command::new("cmd.exe");
-    cmd.arg("/c").arg("start").arg("").arg(exe_path);
-    cmd.current_dir(work_dir);
-    cmd.spawn()
+fn spawn_bat(_exe_path: &str, _work_dir: &str) -> std::io::Result<std::process::Child> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Launching a .bat client is only supported on Windows.",
+    ))
 }
 
 fn launch_game_impl(
@@ -387,29 +390,34 @@ fn launch_game_impl(
 ///
 /// Covers both the current client (`Recroom_Release.exe`) and the legacy one
 /// (`RecRoom.exe`); see [`GAME_EXES`].
-#[tauri::command]
+#[tauri::command(async)]
 pub fn kill_game() -> bool {
     #[cfg(target_os = "windows")]
     use std::os::windows::process::CommandExt;
 
+    #[cfg(target_os = "windows")]
     for image in GAME_EXES {
-        #[cfg(target_os = "windows")]
         let _ = Command::new("taskkill")
             .args(["/F", "/IM", image])
             .creation_flags(0x08000000)
             .output();
-
-        #[cfg(not(target_os = "windows"))]
-        let _ = Command::new("taskkill")
-            .args(["/F", "/IM", image])
-            .output();
     }
+
+    // `taskkill` is a Windows binary; there is nothing to call here, and
+    // `check_game_running` already reports false off Windows, so nothing can
+    // ask for this in the first place.
+    #[cfg(not(target_os = "windows"))]
+    {
+        return false;
+    }
+
+    #[cfg(target_os = "windows")]
     true
 }
 
 /// Queries the Windows registry to determine whether Smart App Control is
 /// enabled. Returns `{ enabled: bool, state: i32 }`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_smart_app_control() -> serde_json::Value {
     #[cfg(target_os = "windows")]
     use std::os::windows::process::CommandExt;

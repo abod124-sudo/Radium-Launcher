@@ -215,7 +215,6 @@ function otherNetworkInstallDir(network) {
     openClientFolder: (network = activeNetwork) => invoke('open_client_folder', { network }),
     selectFolder:     (network = activeNetwork) => invoke('select_folder', { network }),
     getDefaultClientDir: (network = activeNetwork) => invoke('get_default_client_dir', { network }),
-    restoreDll:          () => invoke('restore_dll'),
     onDownloadProgress: async (cb) => {
       if (unlistenMap['download-progress']) unlistenMap['download-progress']();
       unlistenMap['download-progress'] = await listen('download-progress', (event) => cb(event.payload));
@@ -238,7 +237,10 @@ function otherNetworkInstallDir(network) {
 
     // Auto-update
     checkForUpdate:  ()                            => invoke('check_for_update'),
-    downloadUpdate:  (downloadUrl, placeOnDesktop) => invoke('download_update', { url: downloadUrl, placeOnDesktop: !!placeOnDesktop }),
+    // `digest` is the `sha256:<hex>` GitHub publishes for the release asset.
+    // The backend refuses to run an installer whose bytes don't match it.
+    downloadUpdate:  (downloadUrl, placeOnDesktop, digest) =>
+      invoke('download_update', { url: downloadUrl, placeOnDesktop: !!placeOnDesktop, digest: digest || null }),
 
     // Data Fetching
     fetchRooms:           (args) => invoke('fetch_rooms', { args: { ...args, network: activeNetwork } }),
@@ -417,6 +419,63 @@ function roomSourceUrl(room, width) {
 
 function roomThumbUrl(room, width) {
   return thumbSrc(roomSourceUrl(room, width), width);
+}
+
+/// Format a count the way the room cards and detail view show it.
+function formatCount(n) {
+  return Number(n).toLocaleString();
+}
+
+/// Cheers / favourites / visits already present on a room row, or null.
+///
+/// Both networks send these with the list — `vanilla::room_row_json` builds
+/// them from the bulk snapshot, and Radium's rooms endpoint carries the same
+/// PascalCase fields. A row that has them needs no per-card lookup at all.
+/// Null (rather than zero) when the row is missing them entirely, so the caller
+/// can fall back instead of printing a confident 0.
+function roomStatsFromRow(room) {
+  if (!room) return null;
+  const pick = (...names) => {
+    for (const name of names) {
+      const v = room[name];
+      if (v != null && v !== '' && Number.isFinite(Number(v))) return Number(v);
+    }
+    return null;
+  };
+  const cheers = pick('CheerCount', 'cheerCount');
+  const visits = pick('VisitCount', 'visitCount');
+  const favorites = pick('FavoriteCount', 'favoriteCount');
+  if (cheers == null && visits == null) return null;
+  return {
+    cheers: formatCount(cheers ?? 0),
+    visits: formatCount(visits ?? 0),
+    favorites: favorites == null ? null : formatCount(favorites)
+  };
+}
+
+/// `fetchRoomWebDetails` with a short-lived memo.
+///
+/// The underlying call scrapes a full HTML page on Radium. Without this,
+/// scrolling a profile's room grid re-fetched the same pages, and reopening a
+/// room detail view paid for it again. Keyed by network so switching networks
+/// doesn't serve the other one's numbers.
+const ROOM_DETAILS_TTL_MS = 5 * 60 * 1000;
+const roomDetailsMemo = new Map();
+
+async function getRoomWebDetails(roomName) {
+  const key = `${activeNetwork}:${roomName}`;
+  const hit = roomDetailsMemo.get(key);
+  if (hit && Date.now() - hit.at < ROOM_DETAILS_TTL_MS) return hit.value;
+
+  const value = await window.radium?.fetchRoomWebDetails(roomName);
+  // Only successes are cached: a failed lookup should be retried, not
+  // remembered for five minutes.
+  if (value && value.success) {
+    // Bounded, so a long session browsing rooms can't grow this without limit.
+    if (roomDetailsMemo.size > 300) roomDetailsMemo.clear();
+    roomDetailsMemo.set(key, { value, at: Date.now() });
+  }
+  return value;
 }
 
 /// See [roomSourceUrl].
@@ -980,92 +1039,6 @@ async function loadVersion() {
   if (el && v) el.textContent = `v${v}`;
 }
 
-/// Show or hide the custom theme editor.
-///
-/// A class, not an inline display: the editor lays its sections out with
-/// flex, and writing `display: block` onto it from JS would collapse that.
-function setCustomThemeEditorOpen(open) {
-  $('customThemeGroup')?.classList.toggle('is-open', open);
-}
-
-// Helper to force modern style base and lock choices/color pickers when glass theme is active
-// Remembers the style base that was selected before glass forced "modern", so
-// toggling glass off restores the user's original Retro/Modern choice instead
-// of silently persisting "modern".
-let _styleBaseBeforeGlass = null;
-function updateStyleBaseLocks(glassEnabled) {
-  const modernRadio = $('styleBaseModern');
-  const retroRadio = $('styleBaseRetro');
-  const templateSelect = $('themeTemplateSelect');
-  // The glass background picker stays editable while glass is on — it's the one
-  // color that's specifically relevant in glass mode.
-  const colorInputs = document.querySelectorAll('.theme-color-input:not(#theme-glassBg)');
-
-  // Say why. Half the editor dimming with no explanation is the single most
-  // confusing thing this panel did.
-  const lockNote = $('glassLockNote');
-  if (lockNote) lockNote.hidden = !glassEnabled;
-
-  if (glassEnabled) {
-    // Capture the current selection once, before it gets overridden below.
-    if (modernRadio && !modernRadio.disabled) {
-      _styleBaseBeforeGlass = modernRadio.checked ? 'modern' : 'retro';
-    }
-    if (modernRadio) {
-      modernRadio.checked = true;
-      modernRadio.disabled = true;
-      const lbl = modernRadio.closest('label');
-      if (lbl) { lbl.style.opacity = '0.5'; lbl.style.cursor = 'not-allowed'; }
-    }
-    if (retroRadio) {
-      retroRadio.checked = false;
-      retroRadio.disabled = true;
-      const lbl = retroRadio.closest('label');
-      if (lbl) { lbl.style.opacity = '0.5'; lbl.style.cursor = 'not-allowed'; }
-    }
-    if (templateSelect) {
-      templateSelect.disabled = true;
-      const parent = templateSelect.closest('div');
-      if (parent) { parent.style.opacity = '0.5'; parent.style.pointerEvents = 'none'; }
-    }
-    colorInputs.forEach(input => {
-      input.disabled = true;
-      const parent = input.closest('div');
-      if (parent) { parent.style.opacity = '0.4'; parent.style.pointerEvents = 'none'; }
-    });
-  } else {
-    // Restore the selection glass mode overrode (only when we actually
-    // captured one — a plain unlock during config load must not clobber the
-    // radios that were just set from the saved config).
-    if (_styleBaseBeforeGlass !== null && modernRadio && retroRadio && modernRadio.disabled) {
-      modernRadio.checked = _styleBaseBeforeGlass === 'modern';
-      retroRadio.checked = _styleBaseBeforeGlass === 'retro';
-      _styleBaseBeforeGlass = null;
-    }
-    if (modernRadio) {
-      modernRadio.disabled = false;
-      const lbl = modernRadio.closest('label');
-      if (lbl) { lbl.style.opacity = '1'; lbl.style.cursor = 'pointer'; }
-    }
-    if (retroRadio) {
-      retroRadio.disabled = false;
-      const lbl = retroRadio.closest('label');
-      if (lbl) { lbl.style.opacity = '1'; lbl.style.cursor = 'pointer'; }
-    }
-    if (templateSelect) {
-      templateSelect.disabled = false;
-      const parent = templateSelect.closest('div');
-      if (parent) { parent.style.opacity = '1'; parent.style.pointerEvents = 'auto'; }
-    }
-    colorInputs.forEach(input => {
-      input.disabled = false;
-      const parent = input.closest('div');
-      if (parent) { parent.style.opacity = '1'; parent.style.pointerEvents = 'auto'; }
-    });
-  }
-}
-
-// Load and save local settings config
 async function loadConfig() {
   config = (await window.radium?.getConfig()) || {};
 
@@ -1073,7 +1046,9 @@ async function loadConfig() {
   if (!config.apiUrl)   config.apiUrl   = 'https://api.radie.app/';
   if (!config.playMode) config.playMode = 'screen';
 
-  setToggle('tgl-minimizeOnLaunch', config.minimizeOnLaunch !== false);
+  // `=== true`, not `!== false`: minimize-on-launch is off by default now, so
+  // a config that predates the field must read as off rather than on.
+  setToggle('tgl-minimizeOnLaunch', config.minimizeOnLaunch === true);
   setToggle('tgl-closeOnLaunch',    config.closeOnLaunch    === true);
   setToggle('tgl-autoUpdate',       config.autoUpdate       !== false);
   setToggle('tgl-enableAnimations', config.enableAnimations !== false);
@@ -1084,54 +1059,19 @@ async function loadConfig() {
   setModeUI(playMode);
   updateQsMode();
 
-  // Theme
-  const activeTheme = config.theme || 'steam-green';
-  const customOn = activeTheme === 'custom';
-  
-  // Set Custom Theme toggle and groups
-  setToggle('tgl-customTheme', customOn);
-  setCustomThemeEditorOpen(customOn);
-  
-  const cfgThemeSelect = $('cfgTheme');
-  if (cfgThemeSelect) {
-    cfgThemeSelect.value = customOn ? (config.baselineTheme || 'steam-green') : activeTheme;
-    cfgThemeSelect.disabled = customOn;
-    const parent = cfgThemeSelect.closest('div');
-    if (parent) {
-      parent.style.opacity = customOn ? '0.5' : '1';
-      parent.style.pointerEvents = customOn ? 'none' : 'auto';
-    }
-  }
+  // Theme. The backend migrates anything unrecognised — including the removed
+  // custom theme — before it gets here, so this is always a skin that ships.
+  const activeTheme = AVAILABLE_THEMES.includes(config.theme) ? config.theme : DEFAULT_THEME;
+  setValue('cfgTheme', activeTheme);
 
-  // Load custom colors if customTheme exists in config
-  if (config.customTheme) {
-    const colors = config.customTheme;
-    if ($('theme-bgDark')) $('theme-bgDark').value = colors.bgDark || '#21281e';
-    if ($('theme-bgMain')) $('theme-bgMain').value = colors.bgMain || '#384232';
-    if ($('theme-bgPanel')) $('theme-bgPanel').value = colors.bgPanel || '#4b5845';
-    if ($('theme-bgBtn')) $('theme-bgBtn').value = colors.bgBtn || '#5e6d56';
-    if ($('theme-borderLight')) $('theme-borderLight').value = colors.borderLight || '#829478';
-    if ($('theme-borderDark')) $('theme-borderDark').value = colors.borderDark || '#1b2118';
-    if ($('theme-green')) $('theme-green').value = colors.green || '#00ff00';
-    if ($('theme-greenDim')) $('theme-greenDim').value = colors.greenDim || '#7ca969';
-    if ($('theme-text')) $('theme-text').value = colors.text || '#d4e0ce';
-    if ($('theme-textMuted')) $('theme-textMuted').value = colors.textMuted || '#8da082';
-    if ($('theme-statusOnline')) $('theme-statusOnline').value = colors.statusOnline || '#00ff00';
-    if ($('theme-glassBg')) $('theme-glassBg').value = colors.glassBg || '#0b0c14';
-
-    setBgImageUI(colors.bgImage);
-    const glassOn = colors.glassEnabled === true;
-    setToggle('tgl-glassEnabled', glassOn);
-    updateStyleBaseLocks(glassOn);
-    if (!glassOn) {
-      const styleBase = colors.styleBase || 'retro';
-      if (styleBase === 'modern') {
-        if ($('styleBaseModern')) $('styleBaseModern').checked = true;
-      } else {
-        if ($('styleBaseRetro')) $('styleBaseRetro').checked = true;
-      }
-    }
-  }
+  // Liquid Glass, which is now an effect over that skin rather than a mode of
+  // a custom theme.
+  config.glass = config.glass || {};
+  const glassOn = config.glass.enabled === true;
+  setToggle('tgl-glassEnabled', glassOn);
+  setValue('theme-glassBg', safeColor(config.glass.tint, '#0b0c14'));
+  setBgImageUI(config.glass.bgImage || '');
+  updateGlassControls(glassOn);
 
   applyTheme(activeTheme);
 
@@ -1158,286 +1098,95 @@ async function loadConfig() {
 /// of parsing per event against ~0.13 ms for the palette alone, before any of
 /// the repainting that a full sheet swap also forces. That is what made the
 /// pickers feel sticky, and worst under Liquid Glass, where every panel carries
-/// a backdrop-filter that has to be re-run.
+/// Marks the body while Liquid Glass is on; every glass rule hangs off it.
+const GLASS_CLASS = 'glass-enabled';
+/// The generated glass stylesheet, and the copy boot.js injects from cache
+/// before the first paint.
+const GLASS_STYLE_ID = 'glass-style';
+const GLASS_BOOT_STYLE_ID = 'glass-boot-style';
+
+/// Enable or grey out the controls that only mean something under glass, and
+/// grey out Active Skin in the other direction while glass has taken over from
+/// it.
 ///
-/// Only the eleven custom properties change while dragging; everything else in
-/// the sheet is fixed for a given style base / glass / background image. So the
-/// palette gets its own element that a colour change can rewrite on its own.
-const CUSTOM_VARS_STYLE_ID = 'custom-theme-vars';
-/// The stylesheet boot.js injects from cache before the first paint.
-const CUSTOM_BOOT_STYLE_ID = 'custom-theme-boot';
-let _customVarsFrame = 0;
-
-function customThemeVarsCss(colors) {
-  return `body.theme-custom {
-  --bg-dark: ${colors.bgDark};
-  --bg-main: ${colors.bgMain};
-  --bg-panel: ${colors.bgPanel};
-  --bg-btn: ${colors.bgBtn};
-  --border-light: ${colors.borderLight};
-  --border-dark: ${colors.borderDark};
-  --green: ${colors.green};
-  --green-dim: ${colors.greenDim};
-  --text: ${colors.text};
-  --text-muted: ${colors.textMuted};
-  --status-online: ${colors.statusOnline};
-}`;
-}
-
-/// Create or update the palette sheet.
-///
-/// Inserted before the main custom sheet, because that one redefines the same
-/// variables for glass mode at equal specificity — document order is what
-/// decides the winner, so the palette has to stay above it exactly as it did
-/// when both lived in one string.
-function writeCustomThemeVars(colors) {
-  // Drop any queued live-preview frame: it closes over an older palette, and
-  // landing after this write would put those colours back.
-  cancelAnimationFrame(_customVarsFrame);
-  _customVarsFrame = 0;
-
-  let el = document.getElementById(CUSTOM_VARS_STYLE_ID);
-  if (!el) {
-    el = document.createElement('style');
-    el.id = CUSTOM_VARS_STYLE_ID;
-    document.head.appendChild(el);
+/// The tint and the backdrop shape the glass surfaces and do nothing without
+/// them, so with glass off they are shown but inert — the same "say why"
+/// treatment applies to Active Skin once glass is on: picking a different skin
+/// would visibly do nothing, since glass repaints every surface itself.
+function updateGlassControls(glassOn) {
+  const note = $('glassOffNote');
+  if (note) note.hidden = glassOn;
+  for (const id of ['theme-glassBg', 'theme-bgImage', 'btnBrowseBgFile', 'btnClearBgImage']) {
+    const el = $(id);
+    if (el) el.disabled = !glassOn;
   }
-  el.textContent = customThemeVarsCss(colors);
-  try {
-    localStorage.setItem('radium-custom-vars', el.textContent);
-  } catch (e) {}
-  return el;
+  $('glassOptions')?.classList.toggle('is-off', !glassOn);
+
+  const skinSelect = $('cfgTheme');
+  if (skinSelect) skinSelect.disabled = glassOn;
+  $('activeSkinRow')?.classList.toggle('is-off', glassOn);
+  const skinNote = $('activeSkinLockNote');
+  if (skinNote) skinNote.hidden = !glassOn;
 }
 
-/// Live-preview a palette change without rebuilding the whole stylesheet.
+/// A CSS colour that is safe to interpolate into a generated stylesheet.
 ///
-/// Coalesced onto an animation frame: a drag can fire several `input` events
-/// between two paints, and only the last one is worth applying.
+/// Everything here ends up inside a `<style>` element, so a value carrying a
+/// `;` or a `}` closes the declaration and opens a rule of its own — which in a
+/// webview that can reach every backend command is not a cosmetic problem. The
+/// colour pickers are `<input type="color">` and hand back `#rrggbb`, but these
+/// same values are read straight from config.json at startup, and that file is
+/// editable by hand and shared between people swapping themes.
 ///
-/// Returns false when there is no palette sheet to update — the theme is not
-/// custom, or has not been applied yet — so the caller can fall back to a full
-/// applyTheme().
-function applyCustomThemeColors(colors) {
-  if (!document.getElementById(CUSTOM_VARS_STYLE_ID)) return false;
-  cancelAnimationFrame(_customVarsFrame);
-  _customVarsFrame = requestAnimationFrame(() => writeCustomThemeVars(colors));
-  return true;
+/// `glassBg` and `bgImage` were already checked at their own use sites; the
+/// eleven palette variables were the ones that weren't.
+///
+/// Only the four lengths CSS actually defines — #rgb, #rgba, #rrggbb,
+/// #rrggbbaa. A looser `{3,8}` would also admit 5 and 7 digits, which are not
+/// colours at all and would land in the sheet as a dead declaration; it would
+/// also disagree with `is_hex_color` in config.rs, which repairs them. The two
+/// validators have to say the same thing or a value accepted here gets
+/// rewritten on the next load.
+const HEX_COLOR = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+function safeColor(value, fallback) {
+  return HEX_COLOR.test(String(value ?? '').trim()) ? String(value).trim() : fallback;
 }
 
-function applyTheme(theme) {
-  // Strip only the theme classes. This used to whitelist 'animations-enabled'
-  // and drop everything else, which silently wiped unrelated state classes on
-  // <body> (e.g. 'client-installed', which gates the PLAY button and the
-  // Manage Client panel) every time the theme changed.
-  document.body.className = document.body.className
-    .split(' ')
-    .filter(c => c && !c.startsWith('theme-'))
-    .join(' ');
+/// Every skin that ships. Mirrors `AVAILABLE_THEMES` in config.rs and the
+/// `<option>` list in index.html; a Rust test holds the latter two together.
+const AVAILABLE_THEMES = [
+  'steam-green', 'steam2010', 'win98', 'win95', 'winxp', 'royalenoir',
+  'winvista', 'win7', 'macosclassic', 'macosaqua', 'moderndark',
+  'modernlight', 'moderngreen', 'blackandwhite', 'blackandwhite-inverted'
+];
 
-  // Remove existing custom style block if any
-  const existingStyle = document.getElementById('custom-theme-style');
-  if (existingStyle) existingStyle.remove();
-  document.getElementById(CUSTOM_VARS_STYLE_ID)?.remove();
-  // The pre-paint cache boot.js injects. Dropped here so the real stylesheet
-  // replaces it rather than stacking on top of it.
-  document.getElementById(CUSTOM_BOOT_STYLE_ID)?.remove();
+/// The skin a fresh install starts on.
+const DEFAULT_THEME = 'blackandwhite';
 
-  if (theme === 'custom') {
-    document.body.classList.add('theme-custom');
-    const colors = config.customTheme || {
-      bgDark:      '#21281e',
-      bgMain:      '#384232',
-      bgPanel:     '#4b5845',
-      bgBtn:       '#5e6d56',
-      borderLight: '#829478',
-      borderDark:  '#1b2118',
-      green:        '#00ff00',
-      greenDim:    '#7ca969',
-      text:         '#d4e0ce',
-      textMuted:   '#8da082',
-      statusOnline:'#00ff00',
-      styleBase:   'retro',
-      bgImage:     '',
-      glassEnabled:false
-    };
-    
-    const styleBase = colors.styleBase || 'retro';
-    document.body.classList.add('theme-custom-' + styleBase);
+/// The skin `steam-green` needs no class: it *is* the base stylesheet's
+/// `:root` palette, so stamping `theme-steam-green` would match no rules.
+const BASE_STYLESHEET_THEME = 'steam-green';
 
-    // Modern borrows theme-moderndark, which really does carry the rounded
-    // layout that style.css's base rules don't.
-    //
-    // Retro borrows nothing. It used to add theme-win98 "for structural rules",
-    // but that skin defines almost no structure — it is colours, two dither
-    // background-images and a set of Win9x literals (#ffffff wells, a #000080
-    // toggle, a #dfdcd4 dithered scrollbar track). style.css's own rules are
-    // already the retro layout, fully variable-driven: theme-steam-green has
-    // no rules at all, it *is* the base stylesheet. So borrowing win98 added
-    // nothing but its palette, which then fought the user's — a theme copied
-    // from Steam 2003 Green came out looking like Win98, and the scrollbar kept
-    // Win98's white dither over any colour chosen for it.
-    if (styleBase === 'modern') {
-      document.body.classList.add('theme-moderndark');
-    }
+/// The layout Liquid Glass is drawn on.
+///
+/// Glass has always been rounded: the editor locked the style base to "modern"
+/// whenever it was switched on, which added this class. Its own rules assume
+/// that geometry — the radii, the panel insets, the pill buttons — so it keeps
+/// coming along now that glass is a setting in its own right.
+const GLASS_LAYOUT_THEME = 'moderndark';
 
-    if (colors.glassEnabled) {
-      document.body.classList.add('theme-custom-glass');
-    }
-
-    // The palette lives in its own stylesheet so that dragging a colour picker
-    // rewrites ~400 bytes instead of re-parsing the ~25 KB below it on every
-    // input event. See applyCustomThemeColors().
-    writeCustomThemeVars(colors);
-
-    let css = `
-      body.theme-custom .titlebar {
-        background: var(--bg-dark) !important;
-        border-bottom: 2px solid var(--border-dark) !important;
-      }
-      body.theme-custom .titlebar-app-name {
-        color: var(--green) !important;
-      }
-
-      /* Force custom button background on modern/retro layouts when not in glass mode */
-      body.theme-custom:not(.theme-custom-glass) .btn-download-big,
-      body.theme-custom:not(.theme-custom-glass) .btn-play,
-      body.theme-custom:not(.theme-custom-glass) .btn-refresh,
-      body.theme-custom:not(.theme-custom-glass) .btn-save,
-      body.theme-custom:not(.theme-custom-glass) .btn-test-server,
-      body.theme-custom:not(.theme-custom-glass) .btn-cancel-dl,
-      body.theme-custom:not(.theme-custom-glass) .btn-open-folder,
-      body.theme-custom:not(.theme-custom-glass) .btn-reinstall,
-      body.theme-custom:not(.theme-custom-glass) .btn-uninstall,
-      body.theme-custom:not(.theme-custom-glass) .btn-kill,
-      body.theme-custom:not(.theme-custom-glass) .modal-btn,
-      body.theme-custom:not(.theme-custom-glass) .btn-exclude-av,
-      body.theme-custom:not(.theme-custom-glass) .filter-btn,
-      body.theme-custom:not(.theme-custom-glass) .sort-btn,
-      body.theme-custom:not(.theme-custom-glass) .nav-btn.active,
-      body.theme-custom:not(.theme-custom-glass) .launch-secondary-actions button {
-        background: var(--bg-btn) !important;
-        color: var(--text) !important;
-        border-color: var(--border-light) !important;
-        box-shadow: none !important;
-      }
-
-      body.theme-custom:not(.theme-custom-glass) .btn-download-big:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-play:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-refresh:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-save:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-test-server:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-cancel-dl:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-open-folder:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-reinstall:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-uninstall:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-kill:hover,
-      body.theme-custom:not(.theme-custom-glass) .modal-btn:hover,
-      body.theme-custom:not(.theme-custom-glass) .btn-exclude-av:hover,
-      body.theme-custom:not(.theme-custom-glass) .filter-btn:hover,
-      body.theme-custom:not(.theme-custom-glass) .sort-btn:hover,
-      body.theme-custom:not(.theme-custom-glass) .nav-btn:hover:not(.active),
-      body.theme-custom:not(.theme-custom-glass) .launch-secondary-actions button:hover {
-        background: color-mix(in srgb, var(--bg-btn) 80%, var(--text)) !important;
-        color: var(--text) !important;
-        border-color: var(--green) !important;
-      }
-    `;
-
-    // 0. Repaint what the *base* stylesheet hardcodes.
-    //
-    // Retro no longer borrows a skin, so Win98's literals are gone at the
-    // source. What is left is style.css's own chrome gradient, which predates
-    // theming: both title bars are drawn with a fixed dark-to-panel green.
-    // Retro mirrors that stylesheet exactly now, so it wants the same gradient
-    // rebuilt from the palette — a flat fill was the last thing that still
-    // read as "not the skin I copied". Modern borrows theme-moderndark, whose
-    // title bar is flat, so it keeps the flat fill set above.
-    if (styleBase === 'retro') {
-      css += `
-        body.theme-custom.theme-custom-retro .titlebar,
-        body.theme-custom.theme-custom-retro .modal-titlebar {
-          background: linear-gradient(90deg, var(--border-dark), var(--bg-panel)) !important;
-          border-bottom: 2px solid var(--border-dark) !important;
-        }
-      `;
-    } else {
-      css += `
-        body.theme-custom .modal-titlebar {
-          background: var(--bg-dark) !important;
-          border-bottom: 2px solid var(--border-dark) !important;
-        }
-        /* The modern skins paint the switch knob a literal white, which
-           disappears on a light custom palette. */
-        body.theme-custom.theme-custom-modern .tgl-knob {
-          background: var(--text-muted) !important;
-        }
-        body.theme-custom.theme-custom-modern .toggle-wrap.on .tgl-knob {
-          background: var(--green) !important;
-        }
-      `;
-    }
-
-    // 1. Layout-specific overrides (font matching)
-    if (styleBase === 'modern') {
-      const avatarBgStart = encodeURIComponent(colors.bgDark);
-      const avatarBgEnd = encodeURIComponent(colors.bgMain);
-
-      css += `
-        body.theme-custom-modern, body.theme-custom-modern * {
-          font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif !important;
-        }
-        /* No image placeholder: none here on purpose. It used to be a copy of
-           the same play-button SVG the built-in skins carried, baked with this
-           theme's two darkest colours. The shared rule in style.css paints it
-           from --bg-dark / --text-muted instead, which this theme also defines,
-           so a custom theme now gets a placeholder that matches it for free. */
-        body.theme-custom-modern .creator-avatar[src="./logo.png"],
-        body.theme-custom-modern .feed-post-avatar[src="./logo.png"],
-        body.theme-custom-modern .people-avatar[src="./logo.png"],
-        body.theme-custom-modern .creator-avatar[src="logo.png"],
-        body.theme-custom-modern .feed-post-avatar[src="logo.png"],
-        body.theme-custom-modern .people-avatar[src="logo.png"] {
-          content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='${avatarBgStart}'/%3E%3Cstop offset='100%25' stop-color='${avatarBgEnd}'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='48' cy='38' r='18' fill='rgba(255,255,255,0.3)'/%3E%3Cpath d='M48 62c-15 0-26 8-26 14v4h52v-4c0-6-11-14-26-14z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E") !important;
-        }
-      `;
-    }
-
-    let safeBgImage = '';
-    if (colors.bgImage) {
-      if (colors.bgImage.startsWith('data:image/') && !/['"()\{\}\\]/.test(colors.bgImage)) {
-        safeBgImage = colors.bgImage;
-      } else if ((colors.bgImage.startsWith('http://') || colors.bgImage.startsWith('https://')) && !/['";()\{\}\\]/.test(colors.bgImage)) {
-        safeBgImage = colors.bgImage;
-      }
-    }
-
-    // 2. Background image transparent overrides (always transparent main-content and translucent sidebar)
-    if (safeBgImage) {
-      css += `
-        body.theme-custom {
-          background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)), url('${safeBgImage}') no-repeat center center fixed !important;
-          background-size: cover !important;
-        }
-        body.theme-custom .app-layout {
-          background: transparent !important;
-        }
-        body.theme-custom .main-content {
-          background: transparent !important;
-        }
-        body.theme-custom .sidebar {
-          background: color-mix(in srgb, var(--bg-panel) 80%, transparent) !important;
-        }
-      `;
-    }
-
-    // 3. Apple-style Liquid Glass overrides - MUST COME LAST to override modern layout solid styles
-    if (colors.glassEnabled) {
-      // Sanitize the user-chosen glass background colour (hex only) to keep it
-      // safe to interpolate into the generated stylesheet.
-      const safeGlassBg = /^#[0-9a-fA-F]{3,8}$/.test(colors.glassBg || '') ? colors.glassBg : '#0b0c14';
-      css += `
+/// The Liquid Glass stylesheet, built for one tint and one optional backdrop.
+///
+/// Glass overrides every colour token itself, which is why it never depended on
+/// the custom palette it used to live next to and why it survived that editor's
+/// removal unchanged.
+function glassCss(tint, bgImage) {
+  const safeGlassBg = safeColor(tint, '#0b0c14');
+  const safeBgImage = safeBackdrop(bgImage);
+  return `
         /* Clean, highly-transparent Apple "Liquid Glass" surfaces */
-        body.theme-custom-glass {
+        body.glass-enabled {
           background: ${safeBgImage ? `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('${safeBgImage}') no-repeat center center fixed !important` : `
             radial-gradient(135% 135% at 14% -10%, color-mix(in srgb, ${safeGlassBg} 62%, #ffffff 38%), transparent 56%),
             radial-gradient(130% 130% at 100% 8%, color-mix(in srgb, ${safeGlassBg} 70%, #8ab4ff 30%), transparent 55%),
@@ -1459,7 +1208,7 @@ function applyTheme(theme) {
           --text-muted: rgba(255, 255, 255, 0.5) !important;
           --status-online: #ffffff !important;
         }
-        body.theme-custom-glass .titlebar {
+        body.glass-enabled .titlebar {
           background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.03) 100%) !important;
           backdrop-filter: blur(28px) saturate(180%) brightness(1.08) !important;
           -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.08) !important;
@@ -1468,16 +1217,16 @@ function applyTheme(theme) {
           border-radius: 0 !important;
         }
 
-        body.theme-custom-glass .app-layout,
-        body.theme-custom-glass .main-content {
+        body.glass-enabled .app-layout,
+        body.glass-enabled .main-content {
           background: transparent !important;
         }
 
-        body.theme-custom-glass .panel-header {
+        body.glass-enabled .panel-header {
           border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
         }
 
-        body.theme-custom-glass .sidebar-logo {
+        body.glass-enabled .sidebar-logo {
           border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
         }
 
@@ -1489,7 +1238,7 @@ function applyTheme(theme) {
            text stays legible through a blur. It needs an actual fill, so this
            mixes one from the theme's own glass colour and keeps the frost
            behind it. */
-        body.theme-custom-glass .network-menu {
+        body.glass-enabled .network-menu {
           background: color-mix(in srgb, ${safeGlassBg} 86%, #ffffff 14%) !important;
           backdrop-filter: blur(24px) saturate(180%) !important;
           -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
@@ -1499,40 +1248,40 @@ function applyTheme(theme) {
         }
 
         /* Transparent scrollbar under custom glass theme */
-        body.theme-custom-glass .tab-panel {
+        body.glass-enabled .tab-panel {
           box-sizing: border-box !important;
         }
-        body.theme-custom-glass .tab-panel:not(#tab-rooms):not(#tab-people) {
+        body.glass-enabled .tab-panel:not(#tab-rooms):not(#tab-people) {
           padding: 14px 16px 10px 24px !important;
         }
-        body.theme-custom-glass #tab-rooms,
-        body.theme-custom-glass #tab-people {
+        body.glass-enabled #tab-rooms,
+        body.glass-enabled #tab-people {
           padding: 14px 14px 10px 14px !important;
         }
-        body.theme-custom-glass ::-webkit-scrollbar {
+        body.glass-enabled ::-webkit-scrollbar {
           background: transparent !important;
           width: 8px !important;
         }
-        body.theme-custom-glass ::-webkit-scrollbar-thumb {
+        body.glass-enabled ::-webkit-scrollbar-thumb {
           background: rgba(255, 255, 255, 0.18) !important;
           border-radius: 4px !important;
         }
-        body.theme-custom-glass ::-webkit-scrollbar-thumb:hover {
+        body.glass-enabled ::-webkit-scrollbar-thumb:hover {
           background: rgba(255, 255, 255, 0.3) !important;
         }
 
         /* Force single border pixel thickness on status cards to restore rounded corners */
-        body.theme-custom-glass .qs-card {
+        body.glass-enabled .qs-card {
           border-left: 1px solid rgba(255, 255, 255, 0.30) !important;
         }
 
         /* Contrast fix for mode switches across all custom theme configurations */
-        body.theme-custom .mode-btn.active {
+        body.glass-enabled .mode-btn.active {
           color: var(--bg-dark) !important;
         }
 
         /* Glassmorphic mode toggle wrapper and action buttons */
-        body.theme-custom-glass .mode-toggle-wrap {
+        body.glass-enabled .mode-toggle-wrap {
           position: relative !important;
           z-index: 1 !important;
           background: rgba(0, 0, 0, 0.25) !important;
@@ -1543,7 +1292,7 @@ function applyTheme(theme) {
           gap: 4px !important;
           box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4) !important;
         }
-        html body.theme-custom-glass .mode-btn {
+        html body.glass-enabled .mode-btn {
           position: relative !important;
           z-index: 2 !important;
           width: 80px !important;
@@ -1557,17 +1306,17 @@ function applyTheme(theme) {
           font-size: 10px !important;
           font-weight: 700 !important;
         }
-        html body.theme-custom-glass .mode-btn.active {
+        html body.glass-enabled .mode-btn.active {
           background: transparent !important;
           color: #ffffff !important;
           box-shadow: none !important;
         }
-        html body.theme-custom-glass .mode-btn:hover:not(.active) {
+        html body.glass-enabled .mode-btn:hover:not(.active) {
           color: #ffffff !important;
           background: rgba(255, 255, 255, 0.05) !important;
           border-radius: 16px !important;
         }
-        body.theme-custom-glass .mode-slider {
+        body.glass-enabled .mode-slider {
           display: block !important;
           position: absolute !important;
           top: 3px !important;
@@ -1583,7 +1332,7 @@ function applyTheme(theme) {
           z-index: 1 !important;
         }
 
-        html body.theme-custom-glass .version-tag {
+        html body.glass-enabled .version-tag {
           background: rgba(255, 255, 255, 0.05) !important;
           border: 1px solid rgba(255, 255, 255, 0.15) !important;
           border-radius: 8px !important;
@@ -1592,26 +1341,26 @@ function applyTheme(theme) {
           backdrop-filter: blur(5px) !important;
         }
 
-        body.theme-custom-glass.theme-custom-modern .bevel-outset,
-        body.theme-custom-glass.theme-custom-modern .launch-panel,
-        body.theme-custom-glass.theme-custom-modern .download-section,
-        body.theme-custom-glass.theme-custom-modern .qs-card,
-        body.theme-custom-glass.theme-custom-modern .log-output,
-        body.theme-custom-glass.theme-custom-modern .settings-group,
-        body.theme-custom-glass.theme-custom-modern .modal-box,
-        body.theme-custom-glass.theme-custom-modern .tab-panel {
+        body.glass-enabled .bevel-outset,
+        body.glass-enabled .launch-panel,
+        body.glass-enabled .download-section,
+        body.glass-enabled .qs-card,
+        body.glass-enabled .log-output,
+        body.glass-enabled .settings-group,
+        body.glass-enabled .modal-box,
+        body.glass-enabled .tab-panel {
           border-radius: 18px !important;
         }
 
-        body.theme-custom-glass .bevel-outset,
-        body.theme-custom-glass .bevel-inset,
-        body.theme-custom-glass .launch-panel,
-        body.theme-custom-glass .download-section,
-        body.theme-custom-glass .qs-card,
-        body.theme-custom-glass .log-output,
-        body.theme-custom-glass .settings-group,
-        body.theme-custom-glass .modal-box,
-        body.theme-custom-glass .tab-panel {
+        body.glass-enabled .bevel-outset,
+        body.glass-enabled .bevel-inset,
+        body.glass-enabled .launch-panel,
+        body.glass-enabled .download-section,
+        body.glass-enabled .qs-card,
+        body.glass-enabled .log-output,
+        body.glass-enabled .settings-group,
+        body.glass-enabled .modal-box,
+        body.glass-enabled .tab-panel {
           position: relative !important;
           /* Thin, highly-transparent tint so the background colour reads through cleanly */
           background:
@@ -1637,11 +1386,11 @@ function applyTheme(theme) {
 
         /* Specular sheen layer — the light catching the curved top of the glass.
            Limited to non-scrolling panels so it never sits over scrolled content. */
-        body.theme-custom-glass .launch-panel::after,
-        body.theme-custom-glass .download-section::after,
-        body.theme-custom-glass .qs-card::after,
-        body.theme-custom-glass .settings-group::after,
-        body.theme-custom-glass .modal-box::after {
+        body.glass-enabled .launch-panel::after,
+        body.glass-enabled .download-section::after,
+        body.glass-enabled .qs-card::after,
+        body.glass-enabled .settings-group::after,
+        body.glass-enabled .modal-box::after {
           content: '' !important;
           position: absolute !important;
           inset: 0 !important;
@@ -1654,11 +1403,11 @@ function applyTheme(theme) {
           mix-blend-mode: screen !important;
         }
         /* Keep real content above the sheen layer. */
-        body.theme-custom-glass .launch-panel > *,
-        body.theme-custom-glass .download-section > *,
-        body.theme-custom-glass .qs-card > *,
-        body.theme-custom-glass .settings-group > *,
-        body.theme-custom-glass .modal-box > * {
+        body.glass-enabled .launch-panel > *,
+        body.glass-enabled .download-section > *,
+        body.glass-enabled .qs-card > *,
+        body.glass-enabled .settings-group > *,
+        body.glass-enabled .modal-box > * {
           position: relative !important;
           z-index: 1 !important;
         }
@@ -1668,66 +1417,66 @@ function applyTheme(theme) {
            for the number, but glass sets --bg-dark to transparent, which
            makes the active/done step numbers invisible. Restyle the whole
            progress panel with explicit glass tokens instead. */
-        body.theme-custom-glass .dl-progress-block {
+        body.glass-enabled .dl-progress-block {
           background: rgba(255, 255, 255, 0.045) !important;
           border: 1px solid rgba(255, 255, 255, 0.14) !important;
           border-radius: 16px !important;
           box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
         }
-        body.theme-custom-glass .dlp-phase { color: #ffffff !important; }
-        body.theme-custom-glass .dlp-pct { color: #ffffff !important; }
-        body.theme-custom-glass .dlp-dot {
+        body.glass-enabled .dlp-phase { color: #ffffff !important; }
+        body.glass-enabled .dlp-pct { color: #ffffff !important; }
+        body.glass-enabled .dlp-dot {
           background: #ffffff !important;
           border-radius: 50% !important;
           box-shadow: 0 0 9px rgba(255, 255, 255, 0.85) !important;
           animation: dlp-pulse 1s ease-in-out infinite !important;
         }
-        body.theme-custom-glass .dlp-bar-wrap {
+        body.glass-enabled .dlp-bar-wrap {
           background: rgba(0, 0, 0, 0.22) !important;
           border: 1px solid rgba(255, 255, 255, 0.14) !important;
           border-radius: 8px !important;
         }
         /* Smooth liquid fill instead of the retro dashed bar */
-        body.theme-custom-glass .dlp-bar-fill {
+        body.glass-enabled .dlp-bar-fill {
           background: linear-gradient(90deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.65)) !important;
           border-radius: 6px !important;
           box-shadow: 0 0 10px rgba(255, 255, 255, 0.4) !important;
         }
-        body.theme-custom-glass .dlp-step,
-        body.theme-custom-glass .dlp-stat {
+        body.glass-enabled .dlp-step,
+        body.glass-enabled .dlp-stat {
           background: rgba(255, 255, 255, 0.06) !important;
           border: 1px solid rgba(255, 255, 255, 0.12) !important;
           border-radius: 10px !important;
         }
-        body.theme-custom-glass .dlp-step { opacity: 0.6 !important; }
-        body.theme-custom-glass .dlp-step.active,
-        body.theme-custom-glass .dlp-step.done { opacity: 1 !important; }
-        body.theme-custom-glass .dlp-step.active {
+        body.glass-enabled .dlp-step { opacity: 0.6 !important; }
+        body.glass-enabled .dlp-step.active,
+        body.glass-enabled .dlp-step.done { opacity: 1 !important; }
+        body.glass-enabled .dlp-step.active {
           color: #ffffff !important;
           background: rgba(255, 255, 255, 0.13) !important;
           border-color: rgba(255, 255, 255, 0.4) !important;
         }
-        body.theme-custom-glass .dlp-step.done { color: rgba(255, 255, 255, 0.85) !important; }
-        body.theme-custom-glass .dlp-step-idx {
+        body.glass-enabled .dlp-step.done { color: rgba(255, 255, 255, 0.85) !important; }
+        body.glass-enabled .dlp-step-idx {
           background: rgba(255, 255, 255, 0.16) !important;
           color: rgba(255, 255, 255, 0.85) !important;
           border: 1px solid rgba(255, 255, 255, 0.22) !important;
         }
-        body.theme-custom-glass .dlp-step.active .dlp-step-idx {
+        body.glass-enabled .dlp-step.active .dlp-step-idx {
           background: #ffffff !important;
           color: #1c2a44 !important;
           border-color: #ffffff !important;
         }
-        body.theme-custom-glass .dlp-step.done .dlp-step-idx {
+        body.glass-enabled .dlp-step.done .dlp-step-idx {
           background: rgba(255, 255, 255, 0.6) !important;
           color: #1c2a44 !important;
           border-color: rgba(255, 255, 255, 0.6) !important;
         }
-        body.theme-custom-glass .dlp-stat-label { color: rgba(255, 255, 255, 0.55) !important; }
-        body.theme-custom-glass .dlp-stat-val { color: #ffffff !important; }
+        body.glass-enabled .dlp-stat-label { color: rgba(255, 255, 255, 0.55) !important; }
+        body.glass-enabled .dlp-stat-val { color: #ffffff !important; }
 
         /* Docked Sidebar Glass Override (no double border/corners against window edge) */
-        body.theme-custom-glass .sidebar {
+        body.glass-enabled .sidebar {
           background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.025) 100%) !important;
           backdrop-filter: blur(28px) saturate(180%) brightness(1.08) !important;
           -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.08) !important;
@@ -1738,12 +1487,12 @@ function applyTheme(theme) {
         }
 
         /* Glassmorphic input controls inside panels */
-        html body.theme-custom-glass .cfg-input,
-        html body.theme-custom-glass .cfg-select,
-        html body.theme-custom-glass select,
-        html body.theme-custom-glass input[type="text"],
-        html body.theme-custom-glass input[type="number"],
-        html body.theme-custom-glass textarea {
+        html body.glass-enabled .cfg-input,
+        html body.glass-enabled .cfg-select,
+        html body.glass-enabled select,
+        html body.glass-enabled input[type="text"],
+        html body.glass-enabled input[type="number"],
+        html body.glass-enabled textarea {
           background: rgba(0, 0, 0, 0.25) !important;
           border: 1px solid rgba(255, 255, 255, 0.15) !important;
           border-radius: 8px !important;
@@ -1752,23 +1501,23 @@ function applyTheme(theme) {
           backdrop-filter: blur(5px) !important;
           transition: all 0.2s ease !important;
         }
-        html body.theme-custom-glass select option {
+        html body.glass-enabled select option {
           background: #16181f !important;
           color: #ffffff !important;
         }
-        html body.theme-custom-glass .cfg-input:focus,
-        html body.theme-custom-glass .cfg-select:focus,
-        html body.theme-custom-glass select:focus,
-        html body.theme-custom-glass input[type="text"]:focus,
-        html body.theme-custom-glass input[type="number"]:focus,
-        html body.theme-custom-glass textarea:focus {
+        html body.glass-enabled .cfg-input:focus,
+        html body.glass-enabled .cfg-select:focus,
+        html body.glass-enabled select:focus,
+        html body.glass-enabled input[type="text"]:focus,
+        html body.glass-enabled input[type="number"]:focus,
+        html body.glass-enabled textarea:focus {
           border-color: rgba(255, 255, 255, 0.4) !important;
           box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 8px rgba(255, 255, 255, 0.2) !important;
           outline: none !important;
         }
 
         /* Console log output translucent overlay */
-        body.theme-custom-glass .log-output {
+        body.glass-enabled .log-output {
           background: rgba(0, 0, 0, 0.35) !important;
           border: 1px solid rgba(255, 255, 255, 0.15) !important;
           box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5) !important;
@@ -1776,13 +1525,13 @@ function applyTheme(theme) {
         }
 
         /* Small titlebar traffic-light buttons */
-        body.theme-custom-glass .titlebar-controls {
+        body.glass-enabled .titlebar-controls {
           display: flex !important;
           gap: 6px !important;
           align-items: center !important;
           margin-right: 8px !important;
         }
-        body.theme-custom-glass .tb-ctrl {
+        body.glass-enabled .tb-ctrl {
           border-radius: 50% !important;
           aspect-ratio: 1/1 !important;
           width: 12px !important;
@@ -1793,33 +1542,33 @@ function applyTheme(theme) {
           justify-content: center !important;
           margin: 0 !important;
         }
-        body.theme-custom-glass .tb-ctrl.cls {
+        body.glass-enabled .tb-ctrl.cls {
           order: 3 !important;
         }
-        body.theme-custom-glass .tb-ctrl.min {
+        body.glass-enabled .tb-ctrl.min {
           order: 1 !important;
         }
-        body.theme-custom-glass .tb-ctrl.max {
+        body.glass-enabled .tb-ctrl.max {
           order: 2 !important;
         }
 
         /* Glassmorphic buttons styling: 3D jelly/liquid capsule look */
-        html body.theme-custom-glass .btn-download-big,
-        html body.theme-custom-glass .btn-play,
-        html body.theme-custom-glass .btn-refresh,
-        html body.theme-custom-glass .btn-save,
-        html body.theme-custom-glass .btn-test-server,
-        html body.theme-custom-glass .btn-cancel-dl,
-        html body.theme-custom-glass .btn-kill,
-        html body.theme-custom-glass .btn-open-folder,
-        html body.theme-custom-glass .btn-reinstall,
-        html body.theme-custom-glass .btn-uninstall,
-        html body.theme-custom-glass .modal-btn,
-        html body.theme-custom-glass .nav-btn,
-        html body.theme-custom-glass .btn-exclude-av,
-        html body.theme-custom-glass .filter-btn,
-        html body.theme-custom-glass .sort-btn,
-        html body.theme-custom-glass .launch-secondary-actions button {
+        html body.glass-enabled .btn-download-big,
+        html body.glass-enabled .btn-play,
+        html body.glass-enabled .btn-refresh,
+        html body.glass-enabled .btn-save,
+        html body.glass-enabled .btn-test-server,
+        html body.glass-enabled .btn-cancel-dl,
+        html body.glass-enabled .btn-kill,
+        html body.glass-enabled .btn-open-folder,
+        html body.glass-enabled .btn-reinstall,
+        html body.glass-enabled .btn-uninstall,
+        html body.glass-enabled .modal-btn,
+        html body.glass-enabled .nav-btn,
+        html body.glass-enabled .btn-exclude-av,
+        html body.glass-enabled .filter-btn,
+        html body.glass-enabled .sort-btn,
+        html body.glass-enabled .launch-secondary-actions button {
           border-radius: 30px !important;
           background: 
             linear-gradient(to bottom, 
@@ -1847,22 +1596,22 @@ function applyTheme(theme) {
         }
 
         /* Action buttons hover states: hyper-glossy and glowing */
-        html body.theme-custom-glass .btn-download-big:hover,
-        html body.theme-custom-glass .btn-play:hover,
-        html body.theme-custom-glass .btn-refresh:hover,
-        html body.theme-custom-glass .btn-save:hover,
-        html body.theme-custom-glass .btn-test-server:hover,
-        html body.theme-custom-glass .btn-cancel-dl:hover,
-        html body.theme-custom-glass .btn-kill:hover,
-        html body.theme-custom-glass .btn-open-folder:hover,
-        html body.theme-custom-glass .btn-reinstall:hover,
-        html body.theme-custom-glass .btn-uninstall:hover,
-        html body.theme-custom-glass .modal-btn:hover,
-        html body.theme-custom-glass .nav-btn:hover,
-        html body.theme-custom-glass .btn-exclude-av:hover,
-        html body.theme-custom-glass .filter-btn:hover,
-        html body.theme-custom-glass .sort-btn:hover,
-        html body.theme-custom-glass .launch-secondary-actions button:hover {
+        html body.glass-enabled .btn-download-big:hover,
+        html body.glass-enabled .btn-play:hover,
+        html body.glass-enabled .btn-refresh:hover,
+        html body.glass-enabled .btn-save:hover,
+        html body.glass-enabled .btn-test-server:hover,
+        html body.glass-enabled .btn-cancel-dl:hover,
+        html body.glass-enabled .btn-kill:hover,
+        html body.glass-enabled .btn-open-folder:hover,
+        html body.glass-enabled .btn-reinstall:hover,
+        html body.glass-enabled .btn-uninstall:hover,
+        html body.glass-enabled .modal-btn:hover,
+        html body.glass-enabled .nav-btn:hover,
+        html body.glass-enabled .btn-exclude-av:hover,
+        html body.glass-enabled .filter-btn:hover,
+        html body.glass-enabled .sort-btn:hover,
+        html body.glass-enabled .launch-secondary-actions button:hover {
           background: 
             linear-gradient(to bottom, 
               rgba(255, 255, 255, 0.45) 0%, 
@@ -1884,22 +1633,22 @@ function applyTheme(theme) {
         }
 
         /* Action buttons active press (visual depress) */
-        html body.theme-custom-glass .btn-download-big:active,
-        html body.theme-custom-glass .btn-play:active,
-        html body.theme-custom-glass .btn-refresh:active,
-        html body.theme-custom-glass .btn-save:active,
-        html body.theme-custom-glass .btn-test-server:active,
-        html body.theme-custom-glass .btn-cancel-dl:active,
-        html body.theme-custom-glass .btn-kill:active,
-        html body.theme-custom-glass .btn-open-folder:active,
-        html body.theme-custom-glass .btn-reinstall:active,
-        html body.theme-custom-glass .btn-uninstall:active,
-        html body.theme-custom-glass .modal-btn:active,
-        html body.theme-custom-glass .nav-btn:active,
-        html body.theme-custom-glass .btn-exclude-av:active,
-        html body.theme-custom-glass .filter-btn:active,
-        html body.theme-custom-glass .sort-btn:active,
-        html body.theme-custom-glass .launch-secondary-actions button:active {
+        html body.glass-enabled .btn-download-big:active,
+        html body.glass-enabled .btn-play:active,
+        html body.glass-enabled .btn-refresh:active,
+        html body.glass-enabled .btn-save:active,
+        html body.glass-enabled .btn-test-server:active,
+        html body.glass-enabled .btn-cancel-dl:active,
+        html body.glass-enabled .btn-kill:active,
+        html body.glass-enabled .btn-open-folder:active,
+        html body.glass-enabled .btn-reinstall:active,
+        html body.glass-enabled .btn-uninstall:active,
+        html body.glass-enabled .modal-btn:active,
+        html body.glass-enabled .nav-btn:active,
+        html body.glass-enabled .btn-exclude-av:active,
+        html body.glass-enabled .filter-btn:active,
+        html body.glass-enabled .sort-btn:active,
+        html body.glass-enabled .launch-secondary-actions button:active {
           background: 
             linear-gradient(to bottom, 
               rgba(0, 0, 0, 0.1) 0%, 
@@ -1918,15 +1667,15 @@ function applyTheme(theme) {
         }
 
         /* Sidebar Navigation, filter & sort buttons */
-        html body.theme-custom-glass .nav-btn {
+        html body.glass-enabled .nav-btn {
           margin: 4px 0 !important;
           padding: 8px 12px !important;
           box-sizing: border-box !important;
           width: 100% !important;
         }
-        html body.theme-custom-glass .nav-btn.active,
-        html body.theme-custom-glass .filter-btn.active,
-        html body.theme-custom-glass .sort-btn.active {
+        html body.glass-enabled .nav-btn.active,
+        html body.glass-enabled .filter-btn.active,
+        html body.glass-enabled .sort-btn.active {
           background: 
             linear-gradient(to bottom, 
               rgba(255, 255, 255, 0.35) 0%, 
@@ -1948,25 +1697,25 @@ function applyTheme(theme) {
         }
 
         /* Premium specular "shine sweep" that glides across buttons on hover */
-        html body.theme-custom-glass .btn-download-big,
-        html body.theme-custom-glass .btn-play,
-        html body.theme-custom-glass .btn-refresh,
-        html body.theme-custom-glass .btn-save,
-        html body.theme-custom-glass .btn-test-server,
-        html body.theme-custom-glass .modal-btn,
-        html body.theme-custom-glass .nav-btn,
-        html body.theme-custom-glass .btn-exclude-av {
+        html body.glass-enabled .btn-download-big,
+        html body.glass-enabled .btn-play,
+        html body.glass-enabled .btn-refresh,
+        html body.glass-enabled .btn-save,
+        html body.glass-enabled .btn-test-server,
+        html body.glass-enabled .modal-btn,
+        html body.glass-enabled .nav-btn,
+        html body.glass-enabled .btn-exclude-av {
           position: relative !important;
           overflow: hidden !important;
         }
-        html body.theme-custom-glass .btn-download-big::after,
-        html body.theme-custom-glass .btn-play::after,
-        html body.theme-custom-glass .btn-refresh::after,
-        html body.theme-custom-glass .btn-save::after,
-        html body.theme-custom-glass .btn-test-server::after,
-        html body.theme-custom-glass .modal-btn::after,
-        html body.theme-custom-glass .nav-btn::after,
-        html body.theme-custom-glass .btn-exclude-av::after {
+        html body.glass-enabled .btn-download-big::after,
+        html body.glass-enabled .btn-play::after,
+        html body.glass-enabled .btn-refresh::after,
+        html body.glass-enabled .btn-save::after,
+        html body.glass-enabled .btn-test-server::after,
+        html body.glass-enabled .modal-btn::after,
+        html body.glass-enabled .nav-btn::after,
+        html body.glass-enabled .btn-exclude-av::after {
           content: '' !important;
           position: absolute !important;
           top: 0 !important;
@@ -1979,38 +1728,90 @@ function applyTheme(theme) {
           pointer-events: none !important;
           z-index: 3 !important;
         }
-        html body.theme-custom-glass .btn-download-big:hover::after,
-        html body.theme-custom-glass .btn-play:hover::after,
-        html body.theme-custom-glass .btn-refresh:hover::after,
-        html body.theme-custom-glass .btn-save:hover::after,
-        html body.theme-custom-glass .btn-test-server:hover::after,
-        html body.theme-custom-glass .modal-btn:hover::after,
-        html body.theme-custom-glass .nav-btn:hover::after,
-        html body.theme-custom-glass .btn-exclude-av:hover::after {
+        html body.glass-enabled .btn-download-big:hover::after,
+        html body.glass-enabled .btn-play:hover::after,
+        html body.glass-enabled .btn-refresh:hover::after,
+        html body.glass-enabled .btn-save:hover::after,
+        html body.glass-enabled .btn-test-server:hover::after,
+        html body.glass-enabled .modal-btn:hover::after,
+        html body.glass-enabled .nav-btn:hover::after,
+        html body.glass-enabled .btn-exclude-av:hover::after {
           left: 160% !important;
         }
       `;
-    }
+}
 
-    // Cached for the next launch. boot.js replays both this and the palette
-    // before the first paint; without them a custom theme renders as bare
-    // `theme-custom`, which has no rules of its own and so falls through to
-    // the :root defaults — the Steam 2003 Green palette. That was the skin
-    // flashing up for a moment on every start.
-    try {
-      localStorage.setItem('radium-custom-css', css);
-      localStorage.setItem(
-        'radium-custom-classes',
-        document.body.className.split(' ').filter(c => c.startsWith('theme-')).join(' ')
-      );
-    } catch (e) {}
+/// A backdrop URL that is safe to interpolate into `url('...')`.
+///
+/// Mirrors `GlassSettings::sanitize` in config.rs: the two shapes the picker
+/// and the URL field produce, and no character that could close the
+/// declaration and open a rule of its own.
+const BACKDROP_FORBIDDEN = /['"(){}\\]/;
+/// Whether a string carries a control character.
+///
+/// Spelled as a code-point test rather than a regex so the range is legible
+/// and carries no escape sequences of its own.
+function hasControlChars(s) {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x20 || c === 0x7f) return true;
+  }
+  return false;
+}
 
+function safeBackdrop(value) {
+  const url = String(value ?? '').trim();
+  if (!url) return '';
+
+  const isData = url.startsWith('data:image/');
+  if (!isData && !url.startsWith('https://')) return '';
+  if (BACKDROP_FORBIDDEN.test(url) || hasControlChars(url)) return '';
+  // A data: URI legitimately contains `;` — the `;base64` marker — so it is
+  // exempt from that one character. Nothing else may carry it, since outside a
+  // data URI a `;` is what ends the declaration.
+  if (!isData && url.includes(';')) return '';
+  return url;
+}
+
+/// Apply a skin, plus Liquid Glass over it when that is switched on.
+///
+/// Glass is an effect rather than a skin: it repaints every colour token and
+/// brings its own layout, so while it is on it stands in for the selected skin
+/// entirely. The dropdown keeps that selection for when it is switched off.
+function applyTheme(theme) {
+  // Strip only the theme classes and the glass marker. This used to whitelist
+  // 'animations-enabled' and drop everything else, which silently wiped
+  // unrelated state classes on <body> (e.g. 'client-installed', which gates the
+  // PLAY button and the Manage Client panel) every time the theme changed.
+  document.body.className = document.body.className
+    .split(' ')
+    .filter(c => c && !c.startsWith('theme-') && c !== GLASS_CLASS)
+    .join(' ');
+
+  document.getElementById(GLASS_STYLE_ID)?.remove();
+  // The pre-paint cache boot.js injects. Dropped here so the real stylesheet
+  // replaces it rather than stacking on top of it.
+  document.getElementById(GLASS_BOOT_STYLE_ID)?.remove();
+
+  const skin = AVAILABLE_THEMES.includes(theme) ? theme : DEFAULT_THEME;
+  const glass = config.glass || {};
+  const glassOn = glass.enabled === true;
+
+  if (glassOn) {
+    document.body.classList.add('theme-' + GLASS_LAYOUT_THEME, GLASS_CLASS);
+  } else if (skin !== BASE_STYLESHEET_THEME) {
+    document.body.classList.add('theme-' + skin);
+  }
+
+  if (glassOn) {
+    const css = glassCss(glass.tint, glass.bgImage);
     const style = document.createElement('style');
-    style.id = 'custom-theme-style';
+    style.id = GLASS_STYLE_ID;
     style.textContent = css;
     document.head.appendChild(style);
-  } else if (theme && theme !== 'steam-green') {
-    document.body.classList.add('theme-' + theme);
+    cacheThemeForBoot(skin, css);
+  } else {
+    cacheThemeForBoot(skin, '');
   }
 
   const anims = getToggle('tgl-enableAnimations');
@@ -2018,9 +1819,23 @@ function applyTheme(theme) {
     document.body.classList.add('animations-enabled');
   }
   try {
-    localStorage.setItem('radium-theme', theme || 'steam-green');
     localStorage.setItem('radium-animations', anims ? 'true' : 'false');
   } catch (e) {}
+}
+
+/// Remember enough for boot.js to paint the right thing before the first frame.
+///
+/// Without this the window renders the base stylesheet until the config arrives
+/// over IPC and then snaps to the real skin — a visible flash on every start.
+/// Glass is the expensive case, so its generated sheet is cached verbatim.
+function cacheThemeForBoot(skin, css) {
+  try {
+    localStorage.setItem('radium-theme', skin);
+    localStorage.setItem('radium-glass-css', css);
+  } catch (e) {
+    // Quota, or a webview with storage disabled. The only cost is the flash
+    // this exists to avoid, so there is nothing to report.
+  }
 }
 
 function setValue(id, val) { const el = $(id); if (el) el.value = val; }
@@ -2049,342 +1864,142 @@ function getToggle(id) { return $(id)?.classList.contains('on') ?? false; }
   })
 );
 
-// Auto-saves only the theme-related fields without touching other settings.
-// Called whenever the theme changes so the choice survives restarts without
-// the user needing to click "Save Settings".
-async function autoSaveTheme(newTheme, customColors) {
+/// Persist the theme and glass settings without touching anything else.
+///
+/// Its own saver rather than a call to autoSaveSettings() so a theme change
+/// does not sweep up whatever else the settings form happens to be showing.
+async function saveThemeSettings() {
   if (!config || Object.keys(config).length === 0) return; // config not loaded yet
   const updated = {
     ...config,
-    theme:         newTheme,
-    baselineTheme: customColors ? (config.baselineTheme || 'steam-green') : newTheme,
-    customTheme:   customColors || config.customTheme,
+    theme: config.theme,
+    // Kept in step with `theme`: nothing sits underneath a skin any more, but
+    // the field still exists and the backend repairs a mismatch, so writing a
+    // stale value here would just be undone on the next load.
+    baselineTheme: config.theme,
+    glass: config.glass
   };
   try {
     const ok = await window.radium?.saveConfig(updated);
     if (ok) config = updated;
   } catch (e) {
-    console.warn('autoSaveTheme: failed to persist', e);
+    console.warn('saveThemeSettings: failed to persist', e);
   }
 }
 
-// Debounced variant for high-frequency sources (color pickers fire 'input'
-// continuously while dragging — each save is an IPC call + a config.json
-// write, so persisting on every tick would hammer the disk).
+/// Debounced, for the colour picker — it fires `input` continuously while
+/// dragging, and each save is an IPC call plus a config.json write.
 let _themeSaveTimer = null;
-function debouncedAutoSaveTheme(newTheme, customColors) {
+function debouncedSaveThemeSettings() {
   clearTimeout(_themeSaveTimer);
-  _themeSaveTimer = setTimeout(() => autoSaveTheme(newTheme, customColors), 800);
+  _themeSaveTimer = setTimeout(saveThemeSettings, 800);
 }
 
 $('cfgTheme')?.addEventListener('change', () => {
-  const selectedTheme = $('cfgTheme').value;
-  applyTheme(selectedTheme);
-  autoSaveTheme(selectedTheme, null);
+  config.theme = $('cfgTheme').value || DEFAULT_THEME;
+  applyTheme(config.theme);
+  saveThemeSettings();
 });
 
-$('tgl-customTheme')?.addEventListener('click', () => {
-  const customOn = !getToggle('tgl-customTheme');
-  setToggle('tgl-customTheme', customOn);
-  
-  setCustomThemeEditorOpen(customOn);
-
-  const cfgThemeSelect = $('cfgTheme');
-  if (cfgThemeSelect) {
-    cfgThemeSelect.disabled = customOn;
-    const parent = cfgThemeSelect.closest('div');
-    if (parent) {
-      parent.style.opacity = customOn ? '0.5' : '1';
-      parent.style.pointerEvents = customOn ? 'none' : 'auto';
-    }
-  }
-
-  if (customOn) {
-    updateCustomThemeFromUI();
-    // persisting happens inside updateCustomThemeFromUI (debounced)
-  } else {
-    const selectedTheme = $('cfgTheme').value || 'steam-green';
-    applyTheme(selectedTheme);
-    autoSaveTheme(selectedTheme, null);
-  }
+$('tgl-glassEnabled')?.addEventListener('click', () => {
+  const glassOn = !getToggle('tgl-glassEnabled');
+  setToggle('tgl-glassEnabled', glassOn);
+  config.glass = { ...(config.glass || {}), enabled: glassOn };
+  updateGlassControls(glassOn);
+  applyTheme(config.theme);
+  saveThemeSettings();
 });
 
-/// Rebuild the custom theme from the editor controls.
-///
-/// `colorsOnly` marks the changes that touch nothing but the eleven palette
-/// variables — i.e. the colour pickers. Those take the cheap path that rewrites
-/// only the palette sheet. Anything structural (style base, Liquid Glass, a
-/// background image, loading a template) still rebuilds the whole stylesheet,
-/// because those change the rules themselves and not just their inputs.
-function updateCustomThemeFromUI(colorsOnly = false) {
-  const isModern = $('styleBaseModern')?.checked === true;
-  const customColors = {
-    bgDark:       $('theme-bgDark')?.value || '#21281e',
-    bgMain:       $('theme-bgMain')?.value || '#384232',
-    bgPanel:      $('theme-bgPanel')?.value || '#4b5845',
-    bgBtn:        $('theme-bgBtn')?.value || '#5e6d56',
-    borderLight:  $('theme-borderLight')?.value || '#829478',
-    borderDark:   $('theme-borderDark')?.value || '#1b2118',
-    green:         $('theme-green')?.value || '#00ff00',
-    greenDim:     $('theme-greenDim')?.value || '#7ca969',
-    text:         $('theme-text')?.value || '#d4e0ce',
-    textMuted:    $('theme-textMuted')?.value || '#8da082',
-    statusOnline: $('theme-statusOnline')?.value || '#00ff00',
-    styleBase:    isModern ? 'modern' : 'retro',
-    bgImage:      getBgImageUI(),
-    glassEnabled: getToggle('tgl-glassEnabled'),
-    glassBg:      $('theme-glassBg')?.value || '#0b0c14'
-  };
-  config.customTheme = customColors;
-  config.baselineTheme = $('cfgTheme')?.value || 'steam-green';
-  // Live preview is immediate either way; only the persist is debounced.
-  // applyCustomThemeColors returns false if there is no palette sheet yet
-  // (custom theme not applied), in which case the full build has to run.
-  if (!colorsOnly || !applyCustomThemeColors(customColors)) {
-    applyTheme('custom');
-  }
-  debouncedAutoSaveTheme('custom', customColors);
+$('theme-glassBg')?.addEventListener('input', () => {
+  config.glass = { ...(config.glass || {}), tint: $('theme-glassBg').value };
+  // Redrawn immediately so dragging the picker is a live preview; only the
+  // write to disk waits.
+  applyTheme(config.theme);
+  debouncedSaveThemeSettings();
+});
+
+/// Set the glass backdrop, redraw, and persist.
+function setGlassBackdrop(value) {
+  config.glass = { ...(config.glass || {}), bgImage: value };
+  applyTheme(config.theme);
+  saveThemeSettings();
 }
 
-const THEME_PRESETS = {
-  'steam-green': {
-    bgDark:      '#21281e',
-    bgMain:      '#384232',
-    bgPanel:     '#4b5845',
-    bgBtn:       '#5e6d56',
-    borderLight: '#829478',
-    borderDark:  '#1b2118',
-    green:        '#00ff00',
-    greenDim:    '#7ca969',
-    text:         '#d4e0ce',
-    textMuted:   '#8da082',
-    statusOnline:'#00ff00'
-  },
-  'win98': {
-    bgDark:      '#ffffff',
-    bgMain:      '#d4d0c8',
-    bgPanel:     '#d4d0c8',
-    bgBtn:       '#d4d0c8',
-    borderLight: '#ffffff',
-    borderDark:  '#808080',
-    green:        '#000080',
-    greenDim:    '#404040',
-    text:         '#000000',
-    textMuted:   '#555555',
-    statusOnline:'#008000'
-  },
-  'win95': {
-    bgDark:      '#008080',
-    bgMain:      '#c0c0c0',
-    bgPanel:     '#c0c0c0',
-    bgBtn:       '#c0c0c0',
-    borderLight: '#ffffff',
-    borderDark:  '#808080',
-    green:       '#000080',
-    greenDim:    '#000000',
-    text:        '#000000',
-    textMuted:   '#555555',
-    statusOnline:'#008000'
-  },
-  'winxp': {
-    bgDark:      '#ffffff',
-    bgMain:      '#d8e4f8',
-    bgPanel:     '#ece9d8',
-    bgBtn:       '#ece9d8',
-    borderLight: '#ffffff',
-    borderDark:  '#aca899',
-    green:        '#0054e3',
-    greenDim:    '#7a96df',
-    text:         '#000000',
-    textMuted:   '#555555',
-    statusOnline:'#008000'
-  },
-  'royalenoir': {
-    bgDark:      '#1c1c1c',
-    bgMain:      '#2b2b2b',
-    bgPanel:     '#3a3a3a',
-    bgBtn:       '#4c4c4c',
-    borderLight: '#606060',
-    borderDark:  '#141414',
-    green:       '#3b93ff',
-    greenDim:    '#5285e9',
-    text:        '#ffffff',
-    textMuted:   '#b0b0b0',
-    statusOnline:'#00d000'
-  },
-  'winvista': {
-    bgDark:      '#e2e8f0',
-    bgMain:      '#1f2d3d',
-    bgPanel:     '#e2e8f0',
-    bgBtn:       '#f1f5f9',
-    borderLight: '#ffffff',
-    borderDark:  '#708090',
-    green:       '#0055cc',
-    greenDim:    '#004488',
-    text:        '#1a2a3a',
-    textMuted:   '#3b4d5e',
-    statusOnline:'#008000'
-  },
-  'win7': {
-    bgDark:      '#f0f3f7',
-    bgMain:      '#edf2f8',
-    bgPanel:     '#ffffff',
-    bgBtn:       '#f2f6fa',
-    borderLight: '#dbe4f0',
-    borderDark:  '#a3b8cc',
-    green:       '#1068c8',
-    greenDim:    '#0a4b96',
-    text:        '#000000',
-    textMuted:   '#555555',
-    statusOnline:'#0a8a0a'
-  },
-  'macosclassic': {
-    bgDark:      '#dddddd',
-    bgMain:      '#cccccc',
-    bgPanel:     '#cccccc',
-    bgBtn:       '#e2e2e2',
-    borderLight: '#ffffff',
-    borderDark:  '#949494',
-    green:       '#000000',
-    greenDim:    '#4c4c4c',
-    text:        '#000000',
-    textMuted:   '#505050',
-    statusOnline:'#007a00'
-  },
-  'moderndark': {
-    bgDark:      '#0d0f12',
-    bgMain:      '#161a22',
-    bgPanel:     '#212630',
-    bgBtn:       '#2d3342',
-    borderLight: '#3d4559',
-    borderDark:  '#08090a',
-    green:        '#00f0ff',
-    greenDim:    '#009bb3',
-    text:         '#e2e8f0',
-    textMuted:   '#8a99ad',
-    statusOnline:'#10b981'
-  },
-  'modernlight': {
-    bgDark:      '#f1f5f9',
-    bgMain:      '#f8fafc',
-    bgPanel:     '#ffffff',
-    bgBtn:       '#f1f5f9',
-    borderLight: '#e2e8f0',
-    borderDark:  '#cbd5e1',
-    green:        '#3b82f6',
-    greenDim:    '#60a5fa',
-    text:         '#0f172a',
-    textMuted:   '#64748b',
-    statusOnline:'#10b981'
-  },
-  'moderngreen': {
-    bgDark:      '#070b07',
-    bgMain:      '#0d140d',
-    bgPanel:     '#131e13',
-    bgBtn:       '#10b981',
-    borderLight: '#223322',
-    borderDark:  '#050705',
-    green:       '#10b981',
-    greenDim:    '#34d399',
-    text:        '#f0fdf4',
-    textMuted:   '#4ade80',
-    statusOnline:'#10b981'
-  },
-  'blackandwhite': {
-    bgDark:      '#050505',
-    bgMain:      '#0d0d0d',
-    bgPanel:     '#141414',
-    bgBtn:       '#ffffff',
-    borderLight: '#262626',
-    borderDark:  '#090909',
-    green:       '#ffffff',
-    greenDim:    '#bbbbbb',
-    text:        '#ffffff',
-    textMuted:   '#888888',
-    statusOnline:'#ffffff'
-  },
-  'steam2010': {
-    bgDark:      '#2b2b2b',
-    bgMain:      '#3a3a3a',
-    bgPanel:     '#46494d',
-    bgBtn:       '#54585d',
-    borderLight: '#5a5d61',
-    borderDark:  '#1d1d1d',
-    green:       '#8ab4cf',
-    greenDim:    '#6c93ab',
-    text:        '#d6d6d6',
-    textMuted:   '#8a8a8a',
-    statusOnline:'#8bc34a'
-  },
-  'macosaqua': {
-    bgDark:      '#d9d9d9',
-    bgMain:      '#ececec',
-    bgPanel:     '#ffffff',
-    bgBtn:       '#f2f2f2',
-    borderLight: '#ffffff',
-    borderDark:  '#9b9b9b',
-    green:       '#1f6feb',
-    greenDim:    '#2a6fd0',
-    text:        '#1a1a1a',
-    textMuted:   '#666666',
-    statusOnline:'#28c840'
-  }
-};
+// ─── Glass backdrop ─────────────────────────────────────────────────────────
+// The surface the frosted panels sit over. Optional: with none set, glass
+// paints gradients from the tint instead.
 
-$('themeTemplateSelect')?.addEventListener('change', () => {
-  const presetKey = $('themeTemplateSelect').value;
-  const colors = THEME_PRESETS[presetKey];
-  if (colors) {
-    const keys = ['bgDark', 'bgMain', 'bgPanel', 'bgBtn', 'borderLight', 'borderDark', 'green', 'greenDim', 'text', 'textMuted', 'statusOnline'];
-    keys.forEach(k => {
-      const el = $('theme-' + k);
-      if (el) el.value = colors[k];
-    });
+/// Largest file the backdrop picker will accept, before downscaling.
+const BG_IMAGE_MAX_INPUT_BYTES = 20 * 1024 * 1024;
 
-    const isModern = presetKey.startsWith('modern');
-    if (isModern) {
-      if ($('styleBaseModern')) $('styleBaseModern').checked = true;
-    } else {
-      if ($('styleBaseRetro')) $('styleBaseRetro').checked = true;
+/// Longest edge the stored backdrop is resized to.
+///
+/// It is stretched over the window with `background-size: cover`, so anything
+/// past a large display's width is detail nobody can see. 2560 covers a
+/// maximised launcher on a 4K screen at 150% scaling.
+const BG_IMAGE_MAX_EDGE = 2560;
+
+/// Ceiling on the encoded data URI that ends up in config.json.
+///
+/// This string is stored in the config, interpolated into the generated glass
+/// stylesheet, cached in localStorage for the pre-paint replay, and sent back
+/// over IPC on every save — and `ensure_config` reads the config on nearly
+/// every backend command. A picked 5 MB wallpaper used to become ~6.7 MB of
+/// base64 doing all of that, which blew the localStorage quota and silently
+/// disabled the boot cache. Re-encoding to fit keeps the whole chain cheap.
+const BG_IMAGE_MAX_STORED_BYTES = 1_400_000;
+
+/// Downscale and re-encode a picked image to something worth storing.
+///
+/// Resolves to a JPEG data URI inside [`BG_IMAGE_MAX_STORED_BYTES`], stepping
+/// the quality down until it fits. Rejects rather than storing something that
+/// cannot be made small enough.
+function prepareBackgroundImage(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > BG_IMAGE_MAX_INPUT_BYTES) {
+      reject(new Error(`That image is ${formatBytes(file.size)}. Pick one under ${formatBytes(BG_IMAGE_MAX_INPUT_BYTES)}.`));
+      return;
     }
-    updateStyleBaseLocks(getToggle('tgl-glassEnabled'));
 
-    updateCustomThemeFromUI();
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, BG_IMAGE_MAX_EDGE / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not process that image.'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-    // Snap back to the placeholder. This copies a palette once; it does not
-    // track anything. Leaving the skin's name selected made it look like the
-    // theme still *was* that skin, which stopped being true the moment the
-    // next colour was changed.
-    const label = $('themeTemplateSelect').selectedOptions[0]?.textContent || 'Template';
-    $('themeTemplateSelect').value = '';
-    toast(`Copied the ${label} colours — edit any of them below.`, 'ok');
-  }
-});
-
-// Bind color pickers input events for live preview
-['theme-bgDark', 'theme-bgMain', 'theme-bgPanel', 'theme-bgBtn', 'theme-borderLight', 'theme-borderDark', 'theme-green', 'theme-greenDim', 'theme-text', 'theme-textMuted', 'theme-statusOnline', 'theme-glassBg'].forEach(id => {
-  $(id)?.addEventListener('input', () => {
-    if (getToggle('tgl-customTheme')) {
-      updateCustomThemeFromUI(true);
-    }
+      // JPEG throughout: a backdrop sits behind a dark scrim and has no
+      // transparency to preserve, and PNG at this size is several times larger.
+      for (const quality of [0.82, 0.7, 0.6, 0.5, 0.4]) {
+        const encoded = canvas.toDataURL('image/jpeg', quality);
+        if (encoded.length <= BG_IMAGE_MAX_STORED_BYTES) {
+          resolve(encoded);
+          return;
+        }
+      }
+      reject(new Error('That image is too detailed to store. Try a smaller one.'));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('That file could not be read as an image.'));
+    };
+    img.src = url;
   });
-});
+}
 
-$('styleBaseRetro')?.addEventListener('change', () => {
-  if (getToggle('tgl-customTheme')) updateCustomThemeFromUI();
-});
-$('styleBaseModern')?.addEventListener('change', () => {
-  if (getToggle('tgl-customTheme')) updateCustomThemeFromUI();
-});
-
-// Category 4: Background & Glass event listeners
 $('theme-bgImage')?.addEventListener('input', (e) => {
   if (e.target.value !== '(Local File Selected)') {
     delete e.target.dataset.localBase64;
   }
-  if (getToggle('tgl-customTheme')) {
-    updateCustomThemeFromUI();
-  }
+  setGlassBackdrop(getBgImageUI());
 });
 
 $('btnBrowseBgFile')?.addEventListener('click', () => {
@@ -2393,207 +2008,27 @@ $('btnBrowseBgFile')?.addEventListener('click', () => {
   picker?.click();
 });
 
-$('theme-bgFilePicker')?.addEventListener('change', (e) => {
+$('theme-bgFilePicker')?.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    const base64 = event.target.result;
-    setBgImageUI(base64);
-    if (getToggle('tgl-customTheme')) {
-      updateCustomThemeFromUI();
-    }
-  };
-  reader.readAsDataURL(file);
+  try {
+    const encoded = await prepareBackgroundImage(file);
+    setBgImageUI(encoded);
+    setGlassBackdrop(encoded);
+    addLog(`Glass backdrop set (${formatBytes(encoded.length)} stored).`, 'ok');
+  } catch (err) {
+    toast(err.message || 'Could not use that image.', 'error', 5000);
+    addLog(`Glass backdrop rejected: ${err.message}`, 'warn');
+  }
 });
 
 $('btnClearBgImage')?.addEventListener('click', () => {
   setBgImageUI('');
   if ($('theme-bgFilePicker')) $('theme-bgFilePicker').value = '';
-  if (getToggle('tgl-customTheme')) {
-    updateCustomThemeFromUI();
-  }
+  setGlassBackdrop('');
 });
 
-$('tgl-glassEnabled')?.addEventListener('click', () => {
-  $('tgl-glassEnabled').classList.toggle('on');
-  updateStyleBaseLocks(getToggle('tgl-glassEnabled'));
-  if (getToggle('tgl-customTheme')) {
-    updateCustomThemeFromUI();
-  }
-});
-
-// Export theme
-$('btnExportTheme')?.addEventListener('click', async () => {
-  const isModern = $('styleBaseModern')?.checked === true;
-  const customColors = {
-    bgDark:       $('theme-bgDark')?.value || '#21281e',
-    bgMain:       $('theme-bgMain')?.value || '#384232',
-    bgPanel:      $('theme-bgPanel')?.value || '#4b5845',
-    bgBtn:        $('theme-bgBtn')?.value || '#5e6d56',
-    borderLight:  $('theme-borderLight')?.value || '#829478',
-    borderDark:   $('theme-borderDark')?.value || '#1b2118',
-    green:         $('theme-green')?.value || '#00ff00',
-    greenDim:     $('theme-greenDim')?.value || '#7ca969',
-    text:         $('theme-text')?.value || '#d4e0ce',
-    textMuted:    $('theme-textMuted')?.value || '#8da082',
-    statusOnline: $('theme-statusOnline')?.value || '#00ff00',
-    styleBase:    isModern ? 'modern' : 'retro',
-    bgImage:      getBgImageUI(),
-    glassEnabled: getToggle('tgl-glassEnabled'),
-    glassBg:      $('theme-glassBg')?.value || '#0b0c14'
-  };
-  try {
-    const jsonStr = JSON.stringify(customColors, null, 2);
-    await navigator.clipboard.writeText(jsonStr);
-    toast('Custom theme JSON copied to clipboard!', 'ok');
-  } catch (e) {
-    toast('Failed to export theme.', 'error');
-  }
-});
-
-// Import theme
-$('btnImportTheme')?.addEventListener('click', async () => {
-  const input = prompt('Paste custom theme JSON here:');
-  if (!input) return;
-
-  try {
-    const colors = JSON.parse(input);
-    const keys = ['bgDark', 'bgMain', 'bgPanel', 'bgBtn', 'borderLight', 'borderDark', 'green', 'greenDim', 'text', 'textMuted', 'statusOnline'];
-    
-    // Quick validation
-    let valid = true;
-    keys.forEach(k => {
-      if (!colors[k] || typeof colors[k] !== 'string' || !colors[k].startsWith('#')) {
-        valid = false;
-      }
-    });
-
-    if (!valid) {
-      toast('Invalid theme colors format.', 'error');
-      return;
-    }
-
-    // Set values to inputs
-    keys.forEach(k => {
-      const el = $('theme-' + k);
-      if (el) el.value = colors[k];
-    });
-
-    if ($('theme-glassBg') && colors.glassBg) $('theme-glassBg').value = colors.glassBg;
-
-    setBgImageUI(colors.bgImage);
-    const glassOn = colors.glassEnabled === true;
-    setToggle('tgl-glassEnabled', glassOn);
-    updateStyleBaseLocks(glassOn);
-
-    let styleBase = colors.styleBase || 'retro';
-    if (glassOn) {
-      styleBase = 'modern';
-    } else {
-      if (styleBase === 'modern') {
-        if ($('styleBaseModern')) $('styleBaseModern').checked = true;
-      } else {
-        if ($('styleBaseRetro')) $('styleBaseRetro').checked = true;
-      }
-    }
-
-    // Save and apply preview
-    config.customTheme = { ...colors, styleBase, bgImage: colors.bgImage || '', glassEnabled: glassOn };
-    updateCustomThemeFromUI();
-    toast('Theme imported successfully! Click Save to persist.', 'ok');
-  } catch (e) {
-    toast('Failed to parse theme JSON.', 'error');
-  }
-});
-
-// Reset custom theme
-const resetThemeModal = $('resetThemeModal');
-const closeResetThemeModal = () => { if (resetThemeModal) resetThemeModal.style.display = 'none'; };
-$('resetThemeCancelBtn')?.addEventListener('click', closeResetThemeModal);
-$('resetThemeModalClose')?.addEventListener('click', closeResetThemeModal);
-$('resetThemeModal')?.addEventListener('click', (e) => {
-  if (e.target === resetThemeModal) closeResetThemeModal();
-});
-
-$('btnResetTheme')?.addEventListener('click', () => {
-  if (resetThemeModal) resetThemeModal.style.display = 'flex';
-});
-
-$('resetThemeConfirmBtn')?.addEventListener('click', async () => {
-  closeResetThemeModal();
-
-  const defaults = {
-    bgDark:       '#21281e',
-    bgMain:       '#384232',
-    bgPanel:      '#4b5845',
-    bgBtn:        '#5e6d56',
-    borderLight:  '#829478',
-    borderDark:   '#1b2118',
-    green:         '#00ff00',
-    greenDim:     '#7ca969',
-    text:         '#d4e0ce',
-    textMuted:    '#8da082',
-    statusOnline: '#00ff00',
-    styleBase:    'retro',
-    bgImage:      '',
-    glassEnabled: false,
-    glassBg:      '#0b0c14'
-  };
-
-  // Set values to inputs
-  setValue('theme-glassBg', defaults.glassBg);
-  setValue('theme-bgDark', defaults.bgDark);
-  setValue('theme-bgMain', defaults.bgMain);
-  setValue('theme-bgPanel', defaults.bgPanel);
-  setValue('theme-bgBtn', defaults.bgBtn);
-  setValue('theme-borderLight', defaults.borderLight);
-  setValue('theme-borderDark', defaults.borderDark);
-  setValue('theme-green', defaults.green);
-  setValue('theme-greenDim', defaults.greenDim);
-  setValue('theme-text', defaults.text);
-  setValue('theme-textMuted', defaults.textMuted);
-  setValue('theme-statusOnline', defaults.statusOnline);
-
-  setBgImageUI('');
-  if ($('theme-bgFilePicker')) $('theme-bgFilePicker').value = '';
-  setToggle('tgl-glassEnabled', false);
-  updateStyleBaseLocks(false);
-  
-  // Reset custom theme toggle and groups
-  setToggle('tgl-customTheme', false);
-  setCustomThemeEditorOpen(false);
-
-  const cfgThemeSelect = $('cfgTheme');
-  if (cfgThemeSelect) {
-    cfgThemeSelect.value = 'steam-green';
-    cfgThemeSelect.disabled = false;
-    const parent = cfgThemeSelect.closest('div');
-    if (parent) {
-      parent.style.opacity = '1';
-      parent.style.pointerEvents = 'auto';
-    }
-  }
-
-  if ($('styleBaseRetro')) $('styleBaseRetro').checked = true;
-  if ($('styleBaseModern')) $('styleBaseModern').checked = false;
-  if ($('themeTemplateSelect')) $('themeTemplateSelect').value = '';
-
-  config.customTheme = defaults;
-  config.theme = 'steam-green';
-  config.baselineTheme = 'steam-green';
-  applyTheme('steam-green');
-  
-  try {
-    await window.radium?.saveConfig(config);
-    toast('Custom theme reset to default!', 'ok');
-  } catch (e) {
-    toast('Theme reset locally, failed to persist config.', 'error');
-  }
-});
-
-// Save
 // ─── Auto-save Settings ─────────────────────────────────────────────────────
 // Replaces the old manual Save button. Collects the full settings state and
 // persists it to config.json. A small indicator in the header gives feedback.
@@ -2608,29 +2043,6 @@ function showAutosaveIndicator(state, text) {
 
 async function autoSaveSettings() {
   if (!config || Object.keys(config).length === 0) return;
-
-  const customActive  = getToggle('tgl-customTheme');
-  const selectedTheme = $('cfgTheme')?.value || 'steam-green';
-  const saveTheme     = customActive ? 'custom' : selectedTheme;
-  const isModern      = $('styleBaseModern')?.checked === true;
-
-  const customColors = {
-    bgDark:       $('theme-bgDark')?.value || '#21281e',
-    bgMain:       $('theme-bgMain')?.value || '#384232',
-    bgPanel:      $('theme-bgPanel')?.value || '#4b5845',
-    bgBtn:        $('theme-bgBtn')?.value || '#5e6d56',
-    borderLight:  $('theme-borderLight')?.value || '#829478',
-    borderDark:   $('theme-borderDark')?.value || '#1b2118',
-    green:        $('theme-green')?.value || '#00ff00',
-    greenDim:     $('theme-greenDim')?.value || '#7ca969',
-    text:         $('theme-text')?.value || '#d4e0ce',
-    textMuted:    $('theme-textMuted')?.value || '#8da082',
-    statusOnline: $('theme-statusOnline')?.value || '#00ff00',
-    styleBase:    isModern ? 'modern' : 'retro',
-    bgImage:      getBgImageUI(),
-    glassEnabled: getToggle('tgl-glassEnabled'),
-    glassBg:      $('theme-glassBg')?.value || '#0b0c14'
-  };
 
   const updated = {
     ...config,
@@ -2647,17 +2059,15 @@ async function autoSaveSettings() {
     // active network's slot; the `...config` spread carries both slots through
     // untouched.
     playMode,
-    theme:            saveTheme,
-    baselineTheme:    selectedTheme,
-    customTheme:      customColors,
+    // Theme and glass are owned by saveThemeSettings(), which the skin
+    // dropdown and the glass controls call directly. The `...config` spread
+    // carries the current values through untouched — writing them from this
+    // form would let a stale read revert a change made a moment ago.
     network:          activeNetwork
     // No `vanilla` key here either, for the same reason as `installDir`: every
     // field in that sub-object is owned by the Change / Reset Folder buttons or
     // by the backend, so the `...config` spread carries it through untouched.
   };
-
-  config.customTheme  = customColors;
-  config.baselineTheme = selectedTheme;
 
   showAutosaveIndicator('saving', 'Saving...');
 
@@ -4024,26 +3434,13 @@ async function checkSteamAndLaunch() {
 }
 
 async function proceedAfterAvCheck() {
-  // Verify DLL first
-  const status = await window.radium?.checkInstall();
-  if (status && status.dllMissing) {
-    if (config.disableWarnings === true) {
-      addLog('Radeon.Core.BasePatch.dll is missing. Warning skipped (disabled by user).', 'info');
-      await checkSacAndLaunch();
-    } else {
-      addLog('Radeon.Core.BasePatch.dll is missing. Prompting user...', 'info');
-      showDllMissingModal();
-    }
-    return;
-  }
-
   await checkSacAndLaunch();
 }
 
 // Launch-time antivirus check: offer to exclude the client folder from
 // Windows Defender (or warn about a third-party AV) before launching, so the
-// game's patched files aren't quarantined. Flows into the DLL check, then the
-// Smart App Control check, then the Steam check, then the actual launch.
+// game's patched files aren't quarantined. Flows into the Smart App Control
+// check, then the Steam check, then the actual launch.
 async function checkAvAndLaunch() {
   if (config.disableWarnings === true) {
     addLog('AV exclusion check skipped (disabled by user).', 'info');
@@ -4098,8 +3495,8 @@ $('btnPlay')?.addEventListener('click', async () => {
   if (isGameLaunching || !isInstalled) return;
   isGameLaunching = true;
 
-  // Full pre-launch safety chain: AV exclusion → DLL restore → Smart App
-  // Control → Steam → launch.
+  // Full pre-launch safety chain: AV exclusion → Smart App Control → Steam →
+  // launch.
   await checkAvAndLaunch();
 });
 
@@ -4113,59 +3510,6 @@ function hideSacModal(cancelLaunch = true) {
   if (m) m.style.display = 'none';
   if (cancelLaunch) isGameLaunching = false;
 }
-
-function showDllMissingModal() {
-  const m = $('dllMissingModal');
-  if (m) m.style.display = 'flex';
-}
-
-function hideDllMissingModal(cancelLaunch = true) {
-  const m = $('dllMissingModal');
-  if (m) m.style.display = 'none';
-  if (cancelLaunch) isGameLaunching = false;
-}
-
-$('dllMissingModalClose')?.addEventListener('click', () => hideDllMissingModal(true));
-$('dllMissingModal')?.addEventListener('click', (e) => {
-  if (e.target === $('dllMissingModal')) {
-    hideDllMissingModal(true);
-  }
-});
-
-$('dllLaunchAnywayBtn')?.addEventListener('click', async () => {
-  hideDllMissingModal(false);
-  await checkSacAndLaunch();
-});
-
-$('dllRestoreBtn')?.addEventListener('click', async () => {
-  hideDllMissingModal(false);
-  addLog('Restoring Radeon.Core.BasePatch.dll...', 'info');
-  toast('Restoring patch file...', 'info', 3000);
-  
-  const restoreBtn = $('dllRestoreBtn');
-  if (restoreBtn) restoreBtn.disabled = true;
-
-  try {
-    const res = await window.radium?.restoreDll();
-    if (restoreBtn) restoreBtn.disabled = false;
-
-    if (res?.success) {
-      toast('DLL restored successfully!', 'ok');
-      addLog('Patch file Radeon.Core.BasePatch.dll successfully restored.', 'ok');
-      
-      await checkSacAndLaunch();
-    } else {
-      toast('Failed to restore DLL.', 'error');
-      addLog('Failed to restore patch DLL.', 'error');
-      isGameLaunching = false;
-    }
-  } catch (err) {
-    if (restoreBtn) restoreBtn.disabled = false;
-    toast(`Error: ${err}`, 'error');
-    addLog(`Error restoring DLL: ${err}`, 'error');
-    isGameLaunching = false;
-  }
-});
 
 $('sacModalClose')?.addEventListener('click', () => hideSacModal(true));
 $('sacAnywayBtn')?.addEventListener('click', async () => {
@@ -4260,7 +3604,11 @@ $('updateNowBtn')?.addEventListener('click', async () => {
   addLog(`Downloading update ${updateInfo.latestVersion}...`, 'info');
 
   // Desktop shortcut placement is always on now — the opt-out checkbox was removed.
-  const result = await window.radium?.downloadUpdate(updateInfo.downloadUrl, true);
+  const result = await window.radium?.downloadUpdate(
+    updateInfo.downloadUrl,
+    true,
+    updateInfo.downloadDigest
+  );
   if (result?.success) {
     if (status) status.textContent = 'Update downloaded! Launching installer...';
     addLog('Launcher update started — restarting.', 'ok');
@@ -5834,14 +5182,21 @@ async function showRoomDetails(room) {
     }
   }
 
+  // Paint whatever the row already carried, so the stats are correct on the
+  // first frame instead of showing "..." until a page scrape returns. The
+  // lookup below still runs — it is the only source for the description and
+  // the creator avatar — and refreshes these if it has fresher numbers.
   const cheersEl = $('roomsDetailCheers');
-  if (cheersEl) cheersEl.textContent = '...';
   const favsEl = $('roomsDetailFavorites');
-  if (favsEl) favsEl.textContent = '...';
   const visitsEl = $('roomsDetailVisits');
-  if (visitsEl) visitsEl.textContent = '...';
+  const known = roomStatsFromRow(room);
+  if (cheersEl) cheersEl.textContent = known ? known.cheers : '...';
+  if (favsEl) favsEl.textContent = known?.favorites ?? '...';
+  if (visitsEl) visitsEl.textContent = known ? known.visits : '...';
   const descEl = $('roomsDetailDescription');
-  if (descEl) descEl.textContent = 'Loading details from web...';
+  if (descEl) {
+    descEl.textContent = room.Description || room.description || 'Loading details from web...';
+  }
   
   const roomsPhotosGrid = $('roomsDetailPhotosGrid');
   const roomsPhotosEmpty = $('roomsDetailPhotosEmpty');
@@ -5852,25 +5207,29 @@ async function showRoomDetails(room) {
   detail.classList.remove('hidden');
 
   // Load scraped web details asynchronously (handle both PascalCase and camelCase APIs)
-  const webDetails = await window.radium?.fetchRoomWebDetails(room.Name || room.name || '');
+  const webDetails = await getRoomWebDetails(room.Name || room.name || '');
   if (webDetails && webDetails.success) {
-    if (cheersEl) cheersEl.textContent = webDetails.cheers;
-    if (favsEl) favsEl.textContent = webDetails.favorites;
-    if (visitsEl) visitsEl.textContent = webDetails.visits;
-    if (descEl) descEl.textContent = webDetails.description || 'No description available.';
+    if (cheersEl && webDetails.cheers) cheersEl.textContent = webDetails.cheers;
+    if (favsEl && webDetails.favorites) favsEl.textContent = webDetails.favorites;
+    if (visitsEl && webDetails.visits) visitsEl.textContent = webDetails.visits;
+    if (descEl && webDetails.description) descEl.textContent = webDetails.description;
     if (webDetails.creatorAvatar && creatorAvatarEl) {
       creatorAvatarEl.classList.add('image-loading-placeholder');
       creatorAvatarEl.src = thumbSrc(webDetails.creatorAvatar, avatarWidth(32));
     } else if (creatorAvatarEl) {
       creatorAvatarEl.classList.remove('image-loading-placeholder');
     }
-  } else {
-    if (cheersEl) cheersEl.textContent = '—';
-    if (favsEl) favsEl.textContent = '—';
-    if (visitsEl) visitsEl.textContent = '—';
-    if (descEl) descEl.textContent = 'A Radium community room.';
-    if (creatorAvatarEl) creatorAvatarEl.classList.remove('image-loading-placeholder');
   }
+
+  // Anything the row didn't carry and the lookup didn't fill stays unknown
+  // rather than sitting on the "..." placeholder forever.
+  for (const el of [cheersEl, favsEl, visitsEl]) {
+    if (el && el.textContent === '...') el.textContent = '—';
+  }
+  if (descEl && descEl.textContent === 'Loading details from web...') {
+    descEl.textContent = 'No description available.';
+  }
+  if (creatorAvatarEl) creatorAvatarEl.classList.remove('image-loading-placeholder');
 
   // Load room photos
   loadRoomPhotos(room.RoomId || room.roomId);
@@ -6206,21 +5565,26 @@ async function loadPlayerRooms(userId, append = false) {
       };
       grid.appendChild(roomCard);
 
-      // Asynchronously fetch actual statistics in the background
-      (async () => {
-        const details = await window.radium?.fetchRoomWebDetails(roomName);
-        if (details && details.success) {
-          const cheerEl = roomCard.querySelector('.room-card-cheers');
-          const visitEl = roomCard.querySelector('.room-card-visits');
-          if (cheerEl) cheerEl.textContent = details.cheers || '0';
-          if (visitEl) visitEl.textContent = details.visits || '0';
-        } else {
-          const cheerEl = roomCard.querySelector('.room-card-cheers');
-          const visitEl = roomCard.querySelector('.room-card-visits');
-          if (cheerEl) cheerEl.textContent = '—';
-          if (visitEl) visitEl.textContent = '—';
-        }
-      })();
+      // Stats come off the row when the API sent them, which it does for both
+      // networks. Every card used to fire fetchRoomWebDetails instead — on
+      // Radium that is a GET of the full room page plus five regexes, so a
+      // page of twelve cards was twelve HTML documents fetched for two numbers
+      // that had already arrived with the list. The scrape is still here as a
+      // fallback for a row that genuinely carries no counts.
+      const cheerEl = roomCard.querySelector('.room-card-cheers');
+      const visitEl = roomCard.querySelector('.room-card-visits');
+      const known = roomStatsFromRow(room);
+      if (known) {
+        if (cheerEl) cheerEl.textContent = known.cheers;
+        if (visitEl) visitEl.textContent = known.visits;
+      } else {
+        (async () => {
+          const details = await getRoomWebDetails(roomName);
+          const ok = details && details.success;
+          if (cheerEl) cheerEl.textContent = ok ? (details.cheers || '0') : '—';
+          if (visitEl) visitEl.textContent = ok ? (details.visits || '0') : '—';
+        })();
+      }
     });
     
     const totalInGrid = grid.querySelectorAll('.room-card').length;
