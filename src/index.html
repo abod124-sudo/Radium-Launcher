@@ -621,11 +621,20 @@
             <div id="glassOptions" class="ct-body is-open">
               <p class="sg-hint" id="glassOffNote" hidden>These apply once Liquid Glass is switched on.</p>
 
+              <div class="sg-toggle-row">
+                <span>Full glass effects</span>
+                <div class="toggle-wrap" id="tgl-glassFull">
+                  <div class="tgl-knob"></div>
+                </div>
+              </div>
+              <p class="sg-hint">Frosts every panel and blurs behind popups. Turn it off for a lighter version that stays smooth on older or integrated graphics.</p>
+
               <div class="ct-swatches">
                 <div class="ct-swatch" title="Colour behind the frosted panels when no background image is set">
                   <input type="color" id="theme-glassBg" class="theme-color-input" value="#0b0c14">
                   <span>Glass Tint</span>
                   <span class="ct-note">used when no image</span>
+                  <button class="btn-open-folder" id="btnResetGlassTint" title="Reset the tint to its default">Reset</button>
                 </div>
               </div>
 
@@ -663,12 +672,6 @@
             <div class="sg-toggle-row">
               <span>Auto-update launcher on startup</span>
               <div class="toggle-wrap" id="tgl-autoUpdate">
-                <div class="tgl-knob"></div>
-              </div>
-            </div>
-            <div class="sg-toggle-row" id="row-enableAnimations">
-              <span>Enable UI animations (Modern themes)</span>
-              <div class="toggle-wrap" id="tgl-enableAnimations">
                 <div class="tgl-knob"></div>
               </div>
             </div>

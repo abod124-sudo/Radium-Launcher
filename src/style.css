@@ -944,9 +944,19 @@ body.theme-blackandwhite-inverted {
   /* No font-family here: the modern skins' face is set at the bottom of this
      sheet, where it can also carry the brand-element overrides that go with
      it. See MODERN SKIN TYPEFACE. */
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5) !important;
+  /* No outer shadow. <body> fills the viewport, so the only place a shadow
+     outside it can paint is the transparent cut-outs behind the rounded top
+     corners — where it drew a dark, squared-off smudge behind each curve and
+     read as a second corner. This used to be `0 12px 40px rgba(0,0,0,0.5)`.
+     `none` rather than deleting the line, which would let the base rule's
+     inset bevel back in. */
+  box-shadow: none !important;
   border: 1px solid var(--border-dark) !important;
-  border-radius: 12px 12px 0 0 !important;
+  /* Square. This was `12px 12px 0 0`, but the window itself is square on
+     Windows 10 — whatever sits behind the transparent cut-outs, the frame
+     round them stays a sharp rectangle — so a rounded body just drew a second,
+     inner corner at the top left and right. */
+  border-radius: 0 !important;
 }
 
 body.theme-moderndark .tab-panel,
@@ -1817,12 +1827,14 @@ a:hover, .text-link:hover {
   border: 1px solid var(--border-dark);
 }
 .network-option-text { display: flex; flex-direction: column; min-width: 0; }
+/* 14px, up from 11: the menu has the whole sidebar width to itself, and the
+   network name is the one thing in it to read. */
 .network-option-name {
-  font-family: var(--font-mono); font-size: 11px; font-weight: bold;
+  font-family: var(--font-mono); font-size: 14px; font-weight: bold;
   color: inherit;
 }
 .network-option-check {
-  margin-left: auto; font-size: 11px; color: inherit;
+  margin-left: auto; font-size: 14px; color: inherit;
   visibility: hidden;
 }
 .network-menu .network-option.active .network-option-check { visibility: visible; }
@@ -1831,6 +1843,11 @@ a:hover, .text-link:hover {
   image-rendering: pixelated; /* Retro pixelated logo scaling */
   border: 2px solid var(--border-dark);
 }
+/* The Vanilla logo is painted, not pixel art: nearest-neighbour scaling from
+   255px down to the 22–38px it is shown at turned its brushwork to noise.
+   Matched by file so it follows the logo wherever it is swapped in — the
+   switcher button's src changes with the network. */
+img[src$="vanilla-logo.png"] { image-rendering: auto !important; }
 /* The brand row is icon + wordmark + caret inside a fixed-width sidebar, so
    a wide face can make the row outgrow the button and push the caret past
    its edge — which is what the modern skins' wider face does here.
@@ -2644,8 +2661,9 @@ body.theme-macosaqua #btnManageClient[aria-expanded="false"]:focus-visible {
 }
 
 /* ── Motion ─────────────────────────────────────────────────────────────
-   Gated twice: on the launcher's own animations setting, and on the modern
-   skins. Every other animation in this file is scoped the same way, and for the
+   Gated twice: on body.animations-enabled (always set now that the launcher's
+   animations setting is gone, but kept as the one switch for all motion), and
+   on the modern skins. Every other animation in this file is scoped the same way, and for the
    same reason — a Win9x menu appeared, it did not glide in, so easing one onto
    a skin built to look like Windows 98 reads as the wrong decade rather than as
    polish. The retro skins get the menu with no motion at all. */
@@ -2824,6 +2842,64 @@ body.animations-enabled.theme-blackandwhite-inverted .hero-gear[aria-expanded="f
   border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   color: var(--text); font-family: var(--font-mono); font-size: 10px; padding: 4px 6px; outline: none;
 }
+
+/* ── Custom select ─────────────────────────────────────────────────────
+   Every <select class="cfg-input"> is rebuilt as a trigger and a menu by
+   enhanceSelects() in app.js. A native <select> opens a popup the OS draws
+   outside the page, which ignores nearly all CSS — no radius, no spacing, no
+   theme — so it looked the same bare Windows list on every skin.
+
+   The real <select> stays in the DOM, invisible, as the value the rest of the
+   code reads and writes. The trigger wears .cfg-input and the options wear
+   .nav-btn, so each skin paints them the way it already paints its inputs and
+   its nav rows — the same approach as the network menu. */
+.cselect { position: relative; flex: 1; min-width: 0; display: flex; }
+.cselect > select {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; pointer-events: none;
+}
+.cselect-trigger {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-width: 0;
+  text-align: left; cursor: pointer;
+}
+.cselect-trigger:disabled { cursor: default; }
+.cselect-label {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Borders rather than a glyph, like .logo-caret: exactly the arrow's size,
+   and no dependency on a symbol font. */
+.cselect-caret {
+  flex-shrink: 0; width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
+.cselect-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  z-index: 60;
+  max-height: 240px; overflow-y: auto;
+  /* The panel colour over an opaque base, not the panel colour alone: it is
+     translucent on theme-modernlight (rgba(255,255,255,0.85)), which let the
+     controls under an open menu show through it. --bg-main is solid on every
+     skin; glass paints this menu itself. */
+  background-color: var(--bg-main);
+  background-image: linear-gradient(var(--bg-panel), var(--bg-panel));
+  border: 1px solid var(--border-dark);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+/* `display:flex` above outranks the UA's `[hidden]` rule. */
+.cselect-menu[hidden] { display: none; }
+/* Set by JS when the menu would run past the bottom of its scroller. */
+.cselect-menu.opens-up { top: auto; bottom: calc(100% + 4px); }
+.cselect-menu .cselect-option { flex-shrink: 0; width: 100%; text-align: left; }
+/* A settings group is its own stacking context on the modern skins, so a menu
+   hanging below one was painted under the next group. The group holding the
+   open menu is lifted above its siblings for as long as it is open. */
+.settings-group.cselect-host { position: relative; z-index: 20; }
 .cfg-path-display {
   font-family: var(--font-mono); font-size: 9px; color: var(--green-dim);
   background: var(--bg-dark); border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
@@ -6267,7 +6343,7 @@ body.animations-enabled.theme-modernlight .room-card:hover {
    this block would otherwise need the theme list repeated seven times. It also
    deliberately covers the two black-and-white skins, which every other rule in
    this section leaves out: they are the same modern family, and a skin that
-   silently opts out of animations while the setting is on reads as a bug. */
+   silently opts out of animations the others have reads as a bug. */
 /* The base rule sets `transition: none` so the retro skins snap. */
 :is(body.animations-enabled.theme-moderndark,
     body.animations-enabled.theme-moderngreen,
@@ -6459,7 +6535,10 @@ body.theme-moderndark .btn-refresh:disabled,
 body.theme-moderngreen .btn-refresh:disabled,
 body.theme-modernlight .btn-refresh:disabled {
   opacity: 0.4 !important;
-  cursor: not-allowed !important;
+  /* The plain arrow, not `not-allowed`: on Windows that cursor is a small
+     circle, and over a dimmed button it read as a stray white dot on it. The
+     dimming already says the button is off. */
+  cursor: default !important;
   background: transparent !important;
   border-color: var(--border-light) !important;
   color: var(--text-muted) !important;
@@ -7198,7 +7277,8 @@ body.theme-blackandwhite-inverted .people-avatar[src="logo.png"] {
    same "say why" treatment the note above them carries. */
 .ct-body.is-off { opacity: 0.5; }
 .ct-body.is-off .ct-swatch,
-.ct-body.is-off .sg-row { pointer-events: none; }
+.ct-body.is-off .sg-row,
+.ct-body.is-off .sg-toggle-row { pointer-events: none; }
 
 /* Same treatment, worn directly by a single row rather than a whole section —
    Active Skin dims this way while Liquid Glass has taken over from it. */

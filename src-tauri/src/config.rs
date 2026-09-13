@@ -29,6 +29,11 @@ pub struct GlassSettings {
     /// Optional backdrop, as an `https://` URL or a `data:` URI. Applies only
     /// while glass is on — it is the surface the frosted panels sit over.
     pub bg_image: String,
+    /// Frost every panel rather than only the sidebar, cards and settings
+    /// groups. On by default; turning it off is for older integrated GPUs,
+    /// where each extra blur being redone on every nearby repaint is felt as
+    /// stutter.
+    pub full_effects: bool,
 }
 
 impl Default for GlassSettings {
@@ -37,6 +42,7 @@ impl Default for GlassSettings {
             enabled: false,
             tint: "#0b0c14".to_string(),
             bg_image: String::new(),
+            full_effects: true,
         }
     }
 }
@@ -174,7 +180,6 @@ pub struct Config {
     pub theme: String,
     pub baseline_theme: String,
     pub close_on_launch: bool,
-    pub enable_animations: bool,
     pub disable_warnings: bool,
     /// The Liquid Glass effect, layered over whichever skin is selected.
     pub glass: GlassSettings,
@@ -346,7 +351,6 @@ impl Default for Config {
             theme: DEFAULT_THEME.to_string(),
             baseline_theme: DEFAULT_THEME.to_string(),
             close_on_launch: false,
-            enable_animations: true,
             disable_warnings: false,
             glass: GlassSettings::default(),
             legacy_custom_theme: None,
@@ -813,6 +817,7 @@ fn load_config(app_handle: &tauri::AppHandle) -> Config {
                 enabled: legacy.glass_enabled,
                 tint: if legacy.glass_bg.is_empty() { fresh.tint } else { legacy.glass_bg },
                 bg_image: legacy.bg_image,
+                full_effects: fresh.full_effects,
             };
         }
         // Taken above, so the save below drops `customTheme` from the file.
@@ -1161,6 +1166,7 @@ mod tests {
             enabled: true,
             tint: "#ABC".into(),
             bg_image: "https://example.invalid/bg.png".into(),
+            full_effects: true,
         };
         let before = glass.clone();
         assert!(!glass.sanitize(), "nothing here needs repairing");
@@ -1670,6 +1676,7 @@ mod tests {
             enabled: legacy.glass_enabled,
             tint: legacy.glass_bg,
             bg_image: legacy.bg_image,
+            full_effects: true,
         };
         migrate_themes(&mut cfg);
 
@@ -1692,6 +1699,7 @@ mod tests {
         assert_eq!(cfg.baseline_theme, "blackandwhite");
         assert!(!cfg.minimize_on_launch);
         assert!(!cfg.glass.enabled, "glass is opt-in");
+        assert!(cfg.glass.full_effects, "full effects default to on for whenever glass is");
     }
 
     /// Every config.json in the wild still carries the `launchOptions` and

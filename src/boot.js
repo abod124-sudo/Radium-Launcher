@@ -30,10 +30,8 @@ try {
     document.body.classList.add('theme-' + savedTheme);
   }
 
-  var anims = localStorage.getItem('radium-animations');
-  if (anims !== 'false') {
-    document.body.classList.add('animations-enabled');
-  }
+  // Always on: the setting that could turn animations off has been removed.
+  document.body.classList.add('animations-enabled');
   // Network brand, applied before paint for the same reason as the skin.
   var savedNetwork = localStorage.getItem('radium-network');
   document.body.classList.add(savedNetwork === 'vanilla' ? 'network-vanilla' : 'network-radium');
