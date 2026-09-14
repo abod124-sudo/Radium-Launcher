@@ -25,9 +25,10 @@ try {
     style.id = 'glass-boot-style';
     style.textContent = glassCss;
     document.head.appendChild(style);
-  } else if (savedTheme && savedTheme !== 'steam-green' && /^[a-z0-9-]+$/.test(savedTheme)) {
-    // steam-green needs no class: it is the base stylesheet's own palette.
-    document.body.classList.add('theme-' + savedTheme);
+  } else if (savedTheme && /^[a-z0-9-]+$/.test(savedTheme)) {
+    // Modern Neon Dark is drawn under its own class, because theme-moderndark
+    // is Liquid Glass's layout. Mirrors skinClass() in app.js.
+    document.body.classList.add('theme-' + (savedTheme === 'moderndark' ? 'neondark' : savedTheme));
   }
 
   // Always on: the setting that could turn animations off has been removed.

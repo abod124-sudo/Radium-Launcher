@@ -642,7 +642,6 @@ function buildPhotoCard(photo, backToView) {
       const link = document.createElement('span');
       link.className = 'feed-tagged-name';
       link.textContent = p.displayName || p.userName;
-      link.title = `@${p.userName}`;
       link.addEventListener('click', (e) => {
         e.stopPropagation();
         showCreatorProfile(p.userName);
@@ -830,7 +829,8 @@ function renderPlayerRoles(el, person) {
     const pill = document.createElement('span');
     pill.className = `role-badge role-${role.short.toLowerCase()}`;
     pill.textContent = role.short;
-    pill.title = role.full;
+    // A screen-reader name, not a `title`: hover tooltips are off app-wide.
+    pill.setAttribute('aria-label', role.full);
     el.appendChild(pill);
   });
 }
@@ -1016,7 +1016,7 @@ window.radium?.onWindowMaximizedState((isMaximized) => {
   const btn = $('btnMaximize');
   if (btn) {
     btn.innerHTML = isMaximized ? '❐' : '▢';
-    btn.title = isMaximized ? 'Restore' : 'Maximize';
+    btn.setAttribute('aria-label', isMaximized ? 'Restore' : 'Maximize');
   }
 });
 
@@ -1165,9 +1165,13 @@ const AVAILABLE_THEMES = [
 /// The skin a fresh install starts on.
 const DEFAULT_THEME = 'blackandwhite';
 
-/// The skin `steam-green` needs no class: it *is* the base stylesheet's
-/// `:root` palette, so stamping `theme-steam-green` would match no rules.
-const BASE_STYLESHEET_THEME = 'steam-green';
+/// The class a skin is stamped as on <body>: `theme-<skin>`, except Modern
+/// Neon Dark. `theme-moderndark` is Liquid Glass's layout (GLASS_LAYOUT_THEME
+/// below) and style.css keeps those rules exactly as glass needs them, so that
+/// skin is drawn under `theme-neondark` instead. Mirrored in boot.js.
+function skinClass(skin) {
+  return 'theme-' + (skin === 'moderndark' ? 'neondark' : skin);
+}
 
 /// The layout Liquid Glass is drawn on.
 ///
@@ -1746,7 +1750,9 @@ function glassCss(tint, bgImage, fullEffects = false) {
           font-weight: 600 !important;
           letter-spacing: 0.3px !important;
         }
-        ${G} .network-option-check { color: #ffffff !important; }
+        /* No ✓ on the current network: its row is already lit (the active
+           background and rim above), and the tick read as cheap. */
+        ${G} .network-option-check { display: none !important; }
 
         /* ── Tabs ─────────────────────────────────────────────────────── */
         /* Panels no longer wrap the whole tab in one more slab of glass: the
@@ -2595,6 +2601,32 @@ function glassCss(tint, bgImage, fullEffects = false) {
         }
         ${G} .modal-close-btn:hover { background: rgba(255, 255, 255, 0.22) !important; }
 
+        /* Dialogs spring in and ease out. Only the dimmer fades, and the box
+           is a solid popover fill with no blur of its own, so nothing
+           frosted is ever faded or scaled (the thing that broke into
+           artefacts on the user's GPU). The exit is timed by MODAL_EXIT_MS
+           in hideModal(), which adds .is-closing. */
+        ${G} .modal-overlay { animation: glassOverlayIn 0.22s var(--lg-ease) !important; }
+        ${G} .modal-box { animation: glassModalIn 0.42s var(--lg-spring) !important; }
+        ${G} .modal-overlay.is-closing { animation: glassOverlayOut 0.18s ease-in forwards !important; }
+        ${G} .modal-overlay.is-closing .modal-box { animation: glassModalOut 0.18s ease-in forwards !important; }
+        @keyframes glassOverlayIn  { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes glassOverlayOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes glassModalIn {
+          from { opacity: 0; transform: translateY(16px) scale(0.96); }
+          to   { opacity: 1; transform: none; }
+        }
+        @keyframes glassModalOut {
+          from { opacity: 1; transform: none; }
+          to   { opacity: 0; transform: translateY(8px) scale(0.97); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          ${G} .modal-overlay,
+          ${G} .modal-box,
+          ${G} .modal-overlay.is-closing,
+          ${G} .modal-overlay.is-closing .modal-box { animation: none !important; }
+        }
+
         /* ── Notifications ──────────────────────────────────────────────
            Frosted glass. Without a blur, whatever sat under a stack (room
            titles, the pagination) read straight through the text.
@@ -2872,8 +2904,8 @@ function applyTheme(theme) {
 
   if (glassOn) {
     document.body.classList.add('theme-' + GLASS_LAYOUT_THEME, GLASS_CLASS);
-  } else if (skin !== BASE_STYLESHEET_THEME) {
-    document.body.classList.add('theme-' + skin);
+  } else {
+    document.body.classList.add(skinClass(skin));
   }
 
   if (glassOn) {
@@ -3247,8 +3279,7 @@ async function checkInstall() {
     // re-downloaded to match the new Radium build.
     if (result?.clientOutdated && !result?.isRunning) {
       addLog(`Installed client is outdated — build '${result?.clientBuild || 'unrecorded'}' ≠ required '${result?.requiredBuild || 'unknown'}'. Update required.`, 'warn');
-      const m = $('clientUpdateModal');
-      if (m) m.style.display = 'flex';
+      showModal($('clientUpdateModal'));
     } else if (!result?.isRunning && !clientUpdateAutoChecked) {
       // Live version check against recroom.baby (Steam-style update prompt).
       // Only auto-run this once per session — the manual button handles re-checks.
@@ -3310,9 +3341,6 @@ function updateDownloadCta() {
 
   if (btn) {
     btn.textContent = available ? '\u2b07 DOWNLOAD' : `\u2b07 GET ${info.label}`;
-    btn.title = available
-      ? `Download the ${info.label} client`
-      : `Open ${info.downloadPage}`;
   }
   if (note) {
     note.style.display = available ? 'none' : 'block';
@@ -3666,7 +3694,7 @@ async function offerResumeIfAny() {
 
 // ─── Outdated-client (post-launcher-update) prompt ──────────────────────────
 const clientUpdateModal = $('clientUpdateModal');
-const closeClientUpdateModal = () => { if (clientUpdateModal) clientUpdateModal.style.display = 'none'; };
+const closeClientUpdateModal = () => hideModal(clientUpdateModal);
 $('clientUpdateLaterBtn')?.addEventListener('click', closeClientUpdateModal);
 $('clientUpdateModalClose')?.addEventListener('click', closeClientUpdateModal);
 $('clientUpdateModal')?.addEventListener('click', (e) => { if (e.target === clientUpdateModal) closeClientUpdateModal(); });
@@ -3766,7 +3794,7 @@ function showClientVersionUpdateModal(info) {
   const status = $('clientUpdateStatus'); if (status) status.style.display = 'none';
   const nowBtn = $('clientVersionUpdateNowBtn');
   if (nowBtn) { nowBtn.disabled = false; nowBtn.textContent = '⬇ Update Now'; }
-  const m = $('clientVersionUpdateModal'); if (m) m.style.display = 'flex';
+  showModal($('clientVersionUpdateModal'));
 
   const qscC = $('qsc-client');
   if (qscC) qscC.classList.add('update-available');
@@ -3774,7 +3802,7 @@ function showClientVersionUpdateModal(info) {
   setClientUpdateButton('update', info);
 }
 
-const closeClientVersionUpdateModal = () => { const m = $('clientVersionUpdateModal'); if (m) m.style.display = 'none'; };
+const closeClientVersionUpdateModal = () => hideModal($('clientVersionUpdateModal'));
 $('clientVersionUpdateLaterBtn')?.addEventListener('click', closeClientVersionUpdateModal);
 $('clientVersionUpdateModalClose')?.addEventListener('click', closeClientVersionUpdateModal);
 $('clientVersionUpdateModal')?.addEventListener('click', (e) => { if (e.target === $('clientVersionUpdateModal')) closeClientVersionUpdateModal(); });
@@ -3855,7 +3883,7 @@ $('btnPauseDl')?.addEventListener('click', () => {
 
 // Reinstall logic with Modal
 const reinstallModal = $('reinstallModal');
-const closeReinstallModal = () => { if (reinstallModal) reinstallModal.style.display = 'none'; };
+const closeReinstallModal = () => hideModal(reinstallModal);
 $('reinstallCancelBtn')?.addEventListener('click', closeReinstallModal);
 $('reinstallModalClose')?.addEventListener('click', closeReinstallModal);
 $('reinstallModal')?.addEventListener('click', (e) => {
@@ -3878,7 +3906,7 @@ $('btnReinstall')?.addEventListener('click', () => {
   if (dirSpan) {
     dirSpan.textContent = shownInstallDir();
   }
-  if (reinstallModal) reinstallModal.style.display = 'flex';
+  showModal(reinstallModal);
 });
 
 $('reinstallConfirmBtn')?.addEventListener('click', () => {
@@ -3896,7 +3924,7 @@ $('reinstallConfirmBtn')?.addEventListener('click', () => {
 
 // Stop Game logic with Modal
 const stopGameModal = $('stopGameModal');
-const closeStopGameModal = () => { if (stopGameModal) stopGameModal.style.display = 'none'; };
+const closeStopGameModal = () => hideModal(stopGameModal);
 $('stopGameCancelBtn')?.addEventListener('click', closeStopGameModal);
 $('stopGameModalClose')?.addEventListener('click', closeStopGameModal);
 $('stopGameConfirmBtn')?.addEventListener('click', async () => {
@@ -3912,12 +3940,12 @@ $('stopGameModal')?.addEventListener('click', (e) => {
   }
 });
 function showStopGameModal() {
-  if (stopGameModal) stopGameModal.style.display = 'flex';
+  showModal(stopGameModal);
 }
 
 // Uninstall logic with Modal
 const uninstallModal = $('uninstallModal');
-const closeUninstallModal = () => { if(uninstallModal) uninstallModal.style.display = 'none'; };
+const closeUninstallModal = () => hideModal(uninstallModal);
 $('uninstallCancelBtn')?.addEventListener('click', closeUninstallModal);
 $('uninstallModalClose')?.addEventListener('click', closeUninstallModal);
 
@@ -3926,7 +3954,7 @@ $('btnUninstall')?.addEventListener('click', () => {
     toast('Cannot uninstall while the game is running.', 'error');
     return;
   }
-  if (uninstallModal) uninstallModal.style.display = 'flex';
+  showModal(uninstallModal);
 });
 
 $('uninstallConfirmBtn')?.addEventListener('click', async () => {
@@ -4056,13 +4084,11 @@ document.querySelectorAll('[data-reset-folder]').forEach(btn => {
 
 // Exclude AV Warning Modal Actions
 function showExcludeAvModal() {
-  const m = $('excludeAvModal');
-  if (m) m.style.display = 'flex';
+  showModal($('excludeAvModal'));
 }
 
 function hideExcludeAvModal() {
-  const m = $('excludeAvModal');
-  if (m) m.style.display = 'none';
+  hideModal($('excludeAvModal'));
   launchAfterExclusion = false; // Reset whenever the modal is hidden
   isGameLaunching = false;
 }
@@ -4070,8 +4096,7 @@ function hideExcludeAvModal() {
 $('excludeAvModalClose')?.addEventListener('click', hideExcludeAvModal);
 $('btnExcludeAvCancel')?.addEventListener('click', hideExcludeAvModal);
 $('btnExcludeAvAnyway')?.addEventListener('click', async () => {
-  const m = $('excludeAvModal');
-  if (m) m.style.display = 'none';
+  hideModal($('excludeAvModal'));
   launchAfterExclusion = false; // Reset since we are launching now anyway
   await proceedAfterAvCheck();
 });
@@ -4125,8 +4150,7 @@ async function executeExcludeAv() {
 
 $('btnExcludeAvConfirm')?.addEventListener('click', () => {
   // Set display directly to avoid resetting launchAfterExclusion inside hideExcludeAvModal
-  const m = $('excludeAvModal');
-  if (m) m.style.display = 'none';
+  hideModal($('excludeAvModal'));
   executeExcludeAv();
 });
 
@@ -4156,12 +4180,11 @@ function showThirdPartyAvModal(thirdPartyAvs) {
   const dontWarn = $('tpDontWarnAgain');
   if (dontWarn) dontWarn.checked = config.thirdPartyAvAcknowledged === true;
 
-  m.style.display = 'flex';
+  showModal(m);
 }
 
 function hideThirdPartyAvModal() {
-  const m = $('thirdPartyAvModal');
-  if (m) m.style.display = 'none';
+  hideModal($('thirdPartyAvModal'));
   launchAfterExclusion = false; // Reset whenever the modal is hidden
   isGameLaunching = false;
 }
@@ -4191,8 +4214,7 @@ $('btnThirdPartyAvOpenFolder')?.addEventListener('click', async () => {
 });
 
 $('btnThirdPartyAvAnyway')?.addEventListener('click', async () => {
-  const m = $('thirdPartyAvModal');
-  if (m) m.style.display = 'none';
+  hideModal($('thirdPartyAvModal'));
 
   // Persist only the "don't warn again on launch" choice. We intentionally do
   // NOT set defenderExcluded — a third-party AV can't be auto-excluded, so the
@@ -4408,13 +4430,11 @@ function setGameRunning(running) {
 
 // Steam Modal actions
 function showSteamModal() {
-  const m = $('steamModal');
-  if (m) m.style.display = 'flex';
+  showModal($('steamModal'));
 }
 
 function hideSteamModal(cancelLaunch = true) {
-  const m = $('steamModal');
-  if (m) m.style.display = 'none';
+  hideModal($('steamModal'));
   if (cancelLaunch) isGameLaunching = false;
 }
 
@@ -4443,12 +4463,10 @@ async function executeLaunch() {
 }
 
 function showSteamAppModal() {
-  const m = $('steamAppModal');
-  if (m) m.style.display = 'flex';
+  showModal($('steamAppModal'));
 }
 function hideSteamAppModal(cancelLaunch = true) {
-  const m = $('steamAppModal');
-  if (m) m.style.display = 'none';
+  hideModal($('steamAppModal'));
   if (cancelLaunch) isGameLaunching = false;
 }
 $('steamAppModalClose')?.addEventListener('click', () => hideSteamAppModal(true));
@@ -4604,13 +4622,11 @@ $('btnPlay')?.addEventListener('click', async () => {
 });
 
 function showSacModal() {
-  const m = $('sacModal');
-  if (m) m.style.display = 'flex';
+  showModal($('sacModal'));
 }
 
 function hideSacModal(cancelLaunch = true) {
-  const m = $('sacModal');
-  if (m) m.style.display = 'none';
+  hideModal($('sacModal'));
   if (cancelLaunch) isGameLaunching = false;
 }
 
@@ -4683,11 +4699,11 @@ function showUpdateModal(info) {
   if (status) status.style.display = 'none';
   const nowBtn = $('updateNowBtn');
   if (nowBtn) { nowBtn.disabled = false; nowBtn.textContent = '⬇ Update Now'; }
-  const m = $('updateModal'); if (m) m.style.display = 'flex';
+  showModal($('updateModal'));
 }
 
 function hideUpdateModal() {
-  const m = $('updateModal'); if (m) m.style.display = 'none';
+  hideModal($('updateModal'));
 }
 
 $('updateModalClose')?.addEventListener('click', hideUpdateModal);
@@ -5061,6 +5077,57 @@ function showDropdown(menu) {
   menuCloseTokens.set(menu, (menuCloseTokens.get(menu) || 0) + 1);
   menu.classList.remove('is-closing');
   menu.hidden = false;
+}
+
+// ── Dialog show/hide ─────────────────────────────────────────────────────
+// Every warning and confirmation dialog goes through these two, so a skin
+// that animates dialogs out (the modern family, Liquid Glass) gets to play
+// the exit, and the rest close instantly as they always did.
+
+/// How long a dialog's exit animation is given before it is hidden. Must match
+/// the exit durations in skins/04-modern.css and glassCss().
+const MODAL_EXIT_MS = 180;
+
+/// Per-dialog counter, bumped by every show and hide, so a close still waiting
+/// out its animation can tell it has been superseded by a reopen.
+const modalCloseTokens = new WeakMap();
+
+/// Show a dialog, cancelling any close still in flight.
+function showModal(modal) {
+  if (!modal) return;
+  modalCloseTokens.set(modal, (modalCloseTokens.get(modal) || 0) + 1);
+  modal.classList.remove('is-closing');
+  modal.style.display = 'flex';
+}
+
+/// Hide a dialog, letting its exit animation play first where there is one.
+///
+/// `display: none` removes the dialog outright, so it is marked `.is-closing`
+/// (which the exit keyframes hang off) and hidden once that has had its time.
+/// Only the overlay's own animations are checked: the exit is declared there,
+/// and a dialog can hold unrelated endless animations (a throbbing default
+/// button, a loading placeholder) that must not make every close wait.
+/// `onHidden` runs once it is really gone — not if it was reopened meanwhile.
+function hideModal(modal, onHidden) {
+  if (!modal) return;
+  const token = (modalCloseTokens.get(modal) || 0) + 1;
+  modalCloseTokens.set(modal, token);
+
+  const finish = () => {
+    if (modalCloseTokens.get(modal) !== token) return;
+    modal.classList.remove('is-closing');
+    modal.style.display = 'none';
+    onHidden?.();
+  };
+
+  if (getComputedStyle(modal).display === 'none') { finish(); return; }
+
+  modal.classList.add('is-closing');
+  const animating =
+    typeof modal.getAnimations === 'function' && modal.getAnimations().length > 0;
+  if (!animating) { finish(); return; }
+  // A timer, not animationend: see hideDropdown() for why.
+  setTimeout(finish, MODAL_EXIT_MS);
 }
 
 // ── Manage-client menu ───────────────────────────────────────────────────
@@ -5598,8 +5665,8 @@ async function loadRooms() {
         const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
         card.innerHTML = `
           <img class="room-card-image image-loading-placeholder" loading="lazy" decoding="async" data-fallback="./images.png" src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(roomName)}" />
-          <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
-          <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
+          <div class="room-card-name">${escapeHtml(roomName)}</div>
+          <div class="room-card-creator">by ${escapeHtml(creatorUsername)}</div>
         `;
         // Attach the creator click via a closure rather than inline onclick so a
         // username containing quotes can't break out of the JS-string context.
@@ -5763,13 +5830,13 @@ async function loadPeople() {
             <img class="people-avatar image-loading-placeholder" loading="lazy" decoding="async" data-fallback="${escapeHtml(fallbackAvatar)}" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(person.userName)}" />
           </td>
           <td>
-            <span class="status-dot ${presence.cls}" title="${presence.title}"></span>
+            <span class="status-dot ${presence.cls}" role="img" aria-label="${presence.title}"></span>
             ${escapeHtml(person.displayName || person.userName)}
           </td>
           <td class="people-username-cell">
-            <span class="username-row"><span class="text-link" title="@${escapeHtml(person.userName)}">@${escapeHtml(person.userName)}</span><span class="profile-roles inline-roles"></span></span>
+            <span class="username-row"><span class="text-link">@${escapeHtml(person.userName)}</span><span class="profile-roles inline-roles"></span></span>
           </td>
-          <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(person.bio || '')}">
+          <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             ${escapeHtml(person.bio || '')}
           </td>
         `;
@@ -6312,7 +6379,6 @@ async function showPhotoDetails(photo, backToView) {
       const link = document.createElement('span');
       link.className = 'photo-detail-tagged-name';
       link.textContent = p.displayName || p.userName;
-      link.title = `@${p.userName}`;
       link.addEventListener('click', () => showCreatorProfile(p.userName));
       taggedEl.appendChild(link);
     });
@@ -6569,7 +6635,6 @@ async function showPlayerDetails(person) {
     avatarEl.src = avatarUrl;
     avatarEl.onerror = () => { avatarEl.src = './logo.png'; avatarEl.classList.remove('image-loading-placeholder'); avatarEl.onerror = null; };
     avatarEl.style.cursor = 'pointer';
-    avatarEl.title = 'Click to view full size';
     avatarEl.onclick = () => {
       showLightbox(personAvatarFullUrl(person), {
         title: 'PROFILE IMAGE',
@@ -6854,8 +6919,8 @@ async function loadPlayerRooms(userId, append = false) {
       const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
       roomCard.innerHTML = `
         <img class="room-card-image image-loading-placeholder" loading="lazy" decoding="async" src="${escapeHtml(imgUrl)}" data-fallback="./images.png" alt="${escapeHtml(roomName)}" />
-        <div class="room-card-name" title="${escapeHtml(roomName)}">${escapeHtml(roomName)}</div>
-        <div class="room-card-creator" title="View creator's profile">by ${escapeHtml(creatorUsername)}</div>
+        <div class="room-card-name">${escapeHtml(roomName)}</div>
+        <div class="room-card-creator">by ${escapeHtml(creatorUsername)}</div>
         <div class="room-card-stats">
           <span>Cheers: <span class="room-card-cheers">...</span></span>
           <span>Visits: <span class="room-card-visits">...</span></span>
@@ -6967,24 +7032,29 @@ function showLightbox(src, opts = {}) {
     }
   };
   lightboxImage.src = src;
-  lightboxModal.style.display = 'flex';
+  showModal(lightboxModal);
   lightboxCloseBtn?.focus();
 }
 
 function hideLightbox() {
   if (!lightboxModal) return;
-  lightboxModal.style.display = 'none';
   // Drop the picture so a large one is not held in memory behind a closed
   // dialog, and so reopening never shows the previous image for a frame.
-  if (lightboxImage) {
-    lightboxImage.onload = null;
-    lightboxImage.onerror = null;
-    lightboxImage.src = 'data:,';
-  }
+  // After the exit animation, so the picture does not vanish mid-fade.
+  hideModal(lightboxModal, () => {
+    if (lightboxImage) {
+      lightboxImage.onload = null;
+      lightboxImage.onerror = null;
+      lightboxImage.src = 'data:,';
+    }
+  });
 }
 
 function lightboxIsOpen() {
-  return !!lightboxModal && lightboxModal.style.display !== 'none';
+  // A lightbox playing its exit animation is already closed as far as the
+  // keyboard handlers are concerned.
+  return !!lightboxModal && lightboxModal.style.display !== 'none'
+    && !lightboxModal.classList.contains('is-closing');
 }
 
 lightboxCloseBtn?.addEventListener('click', hideLightbox);

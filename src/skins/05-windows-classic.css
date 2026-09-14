@@ -1,0 +1,391 @@
+/* ══════════════════════════════════════════════════════════════════════
+   WINDOWS 95 / 98
+
+   Built the way the real controls were drawn: every raised or sunken edge is
+   the four-tone Win32 bevel (#ffffff / #dfdfdf / #808080 / #0a0a0a) as inset
+   box-shadows on a borderless box, so nothing shifts by a pixel between
+   states. Pixel glyphs on the caption buttons, dithered pressed faces and
+   scroll tracks, navy selection.
+
+   98 is one big silver dialog with the gradient caption. 95 keeps the flat
+   navy caption and puts the teal desktop behind the content, with every
+   panel a little window on it.
+   ══════════════════════════════════════════════════════════════════════ */
+
+body:is(.theme-win95, .theme-win98) {
+  --raised:  inset -1px -1px #0a0a0a, inset 1px 1px #ffffff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
+  --pressed: inset -1px -1px #ffffff, inset 1px 1px #0a0a0a, inset -2px -2px #dfdfdf, inset 2px 2px #808080;
+  --sunken:  inset -1px -1px #ffffff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
+  --window:  inset -1px -1px #0a0a0a, inset 1px 1px #dfdfdf, inset -2px -2px #808080, inset 2px 2px #ffffff;
+  --default: inset -2px -2px #0a0a0a, inset 1px 1px #0a0a0a, inset 2px 2px #ffffff, inset -3px -3px #808080, inset 3px 3px #dfdfdf;
+  --etched:  inset 1px 1px #ffffff, 1px 1px 0 #ffffff;
+  --dither:  url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEElEQVR4nGP4DwQMMADiAABHygf5KtE01AAAAABJRU5ErkJggg==") 0 0 / 2px 2px;
+
+  --font-ui:   'Microsoft Sans Serif', Tahoma, 'Segoe UI', sans-serif;
+  --font-mono: 'Lucida Console', 'Courier New', monospace;
+  --fs: 11px;
+  --heading-size: 11px;
+
+  --text:  #000000;
+  --muted: #404040;
+  --heading: #000000;
+  --accent: #000080;
+  --accent-text: #000080;
+  --on-accent: #ffffff;
+  --accent-soft: transparent;
+  --focus: #000000;
+  --link: #000080;
+  --link-hover: #0000ff;
+  --ok:   #006400;
+  --warn: #5c4400;
+  --err:  #a00000;
+  --info: #000080;
+  --line: #808080;
+  --line-strong: #808080;
+  --sel-bg: #000080;
+  --sel-fg: #ffffff;
+
+  --win-color: #c0c0c0;
+  --surface: #c0c0c0;
+  --surface-sunken: #ffffff;
+  --btn-color: #c0c0c0;
+  --win-bg: #c0c0c0;
+  --win-bw: 2px;
+  --win-bc: #c0c0c0;
+  --content-pad: 10px;
+
+  --panel-bg: #c0c0c0;
+  --panel-border: 1px solid #808080;
+  --panel-shadow: var(--etched);
+  --well-bg: #ffffff;
+  --well-border: 0;
+  --well-shadow: var(--sunken);
+  --tile-bg: #ffffff;
+  --tile-border: 0;
+  --tile-shadow: var(--sunken);
+  --tile-value: #000080;
+  --card-bg: #c0c0c0;
+  --card-border: 0;
+  --card-shadow: var(--raised);
+  --media-bg: #ffffff;
+  --media-border: 1px solid #808080;
+  --avatar-radius: 0;
+  --badge-radius: 0;
+  --dot-radius: 0;
+
+  --header-border: 1px solid #808080;
+  --header-shadow: 0 1px 0 #ffffff;
+  --header-size: 12px;
+  --header-pad: 0 0 6px;
+  --title-border: 0;
+
+  --tb-h: 24px;
+  --tb-fg: #ffffff;
+  --tb-border: 0;
+  --tb-shadow: inset 0 0 0 2px #c0c0c0;
+  --tb-size: 11px;
+  --tb-pad: 0 3px 0 6px;
+  --ctl-w: 16px;
+  --ctl-h: 14px;
+  --ctl-margin: 0 0 0 0;
+  --ctl-bg: #c0c0c0;
+  --ctl-fg: #000000;
+  --ctl-shadow: var(--raised);
+  --ctl-hover-bg: #c0c0c0;
+  --ctl-hover-fg: #000000;
+  --ctl-active-bg: #c0c0c0;
+  --ctl-active-shadow: var(--pressed);
+  --ctl-close-hover-bg: #c0c0c0;
+  --ctl-close-hover-fg: #000000;
+  --glyph-size: 10px;
+  --glyph-min: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Crect x='2' y='7' width='6' height='2'/%3E%3C/svg%3E");
+  --glyph-max: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill-rule='evenodd' d='M0 0h9v9H0zM1 2v6h7V2z'/%3E%3C/svg%3E");
+  --glyph-cls: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath transform='translate(1 1)' d='M0 0h2v1h1v1h2V1h1V0h2v1H7v1H6v1H5v1h1v1h1v1h1v1H6V6H5V5H3v1H2v1H0V6h1V5h1V4h1V3H2V2H1V1H0z'/%3E%3C/svg%3E");
+
+  --side-bg: #c0c0c0;
+  --side-border: 0;
+  --side-shadow: inset -1px 0 #ffffff, inset -2px 0 #808080;
+  --side-pad: 8px 10px 8px 6px;
+  --side-divider: 1px solid #808080;
+  --side-gap: 4px;
+  --logo-size: 32px;
+  --logo-render: pixelated;
+  --brand-fg: #000080;
+  --brand-font: var(--font-ui);
+  --brand-size: 15px;
+  --version-bg: #c0c0c0;
+  --version-fg: #000000;
+  --version-shadow: inset -1px -1px #ffffff, inset 1px 1px #808080;
+
+  --nav-bg: #c0c0c0;
+  --nav-fg: #000000;
+  --nav-border: 0;
+  --nav-shadow: var(--raised);
+  --nav-pad: 5px 10px;
+  --nav-weight: 400;
+  --nav-hover-bg: #c0c0c0;
+  --nav-hover-fg: #000000;
+  --nav-active-bg: var(--dither), #c0c0c0;
+  --nav-active-fg: #000000;
+  --nav-active-shadow: var(--pressed);
+  --nav-press-bg: #c0c0c0;
+  --nav-press-fg: #000000;
+  --nav-press-shadow: var(--pressed);
+  --nav-press-pad: 6px 9px 4px 11px;
+
+  --field-pad: 4px 5px;
+
+  --btn-bg: #c0c0c0;
+  --btn-fg: #000000;
+  --btn-border: 0;
+  --btn-shadow: var(--raised);
+  --btn-pad: 5px 14px;
+  --btn-weight: 400;
+  --btn-hover-bg: #c0c0c0;
+  --btn-active-bg: #c0c0c0;
+  --btn-active-shadow: var(--pressed);
+  --btn-disabled-fg: #808080;
+
+  --pri-bg: #c0c0c0;
+  --pri-fg: #000000;
+  --pri-border: 0;
+  --pri-shadow: var(--default);
+  --pri-weight: 700;
+  --pri-hover-bg: #c0c0c0;
+  --pri-active-bg: #c0c0c0;
+  --pri-active-shadow: inset 1px 1px #0a0a0a, inset -1px -1px #0a0a0a, inset 2px 2px #808080, inset -2px -2px #808080;
+
+  --danger-bg: #c0c0c0;
+  --danger-fg: #000000;
+  --danger-border: 0;
+  --danger-shadow: var(--default);
+  --danger-hover-bg: #c0c0c0;
+  --run-bg: var(--dither), #c0c0c0;
+  --run-fg: #000000;
+  --run-border: 0;
+  --run-shadow: var(--pressed);
+  --run-hover-bg: var(--dither), #c0c0c0;
+
+  --menu-bg: #c0c0c0;
+  --menu-border: 0;
+  --menu-shadow: var(--window);
+  --menu-pad: 3px;
+  --item-pad: 4px 16px 4px 8px;
+  --item-weight: 400;
+  --item-hover-bg: #000080;
+  --item-hover-fg: #ffffff;
+  --sep: 1px solid #808080;
+  --toast-shadow: var(--window), 2px 2px 0 rgba(0, 0, 0, 0.35);
+
+  --th-bg: #c0c0c0;
+  --th-fg: #000000;
+  --th-weight: 400;
+  --th-shadow: inset -1px -1px #808080, inset 1px 1px #ffffff;
+  --th-line: transparent;
+  --th-sep: transparent;
+  --td-line: transparent;
+  --row-bg: #ffffff;
+  --row-hover-bg: #000080;
+  --row-hover-fg: #ffffff;
+
+  --chip-fg: #000000;
+  --chip-hover-bg: transparent;
+  --chip-hover-fg: #000000;
+  --chip-active-bg: #000080;
+  --chip-active-fg: #ffffff;
+
+  --seg-label: #ffffff;
+  --seg-press-bg: #c0c0c0;
+  --seg-press-fg: #000000;
+  --seg-press-shadow: var(--pressed);
+
+  --tgl-bw: 0px;
+  --tgl-radius: 0;
+  --tgl-border: 0;
+  --tgl-bg: #ffffff;
+  --tgl-shadow: var(--sunken);
+  --knob: 12px;
+  --knob-inset: 3px;
+  --knob-radius: 0;
+  --knob-bg: #c0c0c0;
+  --knob-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #ffffff;
+  --tgl-on-bg: #000080;
+  --knob-on-bg: #c0c0c0;
+
+  --bar-h: 20px;
+  --bar-pad: 3px;
+  --bar-bg: #ffffff;
+  --bar-border: 0;
+  --bar-shadow: var(--sunken);
+  --bar-fill: repeating-linear-gradient(90deg, #000080 0 8px, transparent 8px 10px);
+
+  --sb-size: 16px;
+  --sb-track: var(--dither), #c0c0c0;
+  --sb-thumb: #c0c0c0;
+  --sb-thumb-border: 0;
+  --sb-thumb-radius: 0;
+  --sb-thumb-shadow: var(--raised);
+  --sb-thumb-hover: #c0c0c0;
+
+  --overlay: rgba(0, 0, 0, 0.2);
+  --modal-bg: #c0c0c0;
+  --modal-border: 0;
+  --modal-radius: 0;
+  --modal-shadow: var(--window);
+  --mtb-fg: #ffffff;
+  --mtb-border: 0;
+  --mtb-pad: 3px 3px 3px 5px;
+  --mclose-w: 16px;
+  --mclose-h: 14px;
+  --mfoot-border: 0;
+
+  --hero-border: 0;
+  --hero-shadow: none;
+
+  border-color: #dfdfdf #0a0a0a #0a0a0a #dfdfdf;
+
+  /* Caption buttons: the close box stands 2px apart, as on the real thing. */
+  & .tb-ctrl.cls { margin-left: 2px; }
+  & .tb-ctrl:active::before,
+  & .modal-close-btn:active::before { transform: translate(1px, 1px); }
+  & .tb-ctrl.cls:active,
+  & .modal-close-btn:active { box-shadow: var(--pressed); }
+
+  /* The brand row is flat until its menu is open. */
+  & .sidebar-logo { box-shadow: 0 1px 0 #ffffff; }
+  & .sidebar-footer { box-shadow: inset 0 1px 0 #ffffff; }
+  & .sidebar-logo .logo-combo { background: transparent; box-shadow: none; }
+  & .sidebar-logo .logo-combo.active,
+  & .sidebar-logo .logo-combo.active:hover { background: #c0c0c0; box-shadow: var(--pressed); }
+  & .nav-btn.active { padding: 6px 9px 4px 11px; }
+  & .version-tag { text-align: center; }
+
+  /* Group boxes: the title sits on the etched line. */
+  & .settings-group { margin-top: 7px; }
+  & .settings-group > .sg-title {
+    align-self: flex-start;
+    margin: -19px 0 0 -4px;
+    padding: 0 3px;
+    background: #c0c0c0;
+  }
+  & .manage-sep { box-shadow: 0 1px 0 #ffffff; }
+  & #manageMenu .manage-item.danger:hover,
+  & #manageMenu .manage-item.danger:focus-visible {
+    color: #ffffff !important;
+    background: #000080 !important;
+  }
+  & .network-menu .network-option.active .network-option-check { color: inherit; }
+
+  /* Push buttons: disabled text is etched, the Win32 way. */
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn):disabled { text-shadow: 1px 1px 0 #ffffff; }
+  /* PLAY is a fixed 44px box with 22px sides; the press nudges its label 1px
+     right and down by trading padding across, never by dropping a side
+     (setting only padding-left once pulled the label ~10px off centre). */
+  & .home-hero-bar :is(.btn-play, .btn-download-big):active { padding: 2px 21px 0 23px; }
+
+  /* Pressed push buttons: the bevel inverts and the label drops 1px right
+     and down, as every Win32 button did. Padding carries the shift, so each
+     size of button gets its own. */
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn):active:not(:disabled) { padding: 6px 13px 4px 15px; }
+  & :is(.sg-row, .ct-swatch) .btn-open-folder:active:not(:disabled) { padding: 4px 9px 2px 11px; }
+  & :is(.native-pagination .btn-refresh, #btnRoomsBack, #btnPeopleBack, #btnPhotoDetailBack):active:not(:disabled) {
+    padding: 4px 11px 2px 13px !important;
+  }
+  & #btnManageClient:active svg { transform: translate(1px, 1px); }
+  & .mode-btn:active:not(.active) { padding: 7px 0 5px 2px; }
+
+  /* Wells with a table or grid flush inside need the bevel's 2px back. */
+  & .native-table-container { padding: 2px; }
+  & #roomsSidebar .border {
+    background: #ffffff;
+    border: 0;
+    box-shadow: var(--sunken);
+  }
+  & #roomsSidebar .sg-title { border-bottom: 1px solid #808080; }
+  & .home-hero {
+    border: 2px solid;
+    border-color: #808080 #ffffff #ffffff #808080;
+  }
+
+  /* Room cards read as desktop icons: the label takes the selection. */
+  & .room-card:hover .room-card-name { color: #ffffff; background: #000080; }
+  & .room-card:hover { transform: none; }
+
+  /* Play mode: two toolbar toggles rather than a joined pill. */
+  & .mode-toggle-wrap {
+    gap: 2px;
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+  & .mode-btn {
+    color: #000000;
+    background: #c0c0c0;
+    border: 0;
+    box-shadow: var(--raised);
+  }
+  & .mode-btn.active {
+    color: #000000;
+    background: var(--dither), #c0c0c0;
+    box-shadow: var(--pressed);
+  }
+
+  & .dlp-dot { animation: sk-blink 1s steps(1, end) infinite; }
+  & .dlp-step-idx { border-radius: 0; }
+
+  /* Dialogs: the frame's bevel shows around the caption. */
+  & .modal-box { padding: 3px; }
+  & .modal-footer { padding: 6px 12px 10px; }
+  & .toast::before { top: 3px; bottom: 3px; left: 3px; }
+  & .toast { padding-left: 16px; }
+}
+
+/* ── Windows 98 ───────────────────────────────────────────────────────── */
+body.theme-win98 {
+  --tb-bg: linear-gradient(90deg, #000080, #1084d0);
+  --mtb-bg: linear-gradient(90deg, #000080, #1084d0);
+}
+
+/* ── Windows 95 ───────────────────────────────────────────────────────── */
+body.theme-win95 {
+  --tb-bg: #000080;
+  --mtb-bg: #000080;
+  --content-bg: #008080;
+  --header-fg: #ffffff;
+  --header-border: 0;
+  --header-shadow: none;
+
+  /* Every panel is a window on the desktop. */
+  --panel-border: 0;
+  --panel-shadow: var(--window);
+
+  & :is(.feed-subtitle, .photo-empty-msg, .feed-loading, #roomsDetailPhotosSection h4,
+        .autosave-indicator) { color: #ffffff; }
+  & #roomsDetailPhotosSection h4 { border-bottom: 1px solid rgba(255, 255, 255, 0.5); }
+  & .profile-tabs-nav { border-bottom: 1px solid rgba(255, 255, 255, 0.5); }
+  & .profile-tab-btn { color: #dfdfdf; }
+  & .profile-tab-btn:hover { color: #ffffff !important; }
+  & .profile-tab-btn.active { color: #ffffff !important; border-bottom-color: #ffffff !important; }
+
+  & .native-panel {
+    padding: 8px;
+    background: #c0c0c0;
+    box-shadow: var(--window);
+  }
+
+  /* Settings groups get a caption of their own instead of a group box. */
+  & .settings-group { margin-top: 0; padding: 12px; }
+  & .settings-group > .sg-title {
+    align-self: stretch;
+    margin: -9px -9px 4px;
+    padding: 3px 6px;
+    color: #ffffff;
+    background: #000080;
+  }
+  & .home-hero { border-color: #0a0a0a #ffffff #ffffff #0a0a0a; }
+}

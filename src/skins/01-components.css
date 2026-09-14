@@ -1,0 +1,439 @@
+/* ══════════════════════════════════════════════════════════════════════
+   SKINS — components
+
+   The whole launcher, drawn once from the tokens in 00-tokens.css. Scoped to
+   `body:not(.glass-enabled)` so Liquid Glass never sees any of it (see the
+   note at the top of that file). Uses native CSS nesting; WebView2 has had it
+   since Chromium 120.
+
+   Specificity: `body:not(.glass-enabled) .x` is 0-2-1, one class above the
+   layout rules in style.css it replaces. `!important` appears only where
+   style.css or an inline style in index.html already uses it.
+   ══════════════════════════════════════════════════════════════════════ */
+
+body:not(.glass-enabled) {
+  background: var(--win-bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs);
+  border: var(--win-bw) solid var(--win-bc);
+  /* Square: the window is a square frame on Windows 10, so any radius here
+     draws a second corner inside it. */
+  border-radius: 0;
+  box-shadow: none;
+
+  & ::selection { background: var(--sel-bg); color: var(--sel-fg); }
+  & :focus-visible { outline: 1px dotted var(--focus); outline-offset: 1px; }
+  /* The focus outline is for keyboard users; never draw it over a control
+     while the mouse is holding it down. */
+  & :focus-visible:active { outline-color: transparent; }
+  & input::placeholder, & textarea::placeholder { color: var(--placeholder); opacity: 1; }
+
+  & a, & .text-link { color: var(--link); }
+  & a:hover, & .text-link:hover { color: var(--link-hover); }
+
+  & .app-layout { height: calc(100vh - var(--tb-h) - 2 * var(--win-bw)); }
+
+  /* ── Titlebar ─────────────────────────────────────────────────────── */
+  & .titlebar {
+    height: var(--tb-h);
+    padding: var(--tb-pad);
+    gap: 8px;
+    background: var(--tb-bg);
+    border: 0;
+    border-bottom: var(--tb-border);
+    border-radius: 0;
+    box-shadow: var(--tb-shadow);
+  }
+  & .titlebar-drag {
+    flex: 1; min-width: 0; align-self: stretch;
+    display: flex; align-items: center;
+  }
+  & .titlebar-app-name {
+    font-family: var(--tb-font);
+    font-size: var(--tb-size);
+    font-weight: var(--tb-weight);
+    letter-spacing: var(--tb-ls);
+    text-transform: var(--tb-case);
+    color: var(--tb-fg);
+    text-shadow: var(--tb-tshadow);
+    white-space: nowrap;
+  }
+  & .titlebar-controls {
+    align-self: center;
+    gap: var(--ctl-gap);
+    margin: var(--ctl-margin);
+  }
+  & .tb-ctrl {
+    position: relative;
+    width: var(--ctl-w); height: var(--ctl-h);
+    margin: 0; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0;
+    color: var(--ctl-fg);
+    background: var(--ctl-bg);
+    border: var(--ctl-border);
+    border-radius: var(--ctl-radius);
+    box-shadow: var(--ctl-shadow);
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  /* The glyph is a mask filled with the button's own colour, so one set of
+     shapes follows every skin's foreground and hover colours. */
+  & .tb-ctrl::before {
+    content: '';
+    display: block;
+    width: var(--glyph-size); height: var(--glyph-size);
+    background-color: currentColor;
+    -webkit-mask: var(--glyph) center / 100% 100% no-repeat;
+    mask: var(--glyph) center / 100% 100% no-repeat;
+  }
+  & .tb-ctrl.min { --glyph: var(--glyph-min); order: 1; }
+  & .tb-ctrl.max { --glyph: var(--glyph-max); order: 2; }
+  & .tb-ctrl.cls {
+    --glyph: var(--glyph-cls); order: 3;
+    color: var(--ctl-close-fg);
+    background: var(--ctl-close-bg);
+    border: var(--ctl-close-border);
+    box-shadow: var(--ctl-close-shadow);
+  }
+  & .tb-ctrl:hover {
+    color: var(--ctl-hover-fg);
+    background: var(--ctl-hover-bg);
+    border: var(--ctl-hover-border);
+    box-shadow: var(--ctl-hover-shadow);
+  }
+  & .tb-ctrl:active {
+    padding: 0;
+    background: var(--ctl-active-bg);
+    box-shadow: var(--ctl-active-shadow);
+  }
+  & .tb-ctrl.cls:hover,
+  & .tb-ctrl.cls:active {
+    color: var(--ctl-close-hover-fg);
+    background: var(--ctl-close-hover-bg);
+    border: var(--ctl-close-hover-border);
+    box-shadow: var(--ctl-close-hover-shadow);
+  }
+
+  /* ── Sidebar ──────────────────────────────────────────────────────── */
+  & .sidebar {
+    width: var(--side-w);
+    padding: var(--side-pad);
+    background: var(--side-bg);
+    border: 0;
+    border-right: var(--side-border);
+    box-shadow: var(--side-shadow);
+  }
+  & .sidebar-logo {
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    border-bottom: var(--side-divider);
+    box-shadow: none;
+  }
+  & .sidebar-footer {
+    padding-top: 8px;
+    border-top: var(--side-divider);
+    box-shadow: none;
+  }
+  & .sidebar-nav {
+    gap: var(--side-gap);
+    padding: var(--side-nav-pad);
+    background: var(--side-nav-bg);
+    border: var(--side-nav-border);
+    border-radius: var(--side-nav-radius);
+    box-shadow: var(--side-nav-shadow);
+  }
+  & .sidebar-logo .logo-combo > img {
+    width: var(--logo-size); height: var(--logo-size);
+    border: var(--logo-border);
+    border-radius: var(--logo-radius);
+    box-shadow: none;
+    image-rendering: var(--logo-render);
+  }
+  & .version-tag {
+    padding: 4px 6px;
+    font-family: var(--version-font);
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--version-fg);
+    background: var(--version-bg);
+    border: var(--version-border);
+    border-radius: var(--version-radius);
+    box-shadow: var(--version-shadow);
+  }
+
+  /* ── Navigation rows ──────────────────────────────────────────────── */
+  & .nav-btn {
+    padding: var(--nav-pad);
+    font-family: var(--nav-font);
+    font-size: var(--nav-size);
+    font-weight: var(--nav-weight);
+    text-transform: var(--nav-case);
+    letter-spacing: var(--nav-ls);
+    text-align: left;
+    color: var(--nav-fg);
+    background: var(--nav-bg);
+    border: var(--nav-border);
+    border-radius: var(--nav-radius);
+    box-shadow: var(--nav-shadow);
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease),
+                border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  }
+  & .nav-btn:hover {
+    color: var(--nav-hover-fg);
+    background: var(--nav-hover-bg);
+    border: var(--nav-hover-border);
+    box-shadow: var(--nav-hover-shadow);
+  }
+  & .nav-btn.active,
+  & .nav-btn.active:hover {
+    padding: var(--nav-pad);
+    color: var(--nav-active-fg);
+    background: var(--nav-active-bg);
+    border: var(--nav-active-border);
+    box-shadow: var(--nav-active-shadow);
+  }
+
+  /* Pressed sidebar tab. Menu rows and the brand button have states of their
+     own. The tokens default to the hover look, so nothing changes unless a
+     skin asks. */
+  & .sidebar-nav .nav-btn:active:not(.active) {
+    padding: var(--nav-press-pad);
+    color: var(--nav-press-fg);
+    background: var(--nav-press-bg);
+    border: var(--nav-press-border);
+    box-shadow: var(--nav-press-shadow);
+  }
+
+  /* The brand row is a button too, but not a tab: it never takes the
+     selected-tab fill, only the hover treatment while its menu is open. */
+  & .sidebar-logo .logo-combo {
+    gap: 8px;
+    padding: 4px 6px;
+  }
+  & .sidebar-logo .logo-combo.active,
+  & .sidebar-logo .logo-combo.active:hover {
+    padding: 4px 6px;
+    color: var(--nav-hover-fg);
+    background: var(--nav-hover-bg);
+    border: var(--nav-hover-border);
+    box-shadow: var(--nav-hover-shadow);
+  }
+  & .sidebar-logo .logo-combo .wordmark-text,
+  & .sidebar-logo .logo-combo.active .wordmark-text {
+    font-family: var(--brand-font);
+    font-size: var(--brand-size);
+    font-weight: var(--brand-weight);
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--brand-fg);
+  }
+  & .logo-caret {
+    border-left-width: 4px;
+    border-right-width: 4px;
+    border-top-width: 5px;
+    color: var(--muted);
+    transition: transform var(--dur) var(--ease);
+  }
+  & .logo-combo.active .logo-caret { transform: rotate(180deg); }
+
+  /* ── Menus: network switcher, manage-client, custom selects ───────── */
+  & .network-menu,
+  & .manage-menu,
+  & .cselect-menu {
+    gap: 1px;
+    padding: var(--menu-pad);
+    color: var(--menu-fg);
+    background: var(--menu-bg);
+    border: var(--menu-border);
+    border-radius: var(--menu-radius);
+    box-shadow: var(--menu-shadow);
+  }
+  & .network-menu { top: calc(100% - 4px); }
+  & .manage-menu { margin-top: 4px; }
+  & .network-menu:not([hidden]),
+  & .manage-menu:not([hidden]),
+  & .cselect-menu:not([hidden]) {
+    animation: var(--menu-in);
+  }
+  /* hideDropdown() waits out an exit animation only when there is one, so a
+     skin with `--menu-out: none` closes instantly. */
+  & .network-menu.is-closing,
+  & .manage-menu.is-closing,
+  & .cselect-menu.is-closing {
+    animation: var(--menu-out);
+  }
+
+  & .network-menu .network-option,
+  & .network-menu .network-option.active,
+  & #manageMenu .manage-item,
+  & .cselect-menu .cselect-option,
+  & .cselect-menu .cselect-option.active {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: var(--item-pad) !important;
+    font-family: var(--font-ui);
+    font-size: var(--item-size);
+    font-weight: var(--item-weight);
+    text-transform: none;
+    letter-spacing: 0;
+    text-shadow: none;
+    text-align: left !important;
+    color: var(--item-fg);
+    background: transparent;
+    border: 0;
+    border-radius: var(--item-radius);
+    box-shadow: none;
+    transform: none;
+    animation: none;
+  }
+  /* The current choice is marked by the row itself — weight, and a tint
+     where the skin sets one — rather than a ✓ glyph, which read as cheap.
+     Declared before :hover so hovering still wins. */
+  & .network-menu .network-option.active,
+  & .cselect-menu .cselect-option.active {
+    font-weight: var(--item-sel-weight);
+    color: var(--item-sel-fg);
+    background: var(--item-sel-bg);
+  }
+  & .network-menu .network-option-check { display: none; }
+  & .network-menu .network-option:hover,
+  & #manageMenu .manage-item:hover,
+  & .cselect-menu .cselect-option:hover {
+    color: var(--item-hover-fg);
+    background: var(--item-hover-bg);
+    border: 0;
+    box-shadow: none;
+  }
+  & #manageMenu .manage-item.danger:hover,
+  & #manageMenu .manage-item.danger:focus-visible {
+    color: var(--danger-fg) !important;
+    background: var(--danger-bg) !important;
+  }
+  & .manage-sep {
+    height: 0;
+    margin: 3px 4px;
+    background: none;
+    border: 0;
+    border-top: var(--sep);
+    box-shadow: none;
+  }
+  & .network-menu .network-option-icon {
+    width: 20px; height: 20px;
+    border: 0;
+    border-radius: var(--logo-radius);
+    image-rendering: auto;
+  }
+  /* The Vanilla mark is a square painting that runs to its edges, so it is
+     shown cropped to a rounded square wherever it appears. Matched by file,
+     like style.css's image-rendering rule, and `!important` so it beats each
+     skin's `--logo-radius: 0` (which exists for the Radium logo, whose art
+     has its own outline and must not be cut). The PNG itself is untouched:
+     Liquid Glass uses the same file. */
+  & img[src$="vanilla-logo.png"] { border-radius: 22% !important; }
+
+  & .network-option-name {
+    font-family: var(--font-ui);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  /* ── Content area & page headers ──────────────────────────────────── */
+  & .main-content {
+    padding: var(--content-pad);
+    background: var(--content-bg);
+  }
+  & .panel-header {
+    min-height: 30px;
+    margin-bottom: 8px;
+    padding: var(--header-pad);
+    color: var(--header-fg);
+    background: var(--header-bg);
+    border: 0;
+    border-bottom: var(--header-border);
+    border-radius: var(--header-radius);
+    box-shadow: var(--header-shadow);
+  }
+  & .panel-header h2 {
+    font-family: var(--header-font);
+    font-size: var(--header-size);
+    font-weight: var(--header-weight);
+    text-transform: var(--header-case);
+    letter-spacing: var(--header-ls);
+    text-shadow: var(--header-tshadow);
+    color: inherit;
+  }
+  & .autosave-indicator { font-family: var(--font-ui); color: var(--muted); }
+  & .autosave-indicator.saved { color: var(--ok); }
+  & .autosave-indicator.error { color: var(--err); }
+
+  /* ── Panels ───────────────────────────────────────────────────────── */
+  & .settings-group,
+  & .qs-card,
+  & .download-section,
+  & .status-card,
+  & #roomsSidebar .border,
+  & .room-card-container,
+  & .profile-card-container,
+  & #photoDetailInfoBlock,
+  & .feed-post-card {
+    color: var(--panel-fg);
+    background: var(--panel-bg);
+    border: var(--panel-border);
+    border-radius: var(--panel-radius);
+    box-shadow: var(--panel-shadow);
+  }
+  & .download-section::before { display: none; }
+  & .settings-group { padding: var(--panel-pad); gap: 8px; }
+
+  /* Section titles */
+  & .sg-title,
+  & .caption-header,
+  & .profile-bio-title,
+  & #roomsDetailPhotosSection h4 {
+    padding-bottom: 4px;
+    margin-bottom: 2px;
+    font-family: var(--title-font);
+    font-size: var(--title-size);
+    font-weight: var(--title-weight);
+    text-transform: var(--title-case);
+    letter-spacing: var(--title-ls);
+    color: var(--title-fg);
+    border: 0;
+    border-bottom: var(--title-border);
+    box-shadow: none;
+  }
+  & #roomsDetailPhotosSection h4 { margin-bottom: 10px; }
+
+  /* Sunken wells: grids, tables, logs, notes */
+  & .native-grid-container,
+  & .native-table-container,
+  & .log-output,
+  & .update-notes,
+  & .update-version-row,
+  & .update-status,
+  & .ct-swatch {
+    color: var(--well-fg);
+    background: var(--well-bg) !important;
+    border: var(--well-border);
+    border-radius: var(--well-radius);
+    box-shadow: var(--well-shadow);
+  }
+  & .native-panel {
+    padding: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+  /* The detail views' scrollers carry an inline `background: var(--bg-dark)`
+     and the bevel-inset class; they are page, not a well. */
+  & #roomsDetailView > .bevel-inset,
+  & #peopleDetailView > .bevel-inset,
+  & #tab-photo-detail > .bevel-inset {
+    padding: 2px 2px 12px;
+    background: transparent !important;
+    border: 0;
+    box-shadow: none;
+  }
+}

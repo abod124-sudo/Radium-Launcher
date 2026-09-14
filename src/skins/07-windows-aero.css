@@ -1,0 +1,474 @@
+/* ══════════════════════════════════════════════════════════════════════
+   WINDOWS VISTA / WINDOWS 7 — Aero
+
+   Segoe UI, the grouped glass caption buttons with the red close, Explorer's
+   hover and selection gradients on the navigation pane, the split-gloss push
+   buttons and the green gel progress bar. Vista is the dark smoked-glass
+   frame with the teal command bar; 7 is the sky-blue glass with the light
+   command bar.
+
+   The glass is painted, not blurred: the frame of an undecorated window has
+   nothing behind it to blur, and a clipped backdrop-filter is what drew
+   jagged corners on the user's GPU.
+   ══════════════════════════════════════════════════════════════════════ */
+
+body:is(.theme-winvista, .theme-win7) {
+  --font-ui:   'Segoe UI', Tahoma, sans-serif;
+  --font-mono: Consolas, 'Lucida Console', monospace;
+  --fs: 12px;
+  --heading-font: 'Segoe UI', Tahoma, sans-serif;
+  --heading-size: 12px;
+  --heading-weight: 400;
+
+  --text: #000000;
+  --muted: #5b5b5b;
+  --heading: #1e3287;
+  --accent: #2a86d6;
+  --accent-text: #0a5ea8;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(51, 153, 255, 0.14);
+  --focus: #000000;
+  --link: #0066cc;
+  --link-hover: #3399ff;
+  --ok: #107c10;
+  --warn: #9a5b00;
+  --err: #c42b1c;
+  --info: #0066cc;
+  --line: #e2e6eb;
+  --line-strong: #b9c3cd;
+  --sel-bg: #3399ff;
+  --sel-fg: #ffffff;
+
+  --surface: #ffffff;
+  --surface-sunken: #ffffff;
+  --btn-color: #ebebeb;
+  --win-bw: 4px;
+
+  --panel-bg: #ffffff;
+  --panel-border: 1px solid #d5dfe5;
+  --panel-radius: 4px;
+  --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --well-bg: #ffffff;
+  --well-border: 1px solid #abadb3;
+  --well-radius: 2px;
+  --tile-bg: #f7f9fc;
+  --tile-border: 1px solid #dfe6ee;
+  --tile-radius: 3px;
+  --tile-value: #1e3287;
+  --card-bg: #ffffff;
+  --card-border: 1px solid #dcdcdc;
+  --card-radius: 3px;
+  --card-hover-bg: linear-gradient(180deg, #fafbfd 0%, #ebf3fd 100%);
+  --card-hover-border: 1px solid #b8d6fb;
+  --card-hover-shadow: 0 0 6px rgba(51, 153, 255, 0.25);
+  --tile-hover-bg: linear-gradient(180deg, #fafbfd 0%, #ebf3fd 100%);
+  --media-border: 1px solid #cccccc;
+  --media-radius: 2px;
+  --avatar-radius: 3px;
+  --badge-radius: 3px;
+
+  --header-pad: 6px 10px;
+  --header-size: 13px;
+  --header-weight: 400;
+  --title-fg: #1e3287;
+  --title-border: 1px solid #dde5ee;
+  --title-size: 12px;
+
+  --tb-h: 32px;
+  --tb-font: 'Segoe UI', Tahoma, sans-serif;
+  --tb-size: 12px;
+  --tb-weight: 400;
+  --tb-border: 0;
+  --tb-pad: 0 0 0 10px;
+  --ctl-w: 27px;
+  --ctl-h: 19px;
+  --ctl-margin: 0 5px 0 0;
+  --ctl-fg: #ffffff;
+  --ctl-hover-fg: #ffffff;
+  --ctl-close-fg: #ffffff;
+  --ctl-close-hover-fg: #ffffff;
+  --ctl-close-bg: linear-gradient(180deg, #e8a493 0%, #d2593c 45%, #c74418 50%, #d2593c 75%, #e8a493 100%);
+  --ctl-close-border: 1px solid #5d1a0c;
+  --ctl-close-hover-bg: linear-gradient(180deg, #fbb9a8 0%, #e8663f 45%, #dc4a1b 50%, #ea6c45 75%, #fbc3b4 100%);
+  --ctl-close-hover-border: 1px solid #5d1a0c;
+  --ctl-close-hover-shadow: 0 0 8px rgba(255, 120, 80, 0.7);
+  --glyph-size: 9px;
+  --glyph-min: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'%3E%3Crect x='1' y='6' width='7' height='2'/%3E%3C/svg%3E");
+  --glyph-max: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'%3E%3Cpath fill-rule='evenodd' d='M0 0h9v8H0zM1 2v5h7V2z'/%3E%3C/svg%3E");
+  --glyph-cls: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9'%3E%3Cpath d='M1 1l7 7M8 1l-7 7' stroke='%23000' stroke-width='1.8'/%3E%3C/svg%3E");
+
+  --side-w: 184px;
+  --side-pad: 10px 8px;
+  --side-gap: 1px;
+  --logo-size: 28px;
+  --logo-radius: 0;
+  --brand-fg: #1e395b;
+  --brand-font: 'Segoe UI', Tahoma, sans-serif;
+  --brand-size: 15px;
+  --brand-weight: 600;
+  --version-fg: #5a6b7d;
+
+  --nav-fg: #1e395b;
+  --nav-border: 1px solid transparent;
+  --nav-radius: 3px;
+  --nav-pad: 5px 8px;
+  --nav-size: 12px;
+  --nav-weight: 400;
+  --nav-hover-fg: #000000;
+  /* Hover faces are faded in by the ::after layer below, so the element's
+     own hover background stays put. */
+  --nav-hover-bg: transparent;
+  --fade-nav: linear-gradient(180deg, #fafbfd 0%, #ebf3fd 100%);
+  --nav-press-bg: linear-gradient(180deg, #d0e5f7 0%, #b8d6f2 100%);
+  --nav-press-border: 1px solid #7da2ce;
+  --nav-press-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  --nav-hover-border: 1px solid #b8d6fb;
+  --nav-active-fg: #000000;
+  --nav-active-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+
+  --field-bg: #ffffff;
+  --field-border: 1px solid #abadb3;
+  --field-radius: 2px;
+  --field-pad: 4px 6px;
+  --field-size: 12px;
+  --field-focus-border: 1px solid #3d7bad;
+  --field-focus-shadow: 0 0 3px rgba(61, 123, 173, 0.35);
+
+  --btn-bg: linear-gradient(180deg, #f2f2f2 0%, #ebebeb 45%, #dddddd 46%, #cfcfcf 100%);
+  --btn-fg: #000000;
+  --btn-border: 1px solid #707070;
+  --btn-radius: 3px;
+  --btn-shadow: inset 0 0 0 1px #fcfcfc;
+  --btn-pad: 4px 16px;
+  --btn-size: 12px;
+  --btn-weight: 400;
+  --btn-hover-bg: var(--btn-bg);
+  --fade-btn: linear-gradient(180deg, #eaf6fd 0%, #d9f0fc 45%, #bee6fd 46%, #a7d9f5 100%);
+  --btn-hover-border: 1px solid #3c7fb1;
+  --btn-hover-shadow: inset 0 0 0 1px #fcfcfc;
+  --btn-active-bg: linear-gradient(180deg, #e5f4fc 0%, #c4e5f6 30%, #98d1ef 50%, #68b3db 100%);
+  --btn-active-border: 1px solid #2c628b;
+  --btn-active-shadow: inset 1px 1px 0 rgba(0, 0, 0, 0.2);
+  --btn-disabled-fg: #838383;
+
+  --pri-radius: 4px;
+  --pri-weight: 600;
+  --pri-tshadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --pri-fg: #ffffff;
+
+  --danger-bg: linear-gradient(180deg, #f0a898 0%, #d95a3a 45%, #c94418 50%, #d9603f 100%);
+  --danger-fg: #ffffff;
+  --danger-border: 1px solid #6d1f0d;
+  --danger-hover-bg: linear-gradient(180deg, #fbb9a8 0%, #e8663f 45%, #dc4a1b 50%, #ea6c45 100%);
+  --danger-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  --run-bg: var(--danger-bg);
+  --run-border: var(--danger-border);
+  --run-shadow: var(--danger-shadow), 0 0 10px rgba(232, 102, 63, 0.45);
+  --run-hover-bg: var(--danger-hover-bg);
+
+  --menu-bg: #f0f0f0;
+  --menu-border: 1px solid #979797;
+  --menu-radius: 0;
+  --menu-shadow: 2px 2px 3px rgba(0, 0, 0, 0.28);
+  --menu-pad: 2px;
+  --item-pad: 4px 18px 4px 8px;
+  --item-radius: 3px;
+  --item-size: 12px;
+  --item-hover-bg: linear-gradient(180deg, #f1f6fc 0%, #dbe9f9 100%);
+  --item-hover-fg: #000000;
+  --sep: 1px solid #d7d7d7;
+
+  --th-bg: linear-gradient(180deg, #ffffff 0%, #ffffff 50%, #f7f8fa 51%, #f1f2f4 100%);
+  --th-fg: #4c607a;
+  --th-weight: 400;
+  --th-size: 12px;
+  --th-line: #d5d5d5;
+  --th-sep: #e2e3e5;
+  --td-line: transparent;
+  --row-bg: #ffffff;
+  --row-hover-bg: linear-gradient(180deg, #f2f8fd 0%, #e3f0fb 100%);
+  --row-hover-fg: #000000;
+
+  --chip-radius: 3px;
+  --chip-fg: #1e395b;
+  --chip-border: 1px solid transparent;
+  --chip-hover-bg: transparent;
+  --chip-hover-fg: #000000;
+  --chip-hover-border: 1px solid #b8d6fb;
+  --chip-active-fg: #000000;
+
+  --seg-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(0, 0, 0, 0.22) 51%, rgba(255, 255, 255, 0.06) 100%), #1b2a36;
+  --seg-border: 1px solid rgba(0, 0, 0, 0.8);
+  --seg-radius: 4px;
+  --seg-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  --seg-fg: #ffffff;
+  --seg-divider: 1px solid rgba(0, 0, 0, 0.6);
+  --seg-label: rgba(255, 255, 255, 0.8);
+  --seg-press-bg: rgba(0, 0, 0, 0.35);
+  --seg-press-fg: #ffffff;
+
+  --tgl-w: 36px;
+  --tgl-h: 18px;
+  --tgl-bw: 1px;
+  --tgl-radius: 9px;
+  --tgl-bg: linear-gradient(180deg, #e3e3e3 0%, #fafafa 100%);
+  --tgl-border: 1px solid #8e8f8f;
+  --tgl-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+  --knob: 14px;
+  --knob-inset: 1px;
+  --knob-bg: linear-gradient(180deg, #f2f2f2 0%, #ebebeb 45%, #dddddd 46%, #cfcfcf 100%);
+  --knob-border: 1px solid #707070;
+  --knob-on-bg: linear-gradient(180deg, #f2f2f2 0%, #ebebeb 45%, #dddddd 46%, #cfcfcf 100%);
+
+  --bar-h: 15px;
+  --bar-pad: 1px;
+  --bar-bg: linear-gradient(180deg, #f3f3f3 0%, #fcfcfc 30%, #dbdbdb 100%);
+  --bar-border: 1px solid #bcbcbc;
+  --bar-radius: 3px;
+  --bar-shadow: none;
+  --bar-fill: linear-gradient(180deg, #b5f0b5 0%, #37d837 45%, #06b025 50%, #2dcf4a 80%, #75e075 100%);
+  --bar-fill-radius: 2px;
+  --bar-trans: width 0.3s ease;
+
+  --sb-size: 17px;
+  --sb-track: #f0f0f0;
+  --sb-track-border: 1px solid #e3e3e3;
+  --sb-thumb: linear-gradient(90deg, #f3f3f3 0%, #e8e8e9 45%, #d6d6d8 50%, #bcbdc0 100%);
+  --sb-thumb-border: 1px solid #979797;
+  --sb-thumb-radius: 3px;
+  --sb-thumb-shadow: inset 0 0 0 1px #ffffff;
+  --sb-thumb-hover: linear-gradient(90deg, #e3f4fc 0%, #d6effc 45%, #a9dbf6 50%, #7ec8f0 100%);
+
+  --overlay: rgba(0, 0, 0, 0.3);
+  --modal-bg: #ffffff;
+  --modal-radius: 6px;
+  --mtb-pad: 5px 4px 6px 10px;
+  --mtb-size: 12px;
+  --mtb-weight: 400;
+  --mclose-w: 43px;
+  --mclose-h: 19px;
+  --mfoot-bg: #f0f0f0;
+  --mfoot-border: 1px solid #dfdfdf;
+
+  --toast-bg: linear-gradient(180deg, #ffffff 0%, #e4e5f0 100%);
+  --toast-fg: #000000;
+  --toast-border: 1px solid #767676;
+  --toast-radius: 3px;
+  --toast-shadow: 2px 2px 4px rgba(0, 0, 0, 0.25);
+
+  --hero-border: 1px solid #8e9aa6;
+  --hero-radius: 3px;
+  --dur: 0.12s;
+
+  /* Caption buttons are one joined strip hanging from the top edge. */
+  & .titlebar-controls { align-self: flex-start; }
+  & .tb-ctrl { border-top-width: 0; }
+  & .tb-ctrl.min { border-radius: 0 0 0 5px; }
+  & .tb-ctrl.max,
+  & .tb-ctrl.max:hover { border-left-width: 0; border-top-width: 0; }
+  & .tb-ctrl.cls,
+  & .tb-ctrl.cls:hover,
+  & .tb-ctrl.cls:active { width: 45px; border-left-width: 0; border-top-width: 0; border-radius: 0 0 5px 0; }
+  & .tb-ctrl::before,
+  & .modal-close-btn::before { filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.9)); }
+  & .modal-close-btn,
+  & .modal-close-btn:hover { border-radius: 0 0 4px 4px; margin-top: -6px; }
+
+  & .nav-btn.active { font-weight: 400; }
+  & #manageMenu .manage-item:hover,
+  & .network-menu .network-option:hover,
+  & .cselect-menu .cselect-option:hover { box-shadow: inset 0 0 0 1px #aecff7; }
+
+  & .modal-btn.modal-btn-primary {
+    font-weight: 400;
+    text-shadow: none;
+    color: #000000;
+    background: var(--btn-bg);
+    border: 1px solid #3c7fb1;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px #48d7fb;
+  }
+  & .modal-btn.modal-btn-primary:hover { background: var(--btn-hover-bg); }
+  & .modal-btn.modal-btn-primary:active { background: var(--btn-active-bg); border-color: #2c628b; }
+
+  & .dlp-step-idx { border-radius: 50%; }
+  & .toast::before { display: none; }
+  & .toast { padding: 8px 12px; }
+
+  /* Aero fades: a button's blue glow and a pane item's highlight fade in
+     quickly and linger on the way out, and pressing snaps straight to the
+     pressed face. A gradient cannot transition, so the glow lives on ::after
+     (behind the label, inside an isolated stacking context) and only its
+     opacity animates. */
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn:not(.modal-btn-danger), .sidebar-nav .nav-btn:not(.active),
+        .filter-btn:not(.active), .sort-btn:not(.active)),
+  & #btnManageClient {
+    position: relative;
+    isolation: isolate;
+    transition: border-color 0.5s ease, box-shadow 0.5s ease, color 0.2s ease;
+  }
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn:not(.modal-btn-danger))::after,
+  & #btnManageClient::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: var(--fade-btn);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  & :is(.sidebar-nav .nav-btn:not(.active), .filter-btn:not(.active), .sort-btn:not(.active))::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: var(--fade-nav);
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn:not(.modal-btn-danger), .sidebar-nav .nav-btn:not(.active),
+        .filter-btn:not(.active), .sort-btn:not(.active)):hover,
+  & #btnManageClient:hover { transition-duration: 0.15s; }
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn:not(.modal-btn-danger), .sidebar-nav .nav-btn:not(.active),
+        .filter-btn:not(.active), .sort-btn:not(.active)):hover::after,
+  & #btnManageClient:hover::after {
+    opacity: 1;
+    transition-duration: 0.15s;
+  }
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn:not(.modal-btn-danger), .sidebar-nav .nav-btn:not(.active),
+        .filter-btn:not(.active), .sort-btn:not(.active)):is(:active, :disabled)::after,
+  & #btnManageClient:is(:active, [aria-expanded="true"])::after {
+    opacity: 0;
+    transition: none;
+  }
+  /* Manage-menu rows wear btn-* classes but are menu items, not push
+     buttons. With the glow layer, Uninstall's red hover showed for a split
+     second before the blue glow faded in on top of it. */
+  & #manageMenu .manage-item::after { content: none; }
+  & #manageMenu .manage-item { isolation: auto; }
+}
+
+/* ── Windows Vista ────────────────────────────────────────────────────── */
+body.theme-winvista {
+  --win-color: #edf1f5;
+  --win-bg: #edf1f5;
+  --win-bc: #1f3342;
+  --content-bg: #edf1f5;
+
+  --tb-bg:
+    linear-gradient(115deg, transparent 22%, rgba(255, 255, 255, 0.13) 27%, transparent 33%, transparent 58%, rgba(255, 255, 255, 0.08) 62%, transparent 67%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(0, 0, 0, 0.22) 51%, rgba(0, 0, 0, 0.04) 100%),
+    linear-gradient(90deg, #1f3342 0%, #3d6076 45%, #22384a 100%);
+  --tb-fg: #ffffff;
+  --tb-tshadow: 0 0 6px rgba(0, 0, 0, 0.8), 0 1px 1px rgba(0, 0, 0, 0.6);
+  --ctl-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.12) 45%, rgba(0, 0, 0, 0.18) 50%, rgba(255, 255, 255, 0.08) 100%), #2b4252;
+  --ctl-border: 1px solid rgba(0, 0, 0, 0.75);
+  --ctl-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  --ctl-hover-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(160, 220, 255, 0.35) 45%, rgba(40, 140, 220, 0.45) 50%, rgba(120, 210, 255, 0.4) 100%), #2b5a7a;
+  --ctl-hover-border: 1px solid rgba(0, 0, 0, 0.75);
+  --ctl-hover-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3), 0 0 8px rgba(120, 200, 255, 0.55);
+  --ctl-active-bg: linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(40, 120, 190, 0.5)), #1f4560;
+
+  --side-bg: linear-gradient(180deg, #f5f8fc 0%, #dfe8f2 100%);
+  --side-border: 1px solid #a8b9cb;
+  --side-divider: 1px solid #c3d0dd;
+  --nav-active-bg: linear-gradient(180deg, #e4f3fb 0%, #c4e3f7 100%);
+  --nav-active-border: 1px solid #6bb7e4;
+
+  /* Vista's Explorer command bar */
+  --header-bg: linear-gradient(180deg, #5e869e 0%, #3b667f 48%, #1f4d66 50%, #2d6a88 100%);
+  --header-fg: #ffffff;
+  --header-border: 1px solid #16323f;
+  --header-radius: 3px;
+  --header-tshadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+
+  --chip-active-bg: linear-gradient(180deg, #e4f3fb 0%, #c4e3f7 100%);
+  --chip-active-border: 1px solid #6bb7e4;
+
+  --pri-bg: linear-gradient(180deg, #a9e59c 0%, #56bd46 46%, #2f9a22 50%, #4db33d 80%, #8ad47c 100%);
+  --pri-border: 1px solid #1d5e14;
+  --pri-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 8px rgba(80, 190, 70, 0.35);
+  --pri-hover-bg: linear-gradient(180deg, #bdf0b1 0%, #66cc55 46%, #37ab29 50%, #5bc44b 80%, #9de28f 100%);
+  --pri-hover-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45), 0 0 12px rgba(100, 220, 90, 0.55);
+  --pri-active-bg: linear-gradient(180deg, #2c8a20 0%, #36a129 50%, #5bbf4c 100%);
+  --pri-active-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.3);
+  --seg-active-bg: linear-gradient(180deg, #a9e59c 0%, #56bd46 46%, #2f9a22 50%, #4db33d 80%, #8ad47c 100%);
+  --seg-active-fg: #ffffff;
+  --tgl-on-bg: linear-gradient(180deg, #a9e59c 0%, #56bd46 46%, #2f9a22 50%, #6fc660 100%);
+  --tgl-on-border: 1px solid #1d5e14;
+
+  --modal-border: 6px solid #2a3f50;
+  --modal-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 14px 40px rgba(0, 0, 0, 0.5);
+  --mtb-bg: var(--tb-bg);
+  --mtb-fg: #ffffff;
+  --mtb-tshadow: 0 0 6px rgba(0, 0, 0, 0.8);
+
+  & .panel-header .btn-refresh { box-shadow: inset 0 0 0 1px #fcfcfc, 0 0 0 1px rgba(0, 0, 0, 0.25); }
+}
+
+/* ── Windows 7 ────────────────────────────────────────────────────────── */
+body.theme-win7 {
+  --win-color: #f3f5f8;
+  --win-bg: #f3f5f8;
+  --win-bc: #87acd6;
+  --content-bg: #f3f5f8;
+
+  --tb-bg:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.18) 50%, rgba(255, 255, 255, 0) 51%, rgba(255, 255, 255, 0.14) 100%),
+    linear-gradient(90deg, #7ea9d7 0%, #b9d4ef 45%, #93b8e2 100%);
+  --tb-fg: #000000;
+  --tb-tshadow: 0 0 8px #ffffff, 0 0 3px #ffffff, 0 0 12px #ffffff;
+  --ctl-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.25) 45%, rgba(80, 130, 190, 0.28) 50%, rgba(255, 255, 255, 0.25) 100%), #8bb0da;
+  --ctl-border: 1px solid rgba(20, 40, 70, 0.6);
+  --ctl-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+  --ctl-hover-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(190, 235, 255, 0.5) 45%, rgba(50, 150, 230, 0.5) 50%, rgba(140, 215, 255, 0.5) 100%), #6aa6de;
+  --ctl-hover-border: 1px solid rgba(20, 40, 70, 0.6);
+  --ctl-hover-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), 0 0 8px rgba(120, 200, 255, 0.7);
+  --ctl-active-bg: linear-gradient(180deg, rgba(0, 40, 90, 0.2), rgba(40, 120, 200, 0.5)), #4f8cc8;
+
+  --side-bg: linear-gradient(180deg, #fcfdfe 0%, #eef3f9 100%);
+  --side-border: 1px solid #d5dfe5;
+  --side-divider: 1px solid #dde5ee;
+  --nav-active-bg: linear-gradient(180deg, #dcebfc 0%, #c1dbfc 100%);
+  --nav-active-border: 1px solid #7da2ce;
+
+  /* Windows 7's Explorer command bar */
+  --header-bg: linear-gradient(180deg, #fafcfd 0%, #e6f0fa 50%, #dce6f4 51%, #dde9f7 100%);
+  --header-fg: #1e395b;
+  --header-border: 1px solid #a0afc3;
+
+  --chip-active-bg: linear-gradient(180deg, #dcebfc 0%, #c1dbfc 100%);
+  --chip-active-border: 1px solid #7da2ce;
+
+  --pri-bg: linear-gradient(180deg, #bfe0fa 0%, #62ade8 46%, #2a86d6 50%, #4d9fe3 80%, #92c9f2 100%);
+  --pri-border: 1px solid #1b5a92;
+  --pri-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4), 0 0 8px rgba(60, 150, 230, 0.35);
+  --pri-hover-bg: linear-gradient(180deg, #d4ecfd 0%, #74bbf0 46%, #3895e2 50%, #5eaeee 80%, #a8d7f7 100%);
+  --pri-hover-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), 0 0 12px rgba(80, 180, 250, 0.6);
+  --pri-active-bg: linear-gradient(180deg, #1f6fb5 0%, #2a86d6 50%, #5aa9e8 100%);
+  --pri-active-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.3);
+  --seg-active-bg: linear-gradient(180deg, #bfe0fa 0%, #62ade8 46%, #2a86d6 50%, #4d9fe3 80%, #92c9f2 100%);
+  --seg-active-fg: #ffffff;
+  --tgl-on-bg: linear-gradient(180deg, #bfe0fa 0%, #62ade8 46%, #2a86d6 50%, #6fb6ea 100%);
+  --tgl-on-border: 1px solid #1b5a92;
+
+  --modal-border: 6px solid #87acd6;
+  --modal-shadow: 0 0 0 1px rgba(30, 60, 100, 0.55), 0 14px 40px rgba(0, 0, 0, 0.4);
+  --mtb-bg: var(--tb-bg);
+  --mtb-fg: #000000;
+  --mtb-tshadow: 0 0 8px #ffffff, 0 0 3px #ffffff;
+}

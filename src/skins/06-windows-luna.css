@@ -1,0 +1,506 @@
+/* ══════════════════════════════════════════════════════════════════════
+   WINDOWS XP — Luna Blue and Royale Noir
+
+   The Luna caption and caption buttons, Explorer's task pane as the sidebar,
+   Tahoma on the #ece9d8 dialog face, the orange hover rim on push buttons,
+   the green block progress bar, and balloon-tip toasts. PLAY is the Start
+   button. Royale Noir is the same window in glossy black.
+   ══════════════════════════════════════════════════════════════════════ */
+
+body:is(.theme-winxp, .theme-royalenoir) {
+  --font-ui:   Tahoma, 'Segoe UI', sans-serif;
+  --font-mono: 'Lucida Console', Consolas, monospace;
+  --fs: 11px;
+  --heading-size: 11px;
+
+  --win-bw: 3px;
+  --content-pad: 12px;
+
+  --panel-radius: 4px;
+  --panel-shadow: none;
+  --well-radius: 0;
+  --well-shadow: none;
+  --tile-radius: 3px;
+  --card-radius: 3px;
+  --media-radius: 0;
+  --avatar-radius: 0;
+  --badge-radius: 3px;
+
+  --header-size: 15px;
+  --header-font: 'Trebuchet MS', Tahoma, sans-serif;
+  --header-pad: 0 0 5px;
+  --title-border: 0;
+
+  --tb-h: 30px;
+  --tb-font: 'Trebuchet MS', Tahoma, sans-serif;
+  --tb-size: 13px;
+  --tb-weight: 700;
+  --tb-border: 0;
+  --tb-pad: 0 3px 0 8px;
+  --ctl-w: 21px;
+  --ctl-h: 21px;
+  --ctl-gap: 2px;
+  --ctl-radius: 3px;
+  --ctl-fg: #ffffff;
+  --ctl-hover-fg: #ffffff;
+  --ctl-close-fg: #ffffff;
+  --ctl-close-hover-fg: #ffffff;
+  --ctl-close-bg: radial-gradient(circle at 90% 90%, #cc4600 0%, #dc6527 55%, #cd7546 70%, #ffccb2 90%, #ffffff 100%);
+  --ctl-close-hover-bg: radial-gradient(circle at 90% 90%, #e45500 0%, #f27b3c 55%, #e98f5f 70%, #ffdcc8 90%, #ffffff 100%);
+  --glyph-size: 11px;
+  --glyph-min: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 11 11' shape-rendering='crispEdges'%3E%3Crect x='2' y='7' width='6' height='3'/%3E%3C/svg%3E");
+  --glyph-max: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 11 11' shape-rendering='crispEdges'%3E%3Cpath fill-rule='evenodd' d='M1 1h9v9H1zM2 4v5h7V4z'/%3E%3C/svg%3E");
+  --glyph-cls: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 11 11'%3E%3Cpath d='M2 2l7 7M9 2l-7 7' stroke='%23000' stroke-width='2.2'/%3E%3C/svg%3E");
+
+  --side-w: 186px;
+  --side-border: 0;
+  --side-pad: 10px;
+  --side-divider: 0;
+  --side-gap: 1px;
+  --side-nav-pad: 8px 6px;
+  --side-nav-radius: 0 0 3px 3px;
+  --logo-size: 26px;
+  --brand-font: 'Trebuchet MS', Tahoma, sans-serif;
+  --brand-size: 14px;
+  --version-font: Tahoma, sans-serif;
+
+  --nav-bg: transparent;
+  --nav-border: 1px solid transparent;
+  --nav-radius: 2px;
+  --nav-pad: 4px 6px;
+  --nav-weight: 400;
+  --nav-hover-bg: transparent;
+  --nav-active-border: 1px solid transparent;
+  --nav-active-shadow: none;
+
+  --field-pad: 3px 5px;
+
+  --btn-radius: 3px;
+  --btn-weight: 400;
+  --btn-pad: 4px 14px;
+  --btn-shadow: none;
+  --btn-press: none;
+
+  --pri-radius: 4px;
+  --pri-weight: 700;
+  --pri-tshadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+
+  --danger-fg: #ffffff;
+  --danger-bg: linear-gradient(180deg, #f59173 0%, #e25a2e 45%, #c93d10 100%);
+  --danger-border: 1px solid #7a1f00;
+  --danger-hover-bg: linear-gradient(180deg, #f8a487 0%, #ea6a3f 45%, #d44a1b 100%);
+  --danger-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  --run-bg: var(--danger-bg);
+  --run-border: var(--danger-border);
+  --run-hover-bg: var(--danger-hover-bg);
+  --run-shadow: var(--danger-shadow);
+
+  --menu-radius: 0;
+  --menu-pad: 2px;
+  --menu-shadow: 2px 2px 3px rgba(0, 0, 0, 0.35);
+  --item-pad: 4px 18px 4px 8px;
+  --item-weight: 400;
+
+  --th-weight: 400;
+  --td-line: transparent;
+  --chip-radius: 0;
+  --chip-fg: var(--text);
+
+  --seg-radius: 3px;
+  --seg-label: #ffffff;
+
+  --tgl-w: 36px;
+  --tgl-h: 18px;
+  --tgl-bw: 1px;
+  --tgl-radius: 9px;
+  --knob: 14px;
+  --knob-inset: 1px;
+  --knob-radius: 50%;
+
+  --bar-h: 16px;
+  --bar-pad: 2px;
+  --bar-radius: 3px;
+
+  --sb-size: 17px;
+  --sb-thumb-radius: 3px;
+
+  --modal-radius: 8px 8px 0 0;
+  --mtb-pad: 4px 4px 4px 8px;
+  --mtb-size: 13px;
+  --mclose-w: 21px;
+  --mclose-h: 21px;
+  --mfoot-border: 0;
+
+  --toast-radius: 6px;
+  --toast-shadow: 2px 2px 4px rgba(0, 0, 0, 0.35);
+
+  /* Explorer's task pane: a header strip over a rounded-bottom box. */
+  & .sidebar-logo { padding: 0; margin: 0; border: 0; }
+  & .sidebar-logo .logo-combo,
+  & .sidebar-logo .logo-combo.active,
+  & .sidebar-logo .logo-combo.active:hover {
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 4px 4px 0 0;
+    box-shadow: none;
+    background: var(--task-head);
+  }
+  & .sidebar-nav { flex: 0 0 auto; }
+  & .sidebar-footer { margin-top: auto; padding-top: 10px; border: 0; }
+  & .version-tag { text-align: left; padding: 0 2px; }
+  & .nav-btn:hover { text-decoration: underline; }
+  & .nav-btn.active { font-weight: 700; text-decoration: none; }
+
+  & .panel-header {
+    border-bottom: 2px solid;
+    border-image: var(--header-rule) 1;
+  }
+  & .panel-header h2 { letter-spacing: 0; }
+
+  /* Group boxes with the title on the line. */
+  & .settings-group { margin-top: 7px; }
+  & .settings-group > .sg-title {
+    align-self: flex-start;
+    margin: -19px 0 0 -4px;
+    padding: 0 4px;
+    background: var(--surface);
+  }
+
+  /* Dialogs use the default push button, not the Start button. */
+  & .modal-btn.modal-btn-primary {
+    font-weight: 400;
+    text-shadow: none;
+    color: var(--btn-fg);
+    background: var(--btn-bg);
+    border: var(--btn-border);
+    border-radius: var(--btn-radius);
+    box-shadow: var(--default-glow);
+  }
+  & .modal-btn.modal-btn-primary:hover { box-shadow: var(--btn-hover-shadow); }
+  & .modal-btn.modal-btn-primary:active { background: var(--btn-active-bg); box-shadow: none; }
+
+  & .play-text { font-style: italic; }
+
+  & .mode-btn { border-right-color: var(--seg-divider-color); }
+  & .tb-ctrl { box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.2); }
+  & .modal-close-btn { box-shadow: inset 0 -1px 2px rgba(0, 0, 0, 0.2); }
+  & .toast::before { display: none; }
+  & .toast { padding: 8px 12px; }
+  & .dlp-step-idx { border-radius: 50%; }
+}
+
+/* ── Windows XP (Luna Blue) ───────────────────────────────────────────── */
+body.theme-winxp {
+  --text: #000000;
+  --muted: #4d4d4d;
+  --heading: #0046d5;
+  --accent: #316ac5;
+  --accent-text: #0046d5;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(49, 106, 197, 0.12);
+  --focus: #000000;
+  --link: #0046d5;
+  --link-hover: #428eff;
+  --ok: #0b7a0b;
+  --warn: #8a5a00;
+  --err: #c00000;
+  --info: #316ac5;
+  --line: #d6d2c2;
+  --line-strong: #aca899;
+  --sel-bg: #316ac5;
+  --sel-fg: #ffffff;
+
+  --win-color: #ece9d8;
+  --surface: #ece9d8;
+  --surface-sunken: #ffffff;
+  --btn-color: #f4f3ee;
+  --win-bg: #ece9d8;
+  --win-bc: #0831d9;
+
+  --panel-bg: #ece9d8;
+  --panel-border: 1px solid #d0d0bf;
+  --well-bg: #ffffff;
+  --well-border: 1px solid #7f9db9;
+  --tile-bg: #ffffff;
+  --tile-border: 1px solid #d0d0bf;
+  --tile-value: #0046d5;
+  --card-bg: #ffffff;
+  --card-border: 1px solid #d0d0bf;
+  --card-hover-border: 1px solid #316ac5;
+  --card-hover-shadow: 0 0 0 1px #c1d2ee;
+  --media-border: 1px solid #d0d0bf;
+
+  --header-fg: #0b3c8c;
+  --header-rule: linear-gradient(90deg, #7a9ce6, rgba(122, 156, 230, 0));
+  --title-fg: #0046d5;
+
+  --tb-bg: linear-gradient(180deg, #0997ff 0%, #0053ee 8%, #0050ee 40%, #0066ff 88%, #0066ff 93%, #005bff 95%, #003dd7 96%, #003dd7 100%);
+  --tb-fg: #ffffff;
+  --tb-tshadow: 1px 1px #0f1089;
+  --ctl-bg: radial-gradient(circle at 90% 90%, #0054e9 0%, #2263d5 55%, #4479e4 70%, #a3bbec 90%, #ffffff 100%);
+  --ctl-border: 1px solid #ffffff;
+  --ctl-hover-bg: radial-gradient(circle at 90% 90%, #1c6bff 0%, #3b83ff 55%, #5a95ff 70%, #c6dbff 90%, #ffffff 100%);
+  --ctl-hover-border: 1px solid #ffffff;
+  --ctl-active-bg: radial-gradient(circle at 10% 10%, #003fb8 0%, #0e4bb8 55%, #3b6fd6 90%, #7fa2e8 100%);
+  --ctl-close-border: 1px solid #ffffff;
+  --ctl-close-hover-border: 1px solid #ffffff;
+
+  --side-bg: linear-gradient(180deg, #7ba2e7 0%, #6375d6 100%);
+  --side-nav-bg: #d6dff7;
+  --side-nav-border: 1px solid #ffffff;
+  --task-head: linear-gradient(90deg, #ffffff 0%, #c6d3f7 100%);
+  --brand-fg: #215dc6;
+  --version-fg: #ffffff;
+  --nav-fg: #215dc6;
+  --nav-hover-fg: #428eff;
+  --nav-active-bg: #ffffff;
+  --nav-active-fg: #0c327d;
+  --nav-active-border: 1px solid #99b4e8;
+
+  --field-bg: #ffffff;
+  --field-border: 1px solid #7f9db9;
+
+  --btn-bg: linear-gradient(180deg, #ffffff 0%, #ecebe6 86%, #d6d0c5 100%);
+  --btn-fg: #000000;
+  --btn-border: 1px solid #003c74;
+  --btn-hover-bg: linear-gradient(180deg, #ffffff 0%, #ecebe6 86%, #d6d0c5 100%);
+  --btn-hover-shadow: inset -1px 1px #fff0cf, inset 1px 2px #fdd889, inset -2px 2px #fbc761, inset 2px -2px #e5a01a;
+  --btn-active-bg: linear-gradient(180deg, #cdcac3 0%, #e3e3db 8%, #e5e5de 94%, #f2f2f1 100%);
+  --btn-active-shadow: none;
+  --btn-disabled-fg: #aca899;
+  --default-glow: inset -1px 1px #cee7ff, inset 1px 2px #98b8ea, inset -2px 2px #bcd4f6, inset 1px -1px #89ade4, inset 2px -2px #89ade4;
+
+  /* The Start button. */
+  --pri-bg: linear-gradient(180deg, #62c462 0%, #3c9d3c 12%, #2f8f2f 50%, #257f25 88%, #1b6d1b 100%);
+  --pri-fg: #ffffff;
+  --pri-border: 1px solid #1a5c1a;
+  --pri-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 3px rgba(0, 0, 0, 0.2);
+  --pri-hover-bg: linear-gradient(180deg, #78d478 0%, #48ad48 12%, #3a9e3a 50%, #2d8d2d 88%, #217a21 100%);
+  --pri-active-bg: linear-gradient(180deg, #1f6d1f 0%, #2a822a 40%, #349234 100%);
+  --pri-active-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.35);
+
+  --menu-bg: #ffffff;
+  --menu-border: 1px solid #aca899;
+  --item-hover-bg: #316ac5;
+  --item-hover-fg: #ffffff;
+  --sep: 1px solid #aca899;
+
+  --th-bg: linear-gradient(180deg, #ffffff 0%, #f5f4ea 60%, #ebeadb 100%);
+  --th-fg: #000000;
+  --th-line: #d6d2c2;
+  --th-sep: #c7c5b2;
+  --row-bg: #ffffff;
+  --row-hover-bg: #316ac5;
+  --row-hover-fg: #ffffff;
+
+  --chip-hover-bg: #e8eefa;
+  --chip-hover-fg: #000000;
+  --chip-active-bg: #316ac5;
+  --chip-active-fg: #ffffff;
+
+  --seg-bg: linear-gradient(180deg, #ffffff 0%, #ecebe6 86%, #d6d0c5 100%);
+  --seg-border: 1px solid #003c74;
+  --seg-divider: 1px solid #003c74;
+  --seg-divider-color: #003c74;
+  --seg-press-bg: linear-gradient(180deg, #cdcac3 0%, #e3e3db 8%, #e5e5de 94%, #f2f2f1 100%);
+  --seg-press-fg: #000000;
+  --seg-fg: #000000;
+  --seg-active-bg: linear-gradient(180deg, #cdcac3 0%, #e3e3db 8%, #e5e5de 94%, #f2f2f1 100%);
+  --seg-active-fg: #000000;
+  --seg-active-shadow: inset -1px 1px #fff0cf, inset 1px 2px #fdd889, inset -2px 2px #fbc761, inset 2px -2px #e5a01a;
+
+  --tgl-bg: linear-gradient(180deg, #dcdad0 0%, #ffffff 100%);
+  --tgl-border: 1px solid #1c5180;
+  --knob-bg: linear-gradient(180deg, #ffffff 0%, #ecebe6 86%, #d6d0c5 100%);
+  --knob-border: 1px solid #1c5180;
+  --tgl-on-bg: linear-gradient(180deg, #acedad 0%, #4cda50 45%, #2ed330 60%, #76e275 100%);
+  --tgl-on-border: 1px solid #1c6b1f;
+  --knob-on-bg: linear-gradient(180deg, #ffffff 0%, #ecebe6 86%, #d6d0c5 100%);
+
+  --bar-bg: #ffffff;
+  --bar-border: 1px solid #686868;
+  --bar-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.15);
+  --bar-fill: repeating-linear-gradient(90deg, transparent 0 8px, #ffffff 8px 10px),
+              linear-gradient(180deg, #acedad 0%, #7be47d 14%, #4cda50 28%, #2ed330 42%, #42d845 57%, #76e275 71%, #8fe791 85%, #ffffff 100%);
+
+  --sb-track: #fbfbf8;
+  --sb-track-border: 1px solid #eeede5;
+  --sb-thumb: linear-gradient(90deg, #b8cdf8 0%, #cddcfb 45%, #b3c8f6 100%);
+  --sb-thumb-border: 1px solid #ffffff;
+  --sb-thumb-shadow: inset 0 0 0 1px #a3b8eb;
+  --sb-thumb-hover: linear-gradient(90deg, #cadafb 0%, #dde8fd 45%, #c4d5f9 100%);
+
+  --overlay: rgba(0, 0, 0, 0.25);
+  --modal-bg: #ece9d8;
+  --modal-border: 3px solid #0831d9;
+  --modal-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --mtb-bg: var(--tb-bg);
+  --mtb-fg: #ffffff;
+  --mtb-font: 'Trebuchet MS', Tahoma, sans-serif;
+
+  --toast-bg: #ffffe1;
+  --toast-fg: #000000;
+  --toast-border: 1px solid #000000;
+
+  --hero-border: 1px solid #7f9db9;
+}
+
+/* ── Windows XP Royale Noir ───────────────────────────────────────────── */
+body.theme-royalenoir {
+  --text: #f0f0f0;
+  --muted: #a8a8a8;
+  --heading: #7cbcff;
+  --accent: #2f78e0;
+  --accent-text: #7cbcff;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(61, 149, 255, 0.16);
+  --focus: #ffffff;
+  --link: #7cbcff;
+  --link-hover: #b8dcff;
+  --ok: #62d862;
+  --warn: #f0b43c;
+  --err: #ff7563;
+  --info: #7cbcff;
+  --line: #3a3a3a;
+  --line-strong: #555555;
+  --sel-bg: #2f6fcf;
+  --sel-fg: #ffffff;
+
+  --win-color: #1e1e1e;
+  --surface: #262626;
+  --surface-sunken: #151515;
+  --btn-color: #3a3a3a;
+  --win-bg: #1e1e1e;
+  --win-bc: #050505;
+
+  --panel-bg: #262626;
+  --panel-border: 1px solid #444444;
+  --well-bg: #151515;
+  --well-border: 1px solid #555555;
+  --tile-bg: #1b1b1b;
+  --tile-border: 1px solid #3e3e3e;
+  --tile-value: #7cbcff;
+  --card-bg: #232323;
+  --card-border: 1px solid #3e3e3e;
+  --card-hover-border: 1px solid #3d95ff;
+  --card-hover-shadow: 0 0 0 1px rgba(61, 149, 255, 0.35);
+  --media-border: 1px solid #3e3e3e;
+
+  --header-fg: #cfe6ff;
+  --header-rule: linear-gradient(90deg, #3d95ff, rgba(61, 149, 255, 0));
+  --title-fg: #7cbcff;
+
+  --tb-bg: linear-gradient(180deg, #7a7a7a 0%, #2c2c2c 8%, #141414 40%, #000000 88%, #0b0b0b 93%, #2a2a2a 95%, #000000 96%, #000000 100%);
+  --tb-fg: #ffffff;
+  --tb-tshadow: 1px 1px #000000;
+  --ctl-bg: radial-gradient(circle at 90% 90%, #000000 0%, #1d1d1d 55%, #3a3a3a 70%, #8e8e8e 90%, #ffffff 100%);
+  --ctl-border: 1px solid #d8d8d8;
+  --ctl-hover-bg: radial-gradient(circle at 90% 90%, #06255e 0%, #144493 55%, #2e62c0 70%, #9dbef0 90%, #ffffff 100%);
+  --ctl-hover-border: 1px solid #ffffff;
+  --ctl-active-bg: radial-gradient(circle at 10% 10%, #000000 0%, #111111 55%, #333333 100%);
+  --ctl-close-border: 1px solid #ffffff;
+  --ctl-close-hover-border: 1px solid #ffffff;
+
+  --side-bg: linear-gradient(180deg, #3a3a3a 0%, #161616 100%);
+  --side-nav-bg: #242424;
+  --side-nav-border: 1px solid #4a4a4a;
+  --task-head: linear-gradient(90deg, #4a4a4a 0%, #2b2b2b 100%);
+  --brand-fg: #9fd0ff;
+  --version-fg: #bdbdbd;
+  --nav-fg: #9fd0ff;
+  --nav-hover-fg: #ffffff;
+  --nav-active-bg: #333333;
+  --nav-active-fg: #ffffff;
+  --nav-active-border: 1px solid #3d95ff;
+
+  --field-bg: #151515;
+  --field-fg: #f0f0f0;
+  --field-border: 1px solid #555555;
+  --placeholder: #8a8a8a;
+
+  --btn-bg: linear-gradient(180deg, #5c5c5c 0%, #3b3b3b 86%, #2a2a2a 100%);
+  --btn-fg: #f2f2f2;
+  --btn-border: 1px solid #000000;
+  --btn-hover-bg: linear-gradient(180deg, #5c5c5c 0%, #3b3b3b 86%, #2a2a2a 100%);
+  --btn-hover-shadow: inset -1px 1px #9cc9ff, inset 1px 2px #5aa0ff, inset -2px 2px #3d88f0, inset 2px -2px #1d5fc0;
+  --btn-active-bg: linear-gradient(180deg, #202020 0%, #2e2e2e 8%, #333333 94%, #444444 100%);
+  --btn-active-shadow: none;
+  --btn-disabled-fg: #6e6e6e;
+  --default-glow: inset -1px 1px #6aa8f5, inset 1px 2px #3f86e8, inset -2px 2px #2f74d6, inset 1px -1px #2a64bb, inset 2px -2px #2a64bb;
+
+  --pri-bg: linear-gradient(180deg, #7dbcff 0%, #3589f2 12%, #2272dc 50%, #1a62c4 88%, #104fa6 100%);
+  --pri-fg: #ffffff;
+  --pri-border: 1px solid #0a3a80;
+  --pri-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -2px 3px rgba(0, 0, 0, 0.25);
+  --pri-hover-bg: linear-gradient(180deg, #94c8ff 0%, #4696f5 12%, #2f80e6 50%, #226fd2 88%, #165bb4 100%);
+  --pri-active-bg: linear-gradient(180deg, #0f4a9c 0%, #1a61c2 40%, #2272dc 100%);
+  --pri-active-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.4);
+
+  --menu-bg: #262626;
+  --menu-fg: #f0f0f0;
+  --menu-border: 1px solid #555555;
+  --menu-shadow: 2px 2px 6px rgba(0, 0, 0, 0.6);
+  --item-hover-bg: #2f6fcf;
+  --item-hover-fg: #ffffff;
+  --sep: 1px solid #444444;
+
+  --th-bg: linear-gradient(180deg, #4a4a4a 0%, #353535 60%, #2a2a2a 100%);
+  --th-fg: #f0f0f0;
+  --th-line: #555555;
+  --th-sep: #1e1e1e;
+  --row-bg: #151515;
+  --row-hover-bg: #2f6fcf;
+  --row-hover-fg: #ffffff;
+
+  --chip-hover-bg: #333333;
+  --chip-hover-fg: #ffffff;
+  --chip-active-bg: #2f6fcf;
+  --chip-active-fg: #ffffff;
+
+  --seg-bg: linear-gradient(180deg, #5c5c5c 0%, #3b3b3b 86%, #2a2a2a 100%);
+  --seg-border: 1px solid #000000;
+  --seg-divider: 1px solid #000000;
+  --seg-divider-color: #000000;
+  --seg-press-bg: linear-gradient(180deg, #202020 0%, #2e2e2e 8%, #333333 94%, #444444 100%);
+  --seg-press-fg: #ffffff;
+  --seg-fg: #e0e0e0;
+  --seg-active-bg: linear-gradient(180deg, #202020 0%, #2e2e2e 8%, #333333 94%, #444444 100%);
+  --seg-active-fg: #ffffff;
+  --seg-active-shadow: inset -1px 1px #9cc9ff, inset 1px 2px #5aa0ff, inset -2px 2px #3d88f0, inset 2px -2px #1d5fc0;
+
+  --tgl-bg: linear-gradient(180deg, #0c0c0c 0%, #2a2a2a 100%);
+  --tgl-border: 1px solid #000000;
+  --knob-bg: linear-gradient(180deg, #7a7a7a 0%, #4a4a4a 86%, #333333 100%);
+  --knob-border: 1px solid #000000;
+  --tgl-on-bg: linear-gradient(180deg, #7dbcff 0%, #3589f2 45%, #1a62c4 100%);
+  --tgl-on-border: 1px solid #0a3a80;
+  --knob-on-bg: linear-gradient(180deg, #f2f2f2 0%, #cfcfcf 100%);
+
+  --bar-bg: #0e0e0e;
+  --bar-border: 1px solid #000000;
+  --bar-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.6);
+  --bar-fill: repeating-linear-gradient(90deg, transparent 0 8px, #0e0e0e 8px 10px),
+              linear-gradient(180deg, #cfe6ff 0%, #7dbcff 14%, #3d95ff 42%, #2a7ff0 57%, #6fb4ff 85%, #dff0ff 100%);
+
+  --sb-track: #1a1a1a;
+  --sb-track-border: 1px solid #111111;
+  --sb-thumb: linear-gradient(90deg, #4f4f4f 0%, #666666 45%, #474747 100%);
+  --sb-thumb-border: 1px solid #1a1a1a;
+  --sb-thumb-shadow: inset 0 0 0 1px #6c6c6c;
+  --sb-thumb-hover: linear-gradient(90deg, #5d5d5d 0%, #767676 45%, #555555 100%);
+
+  --overlay: rgba(0, 0, 0, 0.45);
+  --modal-bg: #262626;
+  --modal-border: 3px solid #050505;
+  --modal-shadow: 0 12px 34px rgba(0, 0, 0, 0.6);
+  --mtb-bg: var(--tb-bg);
+  --mtb-fg: #ffffff;
+  --mtb-font: 'Trebuchet MS', Tahoma, sans-serif;
+
+  --toast-bg: #262626;
+  --toast-fg: #f0f0f0;
+  --toast-border: 1px solid #5a5a5a;
+  --toast-shadow: 2px 2px 6px rgba(0, 0, 0, 0.6);
+
+  --hero-border: 1px solid #555555;
+}

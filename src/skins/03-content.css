@@ -1,0 +1,337 @@
+/* ══════════════════════════════════════════════════════════════════════
+   SKINS — content: tables, cards, the feed, room/profile/photo detail,
+   logs, settings extras, dialogs, toasts, scrollbars and motion.
+   Same scope and rules of engagement as 01-components.css.
+   ══════════════════════════════════════════════════════════════════════ */
+
+body:not(.glass-enabled) {
+
+  /* ── Tables ───────────────────────────────────────────────────────── */
+  & .native-table th {
+    padding: 6px 8px;
+    font-family: var(--font-ui);
+    font-size: var(--th-size);
+    font-weight: var(--th-weight);
+    text-transform: var(--th-case);
+    letter-spacing: var(--th-ls);
+    color: var(--th-fg);
+    /* The rule under the header is painted, not bordered: with collapsed
+       borders a sticky header's border stays behind when the body scrolls. */
+    background: linear-gradient(var(--th-line), var(--th-line)) left bottom / 100% 1px no-repeat, var(--th-bg);
+    border: 0;
+    border-right: 1px solid var(--th-sep);
+    box-shadow: var(--th-shadow);
+  }
+  & .native-table th:last-child { border-right: 0; }
+  & .native-table td {
+    padding: 6px 8px;
+    font-size: 11px;
+    color: var(--well-fg);
+    background: var(--row-bg);
+    border: 0;
+    border-bottom: 1px solid var(--td-line);
+  }
+  & .native-table tbody tr:nth-child(even) td { background: var(--row-alt); }
+  & .native-table tbody tr:hover td { color: var(--row-hover-fg); background: var(--row-hover-bg); }
+  & .native-table tbody tr:hover td .text-link { color: inherit; }
+  & .people-avatar {
+    background: var(--media-bg);
+    border: var(--media-border);
+    border-radius: var(--avatar-radius, var(--media-radius));
+  }
+
+  /* ── Cards ────────────────────────────────────────────────────────── */
+  & .room-card {
+    padding: 6px;
+    gap: 3px;
+    color: var(--panel-fg);
+    background: var(--card-bg);
+    border: var(--card-border);
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+                background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  & .room-card:hover {
+    background: var(--card-hover-bg);
+    border: var(--card-hover-border);
+    box-shadow: var(--card-hover-shadow);
+    transform: var(--card-lift);
+  }
+  & .room-card-image {
+    margin-bottom: 3px;
+    background: var(--media-bg);
+    border: var(--media-border);
+    border-radius: var(--media-radius);
+  }
+  & .room-card-name { font-family: var(--font-ui); font-size: 12px; font-weight: 700; color: var(--panel-fg); }
+  & .room-card-creator { font-size: 10px; color: var(--muted); text-decoration: none; }
+  & .room-card-creator:hover { color: var(--link); text-decoration: underline; }
+  & .room-card-stats { font-size: 10px; color: var(--muted); }
+
+  & .photo-card {
+    background: var(--media-bg);
+    border: var(--media-border);
+    border-radius: var(--media-radius);
+    box-shadow: var(--card-shadow);
+    transition: box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  & .photo-card:hover { border: var(--card-hover-border); box-shadow: var(--card-hover-shadow); }
+
+  /* ── Feed ─────────────────────────────────────────────────────────── */
+  & .feed-subtitle { font-family: var(--font-ui); font-size: 11px; color: var(--muted); }
+  & .feed-post-card { padding: 12px; gap: 10px; }
+  & .feed-post-avatar {
+    border: var(--media-border);
+    border-radius: var(--avatar-radius, var(--media-radius));
+  }
+  & .feed-post-creator { font-size: 12px; color: var(--panel-fg); text-decoration: none; }
+  & .feed-post-creator:hover { color: var(--link); text-decoration: underline; }
+  & .feed-post-meta { color: var(--muted); }
+  & .feed-post-room { color: var(--link); text-decoration: none; }
+  & .feed-post-room:hover { color: var(--link-hover); text-decoration: underline; }
+  & .feed-post-description { color: var(--panel-fg); }
+  & .feed-post-image-wrap {
+    background: var(--media-bg);
+    border: var(--media-border);
+    border-radius: var(--media-radius);
+  }
+  & .feed-post-tagged { padding: 0; }
+  & .feed-tagged-label { font-family: var(--font-ui); color: var(--muted); }
+  & .feed-tagged-name { color: var(--link); }
+  & .feed-post-footer { border-top: var(--sep); color: var(--muted); }
+  & :is(.photo-empty-msg, .feed-loading) { font-family: var(--font-ui); color: var(--muted); }
+
+  /* ── Room & profile detail ────────────────────────────────────────── */
+  & :is(.room-card-footer, .profile-body-content) { background: transparent; }
+  & .room-thumbnail-image {
+    background: var(--media-bg);
+    border: var(--media-border);
+    border-radius: var(--media-radius);
+  }
+  & :is(.room-title, .profile-display-name) { font-family: var(--heading-font); color: var(--panel-fg); }
+  & .room-description { font-family: var(--font-ui); color: var(--panel-fg); }
+  & :is(.room-creator-box, .room-stat-item, .profile-stat-item, .profile-bio-box,
+        .room-meta-bar, .photo-detail-box, .photo-detail-stats) {
+    color: var(--well-fg);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--tile-radius);
+    box-shadow: var(--tile-shadow);
+  }
+  & .room-creator-box:hover { background: var(--tile-hover-bg, var(--tile-bg)); border: var(--card-hover-border); }
+  & :is(.room-stat-val, .profile-stat-val) { font-family: var(--font-ui); color: var(--tile-value); }
+  & :is(.room-stat-lbl, .profile-stat-lbl, .photo-detail-stat-label, .photo-detail-room-label) {
+    font-family: var(--font-ui);
+    color: var(--muted);
+  }
+  & :is(.room-creator-name, #photoDetailCreatorName, .photo-detail-stat-value) { color: var(--well-fg); }
+  & :is(.room-creator-handle, #photoDetailCreatorHandle) { color: var(--muted); }
+  & :is(.room-creator-avatar, .photo-detail-creator img) {
+    border: var(--media-border);
+    border-radius: var(--avatar-radius, var(--media-radius));
+  }
+  & .room-meta-bar span { color: var(--well-fg); }
+  & .profile-bio-text { font-family: var(--font-ui); color: var(--well-fg); }
+  & .profile-avatar-image {
+    background: var(--surface);
+    border: 4px solid var(--surface);
+    border-radius: var(--avatar-radius, var(--media-radius));
+  }
+  & .profile-username { font-family: var(--font-ui); color: var(--muted); }
+  & :is(.profile-status-badge, .profile-activity-badge) {
+    color: var(--well-fg);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--badge-radius, 999px);
+    box-shadow: none;
+  }
+  & .profile-activity-badge { color: var(--accent-text); }
+  & .profile-tabs-nav { gap: 18px; border-bottom: var(--sep); }
+  & .profile-tab-btn { font-family: var(--font-ui); font-size: 11px; color: var(--muted); }
+  & .profile-tab-btn:hover { color: var(--text) !important; }
+  & .profile-tab-btn.active {
+    color: var(--accent-text) !important;
+    border-bottom: 2px solid var(--accent) !important;
+  }
+
+  /* ── Photo detail ─────────────────────────────────────────────────── */
+  & .photo-detail-img-wrap {
+    background: var(--media-bg);
+    border: var(--media-border);
+    border-radius: var(--media-radius);
+  }
+  & #photoDetailInfoBlock { padding: 12px; }
+  & #photoDetailRoomLink { color: var(--link); }
+  & #photoDetailCaption { font-style: normal; color: var(--well-fg); }
+  & .photo-detail-tagged-name {
+    color: var(--link);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--badge-radius, 999px);
+  }
+  & .photo-detail-stat + .photo-detail-stat { border-left: 1px solid var(--line); }
+  & .photo-detail-stat-value { font-family: var(--font-ui); }
+
+  /* ── Logs ─────────────────────────────────────────────────────────── */
+  & .log-output {
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--well-fg);
+  }
+  & .log-entry.info  { color: var(--log-info, var(--well-fg)); }
+  & .log-entry.ok    { color: var(--ok); }
+  & .log-entry.warn  { color: var(--warn); }
+  & .log-entry.error { color: var(--err); }
+  & .log-ts { color: var(--muted); }
+
+  /* ── Settings extras ──────────────────────────────────────────────── */
+  & .sg-row label { font-size: 11px; font-weight: 400; color: var(--panel-fg); }
+  & :is(.sg-hint, .sg-note) { color: var(--muted); }
+  /* One swatch (Glass Tint): give it the width for its label, note and Reset
+     instead of style.css's 170px column, which ellipsized all three. */
+  & .ct-swatches { grid-template-columns: minmax(0, 360px); }
+  & .ct-swatch { gap: 10px; padding: 5px 6px 5px 8px; font-size: 11px; }
+  & .ct-swatch .ct-note { color: var(--muted); }
+  & .theme-color-input::-webkit-color-swatch { border: 1px solid var(--line-strong) !important; }
+  & input[type="checkbox"] { accent-color: var(--accent); }
+
+  /* ── Dialogs ──────────────────────────────────────────────────────── */
+  & .modal-overlay { background: var(--overlay); }
+  & .modal-box {
+    width: 400px;
+    overflow: hidden;
+    color: var(--panel-fg);
+    background: var(--modal-bg);
+    border: var(--modal-border);
+    border-radius: var(--modal-radius);
+    box-shadow: var(--modal-shadow);
+  }
+  & .modal-box.lightbox-box { width: auto; }
+  & .modal-titlebar {
+    gap: 8px;
+    padding: var(--mtb-pad);
+    background: var(--mtb-bg);
+    border: 0;
+    border-bottom: var(--mtb-border);
+  }
+  & .modal-title {
+    font-family: var(--mtb-font);
+    font-size: var(--mtb-size);
+    font-weight: var(--mtb-weight);
+    letter-spacing: var(--mtb-ls);
+    text-shadow: var(--mtb-tshadow);
+    color: var(--mtb-fg);
+  }
+  & .modal-close-btn {
+    --glyph: var(--glyph-cls);
+    flex-shrink: 0;
+    width: var(--mclose-w); height: var(--mclose-h);
+    padding: 0;
+    font-size: 0;
+    color: var(--ctl-close-fg);
+    background: var(--ctl-close-bg);
+    border: var(--ctl-close-border);
+    border-radius: var(--ctl-radius);
+    box-shadow: var(--ctl-close-shadow);
+    cursor: pointer;
+  }
+  & .modal-close-btn::before {
+    content: '';
+    display: block;
+    width: var(--glyph-size); height: var(--glyph-size);
+    background-color: currentColor;
+    -webkit-mask: var(--glyph) center / 100% 100% no-repeat;
+    mask: var(--glyph) center / 100% 100% no-repeat;
+  }
+  & .modal-close-btn:hover,
+  & .modal-close-btn:active {
+    color: var(--ctl-close-hover-fg);
+    background: var(--ctl-close-hover-bg);
+    border: var(--ctl-close-hover-border);
+    box-shadow: var(--ctl-close-hover-shadow);
+  }
+  & .modal-body { padding: 14px 16px; background: var(--mbody-bg); }
+  & :is(.update-ver-label, .update-notes-label) { font-family: var(--font-ui); color: var(--muted); }
+  & .update-ver-value { font-family: var(--font-ui); color: var(--well-fg); }
+  & .update-ver-block.new .update-ver-value { color: var(--accent-text); }
+  & .update-arrow { color: var(--muted); }
+  & .update-notes { font-family: var(--font-ui); font-size: 11px; color: var(--well-fg); }
+  & .update-status { font-family: var(--font-ui); color: var(--accent-text); }
+  & .modal-footer {
+    padding: 10px 14px;
+    background: var(--mfoot-bg);
+    border-top: var(--mfoot-border);
+  }
+  & .modal-btn { min-width: 76px; }
+  & .modal-body.lightbox-body { background: var(--surface-sunken); }
+  & .path-text { font-family: var(--font-mono); color: var(--panel-fg); }
+  /* The third-party AV dialog styles these inline for a dark skin. */
+  & #detectedAvNames { color: var(--accent-text) !important; }
+  & div:has(> #tpClientFolderPath) {
+    background: var(--well-bg) !important;
+    border: var(--well-border) !important;
+    border-radius: var(--well-radius) !important;
+  }
+  & #tpClientFolderPath { color: var(--well-fg) !important; font-family: var(--font-mono) !important; }
+
+  /* ── Toasts ───────────────────────────────────────────────────────── */
+  & .toast-container { right: 14px; bottom: 14px; gap: 6px; }
+  & .toast {
+    position: relative;
+    overflow: hidden;
+    min-width: 220px; max-width: 360px;
+    padding: 8px 12px 8px 15px;
+    font-family: var(--font-ui);
+    font-size: 11px;
+    color: var(--toast-fg);
+    background: var(--toast-bg);
+    border: var(--toast-border);
+    border-radius: var(--toast-radius);
+    box-shadow: var(--toast-shadow);
+  }
+  & .toast::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--info);
+  }
+  & .toast.ok::before    { background: var(--ok); }
+  & .toast.warn::before  { background: var(--warn); }
+  & .toast.error::before { background: var(--err); }
+
+  /* ── Scrollbars ───────────────────────────────────────────────────── */
+  & ::-webkit-scrollbar {
+    width: var(--sb-size); height: var(--sb-size);
+    background: var(--sb-track);
+    border: 0;
+    border-left: var(--sb-track-border);
+  }
+  & ::-webkit-scrollbar-thumb,
+  & ::-webkit-scrollbar-thumb:active {
+    min-height: 32px;
+    background: var(--sb-thumb);
+    background-clip: var(--sb-thumb-clip);
+    border: var(--sb-thumb-border);
+    border-radius: var(--sb-thumb-radius);
+    box-shadow: var(--sb-thumb-shadow);
+    filter: none;
+  }
+  & ::-webkit-scrollbar-thumb:hover {
+    background: var(--sb-thumb-hover);
+    background-clip: var(--sb-thumb-clip);
+    filter: none;
+  }
+  & ::-webkit-scrollbar-corner { background: var(--sb-track); }
+
+  /* ── Motion ───────────────────────────────────────────────────────── */
+  & .tab-panel.active { animation: var(--tab-anim); }
+
+  @media (prefers-reduced-motion: reduce) {
+    & *, & *::before, & *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

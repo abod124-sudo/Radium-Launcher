@@ -1,0 +1,543 @@
+/* ══════════════════════════════════════════════════════════════════════
+   STEAM — 2003 Green and 2010
+
+   2003 is the original VGUI client: olive #4c5844 panels with one-pixel
+   #889180 / #292c21 bevels, Tahoma, the gold #c4b550 highlight and the
+   gold block progress bar. (The old skin used a #00ff00 "matrix" green
+   Steam never had.)
+
+   2010 is the charcoal client: graphite gradients, uppercase section labels,
+   the blue selection bar and the green PLAY.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Steam 2003 Green ─────────────────────────────────────────────────── */
+body.theme-steam-green {
+  --raised:  inset 1px 1px #889180, inset -1px -1px #292c21;
+  --sunken:  inset 1px 1px #292c21, inset -1px -1px #889180;
+
+  --font-ui:   Tahoma, Verdana, sans-serif;
+  --font-mono: 'Lucida Console', 'Courier New', monospace;
+  --fs: 11px;
+  --heading-size: 11px;
+
+  --text: #dedfd6;
+  --muted: #a0aa95;
+  --heading: #c4b550;
+  --accent: #958831;
+  --accent-text: #c4b550;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(196, 181, 80, 0.12);
+  --focus: #c4b550;
+  --link: #c4b550;
+  --link-hover: #ffffff;
+  --ok: #b6e089;
+  --warn: #e6c35a;
+  --err: #ff8f7a;
+  --info: #a9c7d9;
+  --line: #3a4233;
+  --line-strong: #292c21;
+  --sel-bg: #958831;
+  --sel-fg: #ffffff;
+
+  --win-color: #4c5844;
+  --surface: #4c5844;
+  --surface-sunken: #3e4637;
+  --btn-color: #4c5844;
+  --win-bg: #4c5844;
+  --win-bw: 1px;
+  --win-bc: #292c21;
+  --content-pad: 10px;
+
+  --panel-bg: #4c5844;
+  --panel-border: 0;
+  --panel-shadow: var(--raised);
+  --well-bg: #3e4637;
+  --well-fg: #dedfd6;
+  --well-border: 0;
+  --well-shadow: var(--sunken);
+  --tile-bg: #3e4637;
+  --tile-border: 0;
+  --tile-shadow: var(--sunken);
+  --tile-value: #c4b550;
+  --card-bg: #4c5844;
+  --card-border: 0;
+  --card-shadow: var(--raised);
+  --card-hover-bg: #56644c;
+  --tile-hover-bg: #46513e;
+  --media-bg: #3e4637;
+  --media-border: 1px solid #292c21;
+  --avatar-radius: 0;
+  --badge-radius: 0;
+  --dot-radius: 0;
+
+  --header-fg: #dedfd6;
+  --header-border: 1px solid #292c21;
+  --header-shadow: 0 1px 0 #6a7661;
+  --header-size: 12px;
+  --header-pad: 0 0 6px;
+  --title-fg: #c4b550;
+  --title-border: 1px solid #292c21;
+
+  --tb-h: 26px;
+  --tb-bg: linear-gradient(180deg, #56644c 0%, #4c5844 100%);
+  --tb-fg: #dedfd6;
+  --tb-border: 1px solid #292c21;
+  --tb-shadow: inset 0 1px 0 #6a7661;
+  --tb-pad: 0 4px 0 8px;
+  --ctl-w: 18px;
+  --ctl-h: 16px;
+  --ctl-gap: 2px;
+  --ctl-fg: #a0aa95;
+  --ctl-hover-bg: #56644c;
+  --ctl-hover-fg: #ffffff;
+  --ctl-hover-shadow: var(--raised);
+  --ctl-active-bg: #3e4637;
+  --ctl-active-shadow: var(--sunken);
+  --ctl-close-hover-bg: #56644c;
+  --ctl-close-hover-fg: #ffffff;
+  --ctl-close-hover-shadow: var(--raised);
+  --glyph-size: 10px;
+  --glyph-min: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Crect x='2' y='7' width='6' height='2'/%3E%3C/svg%3E");
+  --glyph-max: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill-rule='evenodd' d='M0 0h9v9H0zM1 2v6h7V2z'/%3E%3C/svg%3E");
+  --glyph-cls: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath transform='translate(1 1)' d='M0 0h2v1h1v1h2V1h1V0h2v1H7v1H6v1H5v1h1v1h1v1h1v1H6V6H5V5H3v1H2v1H0V6h1V5h1V4h1V3H2V2H1V1H0z'/%3E%3C/svg%3E");
+
+  --side-bg: #4c5844;
+  --side-border: 0;
+  --side-shadow: inset -1px 0 #292c21, inset -2px 0 #6a7661;
+  --side-divider: 1px solid #292c21;
+  --side-gap: 2px;
+  --logo-size: 32px;
+  --logo-render: pixelated;
+  --brand-fg: #c4b550;
+  --brand-font: Verdana, Tahoma, sans-serif;
+  --brand-size: 15px;
+  --version-bg: #3e4637;
+  --version-fg: #a0aa95;
+  --version-shadow: var(--sunken);
+  --version-font: var(--font-mono);
+
+  --nav-bg: transparent;
+  --nav-fg: #a0aa95;
+  --nav-border: 0;
+  --nav-pad: 5px 8px;
+  --nav-weight: 700;
+  --nav-hover-bg: transparent;
+  --nav-hover-fg: #dedfd6;
+  --nav-active-bg: #5a6a50;
+  --nav-active-fg: #c4b550;
+  --nav-active-shadow: var(--raised);
+  --nav-press-bg: #3e4637;
+  --nav-press-fg: #c4b550;
+  --nav-press-shadow: var(--sunken);
+  --nav-press-pad: 6px 7px 4px 9px;
+
+  --field-pad: 4px 6px;
+  --placeholder: #7f8a74;
+
+  --btn-bg: #4c5844;
+  --btn-fg: #dedfd6;
+  --btn-border: 0;
+  --btn-shadow: var(--raised), 0 0 0 1px #2f3528;
+  --btn-pad: 4px 14px;
+  --btn-weight: 400;
+  --btn-hover-bg: #56644c;
+  --btn-hover-fg: #ffffff;
+  --btn-active-bg: #3e4637;
+  --btn-active-shadow: var(--sunken), 0 0 0 1px #2f3528;
+  --btn-disabled-fg: #7f8a74;
+
+  --pri-bg: linear-gradient(180deg, #6b7a5f 0%, #5a6a50 100%);
+  --pri-fg: #c4b550;
+  --pri-border: 0;
+  --pri-shadow: inset 1px 1px #a6ae98, inset -1px -1px #292c21, 0 0 0 1px #1a1d15;
+  --pri-weight: 700;
+  --pri-hover-bg: linear-gradient(180deg, #7a8a6d 0%, #66775b 100%);
+  --pri-hover-fg: #efe38a;
+  --pri-active-bg: #3e4637;
+  --pri-active-shadow: var(--sunken), 0 0 0 1px #1a1d15;
+
+  --danger-bg: #4c5844;
+  --danger-fg: #ffb09a;
+  --danger-border: 0;
+  --danger-shadow: var(--raised), 0 0 0 1px #2f3528;
+  --danger-hover-bg: #56644c;
+  --run-bg: #3e4637;
+  --run-fg: #c4b550;
+  --run-border: 0;
+  --run-shadow: var(--sunken), 0 0 0 1px #1a1d15;
+  --run-hover-bg: #46513e;
+
+  --menu-bg: #4c5844;
+  --menu-fg: #dedfd6;
+  --menu-border: 1px solid #292c21;
+  --menu-shadow: var(--raised), 3px 3px 8px rgba(0, 0, 0, 0.45);
+  --menu-pad: 3px;
+  --item-pad: 4px 16px 4px 8px;
+  --item-fg: #dedfd6;
+  --item-hover-bg: #958831;
+  --item-hover-fg: #ffffff;
+  --sep: 1px solid #292c21;
+
+  --th-bg: #4c5844;
+  --th-fg: #dedfd6;
+  --th-weight: 400;
+  --th-shadow: var(--raised);
+  --th-line: transparent;
+  --th-sep: transparent;
+  --td-line: transparent;
+  --row-bg: #3e4637;
+  --row-hover-bg: #958831;
+  --row-hover-fg: #ffffff;
+
+  --chip-fg: #a0aa95;
+  --chip-hover-bg: transparent;
+  --chip-hover-fg: #dedfd6;
+  --chip-active-bg: #958831;
+  --chip-active-fg: #ffffff;
+
+  --seg-bg: #4c5844;
+  --seg-border: 1px solid #1a1d15;
+  --seg-shadow: var(--raised);
+  --seg-fg: #a0aa95;
+  --seg-divider: 1px solid #292c21;
+  --seg-active-bg: #3e4637;
+  --seg-active-fg: #c4b550;
+  --seg-active-shadow: var(--sunken);
+  --seg-label: #c4b550;
+  --seg-press-bg: #3e4637;
+  --seg-press-fg: #dedfd6;
+  --seg-press-shadow: var(--sunken);
+
+  --tgl-bw: 0px;
+  --tgl-border: 0;
+  --tgl-radius: 0;
+  --tgl-bg: #3e4637;
+  --tgl-shadow: var(--sunken);
+  --knob: 12px;
+  --knob-inset: 3px;
+  --knob-radius: 0;
+  --knob-bg: #6b7a5f;
+  --knob-shadow: var(--raised);
+  --tgl-on-bg: #958831;
+  --knob-on-bg: #c4b550;
+
+  --bar-h: 18px;
+  --bar-pad: 3px;
+  --bar-bg: #3e4637;
+  --bar-border: 0;
+  --bar-shadow: var(--sunken);
+  --bar-fill: repeating-linear-gradient(90deg, #c4b550 0 8px, transparent 8px 10px);
+
+  --sb-size: 14px;
+  --sb-track: #3e4637;
+  --sb-thumb: #4c5844;
+  --sb-thumb-border: 0;
+  --sb-thumb-radius: 0;
+  --sb-thumb-shadow: var(--raised);
+  --sb-thumb-hover: #56644c;
+
+  --overlay: rgba(0, 0, 0, 0.4);
+  --modal-bg: #4c5844;
+  --modal-border: 1px solid #292c21;
+  --modal-shadow: var(--raised), 0 10px 30px rgba(0, 0, 0, 0.5);
+  --mtb-bg: linear-gradient(180deg, #56644c 0%, #4c5844 100%);
+  --mtb-fg: #dedfd6;
+  --mtb-border: 1px solid #292c21;
+  --mclose-w: 18px;
+  --mclose-h: 16px;
+  --mfoot-border: 1px solid #292c21;
+
+  --toast-bg: #4c5844;
+  --toast-fg: #dedfd6;
+  --toast-border: 1px solid #292c21;
+  --toast-shadow: var(--raised), 3px 3px 8px rgba(0, 0, 0, 0.45);
+
+  --hero-border: 1px solid #292c21;
+
+  & .sidebar-logo { box-shadow: 0 1px 0 #6a7661; }
+  & .sidebar-footer { box-shadow: inset 0 1px 0 #6a7661; }
+  & .sg-title,
+  & .caption-header,
+  & .profile-bio-title,
+  & #roomsDetailPhotosSection h4 { box-shadow: 0 1px 0 #6a7661; }
+  & .manage-sep { box-shadow: 0 1px 0 #6a7661; }
+  & .native-table-container { padding: 1px; }
+  & .dlp-dot { animation: sk-blink 1s steps(1, end) infinite; }
+  & .dlp-step-idx { border-radius: 0; }
+  /* 1px right and down: padding traded across PLAY's fixed box (see the
+     Win9x rule in 05-windows-classic.css for why not padding-left alone). */
+  & .home-hero-bar :is(.btn-play, .btn-download-big):active { padding: 2px 21px 0 23px; }
+
+  /* Pressed VGUI buttons sink and their label drops 1px, like Win32's. */
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn):active:not(:disabled) { padding: 5px 13px 3px 15px; }
+  & :is(.sg-row, .ct-swatch) .btn-open-folder:active:not(:disabled) { padding: 4px 9px 2px 11px; }
+  & :is(.native-pagination .btn-refresh, #btnRoomsBack, #btnPeopleBack, #btnPhotoDetailBack):active:not(:disabled) {
+    padding: 4px 11px 2px 13px !important;
+  }
+  & #btnManageClient:active svg { transform: translate(1px, 1px); }
+}
+
+/* ── Steam 2010 ───────────────────────────────────────────────────────── */
+body.theme-steam2010 {
+  --font-ui:   Arial, Tahoma, sans-serif;
+  --font-mono: Consolas, 'Lucida Console', monospace;
+  --fs: 12px;
+  --heading-size: 10px;
+  --heading-case: uppercase;
+  --heading-ls: 0.06em;
+
+  --text: #d6d6d6;
+  --muted: #909090;
+  --heading: #b0aeac;
+  --accent: #5b9fd4;
+  --accent-text: #8cc6ef;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(103, 193, 245, 0.16);
+  --focus: #8cc6ef;
+  --link: #8cc6ef;
+  --link-hover: #ffffff;
+  --ok: #a4d007;
+  --warn: #e5b54a;
+  --err: #e7776d;
+  --info: #67c1f5;
+  --line: #3a3a3a;
+  --line-strong: #121212;
+  --sel-bg: #3f6b8f;
+  --sel-fg: #ffffff;
+
+  --win-color: #262626;
+  --surface: #333333;
+  --surface-sunken: #1b1b1b;
+  --btn-color: #4a4a4a;
+  --win-bg: linear-gradient(180deg, #2f2f2f 0%, #242424 45%, #1e1e1e 100%);
+  --win-bw: 1px;
+  --win-bc: #0d0d0d;
+  --content-bg: transparent;
+  --content-pad: 14px;
+
+  --panel-bg: linear-gradient(180deg, #383838 0%, #2e2e2e 100%);
+  --panel-border: 1px solid #161616;
+  --panel-radius: 3px;
+  --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --well-bg: #1b1b1b;
+  --well-fg: #cfcfcf;
+  --well-border: 1px solid #0d0d0d;
+  --well-radius: 2px;
+  --well-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+  --tile-bg: #242424;
+  --tile-border: 1px solid #161616;
+  --tile-radius: 2px;
+  --tile-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --tile-value: #8cc6ef;
+  --card-hover-border: 1px solid #5c86a3;
+  --card-hover-shadow: 0 0 0 1px rgba(103, 193, 245, 0.25), 0 4px 14px rgba(0, 0, 0, 0.5);
+  --tile-hover-bg: #2c2c2c;
+  --media-bg: #111111;
+  --media-border: 1px solid #0d0d0d;
+  --media-radius: 2px;
+  --avatar-radius: 2px;
+  --badge-radius: 2px;
+
+  --header-fg: #dcdcdc;
+  --header-border: 1px solid #3a3a3a;
+  --header-shadow: 0 1px 0 #151515;
+  --header-size: 14px;
+  --header-case: uppercase;
+  --header-ls: 0.08em;
+  --header-tshadow: 0 1px 1px #000000;
+  --title-border: 1px solid #3a3a3a;
+  --title-fg: #b0aeac;
+
+  --tb-h: 32px;
+  --tb-bg: linear-gradient(180deg, #4a4a4a 0%, #2e2e2e 100%);
+  --tb-fg: #c9c9c9;
+  --tb-border: 1px solid #121212;
+  --tb-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --tb-tshadow: 0 1px 1px #000000;
+  --tb-ls: 0.06em;
+  --tb-pad: 0 0 0 12px;
+  --ctl-w: 30px;
+  --ctl-h: 22px;
+  --ctl-gap: 2px;
+  --ctl-margin: 0 5px 0 0;
+  --ctl-radius: 2px;
+  --ctl-fg: #9a9a9a;
+  --ctl-hover-bg: rgba(255, 255, 255, 0.1);
+  --ctl-hover-fg: #ffffff;
+  --ctl-active-bg: rgba(255, 255, 255, 0.05);
+  --ctl-close-hover-bg: #a53b33;
+
+  --side-bg: linear-gradient(180deg, #2c2c2c 0%, #212121 100%);
+  --side-border: 1px solid #121212;
+  --side-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+  --side-divider: 1px solid #3a3a3a;
+  --logo-size: 30px;
+  --logo-radius: 0;
+  --brand-fg: #dcdcdc;
+  --brand-font: Arial, Tahoma, sans-serif;
+  --brand-size: 15px;
+  --version-fg: #7a7a7a;
+
+  --nav-fg: #b8b6b4;
+  --nav-border: 0;
+  --nav-radius: 2px;
+  --nav-pad: 7px 10px;
+  --nav-size: 11px;
+  --nav-case: uppercase;
+  --nav-ls: 0.05em;
+  --nav-hover-bg: rgba(255, 255, 255, 0.06);
+  --nav-hover-fg: #ffffff;
+  --nav-active-bg: linear-gradient(90deg, rgba(103, 193, 245, 0.24) 0%, rgba(103, 193, 245, 0.04) 100%);
+  --nav-active-fg: #ffffff;
+  --nav-active-shadow: inset 3px 0 0 #67c1f5;
+  --nav-press-bg: rgba(255, 255, 255, 0.12);
+  --nav-press-fg: #ffffff;
+  --nav-press-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+
+  --field-bg: #1b1b1b;
+  --field-fg: #d6d6d6;
+  --field-border: 1px solid #0d0d0d;
+  --field-radius: 2px;
+  --field-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+  --field-focus-border: 1px solid #5c86a3;
+  --field-focus-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(103, 193, 245, 0.25);
+  --field-size: 12px;
+  --placeholder: #6f6f6f;
+
+  --btn-bg: linear-gradient(180deg, #5d5d5d 0%, #434343 100%);
+  --btn-fg: #e0e0e0;
+  --btn-border: 1px solid #1a1a1a;
+  --btn-radius: 2px;
+  --btn-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  --btn-size: 12px;
+  --btn-weight: 400;
+  --btn-hover-bg: linear-gradient(180deg, #727272 0%, #525252 100%);
+  --btn-hover-fg: #ffffff;
+  --btn-active-bg: linear-gradient(180deg, #3a3a3a 0%, #4a4a4a 100%);
+  --btn-active-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  --btn-disabled-fg: #6f6f6f;
+
+  --pri-bg: linear-gradient(180deg, #8ec03f 0%, #6a9a2b 100%);
+  --pri-fg: #f2fae3;
+  --pri-border: 1px solid #3f5d19;
+  --pri-radius: 2px;
+  --pri-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --pri-tshadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+  --pri-weight: 700;
+  --pri-hover-bg: linear-gradient(180deg, #a2d44f 0%, #79ad33 100%);
+  --pri-hover-fg: #ffffff;
+  --pri-active-bg: linear-gradient(180deg, #5f8b25 0%, #76a531 100%);
+  --pri-active-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+
+  --danger-bg: linear-gradient(180deg, #b8473d 0%, #8f2f28 100%);
+  --danger-fg: #ffffff;
+  --danger-border: 1px solid #4d1510;
+  --danger-hover-bg: linear-gradient(180deg, #cb554a 0%, #a13930 100%);
+  --danger-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+
+  --menu-bg: #2e2e2e;
+  --menu-fg: #d6d6d6;
+  --menu-border: 1px solid #121212;
+  --menu-radius: 2px;
+  --menu-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --item-radius: 2px;
+  --item-fg: #d6d6d6;
+  --item-size: 12px;
+  --item-hover-bg: linear-gradient(90deg, #4b6c85 0%, #3f5a70 100%);
+  --item-hover-fg: #ffffff;
+  --sep: 1px solid #444444;
+
+  --th-bg: linear-gradient(180deg, #3d3d3d 0%, #2c2c2c 100%);
+  --th-fg: #b0aeac;
+  --th-size: 10px;
+  --th-case: uppercase;
+  --th-ls: 0.05em;
+  --th-line: #121212;
+  --th-sep: #242424;
+  --td-line: transparent;
+  --row-bg: #1b1b1b;
+  --row-alt: #202020;
+  --row-hover-bg: #3f5a70;
+  --row-hover-fg: #ffffff;
+
+  --chip-fg: #b8b6b4;
+  --chip-radius: 2px;
+  --chip-hover-bg: rgba(255, 255, 255, 0.06);
+  --chip-hover-fg: #ffffff;
+  --chip-active-bg: linear-gradient(90deg, rgba(103, 193, 245, 0.26) 0%, rgba(103, 193, 245, 0.05) 100%);
+  --chip-active-fg: #ffffff;
+  --chip-active-shadow: inset 3px 0 0 #67c1f5;
+
+  --seg-bg: linear-gradient(180deg, #4a4a4a 0%, #343434 100%);
+  --seg-border: 1px solid #0d0d0d;
+  --seg-radius: 2px;
+  --seg-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --seg-fg: #b8b6b4;
+  --seg-divider: 1px solid #0d0d0d;
+  --seg-active-bg: linear-gradient(180deg, #8ec03f 0%, #6a9a2b 100%);
+  --seg-active-fg: #ffffff;
+  --seg-label: #b0aeac;
+  --seg-press-bg: rgba(0, 0, 0, 0.35);
+  --seg-press-fg: #ffffff;
+
+  --tgl-w: 34px;
+  --tgl-h: 18px;
+  --tgl-radius: 3px;
+  --tgl-bg: #1b1b1b;
+  --tgl-border: 1px solid #0d0d0d;
+  --tgl-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+  --knob: 12px;
+  --knob-radius: 2px;
+  --knob-bg: linear-gradient(180deg, #6a6a6a 0%, #4a4a4a 100%);
+  --knob-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  --tgl-on-bg: linear-gradient(180deg, #8ec03f 0%, #6a9a2b 100%);
+  --tgl-on-border: 1px solid #3f5d19;
+  --knob-on-bg: linear-gradient(180deg, #f2f2f2 0%, #cfcfcf 100%);
+
+  --bar-h: 12px;
+  --bar-pad: 1px;
+  --bar-bg: #1b1b1b;
+  --bar-border: 1px solid #0d0d0d;
+  --bar-radius: 2px;
+  --bar-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+  --bar-fill: linear-gradient(180deg, #8cc6ef 0%, #4f94c4 55%, #3e7fb0 100%);
+  --bar-fill-radius: 1px;
+  --bar-trans: width 0.3s ease;
+
+  --sb-size: 12px;
+  --sb-track: #1f1f1f;
+  --sb-thumb: linear-gradient(90deg, #4e4e4e 0%, #5a5a5a 50%, #4a4a4a 100%);
+  --sb-thumb-border: 1px solid #121212;
+  --sb-thumb-radius: 2px;
+  --sb-thumb-shadow: none;
+  --sb-thumb-hover: #6a6a6a;
+
+  --overlay: rgba(0, 0, 0, 0.55);
+  --modal-bg: linear-gradient(180deg, #393939 0%, #2b2b2b 100%);
+  --modal-border: 1px solid #121212;
+  --modal-radius: 3px;
+  --modal-shadow: 0 16px 50px rgba(0, 0, 0, 0.7);
+  --mtb-bg: linear-gradient(180deg, #4a4a4a 0%, #2e2e2e 100%);
+  --mtb-fg: #c9c9c9;
+  --mtb-border: 1px solid #121212;
+  --mtb-pad: 6px 6px 6px 12px;
+  --mclose-w: 26px;
+  --mclose-h: 20px;
+  --mfoot-bg: rgba(0, 0, 0, 0.2);
+  --mfoot-border: 1px solid #3a3a3a;
+
+  --toast-bg: #2e2e2e;
+  --toast-fg: #d6d6d6;
+  --toast-border: 1px solid #121212;
+  --toast-radius: 3px;
+  --toast-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+
+  --hero-border: 1px solid #121212;
+  --hero-radius: 3px;
+  --dur: 0.12s;
+
+  & .nav-btn.active { font-weight: 700; }
+  & .dlp-step-idx { border-radius: 50%; }
+}

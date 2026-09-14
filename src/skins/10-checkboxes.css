@@ -1,0 +1,180 @@
+/* ══════════════════════════════════════════════════════════════════════
+   RETRO CHECKBOXES
+
+   None of the retro systems had on/off switches — every setting was a
+   checkbox, box to the left of its label. So on these ten skins the switch
+   markup (.toggle-wrap / .tgl-knob, toggled by `.on` in app.js) is drawn as
+   that system's checkbox instead. CSS only; the modern skins and Liquid Glass
+   keep their switches.
+
+   The whole row is the hit area, as a checkbox label was: the box goes
+   static and stretches an invisible ::before over the row, so a click on the
+   label lands on .toggle-wrap itself and the existing handler toggles it.
+   The tick is a background image, not a pseudo-element, since ::before is
+   taken by the hit area.
+   ══════════════════════════════════════════════════════════════════════ */
+
+body:is(.theme-steam-green, .theme-steam2010, .theme-win98, .theme-win95,
+        .theme-winxp, .theme-royalenoir, .theme-winvista, .theme-win7,
+        .theme-macosclassic, .theme-macosaqua) {
+  --cb-size: 13px;
+  --cb-radius: 0;
+  --cb-border: 0;
+  --cb-bg: #ffffff;
+  --cb-shadow: none;
+  --cb-hover-bg: var(--cb-bg);
+  --cb-hover-border: var(--cb-border);
+  --cb-hover-shadow: var(--cb-shadow);
+  --cb-active-bg: var(--cb-hover-bg);
+  --cb-active-shadow: var(--cb-hover-shadow);
+  --cb-on-bg: var(--cb-bg);
+  --cb-tick-size: 7px 7px;
+  --cb-tick: none;
+
+  & .sg-toggle-row {
+    position: relative;
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+    gap: 7px;
+    font-weight: 400;
+    cursor: pointer;
+  }
+  & .toggle-wrap,
+  & .toggle-wrap.on {
+    position: static;
+    flex-shrink: 0;
+    width: var(--cb-size);
+    height: var(--cb-size);
+    background: var(--cb-bg);
+    border: var(--cb-border);
+    border-radius: var(--cb-radius);
+    box-shadow: var(--cb-shadow);
+    transition: none;
+  }
+  & .toggle-wrap::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+  }
+  & .toggle-wrap.on {
+    background: var(--cb-tick) center / var(--cb-tick-size) no-repeat, var(--cb-on-bg);
+  }
+  & .sg-toggle-row:hover .toggle-wrap {
+    background-color: transparent;
+    background: var(--cb-hover-bg);
+    border: var(--cb-hover-border);
+    box-shadow: var(--cb-hover-shadow);
+  }
+  & .sg-toggle-row:hover .toggle-wrap.on {
+    background: var(--cb-tick) center / var(--cb-tick-size) no-repeat, var(--cb-hover-bg);
+  }
+  & .sg-toggle-row:active .toggle-wrap {
+    background: var(--cb-active-bg);
+    box-shadow: var(--cb-active-shadow);
+  }
+  & .sg-toggle-row:active .toggle-wrap.on {
+    background: var(--cb-tick) center / var(--cb-tick-size) no-repeat, var(--cb-active-bg);
+  }
+  & .tgl-knob { display: none; }
+}
+
+/* ── Windows 95 / 98: sunken white well, black pixel tick ─────────────── */
+body:is(.theme-win95, .theme-win98) {
+  --cb-size: 13px;
+  --cb-bg: #ffffff;
+  --cb-shadow: var(--sunken);
+  --cb-active-bg: #c0c0c0;
+  --cb-tick-size: 7px 7px;
+  --cb-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7' shape-rendering='crispEdges'%3E%3Cpath fill-rule='evenodd' d='M7 0H6v1H5v1H4v1H3v1H2V3H1V2H0v3h1v1h1v1h1V6h1V5h1V4h1V3h1V0z'/%3E%3C/svg%3E");
+}
+
+/* ── Windows XP: blue-bordered box, orange hover rim, green tick ──────── */
+body.theme-winxp {
+  --cb-size: 13px;
+  --cb-border: 1px solid #1c5180;
+  --cb-bg: linear-gradient(135deg, #dcdcd7 0%, #ffffff 100%);
+  --cb-hover-shadow: inset -2px -2px #f8b636, inset 2px 2px #fedf9c;
+  --cb-active-bg: linear-gradient(135deg, #b0b0a7 0%, #e3e1d2 100%);
+  --cb-active-shadow: none;
+  --cb-tick-size: 9px 9px;
+  --cb-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9'%3E%3Cpath d='M1 4.2l2.6 2.6L8 1.8' fill='none' stroke='%2321a121' stroke-width='2'/%3E%3C/svg%3E");
+}
+
+/* ── Royale Noir: the same box in black, blue hover rim ───────────────── */
+body.theme-royalenoir {
+  --cb-size: 13px;
+  --cb-border: 1px solid #8a8a8a;
+  --cb-bg: linear-gradient(135deg, #0e0e0e 0%, #2e2e2e 100%);
+  --cb-hover-shadow: inset -2px -2px #1d5fc0, inset 2px 2px #5aa0ff;
+  --cb-active-bg: #0a0a0a;
+  --cb-active-shadow: none;
+  --cb-tick-size: 9px 9px;
+  --cb-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9'%3E%3Cpath d='M1 4.2l2.6 2.6L8 1.8' fill='none' stroke='%237cbcff' stroke-width='2'/%3E%3C/svg%3E");
+}
+
+/* ── Vista / 7: soft gradient box, blue glow on hover, dark blue tick ─── */
+body:is(.theme-winvista, .theme-win7) {
+  --cb-size: 13px;
+  --cb-border: 1px solid #8f8f8f;
+  --cb-bg: linear-gradient(135deg, #e6e6e6 0%, #ffffff 100%);
+  --cb-shadow: inset 0 0 0 1px #f4f4f4, inset 1px 1px 0 1px #aeaeae, inset -1px -1px 0 1px #dddddd;
+  --cb-hover-bg: linear-gradient(135deg, #b1dffd 0%, #e9f7fe 100%);
+  --cb-hover-border: 1px solid #5586a3;
+  --cb-hover-shadow: inset 0 0 0 1px #def9fa, inset 1px 1px 0 1px #79c6f9, inset -1px -1px 0 1px #c6e9fc;
+  --cb-active-bg: linear-gradient(135deg, #7bbcea 0%, #ceecfd 100%);
+  --cb-active-shadow: inset 0 0 0 1px #c2e4fc, inset 1px 1px 0 1px #5eb6f7, inset -1px -1px 0 1px #9dd5fc;
+  --cb-tick-size: 9px 9px;
+  --cb-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9'%3E%3Cpath d='M1 4.4l2.5 2.5L8 1.6' fill='none' stroke='%234a5f97' stroke-width='1.8'/%3E%3C/svg%3E");
+}
+
+/* ── Mac OS Classic: bevelled Platinum box with an X ──────────────────── */
+body.theme-macosclassic {
+  --cb-size: 12px;
+  --cb-border: 1px solid #000000;
+  --cb-bg: #eeeeee;
+  --cb-shadow: inset 1px 1px #ffffff, inset -1px -1px #aaaaaa;
+  --cb-active-bg: #777777;
+  --cb-active-shadow: inset 1px 1px #444444;
+  --cb-tick-size: 10px 10px;
+  --cb-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1L1 9' stroke='%23000' stroke-width='1.4'/%3E%3C/svg%3E");
+}
+
+/* ── Mac OS X Aqua: white gel box, blue gel when checked ──────────────── */
+body.theme-macosaqua {
+  --cb-size: 14px;
+  --cb-radius: 3px;
+  --cb-border: 1px solid #7f7f7f;
+  --cb-bg: var(--gel-white);
+  --cb-shadow: 0 1px 1px rgba(0, 0, 0, 0.15), inset 0 1px 0 #ffffff;
+  --cb-on-bg: var(--gel-blue);
+  --cb-active-bg: var(--gel-press);
+  --cb-tick-size: 10px 10px;
+  --cb-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 5.2l2.6 2.6L8.8 1.8' fill='none' stroke='%23000' stroke-width='1.9' stroke-linecap='round'/%3E%3C/svg%3E");
+
+  & .toggle-wrap.on { border-color: #2c5fa8; }
+  & .sg-toggle-row:hover .toggle-wrap.on,
+  & .sg-toggle-row:active .toggle-wrap.on { border-color: #2c5fa8; }
+}
+
+/* ── Steam 2003: sunken olive box, gold pixel tick ────────────────────── */
+body.theme-steam-green {
+  --cb-size: 12px;
+  --cb-bg: #3e4637;
+  --cb-shadow: var(--sunken);
+  --cb-active-bg: #353c2f;
+  --cb-tick-size: 7px 7px;
+  --cb-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7' shape-rendering='crispEdges'%3E%3Cpath fill='%23c4b550' fill-rule='evenodd' d='M7 0H6v1H5v1H4v1H3v1H2V3H1V2H0v3h1v1h1v1h1V6h1V5h1V4h1V3h1V0z'/%3E%3C/svg%3E");
+}
+
+/* ── Steam 2010: dark inset box, light tick ───────────────────────────── */
+body.theme-steam2010 {
+  --cb-size: 13px;
+  --cb-radius: 2px;
+  --cb-border: 1px solid #0d0d0d;
+  --cb-bg: #1b1b1b;
+  --cb-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.06);
+  --cb-hover-border: 1px solid #5c86a3;
+  --cb-active-bg: #111111;
+  --cb-tick-size: 9px 9px;
+  --cb-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9'%3E%3Cpath d='M1 4.4l2.5 2.5L8 1.6' fill='none' stroke='%23dcdcdc' stroke-width='1.8'/%3E%3C/svg%3E");
+}

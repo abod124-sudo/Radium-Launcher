@@ -1,0 +1,765 @@
+/* ══════════════════════════════════════════════════════════════════════
+   MODERN FAMILY — Neon Dark, Glass Light, Forest Green, Black & White,
+   Black & White (Inverted)
+
+   One structure, five palettes. Inter throughout, soft radii, hairline
+   borders, restrained motion. No backdrop-filter anywhere: a blur clipped
+   by a radius is exactly what rendered with stair-stepped corners on the
+   user's GPU, and without an image behind them these surfaces gain nothing
+   from it.
+
+   Modern Neon Dark is `theme-neondark` rather than `theme-moderndark`: that
+   class belongs to Liquid Glass's layout and must not be touched.
+   ══════════════════════════════════════════════════════════════════════ */
+
+@keyframes sk-tab-in     { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes sk-card-in    { from { opacity: 0; transform: scale(0.96) translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes sk-item-in    { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
+@keyframes sk-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sk-overlay-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes sk-modal-out  { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(6px) scale(0.97); } }
+@keyframes sk-modal-in   { from { opacity: 0; transform: translateY(10px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes sk-net-drop   { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes sk-net-option { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+@keyframes sk-net-ring   { from { opacity: 0.9; transform: scale(1); } to { opacity: 0; transform: scale(1.07); } }
+@keyframes sk-logo-swap  {
+  0%   { transform: rotateY(-90deg) scale(0.85); opacity: 0.3; }
+  60%  { transform: rotateY(0deg) scale(1.06); opacity: 1; }
+  100% { transform: none; }
+}
+
+body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
+        .theme-blackandwhite, .theme-blackandwhite-inverted) {
+  --font-ui:   'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  --fs: 12px;
+  --heading-font:   var(--font-ui);
+  --heading-size:   10.5px;
+  --heading-weight: 600;
+  --heading-case:   uppercase;
+  --heading-ls:     0.08em;
+
+  --content-bg:  transparent;
+  --content-pad: 16px;
+
+  --panel-radius: 10px;
+  --panel-pad:    14px;
+  --well-radius:  8px;
+  --tile-radius:  8px;
+  --card-radius:  10px;
+  --media-radius: 6px;
+  /* Rounded squares, scaled to the picture: ~5px on a table row's avatar,
+     ~18px on the profile header's. */
+  --avatar-radius: 22%;
+  --badge-radius:  999px;
+  --card-lift: translateY(-4px) scale(1.02);
+  --tile-hover-bg: var(--hover);
+
+  --header-border: 0;
+  --header-pad:    0 0 2px;
+  --header-size:   18px;
+  --header-weight: 650;
+  --header-ls:     -0.01em;
+  --title-border:  0;
+  --title-fg:      var(--muted);
+
+  --tb-h:      36px;
+  --tb-bg:     transparent;
+  --tb-fg:     var(--muted);
+  --tb-border: 1px solid var(--line);
+  --tb-size:   10.5px;
+  --tb-weight: 600;
+  --tb-ls:     0.14em;
+  --tb-pad:    0 0 0 14px;
+  --ctl-w: 44px;
+  --ctl-h: 36px;
+  --ctl-fg: var(--muted);
+  --ctl-hover-bg: var(--hover);
+  --ctl-hover-fg: var(--text);
+  --ctl-active-bg: var(--line-strong);
+
+  --side-w:   188px;
+  --side-bg:  transparent;
+  --side-pad: 12px 10px;
+  --side-gap: 2px;
+  --logo-size:   38px;
+  --logo-radius: 0;
+  --brand-fg:    var(--text);
+  --brand-size:  16px;
+
+  --nav-radius: 7px;
+  --nav-pad:    8px 10px;
+  --nav-size:   12px;
+  --nav-weight: 500;
+  --nav-fg:     var(--muted);
+  --nav-hover-bg: var(--hover);
+  --nav-hover-fg: var(--text);
+  --nav-active-bg: var(--accent-soft);
+  --nav-active-fg: var(--text);
+  --nav-active-shadow: inset 3px 0 0 var(--accent);
+
+  --field-bg:     var(--surface-sunken);
+  --field-border: 1px solid var(--line-strong);
+  --field-radius: 7px;
+  --field-pad:    7px 10px;
+  --field-size:   12px;
+  --field-focus-border: 1px solid var(--accent);
+  --field-focus-shadow: 0 0 0 3px var(--accent-soft);
+  --focus: var(--accent);
+
+  --btn-bg:     var(--raised);
+  --btn-fg:     var(--text);
+  --btn-border: 1px solid var(--line-strong);
+  --btn-radius: 7px;
+  --btn-pad:    6px 14px;
+  --btn-size:   12px;
+  --btn-weight: 600;
+  --btn-hover-bg: var(--raised-hover);
+  --btn-active-bg: var(--raised-hover);
+  --btn-press: scale(0.97);
+
+  --pri-radius: 9px;
+  --pri-border: 1px solid transparent;
+  --pri-weight: 700;
+
+  --danger-bg: #e5484d;
+  --danger-fg: #ffffff;
+  --danger-border: 1px solid transparent;
+  --danger-hover-bg: #ec5d5e;
+  --danger-shadow: none;
+  --run-shadow: 0 6px 20px -6px rgba(229, 72, 77, 0.6);
+
+  --menu-bg:     var(--surface-menu);
+  --menu-border: 1px solid var(--line-strong);
+  --menu-radius: 10px;
+  --menu-pad:    5px;
+  --item-radius: 6px;
+  --item-pad:    7px 10px;
+  --item-size:   12px;
+  --item-fg:     var(--text);
+  --item-hover-bg: var(--hover-strong);
+  --item-hover-fg: var(--text);
+  --item-sel-weight: 600;
+  --item-sel-bg: var(--hover-strong);
+  --item-sel-fg: var(--text);
+  --toast-radius: 10px;
+
+  --th-bg:     var(--surface-sunken);
+  --th-fg:     var(--muted);
+  --th-size:   10.5px;
+  --th-weight: 600;
+  --th-case:   uppercase;
+  --th-ls:     0.06em;
+  --th-sep:    transparent;
+  --th-line:   var(--line);
+  --row-bg:    transparent;
+  --row-hover-bg: var(--hover);
+  --row-hover-fg: var(--text);
+
+  --chip-radius: 7px;
+  --chip-fg: var(--muted);
+  --chip-hover-bg: var(--hover);
+  --chip-hover-fg: var(--text);
+  --chip-active-bg: var(--accent-soft);
+  --chip-active-fg: var(--accent-text);
+
+  /* The play-mode control sits on the hero's black scrim in every skin. */
+  --seg-bg:     rgba(255, 255, 255, 0.08);
+  --seg-border: 1px solid rgba(255, 255, 255, 0.14);
+  --seg-radius: 999px;
+  --seg-shadow: none;
+  --seg-pad:    3px;
+  --seg-fg:     rgba(255, 255, 255, 0.72);
+  --seg-divider: 0;
+  --seg-btn-radius: 999px;
+
+  /* Sized and sprung like the Liquid Glass switch: 42×24, a 20px knob that
+     springs across and stretches toward its destination while pressed (see
+     the knob rules below). The outline is an inset shadow rather than a
+     border so the knob's travel is the full 18px. */
+  --tgl-w: 42px;
+  --tgl-h: 24px;
+  --tgl-bw: 0px;
+  --tgl-radius: 999px;
+  --tgl-bg: rgba(120, 120, 128, 0.36);
+  --tgl-border: 0;
+  --tgl-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  --knob: 20px;
+  --knob-inset: 2px;
+  --knob-bg: #ffffff;
+  --knob-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  --tgl-on-bg: var(--accent);
+  --tgl-on-border: 0;
+  --knob-on-bg: #ffffff;
+
+  --bar-h: 10px;
+  --bar-pad: 0;
+  --bar-bg: var(--raised);
+  --bar-border: 0;
+  --bar-radius: 999px;
+  --bar-shadow: none;
+  --bar-fill: linear-gradient(90deg, var(--accent), var(--accent-2));
+  --bar-fill-radius: 999px;
+  --bar-trans: width 0.3s var(--ease);
+
+  --sb-size: 10px;
+  --sb-track: transparent;
+  --sb-thumb: var(--line-strong);
+  --sb-thumb-hover: var(--muted);
+  --sb-thumb-border: 2px solid transparent;
+  --sb-thumb-clip: padding-box;
+  --sb-thumb-radius: 999px;
+  --sb-thumb-shadow: none;
+
+  --overlay: rgba(0, 0, 0, 0.55);
+  --modal-bg: var(--surface-menu);
+  --modal-border: 1px solid var(--line-strong);
+  --modal-radius: 14px;
+  --modal-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  --mtb-bg: transparent;
+  --mtb-fg: var(--text);
+  --mtb-border: 0;
+  --mtb-pad: 12px 10px 0 18px;
+  --mtb-size: 13px;
+  --mtb-weight: 650;
+  --mtb-ls: 0;
+  --mclose-w: 28px;
+  --mclose-h: 28px;
+  --mfoot-border: 0;
+  --ctl-close-fg: var(--muted);
+
+  --hero-radius: 12px;
+  --hero-border: 1px solid var(--line);
+  --hero-shadow: none;
+
+  --dur: 0.16s;
+  --tab-anim: sk-tab-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --menu-in:  sk-menu-in 0.14s var(--ease);
+  --menu-out: sk-menu-out 0.14s ease-in forwards;
+
+  & .modal-close-btn { border-radius: 7px; }
+
+  /* Keyboard focus: a soft 2px ring that follows the control's radius. The
+     retro dotted 1px rectangle, drawn in white on Black & White, read as a
+     broken border. */
+  & :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--focus) 55%, transparent);
+    outline-offset: 2px;
+  }
+  & :focus-visible:active { outline-color: transparent; }
+  & .settings-group { gap: 10px; }
+
+  & .toggle-wrap { transition: background-color 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
+  & .tgl-knob {
+    transition: transform 0.4s cubic-bezier(0.34, 1.4, 0.64, 1),
+                width 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+                background-color 0.2s ease;
+  }
+  & .toggle-wrap:active .tgl-knob { width: 25px; }
+  & .toggle-wrap.on:active .tgl-knob { transform: translateX(13px); }
+
+  /* ── Network switcher ──
+     The card the modern skins had before the remake: a 38px logo, a big
+     caret that turns to face the open menu, a menu that drops in with its
+     options following, and — when the network actually changes — a ring
+     that pulses off the button while the logo flips over. app.js adds
+     `.network-just-switched` for that (pulseNetworkSwitcher). */
+  & .sidebar-logo .logo-combo,
+  & .sidebar-logo .logo-combo.active,
+  & .sidebar-logo .logo-combo.active:hover {
+    gap: 10px;
+    padding: 8px 10px 8px 8px;
+    color: var(--text);
+    background: var(--raised);
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    box-shadow: none;
+  }
+  & .sidebar-logo .logo-combo:hover,
+  & .sidebar-logo .logo-combo.active,
+  & .sidebar-logo .logo-combo.active:hover {
+    background: var(--raised-hover);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line-strong));
+  }
+  & .sidebar-logo .logo-caret {
+    border-left-width: 7px;
+    border-right-width: 7px;
+    border-top-width: 9px;
+    color: var(--text);
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), color 0.16s ease;
+  }
+  & .sidebar-logo .logo-combo:hover .logo-caret,
+  & .sidebar-logo .logo-combo.active .logo-caret { color: var(--text); }
+
+  & .network-menu { top: calc(100% - 2px); }
+  & .network-menu:not([hidden]) {
+    animation: sk-net-drop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top center;
+  }
+  & .network-menu:not([hidden]) .network-option {
+    animation: sk-net-option 0.24s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+  & .network-menu:not([hidden]) .network-option:nth-of-type(1) { animation-delay: 0.04s; }
+  & .network-menu:not([hidden]) .network-option:nth-of-type(2) { animation-delay: 0.09s; }
+  & .network-menu.is-closing .network-option { animation: none; }
+  & .network-menu .network-option-icon { width: 24px; height: 24px; }
+  & .network-option-name { font-size: 14px; }
+
+  & #networkSwitcher.network-just-switched::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border: 2px solid var(--accent);
+    border-radius: inherit;
+    pointer-events: none;
+    animation: sk-net-ring 0.5s ease-out forwards;
+  }
+  & #networkSwitcher.network-just-switched img {
+    animation: sk-logo-swap 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* ── Motion ──
+     What the modern skins animated before the remake, plus the entrances
+     Liquid Glass has. Entrance animations use `backwards`, never `both`: a
+     finished animation that kept filling would pin `transform: none` over
+     the hover lifts below. prefers-reduced-motion is honoured by the global
+     rule in 03-content.css. */
+
+  /* Sidebar tabs slide toward the content they open. */
+  & .sidebar-nav .nav-btn {
+    transition: background-color 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                color 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  & .sidebar-nav .nav-btn:hover { transform: translateX(4px); }
+
+  /* PLAY / DOWNLOAD lift on hover and press in. */
+  & .home-hero-bar :is(.btn-play, .btn-download-big) {
+    transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  & .home-hero-bar :is(.btn-play, .btn-download-big):hover { transform: translateY(-1px); }
+  & .home-hero-bar :is(.btn-play, .btn-download-big):active { transform: scale(0.96); }
+
+  /* The gear nudges round on hover, and turns fully while its menu is open. */
+  & .home-hero-bar #btnManageClient[aria-expanded="false"]:hover svg { transform: rotate(45deg); }
+
+  /* Manage menu: rows follow the panel in; the close does not stagger. */
+  & #manageMenu:not([hidden]) .manage-item { animation: sk-item-in 0.18s ease backwards; }
+  & #manageMenu:not([hidden]) .manage-item:nth-of-type(1) { animation-delay: 0.03s; }
+  & #manageMenu:not([hidden]) .manage-item:nth-of-type(2) { animation-delay: 0.06s; }
+  & #manageMenu:not([hidden]) .manage-item:nth-of-type(3) { animation-delay: 0.09s; }
+  & #manageMenu:not([hidden]) .manage-item:nth-of-type(4) { animation-delay: 0.12s; }
+  & #manageMenu:not([hidden]) .manage-item:nth-of-type(5) { animation-delay: 0.15s; }
+  & #manageMenu.is-closing .manage-item { animation: none; }
+
+  /* Status cards and stat tiles rise on hover. */
+  & :is(.qs-card, .room-stat-item, .profile-stat-item) {
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  & .qs-card:hover {
+    transform: translateY(-2px);
+    border: var(--card-hover-border);
+    box-shadow: var(--card-hover-shadow);
+  }
+  & :is(.room-stat-item, .profile-stat-item):hover {
+    transform: translateY(-2px);
+    border: var(--card-hover-border);
+  }
+  & .room-creator-box { transition: background-color 0.2s ease, border-color 0.2s ease; }
+
+  /* Cards arrive with a short cascade each time a page of them renders. */
+  & :is(.room-card, .feed-post-card) {
+    animation: sk-card-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+  & .room-card {
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.2s ease, border-color 0.2s ease;
+  }
+  & :is(.room-card, .feed-post-card):nth-child(2) { animation-delay: 0.03s; }
+  & :is(.room-card, .feed-post-card):nth-child(3) { animation-delay: 0.06s; }
+  & :is(.room-card, .feed-post-card):nth-child(4) { animation-delay: 0.09s; }
+  & :is(.room-card, .feed-post-card):nth-child(5) { animation-delay: 0.12s; }
+  & :is(.room-card, .feed-post-card):nth-child(6) { animation-delay: 0.15s; }
+  & :is(.room-card, .feed-post-card):nth-child(n+7) { animation-delay: 0.18s; }
+
+  /* Views that appear inside a tab: room and profile detail, the download
+     panel when a download starts. */
+  & :is(#roomsDetailView, #peopleDetailView):not(.hidden),
+  & .dl-progress-block {
+    animation: sk-tab-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  /* Dialogs fade their backdrop and pop the box in. */
+  & .modal-overlay { animation: sk-overlay-in 0.2s ease; }
+  & .modal-box { animation: sk-modal-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+  /* And back out. hideModal() in app.js adds .is-closing and waits
+     MODAL_EXIT_MS (180ms) before hiding — keep the two in step. */
+  & .modal-overlay.is-closing { animation: sk-overlay-out 0.18s ease-in forwards; }
+  & .modal-overlay.is-closing .modal-box { animation: sk-modal-out 0.18s ease-in forwards; }
+
+  /* Toasts spring in from the edge and slide back out (toast() drops
+     `.show` before removing the element). */
+  & .toast {
+    transform: translateX(24px);
+    transition: opacity 0.25s ease, transform 0.4s cubic-bezier(0.34, 1.4, 0.64, 1);
+  }
+  & .toast.show { transform: none; }
+  & .panel-header h2 { font-family: var(--font-ui); }
+
+  /* Gliding thumb for the play mode. 80px buttons and a 4px gap are what
+     style.css's `.vr-active .mode-slider { translateX(84px) }` assumes. */
+  & .mode-toggle-wrap { gap: 4px; }
+  & .mode-btn { width: 80px; }
+  & .mode-btn.active { background: transparent; box-shadow: none; }
+  & .mode-slider {
+    display: block;
+    position: absolute;
+    z-index: 0;
+    top: 3px; bottom: 3px; left: 3px;
+    width: 80px;
+    border-radius: 999px;
+    background: var(--seg-active-bg);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    transition: transform 0.24s var(--ease);
+  }
+
+  /* Status lights get a soft halo in their own colour. */
+  & .qs-icon-indicator { box-shadow: 0 0 0 3px color-mix(in srgb, var(--line-strong) 35%, transparent); }
+  & .qs-card:is(.online, .installed) .qs-icon-indicator { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+  & .qs-card.offline .qs-icon-indicator { box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent); }
+  & .qs-card:is(.not-installed, .update-available) .qs-icon-indicator { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+  & .dlp-dot { box-shadow: 0 0 0 3px var(--accent-soft); }
+  & .dlp-step-idx { border-radius: 50%; }
+  & .home-hero-bar #btnManageClient {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    box-shadow: none;
+  }
+  & .home-hero-bar #btnManageClient:hover,
+  & .home-hero-bar #btnManageClient[aria-expanded="true"] {
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+  & .home-hero-bar #btnManageClient svg { transition: transform 0.25s var(--ease); }
+  & .home-hero-bar #btnManageClient[aria-expanded="true"] svg { transform: rotate(90deg); }
+}
+
+/* ── Modern Neon Dark ─────────────────────────────────────────────────── */
+body.theme-neondark {
+  --win-color:      #0c0c12;
+  --surface:        #13131c;
+  --surface-sunken: #0f0f16;
+  --surface-menu:   #1a1a25;
+  --btn-color:      #1c1c28;
+  --raised:         #1c1c28;
+  --raised-hover:   #262636;
+
+  --text:  #ececf3;
+  --muted: #8f8fa6;
+  --line:        rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --hover:        rgba(255, 255, 255, 0.045);
+  --hover-strong: rgba(255, 255, 255, 0.08);
+
+  --accent:      #ff3d8b;
+  --accent-2:    #a855f7;
+  --accent-text: #ff77ae;
+  --on-accent:   #ffffff;
+  --accent-soft: rgba(255, 61, 139, 0.14);
+  --sel-bg: rgba(255, 61, 139, 0.38);
+  --sel-fg: #ffffff;
+  --ok:   #34d399;
+  --warn: #fbbf24;
+  --err:  #f87171;
+  --info: #60a5fa;
+
+  --win-bg:
+    radial-gradient(900px 420px at 105% -20%, rgba(168, 85, 247, 0.12), transparent 60%),
+    radial-gradient(700px 380px at -10% 110%, rgba(255, 61, 139, 0.07), transparent 60%),
+    #0c0c12;
+  --side-bg: rgba(255, 255, 255, 0.012);
+  --panel-bg: #13131c;
+  --panel-border: 1px solid var(--line);
+  --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --well-bg: #0f0f16;
+  --well-border: 1px solid var(--line);
+  --tile-bg: #181823;
+  --tile-border: 1px solid var(--line);
+  --tile-value: var(--accent-text);
+  --card-hover-border: 1px solid rgba(255, 61, 139, 0.45);
+  --card-hover-shadow: 0 10px 28px -12px rgba(255, 61, 139, 0.45);
+  --media-border: 1px solid var(--line);
+  --menu-shadow: 0 18px 44px rgba(0, 0, 0, 0.6);
+  --toast-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+
+  --pri-bg: linear-gradient(135deg, #ff3d8b 0%, #a855f7 100%);
+  --pri-fg: #ffffff;
+  --pri-shadow: 0 8px 24px -8px rgba(255, 61, 139, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  --pri-hover-bg: linear-gradient(135deg, #ff5a9d 0%, #b86dfb 100%);
+  --pri-hover-shadow: 0 10px 30px -8px rgba(255, 61, 139, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --seg-active-bg: linear-gradient(135deg, #ff3d8b, #a855f7);
+  --seg-active-fg: #ffffff;
+}
+
+/* ── Modern Glass Light ───────────────────────────────────────────────── */
+body.theme-modernlight {
+  --win-color:      #eef1f7;
+  --surface:        #ffffff;
+  --surface-sunken: #f6f7fb;
+  --surface-menu:   #ffffff;
+  --btn-color:      #ffffff;
+  --raised:         #ffffff;
+  --raised-hover:   #f3f5fa;
+
+  --text:  #0f172a;
+  --muted: #586174;
+  --line:        rgba(15, 23, 42, 0.08);
+  --line-strong: rgba(15, 23, 42, 0.15);
+  --hover:        rgba(15, 23, 42, 0.045);
+  --hover-strong: rgba(79, 70, 229, 0.08);
+
+  --accent:      #4f46e5;
+  --accent-2:    #8b5cf6;
+  --accent-text: #4338ca;
+  --on-accent:   #ffffff;
+  --accent-soft: rgba(79, 70, 229, 0.1);
+  --sel-bg: rgba(79, 70, 229, 0.2);
+  --sel-fg: #0f172a;
+  --ok:   #15803d;
+  --warn: #b45309;
+  --err:  #dc2626;
+  --info: #2563eb;
+
+  --win-bg:
+    radial-gradient(900px 460px at -5% -10%, #e0e7ff 0%, transparent 62%),
+    radial-gradient(800px 460px at 110% 110%, #fae8ff 0%, transparent 58%),
+    #eef1f7;
+  --tb-bg: rgba(255, 255, 255, 0.5);
+  --side-bg: rgba(255, 255, 255, 0.5);
+  --side-border: 1px solid rgba(15, 23, 42, 0.06);
+  --panel-bg: rgba(255, 255, 255, 0.82);
+  --panel-border: 1px solid rgba(15, 23, 42, 0.07);
+  --panel-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px -14px rgba(15, 23, 42, 0.18), inset 0 1px 0 #ffffff;
+  --well-bg: #f8f9fc;
+  --well-border: 1px solid var(--line);
+  --tile-bg: #f5f6fb;
+  --tile-border: 1px solid rgba(15, 23, 42, 0.06);
+  --tile-value: var(--accent-text);
+  --card-bg: #ffffff;
+  --card-hover-border: 1px solid rgba(79, 70, 229, 0.35);
+  --card-hover-shadow: 0 12px 28px -14px rgba(79, 70, 229, 0.4);
+  --media-border: 1px solid rgba(15, 23, 42, 0.06);
+  --menu-shadow: 0 18px 40px -8px rgba(15, 23, 42, 0.25);
+  --toast-shadow: 0 12px 30px -8px rgba(15, 23, 42, 0.25);
+  --overlay: rgba(15, 23, 42, 0.35);
+  --modal-shadow: 0 30px 70px -10px rgba(15, 23, 42, 0.35);
+
+  --pri-bg: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  --pri-fg: #ffffff;
+  --pri-shadow: 0 8px 20px -8px rgba(79, 70, 229, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --pri-hover-bg: linear-gradient(135deg, #7174f3 0%, #9a70f8 100%);
+  --pri-hover-shadow: 0 10px 26px -8px rgba(79, 70, 229, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  --btn-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --seg-active-bg: #ffffff;
+  --seg-active-fg: #1e1b4b;
+  --tgl-bg: #e3e4eb;
+  --tgl-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05), inset 0 1px 2px rgba(15, 23, 42, 0.12);
+  --bar-bg: #e5e8f0;
+  --sb-thumb: rgba(15, 23, 42, 0.18);
+  --sb-thumb-hover: rgba(15, 23, 42, 0.32);
+}
+
+/* ── Modern Forest Green ──────────────────────────────────────────────── */
+body.theme-moderngreen {
+  --win-color:      #0b120e;
+  --surface:        #111a15;
+  --surface-sunken: #0d1511;
+  --surface-menu:   #16221b;
+  --btn-color:      #18241d;
+  --raised:         #18241d;
+  --raised-hover:   #203027;
+
+  --text:  #e4efe7;
+  --muted: #8ba395;
+  --line:        rgba(214, 255, 228, 0.07);
+  --line-strong: rgba(214, 255, 228, 0.13);
+  --hover:        rgba(214, 255, 228, 0.045);
+  --hover-strong: rgba(214, 255, 228, 0.08);
+
+  --accent:      #34d399;
+  --accent-2:    #10b981;
+  --accent-text: #5fe3b0;
+  --on-accent:   #03150b;
+  --accent-soft: rgba(52, 211, 153, 0.13);
+  --sel-bg: rgba(52, 211, 153, 0.35);
+  --sel-fg: #ffffff;
+  --ok:   #4ade80;
+  --warn: #facc15;
+  --err:  #f87171;
+  --info: #7dd3fc;
+
+  --win-bg:
+    radial-gradient(900px 460px at -10% -20%, rgba(52, 211, 153, 0.11), transparent 60%),
+    radial-gradient(700px 400px at 110% 120%, rgba(16, 185, 129, 0.06), transparent 60%),
+    #0b120e;
+  --side-bg: rgba(214, 255, 228, 0.012);
+  --panel-bg: #111a15;
+  --panel-border: 1px solid var(--line);
+  --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --well-bg: #0d1511;
+  --well-border: 1px solid var(--line);
+  --tile-bg: #152019;
+  --tile-border: 1px solid var(--line);
+  --tile-value: var(--accent-text);
+  --card-hover-border: 1px solid rgba(52, 211, 153, 0.45);
+  --card-hover-shadow: 0 10px 28px -12px rgba(52, 211, 153, 0.35);
+  --media-border: 1px solid var(--line);
+  --menu-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+  --toast-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+
+  --pri-bg: linear-gradient(135deg, #4ade80 0%, #10b981 100%);
+  --pri-fg: #03150b;
+  --pri-shadow: 0 8px 24px -8px rgba(16, 185, 129, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  --pri-hover-bg: linear-gradient(135deg, #6ee79a 0%, #22c792 100%);
+  --pri-hover-shadow: 0 10px 30px -8px rgba(16, 185, 129, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  --seg-active-bg: linear-gradient(135deg, #4ade80, #10b981);
+  --seg-active-fg: #03150b;
+  --tgl-on-bg: #10b981;
+}
+
+/* ── Black & White ────────────────────────────────────────────────────── */
+body.theme-blackandwhite {
+  --win-color:      #000000;
+  --surface:        #0a0a0a;
+  --surface-sunken: #050505;
+  --surface-menu:   #111111;
+  --btn-color:      #161616;
+  --raised:         #161616;
+  --raised-hover:   #202020;
+
+  --text:  #ededed;
+  --muted: #a1a1a1;
+  --line:        #1f1f1f;
+  --line-strong: #2e2e2e;
+  --hover:        rgba(255, 255, 255, 0.05);
+  --hover-strong: rgba(255, 255, 255, 0.09);
+
+  --accent:      #ffffff;
+  --accent-2:    #d4d4d4;
+  --accent-text: #ffffff;
+  --on-accent:   #000000;
+  --accent-soft: rgba(255, 255, 255, 0.09);
+  --sel-bg: #ffffff;
+  --sel-fg: #000000;
+  --ok:   #ffffff;
+  --warn: #a1a1a1;
+  --err:  #ff6166;
+  --info: #a1a1a1;
+
+  --win-bg: #000000;
+  --panel-bg: #0a0a0a;
+  --panel-border: 1px solid var(--line);
+  --well-bg: #050505;
+  --well-border: 1px solid var(--line);
+  --tile-bg: #111111;
+  --tile-border: 1px solid var(--line);
+  --tile-value: #ffffff;
+  --card-hover-border: 1px solid #444444;
+  --card-hover-shadow: none;
+  --media-border: 1px solid var(--line);
+  --menu-shadow: 0 16px 40px rgba(0, 0, 0, 0.8);
+  --toast-shadow: 0 12px 30px rgba(0, 0, 0, 0.8);
+
+  --pri-bg: #ffffff;
+  --pri-fg: #000000;
+  --pri-border: 1px solid #ffffff;
+  --pri-shadow: none;
+  --pri-hover-bg: #e2e2e2;
+  --seg-active-bg: #ffffff;
+  --seg-active-fg: #000000;
+  --tgl-on-bg: #ffffff;
+  --knob-on-bg: #000000;
+  --bar-fill: #ffffff;
+}
+
+/* ── Black & White (Inverted) ─────────────────────────────────────────── */
+body.theme-blackandwhite-inverted {
+  --win-color:      #ffffff;
+  --surface:        #ffffff;
+  --surface-sunken: #fafafa;
+  --surface-menu:   #ffffff;
+  --btn-color:      #ffffff;
+  --raised:         #ffffff;
+  --raised-hover:   #f2f2f2;
+
+  --text:  #0a0a0a;
+  --muted: #666666;
+  --line:        #eaeaea;
+  --line-strong: #d6d6d6;
+  --hover:        rgba(0, 0, 0, 0.04);
+  --hover-strong: rgba(0, 0, 0, 0.06);
+
+  --accent:      #000000;
+  --accent-2:    #333333;
+  --accent-text: #000000;
+  --on-accent:   #ffffff;
+  --accent-soft: rgba(0, 0, 0, 0.06);
+  --sel-bg: #000000;
+  --sel-fg: #ffffff;
+  --ok:   #0a0a0a;
+  --warn: #666666;
+  --err:  #e5484d;
+  --info: #888888;
+
+  --win-bg: #ffffff;
+  --tb-bg: #ffffff;
+  --side-bg: #fafafa;
+  --side-border: 1px solid var(--line);
+  --panel-bg: #ffffff;
+  --panel-border: 1px solid var(--line);
+  --panel-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --well-bg: #ffffff;
+  --well-border: 1px solid var(--line);
+  --tile-bg: #fafafa;
+  --tile-border: 1px solid var(--line);
+  --tile-value: #000000;
+  --card-hover-border: 1px solid #bdbdbd;
+  --card-hover-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.25);
+  --media-border: 1px solid var(--line);
+  --menu-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.22);
+  --toast-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.25);
+  --overlay: rgba(0, 0, 0, 0.3);
+  --modal-shadow: 0 30px 70px -12px rgba(0, 0, 0, 0.3);
+
+  --pri-bg: #000000;
+  --pri-fg: #ffffff;
+  --pri-border: 1px solid #000000;
+  --pri-shadow: none;
+  --pri-hover-bg: #262626;
+  --btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --seg-active-bg: #ffffff;
+  --seg-active-fg: #000000;
+  --tgl-bg: #e5e5e5;
+  --tgl-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05), inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  --tgl-on-bg: #000000;
+  --bar-bg: #ebebeb;
+  --bar-fill: #000000;
+  --sb-thumb: #d4d4d4;
+  --sb-thumb-hover: #a3a3a3;
+
+  /* A black PLAY on the hero's black scrim would have no edge at all. */
+  & .home-hero-bar :is(.btn-play:not(.running), .btn-download-big) {
+    color: #000000;
+    background: #ffffff;
+    border: 1px solid #ffffff;
+  }
+  & .home-hero-bar :is(.btn-play:not(.running), .btn-download-big):hover { background: #e2e2e2; }
+}

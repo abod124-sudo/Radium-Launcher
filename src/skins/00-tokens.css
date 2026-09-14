@@ -1,0 +1,460 @@
+/* ══════════════════════════════════════════════════════════════════════
+   SKINS — design tokens
+
+   Every skin is drawn by one component layer (01-components.css) that reads
+   only the custom properties declared here. A skin file sets the tokens it
+   cares about on `body.theme-<skin>`; anything it leaves alone falls back to
+   the defaults below, most of which are derived from a handful of base
+   tokens, so a skin never ends up with a half-painted component.
+
+   ── Liquid Glass is out of reach, by construction ──
+   Glass is `body.theme-moderndark.glass-enabled`, drawn from style.css plus
+   the sheet glassCss() generates. Nothing in skins/ can match it:
+     - these defaults and every component rule sit under
+       `body:not(.glass-enabled)`;
+     - every skin file keys off its own `body.theme-<skin>` class, and none of
+       them is `theme-moderndark` — the Modern Neon Dark skin is stamped as
+       `theme-neondark` (see skinClass() in app.js and boot.js).
+   So adding, removing or restyling anything here leaves glass exactly as it
+   is. Keep it that way: never add a selector without one of those two roots.
+
+   Tokens holding a *background* (`--*-bg`) may be gradients; the `*-color`
+   tokens are always a plain colour, for the places that need one (legacy
+   tokens, color-mix, borders).
+   ══════════════════════════════════════════════════════════════════════ */
+
+@keyframes sk-fade-up   { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes sk-menu-in   { from { opacity: 0; transform: translateY(-4px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes sk-menu-out  { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-4px) scale(0.985); } }
+@keyframes sk-pulse     { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes sk-blink     { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.2; } }
+
+body:not(.glass-enabled) {
+  /* ── Type ─────────────────────────────────────────────────────────── */
+  --font-ui:        Tahoma, Verdana, sans-serif;
+  --font-mono:      'Lucida Console', Consolas, monospace;
+  --fs:             11px;
+  --heading-font:   var(--font-ui);
+  --heading-size:   11px;
+  --heading-weight: 700;
+  --heading-case:   none;
+  --heading-ls:     0;
+
+  /* ── Palette ──────────────────────────────────────────────────────── */
+  --text:        #000000;
+  --muted:       #555555;
+  --heading:     var(--text);
+  --accent:      #000080;
+  --accent-text: var(--accent);
+  --on-accent:   #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --focus:       var(--accent);
+  --link:        var(--accent-text);
+  --link-hover:  var(--text);
+  --ok:          #1a7f37;
+  --warn:        #9a6700;
+  --err:         #cf222e;
+  --info:        #0969da;
+  --line:        rgba(0, 0, 0, 0.14);
+  --line-strong: rgba(0, 0, 0, 0.28);
+  --sel-bg:      var(--accent);
+  --sel-fg:      var(--on-accent);
+
+  /* ── Surfaces ─────────────────────────────────────────────────────── */
+  --win-color:      #f0f0f0;
+  --surface:        #ffffff;
+  --surface-sunken: #ffffff;
+  --btn-color:      #e1e1e1;
+
+  --win-bg:     var(--win-color);
+  --win-bw:     0px;
+  --win-bc:     transparent;
+  --content-bg: var(--win-bg);
+  --content-pad: 12px;
+
+  --panel-bg:     var(--surface);
+  --panel-fg:     var(--text);
+  --panel-border: 1px solid var(--line-strong);
+  --panel-radius: 0;
+  --panel-shadow: none;
+  --panel-pad:    12px;
+
+  --well-bg:     var(--surface-sunken);
+  --well-fg:     var(--text);
+  --well-border: 1px solid var(--line-strong);
+  --well-radius: 0;
+  --well-shadow: none;
+
+  --card-bg:           var(--panel-bg);
+  --card-border:       var(--panel-border);
+  --card-radius:       var(--panel-radius);
+  --card-shadow:       var(--panel-shadow);
+  --card-hover-bg:     var(--card-bg);
+  --card-hover-border: var(--card-border);
+  --card-hover-shadow: var(--card-shadow);
+  --card-lift:         none;
+
+  --tile-bg:     var(--well-bg);
+  --tile-border: var(--well-border);
+  --tile-radius: var(--well-radius);
+  --tile-shadow: var(--well-shadow);
+  --tile-value:  var(--accent-text);
+
+  --media-bg:     var(--surface-sunken);
+  --media-border: 1px solid var(--line-strong);
+  --media-radius: 0;
+
+  /* Page headers (ROOMS, SETTINGS, ...) */
+  --header-bg:     transparent;
+  --header-fg:     var(--text);
+  --header-border: 1px solid var(--line);
+  --header-radius: 0;
+  --header-shadow: none;
+  --header-pad:    2px 0 8px;
+  --header-font:   var(--heading-font);
+  --header-size:   13px;
+  --header-weight: 700;
+  --header-case:   none;
+  --header-ls:     0;
+  --header-tshadow: none;
+
+  /* Section titles inside a panel */
+  --title-fg:     var(--heading);
+  --title-border: 1px solid var(--line);
+  --title-size:   var(--heading-size);
+  --title-weight: var(--heading-weight);
+  --title-case:   var(--heading-case);
+  --title-ls:     var(--heading-ls);
+  --title-font:   var(--heading-font);
+
+  /* ── Titlebar & window controls ───────────────────────────────────── */
+  --tb-h:       30px;
+  --tb-bg:      var(--win-bg);
+  --tb-fg:      var(--text);
+  --tb-border:  1px solid var(--line);
+  --tb-shadow:  none;
+  --tb-font:    var(--font-ui);
+  --tb-size:    11px;
+  --tb-weight:  700;
+  --tb-ls:      0;
+  --tb-case:    none;
+  --tb-tshadow: none;
+  --tb-pad:     0 0 0 10px;
+
+  --ctl-w:      34px;
+  --ctl-h:      var(--tb-h);
+  --ctl-gap:    0px;
+  --ctl-margin: 0;
+  --ctl-radius: 0;
+  --ctl-bg:     transparent;
+  --ctl-fg:     var(--tb-fg);
+  --ctl-border: 0;
+  --ctl-shadow: none;
+  --ctl-hover-bg:     color-mix(in srgb, var(--tb-fg) 12%, transparent);
+  --ctl-hover-fg:     var(--ctl-fg);
+  --ctl-hover-border: var(--ctl-border);
+  --ctl-hover-shadow: var(--ctl-shadow);
+  --ctl-active-bg:     color-mix(in srgb, var(--tb-fg) 20%, transparent);
+  --ctl-active-shadow: var(--ctl-hover-shadow);
+  --ctl-close-bg:     var(--ctl-bg);
+  --ctl-close-fg:     var(--ctl-fg);
+  --ctl-close-border: var(--ctl-border);
+  --ctl-close-shadow: var(--ctl-shadow);
+  --ctl-close-hover-bg:     #e81123;
+  --ctl-close-hover-fg:     #ffffff;
+  --ctl-close-hover-border: var(--ctl-close-border);
+  --ctl-close-hover-shadow: var(--ctl-close-shadow);
+  --glyph-size: 10px;
+  --glyph-min: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M0 5.5h10' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E");
+  --glyph-max: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect x='.5' y='.5' width='9' height='9' fill='none' stroke='%23000' stroke-width='1'/%3E%3C/svg%3E");
+  --glyph-cls: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M.4.4l9.2 9.2M9.6.4L.4 9.6' stroke='%23000' stroke-width='1.1'/%3E%3C/svg%3E");
+
+  /* ── Sidebar ──────────────────────────────────────────────────────── */
+  --side-w:       180px;
+  --side-bg:      var(--win-bg);
+  --side-border:  1px solid var(--line);
+  --side-shadow:  none;
+  --side-pad:     10px 8px;
+  --side-gap:     3px;
+  --side-divider: 1px solid var(--line);
+  --side-nav-bg:     transparent;
+  --side-nav-border: 0;
+  --side-nav-radius: 0;
+  --side-nav-pad:    0;
+  --side-nav-shadow: none;
+
+  --brand-fg:     var(--text);
+  --brand-font:   var(--font-ui);
+  --brand-size:   15px;
+  --brand-weight: 700;
+  --logo-size:    30px;
+  --logo-radius:  0;
+  --logo-border:  0;
+  --logo-render:  auto;
+
+  --version-bg:     transparent;
+  --version-fg:     var(--muted);
+  --version-border: 0;
+  --version-radius: 0;
+  --version-shadow: none;
+  --version-font:   var(--font-ui);
+
+  /* ── Navigation rows ──────────────────────────────────────────────── */
+  --nav-bg:     transparent;
+  --nav-fg:     var(--text);
+  --nav-border: 1px solid transparent;
+  --nav-radius: 0;
+  --nav-shadow: none;
+  --nav-pad:    7px 10px;
+  --nav-font:   var(--font-ui);
+  --nav-size:   11px;
+  --nav-weight: 700;
+  --nav-case:   none;
+  --nav-ls:     0;
+  --nav-hover-bg:     var(--accent-soft);
+  --nav-hover-fg:     var(--nav-fg);
+  --nav-hover-border: var(--nav-border);
+  --nav-hover-shadow: var(--nav-shadow);
+  --nav-active-bg:     var(--accent);
+  --nav-active-fg:     var(--on-accent);
+  --nav-active-border: var(--nav-border);
+  --nav-active-shadow: none;
+  --nav-press-bg:     var(--nav-hover-bg);
+  --nav-press-fg:     var(--nav-hover-fg);
+  --nav-press-border: var(--nav-hover-border);
+  --nav-press-shadow: var(--nav-hover-shadow);
+  --nav-press-pad:    var(--nav-pad);
+
+  /* ── Fields ───────────────────────────────────────────────────────── */
+  --field-bg:     var(--well-bg);
+  --field-fg:     var(--well-fg);
+  --field-border: var(--well-border);
+  --field-radius: var(--well-radius);
+  --field-shadow: var(--well-shadow);
+  --field-pad:    4px 6px;
+  --field-font:   var(--font-ui);
+  --field-size:   11px;
+  --field-focus-border: var(--field-border);
+  --field-focus-shadow: var(--field-shadow);
+  --placeholder:  var(--muted);
+
+  /* ── Buttons ──────────────────────────────────────────────────────── */
+  --btn-bg:      var(--btn-color);
+  --btn-fg:      var(--text);
+  --btn-border:  1px solid #adadad;
+  --btn-radius:  0;
+  --btn-shadow:  none;
+  --btn-tshadow: none;
+  --btn-pad:     5px 14px;
+  --btn-font:    var(--font-ui);
+  --btn-size:    11px;
+  --btn-weight:  700;
+  --btn-case:    none;
+  --btn-ls:      0;
+  --btn-hover-bg:      var(--btn-bg);
+  --btn-hover-fg:      var(--btn-fg);
+  --btn-hover-border:  var(--btn-border);
+  --btn-hover-shadow:  var(--btn-shadow);
+  --btn-active-bg:     var(--btn-hover-bg);
+  --btn-active-fg:     var(--btn-hover-fg);
+  --btn-active-border: var(--btn-hover-border);
+  --btn-active-shadow: var(--btn-hover-shadow);
+  --btn-press:         none;
+  --btn-disabled-fg:   var(--muted);
+
+  /* The one prominent action per view: PLAY, DOWNLOAD, a dialog's OK. */
+  --pri-bg:      var(--accent);
+  --pri-fg:      var(--on-accent);
+  --pri-border:  var(--btn-border);
+  --pri-radius:  var(--btn-radius);
+  --pri-shadow:  var(--btn-shadow);
+  --pri-tshadow: none;
+  --pri-font:    var(--btn-font);
+  --pri-weight:  var(--btn-weight);
+  --pri-hover-bg:     var(--pri-bg);
+  --pri-hover-fg:     var(--pri-fg);
+  --pri-hover-border: var(--pri-border);
+  --pri-hover-shadow: var(--pri-shadow);
+  --pri-active-bg:     var(--pri-hover-bg);
+  --pri-active-border: var(--pri-hover-border);
+  --pri-active-shadow: var(--pri-hover-shadow);
+
+  --danger-bg:       #c42b1c;
+  --danger-fg:       #ffffff;
+  --danger-border:   1px solid #9e2316;
+  --danger-shadow:   var(--pri-shadow);
+  --danger-hover-bg: #d13b2c;
+
+  /* PLAY while the game is running (it becomes STOP) */
+  --run-bg:       var(--danger-bg);
+  --run-fg:       var(--danger-fg);
+  --run-border:   var(--danger-border);
+  --run-shadow:   var(--danger-shadow);
+  --run-hover-bg: var(--danger-hover-bg);
+
+  /* ── Menus, toasts ────────────────────────────────────────────────── */
+  --menu-bg:     var(--panel-bg);
+  --menu-fg:     var(--text);
+  --menu-border: var(--panel-border);
+  --menu-radius: var(--panel-radius);
+  --menu-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  --menu-pad:    3px;
+  --item-pad:    6px 10px;
+  --item-radius: 0;
+  --item-fg:     var(--menu-fg);
+  --item-size:   11px;
+  --item-weight: 400;
+  --item-hover-bg:  var(--sel-bg);
+  --item-hover-fg:  var(--sel-fg);
+  --item-sel-weight: 700;
+  --item-sel-bg:     transparent;
+  --item-sel-fg:     var(--item-fg);
+  --sep: 1px solid var(--line);
+
+  --toast-bg:     var(--menu-bg);
+  --toast-fg:     var(--menu-fg);
+  --toast-border: var(--menu-border);
+  --toast-radius: var(--menu-radius);
+  --toast-shadow: var(--menu-shadow);
+
+  /* ── Tables ───────────────────────────────────────────────────────── */
+  --th-bg:     var(--btn-bg);
+  --th-fg:     var(--text);
+  --th-line:   var(--line-strong);
+  --th-sep:    var(--line);
+  --th-shadow: none;
+  --th-size:   11px;
+  --th-weight: 700;
+  --th-case:   none;
+  --th-ls:     0;
+  --td-line:   var(--line);
+  --row-bg:    var(--well-bg);
+  --row-alt:   var(--row-bg);
+  --row-hover-bg: var(--sel-bg);
+  --row-hover-fg: var(--sel-fg);
+
+  /* ── Filter / sort chips ──────────────────────────────────────────── */
+  --chip-bg:     transparent;
+  --chip-fg:     var(--text);
+  --chip-border: 1px solid transparent;
+  --chip-radius: var(--nav-radius);
+  --chip-shadow: none;
+  --chip-hover-bg:     var(--nav-hover-bg);
+  --chip-hover-fg:     var(--nav-hover-fg);
+  --chip-hover-border: var(--chip-border);
+  --chip-active-bg:     var(--nav-active-bg);
+  --chip-active-fg:     var(--nav-active-fg);
+  --chip-active-border: var(--chip-border);
+  --chip-active-shadow: none;
+
+  /* ── Segmented control (play mode) ────────────────────────────────── */
+  --seg-bg:      var(--btn-bg);
+  --seg-border:  var(--btn-border);
+  --seg-radius:  var(--btn-radius);
+  --seg-shadow:  var(--btn-shadow);
+  --seg-pad:     0px;
+  --seg-fg:      var(--btn-fg);
+  --seg-divider: 1px solid var(--line-strong);
+  --seg-btn-radius: 0;
+  --seg-active-bg:     var(--accent);
+  --seg-active-fg:     var(--on-accent);
+  --seg-active-shadow: none;
+  --seg-slider:  none;          /* `block` to use the gliding thumb instead */
+  --seg-label:   rgba(255, 255, 255, 0.72);
+  --seg-press-bg:     transparent;
+  --seg-press-fg:     var(--seg-fg);
+  --seg-press-shadow: none;
+
+  /* ── Switches ─────────────────────────────────────────────────────── */
+  --tgl-w:      34px;
+  --tgl-h:      18px;
+  --tgl-bw:     1px;
+  --tgl-radius: 9px;
+  --tgl-bg:     var(--well-bg);
+  --tgl-border: 1px solid var(--line-strong);
+  --tgl-shadow: none;
+  --knob:        12px;
+  --knob-inset:  2px;
+  --knob-radius: 50%;
+  --knob-bg:     var(--muted);
+  --knob-border: 0;
+  --knob-shadow: none;
+  --tgl-on-bg:     var(--accent);
+  --tgl-on-border: var(--tgl-border);
+  --knob-on-bg:    var(--on-accent);
+
+  /* ── Progress ─────────────────────────────────────────────────────── */
+  --bar-h:      18px;
+  --bar-bg:     var(--well-bg);
+  --bar-border: var(--well-border);
+  --bar-radius: var(--well-radius);
+  --bar-shadow: var(--well-shadow);
+  --bar-pad:    2px;
+  /* A `repeating-linear-gradient` here is what applyBarFill() reads as a
+     segmented bar and snaps to whole 10px blocks; anything else fills
+     smoothly. */
+  --bar-fill:        repeating-linear-gradient(90deg, var(--accent) 0 8px, transparent 8px 10px);
+  --bar-fill-size:   auto;
+  --bar-fill-radius: 0;
+  --bar-fill-shadow: none;
+
+  /* ── Scrollbars ───────────────────────────────────────────────────── */
+  --sb-size:         12px;
+  --sb-track:        var(--win-bg);
+  --sb-track-border: 0;
+  --sb-thumb:        var(--btn-bg);
+  --sb-thumb-border: var(--btn-border);
+  --sb-thumb-radius: var(--btn-radius);
+  --sb-thumb-shadow: var(--btn-shadow);
+  --sb-thumb-clip:   border-box;
+  --sb-thumb-hover:  var(--sb-thumb);
+
+  /* ── Dialogs ──────────────────────────────────────────────────────── */
+  --overlay:      rgba(0, 0, 0, 0.45);
+  --modal-bg:     var(--panel-bg);
+  --modal-border: var(--panel-border);
+  --modal-radius: var(--panel-radius);
+  --modal-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --mtb-bg:      var(--tb-bg);
+  --mtb-fg:      var(--tb-fg);
+  --mtb-border:  var(--tb-border);
+  --mtb-pad:     5px 6px 5px 10px;
+  --mtb-font:    var(--tb-font);
+  --mtb-size:    var(--tb-size);
+  --mtb-weight:  var(--tb-weight);
+  --mtb-ls:      var(--tb-ls);
+  --mtb-tshadow: var(--tb-tshadow);
+  --mclose-w:    22px;
+  --mclose-h:    20px;
+  --mbody-bg:    transparent;
+  --mfoot-bg:    transparent;
+  --mfoot-border: var(--sep);
+
+  /* ── Hero, dots, motion ───────────────────────────────────────────── */
+  --hero-border: var(--panel-border);
+  --hero-radius: var(--panel-radius);
+  --hero-shadow: var(--panel-shadow);
+  --dot-radius:  50%;
+  --dot-glow:    0 0 0 transparent;
+  --dur:  0s;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --tab-anim: none;
+  --menu-in:  none;
+  --menu-out: none;
+
+  /* ── Legacy tokens ────────────────────────────────────────────────── */
+  /* Still read by style.css's shared layout rules, by inline styles in
+     index.html and by a few style assignments in app.js. */
+  --bg-dark:        var(--surface-sunken);
+  --bg-main:        var(--win-color);
+  --bg-panel:       var(--surface);
+  --bg-btn:         var(--btn-color);
+  --border-light:   var(--line);
+  --border-dark:    var(--line-strong);
+  --green:          var(--accent-text);
+  --green-dim:      var(--heading);
+  --text-muted:     var(--muted);
+  --status-online:  var(--ok);
+  --primary:        var(--accent-text);
+  --titlebar-h:     var(--tb-h);
+}

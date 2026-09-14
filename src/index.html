@@ -14,6 +14,19 @@
        system face after the wait. Bundling it also lets the CSP drop two
        external origins. See the @font-face block in style.css. -->
   <link rel="stylesheet" href="style.css" />
+  <!-- Skins: tokens, the component layer, then one file per family. None of
+       them can match Liquid Glass; see skins/00-tokens.css. -->
+  <link rel="stylesheet" href="skins/00-tokens.css" />
+  <link rel="stylesheet" href="skins/01-components.css" />
+  <link rel="stylesheet" href="skins/02-controls.css" />
+  <link rel="stylesheet" href="skins/03-content.css" />
+  <link rel="stylesheet" href="skins/04-modern.css" />
+  <link rel="stylesheet" href="skins/05-windows-classic.css" />
+  <link rel="stylesheet" href="skins/06-windows-luna.css" />
+  <link rel="stylesheet" href="skins/07-windows-aero.css" />
+  <link rel="stylesheet" href="skins/08-steam.css" />
+  <link rel="stylesheet" href="skins/09-mac.css" />
+  <link rel="stylesheet" href="skins/10-checkboxes.css" />
 </head>
 <body>
   <script src="boot.js"></script>
@@ -24,9 +37,9 @@
       <span class="titlebar-app-name">RADIUM LAUNCHER</span>
     </div>
     <div class="titlebar-controls">
-      <button id="btnMinimize" class="tb-ctrl min" title="Minimize" aria-label="Minimize">─</button>
-      <button id="btnMaximize" class="tb-ctrl max" title="Maximize" aria-label="Maximize">▢</button>
-      <button id="btnClose"    class="tb-ctrl cls" title="Close" aria-label="Close">✕</button>
+      <button id="btnMinimize" class="tb-ctrl min" aria-label="Minimize">─</button>
+      <button id="btnMaximize" class="tb-ctrl max" aria-label="Maximize">▢</button>
+      <button id="btnClose"    class="tb-ctrl cls" aria-label="Close">✕</button>
     </div>
   </div>
 
@@ -44,8 +57,7 @@
              rather than re-implementing them. Tab routing is scoped to
              .sidebar-nav, so this never participates in it. -->
         <button class="nav-btn logo-combo" id="networkSwitcher" aria-haspopup="listbox"
-                aria-expanded="false" aria-controls="networkMenu"
-                title="Switch network">
+                aria-expanded="false" aria-controls="networkMenu">
           <img src="logo.png" alt="" id="sidebarLogo" />
           <div class="logo-wordmark">
             <div class="wordmark-text" id="networkName">RADIUM</div>
@@ -138,8 +150,7 @@
                  surroundings on all of them without a rule per theme. -->
             <button class="nav-btn hero-gear" id="btnManageClient"
                     aria-haspopup="menu" aria-expanded="false"
-                    aria-controls="manageMenu" aria-label="Manage client"
-                    title="Manage client"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.48.48 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.47.47 0 0 0-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg></button>
+                    aria-controls="manageMenu" aria-label="Manage client"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.48.48 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.47.47 0 0 0-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg></button>
           </div>
           <!-- Same scrim, no client installed: DOWNLOAD takes PLAY's place so
                both states read identically. The hero above already carries the
@@ -161,24 +172,24 @@
              rules size the buttons for a row rather than a list. -->
         <div class="manage-menu launch-secondary-actions" id="manageMenu"
              role="menu" aria-label="Manage client" hidden>
-          <button class="btn-refresh manage-item" role="menuitem" id="btnClientUpdateAction" title="Check for client updates" hidden>
+          <button class="btn-refresh manage-item" role="menuitem" id="btnClientUpdateAction" hidden>
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
             <span>Check for Updates</span>
           </button>
-          <button class="btn-open-folder manage-item" role="menuitem" id="btnOpenFolder" title="Open client folder">
+          <button class="btn-open-folder manage-item" role="menuitem" id="btnOpenFolder">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
             <span>Open Folder</span>
           </button>
-          <button class="btn-reinstall manage-item" role="menuitem" id="btnReinstall" title="Re-download client">
+          <button class="btn-reinstall manage-item" role="menuitem" id="btnReinstall">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
             <span>Reinstall</span>
           </button>
-          <button class="btn-exclude-av manage-item" role="menuitem" id="btnExcludeAv" title="Add Windows Defender exclusion for the client folder">
+          <button class="btn-exclude-av manage-item" role="menuitem" id="btnExcludeAv">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1.2 15.6L6.6 12.4 8 11l2.8 2.8L16 8.6 17.4 10l-6.6 6.6z"/></svg>
             <span>Exclude AV</span>
           </button>
           <div class="manage-sep" role="separator"></div>
-          <button class="btn-uninstall manage-item danger" role="menuitem" id="btnUninstall" title="Uninstall client">
+          <button class="btn-uninstall manage-item danger" role="menuitem" id="btnUninstall">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
             <span>Uninstall</span>
           </button>
@@ -258,7 +269,7 @@
       <section class="tab-panel" id="tab-feed">
         <div class="panel-header">
           <h2>FEED</h2>
-          <button class="btn-refresh" id="btnFeedRefresh" title="Reload the feed">&#8635; Refresh</button>
+          <button class="btn-refresh" id="btnFeedRefresh">&#8635; Refresh</button>
         </div>
         <div class="feed-subtitle">What's happening right now in Vanilla</div>
         <div class="feed-scroll" id="feedScroll">
@@ -559,16 +570,16 @@
             <div class="sg-row">
               <label>Radium Client</label>
               <span class="cfg-path-display" id="cfgInstallDirRadium">%APPDATA%\com.radium.launcher\client</span>
-              <button class="btn-open-folder" data-change-folder="radium" title="Change the Radium install directory">Change</button>
-              <button class="btn-open-folder" data-reset-folder="radium" title="Reset the Radium install directory to its default">Reset</button>
-              <button class="btn-open-folder" data-open-folder="radium" title="Open the Radium client folder">Open</button>
+              <button class="btn-open-folder" data-change-folder="radium">Change</button>
+              <button class="btn-open-folder" data-reset-folder="radium">Reset</button>
+              <button class="btn-open-folder" data-open-folder="radium">Open</button>
             </div>
             <div class="sg-row">
               <label>Vanilla Client</label>
               <span class="cfg-path-display" id="cfgInstallDirVanilla">%APPDATA%\com.radium.launcher\client-vanilla</span>
-              <button class="btn-open-folder" data-change-folder="vanilla" title="Change the Vanilla install directory">Change</button>
-              <button class="btn-open-folder" data-reset-folder="vanilla" title="Reset the Vanilla install directory to its default">Reset</button>
-              <button class="btn-open-folder" data-open-folder="vanilla" title="Open the Vanilla client folder">Open</button>
+              <button class="btn-open-folder" data-change-folder="vanilla">Change</button>
+              <button class="btn-open-folder" data-reset-folder="vanilla">Reset</button>
+              <button class="btn-open-folder" data-open-folder="vanilla">Open</button>
             </div>
           </div>
 
@@ -630,11 +641,11 @@
               <p class="sg-hint">Frosts every panel and blurs behind popups. Turn it off for a lighter version that stays smooth on older or integrated graphics.</p>
 
               <div class="ct-swatches">
-                <div class="ct-swatch" title="Colour behind the frosted panels when no background image is set">
+                <div class="ct-swatch">
                   <input type="color" id="theme-glassBg" class="theme-color-input" value="#0b0c14">
                   <span>Glass Tint</span>
                   <span class="ct-note">used when no image</span>
-                  <button class="btn-open-folder" id="btnResetGlassTint" title="Reset the tint to its default">Reset</button>
+                  <button class="btn-open-folder" id="btnResetGlassTint">Reset</button>
                 </div>
               </div>
 
@@ -648,8 +659,8 @@
                 <!-- Off-screen rather than display:none so the click that
                      btnBrowseBgFile forwards still opens the picker. -->
                 <input type="file" id="theme-bgFilePicker" class="ct-file-input" accept="image/*" />
-                <button class="btn-open-folder" id="btnBrowseBgFile" title="Pick an image from this PC">Choose File</button>
-                <button class="btn-open-folder" id="btnClearBgImage" title="Remove the background image">Clear</button>
+                <button class="btn-open-folder" id="btnBrowseBgFile">Choose File</button>
+                <button class="btn-open-folder" id="btnClearBgImage">Clear</button>
               </div>
             </div>
           </div>
@@ -738,7 +749,7 @@
           <div class="flex flex-col gap-4 items-center w-full">
             
             <!-- Large Image Container. Click to open the full-size lightbox. -->
-            <div class="photo-detail-img-wrap" title="Click to view full size">
+            <div class="photo-detail-img-wrap">
               <img id="photoDetailImage" class="image-loading-placeholder" src="data:," alt="Photo" />
               <span class="photo-detail-zoom-hint" aria-hidden="true">⤢ FULL SIZE</span>
             </div>
@@ -998,7 +1009,7 @@
       </div>
       <div class="modal-footer">
         <button class="modal-btn modal-btn-secondary" id="stopGameCancelBtn">Cancel</button>
-        <button class="modal-btn modal-btn-primary modal-btn-danger" id="stopGameConfirmBtn" style="background: rgba(220, 38, 38, 0.15) !important; border-color: rgba(220, 38, 38, 0.3) !important; color: #ff6b6b !important;">Stop Game</button>
+        <button class="modal-btn modal-btn-primary modal-btn-danger" id="stopGameConfirmBtn">Stop Game</button>
       </div>
     </div>
   </div>
@@ -1095,7 +1106,7 @@
     <div class="modal-box lightbox-box" role="dialog" aria-modal="true" aria-labelledby="lightboxTitle">
       <div class="modal-titlebar">
         <span class="modal-title" id="lightboxTitle">IMAGE PREVIEW</span>
-        <button class="modal-close-btn" id="lightboxCloseBtn" title="Close (Esc)" aria-label="Close preview">✕</button>
+        <button class="modal-close-btn" id="lightboxCloseBtn" aria-label="Close preview">✕</button>
       </div>
       <div class="modal-body lightbox-body">
         <img id="lightboxImage" class="lightbox-image" src="data:," alt="" />

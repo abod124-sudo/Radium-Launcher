@@ -1,0 +1,381 @@
+/* ══════════════════════════════════════════════════════════════════════
+   SKINS — controls: buttons, fields, switches, chips, the play-mode
+   control, the hero, download progress and the status cards.
+   Same scope and rules of engagement as 01-components.css.
+   ══════════════════════════════════════════════════════════════════════ */
+
+body:not(.glass-enabled) {
+
+  /* ── Buttons ──────────────────────────────────────────────────────── */
+  /* #btnManageClient stays outside the :is(). An id inside :is() lends the
+     whole list id specificity, and that let this rule beat the :active and
+     :disabled states below on every push button. */
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn),
+  & #btnManageClient {
+    padding: var(--btn-pad);
+    font-family: var(--btn-font);
+    font-size: var(--btn-size);
+    font-weight: var(--btn-weight);
+    text-transform: var(--btn-case);
+    letter-spacing: var(--btn-ls);
+    text-align: center;
+    text-shadow: var(--btn-tshadow);
+    color: var(--btn-fg);
+    background: var(--btn-bg);
+    border: var(--btn-border);
+    border-radius: var(--btn-radius);
+    box-shadow: var(--btn-shadow);
+    cursor: pointer;
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease),
+                border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+                transform var(--dur) var(--ease);
+  }
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn):hover,
+  & #btnManageClient:hover {
+    color: var(--btn-hover-fg);
+    background: var(--btn-hover-bg);
+    border: var(--btn-hover-border);
+    box-shadow: var(--btn-hover-shadow);
+  }
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn):active,
+  & #btnManageClient:active,
+  & #btnManageClient[aria-expanded="true"] {
+    color: var(--btn-active-fg);
+    background: var(--btn-active-bg);
+    border: var(--btn-active-border);
+    box-shadow: var(--btn-active-shadow);
+    transform: var(--btn-press);
+  }
+  & #btnManageClient[aria-expanded="true"] { transform: none; }
+  /* No opacity: a dimmed small button showed a stray dot on the user's GPU.
+     The muted label says "off" on its own. */
+  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+        .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+        .modal-btn):disabled {
+    cursor: default;
+    color: var(--btn-disabled-fg);
+    text-shadow: none;
+    background: var(--btn-bg);
+    border: var(--btn-border);
+    box-shadow: var(--btn-shadow);
+    transform: none;
+  }
+
+  /* The small buttons carry inline sizes written for the old 9px face. */
+  & .native-pagination .btn-refresh,
+  & #btnRoomsBack, & #btnPeopleBack, & #btnPhotoDetailBack {
+    padding: 3px 12px !important;
+    font-size: 11px !important;
+  }
+  & .sg-row .btn-open-folder,
+  & .ct-swatch .btn-open-folder { padding: 3px 10px; }
+
+  /* The gear on the hero */
+  & #btnManageClient { width: 34px; height: 34px; }
+  & .hero-gear svg { width: 16px; height: 16px; }
+
+  /* ── Primary ──────────────────────────────────────────────────────── */
+  & :is(.btn-play, .btn-download-big, .modal-btn-primary) {
+    font-family: var(--pri-font);
+    font-weight: var(--pri-weight);
+    text-shadow: var(--pri-tshadow);
+    color: var(--pri-fg);
+    background: var(--pri-bg);
+    border: var(--pri-border);
+    border-radius: var(--pri-radius);
+    box-shadow: var(--pri-shadow);
+    cursor: pointer;
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease),
+                border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+                transform var(--dur) var(--ease), filter var(--dur) var(--ease);
+  }
+  & :is(.btn-play, .btn-download-big, .modal-btn-primary):hover {
+    color: var(--pri-hover-fg);
+    background: var(--pri-hover-bg);
+    border: var(--pri-hover-border);
+    box-shadow: var(--pri-hover-shadow);
+  }
+  /* No padding here. PLAY and DOWNLOAD get theirs, pressed or not, from the
+     .home-hero-bar rule below; a padding reset in this shared rule used to
+     strip a dialog's main button of its top and left padding while held,
+     shrinking it and throwing its label up and left. */
+  & :is(.btn-play, .btn-download-big, .modal-btn-primary):active {
+    background: var(--pri-active-bg);
+    border: var(--pri-active-border);
+    box-shadow: var(--pri-active-shadow);
+    transform: var(--btn-press);
+  }
+  & .modal-btn-primary:disabled {
+    cursor: default;
+    color: var(--btn-disabled-fg);
+    text-shadow: none;
+    background: var(--btn-bg);
+    border: var(--btn-border);
+    box-shadow: var(--btn-shadow);
+    transform: none;
+  }
+  & .home-hero-bar :is(.btn-play, .btn-download-big),
+  & .home-hero-bar :is(.btn-play, .btn-download-big):active {
+    min-width: 148px; height: 44px;
+    padding: 0 22px;
+    font-size: 15px;
+    letter-spacing: 2px;
+  }
+  & .play-text { letter-spacing: 2px; }
+
+  & .btn-play.running {
+    color: var(--run-fg);
+    text-shadow: none;
+    background: var(--run-bg);
+    border: var(--run-border);
+    box-shadow: var(--run-shadow);
+  }
+  & .btn-play.running:hover { background: var(--run-hover-bg); }
+
+  & .modal-btn.modal-btn-danger,
+  & .modal-btn.modal-btn-danger:active {
+    color: var(--danger-fg) !important;
+    text-shadow: none;
+    background: var(--danger-bg) !important;
+    border: var(--danger-border) !important;
+    box-shadow: var(--danger-shadow);
+  }
+  & .modal-btn.modal-btn-danger:hover { background: var(--danger-hover-bg) !important; }
+
+  /* ── Fields ───────────────────────────────────────────────────────── */
+  & :is(.cfg-input, .cfg-path-display) {
+    padding: var(--field-pad);
+    font-family: var(--field-font);
+    font-size: var(--field-size);
+    color: var(--field-fg);
+    background: var(--field-bg);
+    border: var(--field-border);
+    border-radius: var(--field-radius);
+    box-shadow: var(--field-shadow);
+    outline: none;
+    transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  }
+  & .cfg-path-display { color: var(--muted); }
+  & .cfg-input:focus,
+  & .cselect-trigger.is-open {
+    border: var(--field-focus-border);
+    box-shadow: var(--field-focus-shadow);
+  }
+  & .cfg-input:focus-visible { outline: none; }
+  & .native-search-bar .cfg-input { padding: 6px 10px; }
+  & textarea.cfg-input { line-height: 1.45; }
+
+  & .cselect-trigger { cursor: pointer; }
+  & .cselect-trigger:disabled { color: var(--muted); cursor: default; }
+  & .cselect-caret { color: var(--muted); transition: transform var(--dur) var(--ease); }
+  & .cselect-trigger.is-open .cselect-caret { transform: rotate(180deg); }
+  & .sg-row.is-off,
+  & .ct-body.is-off { opacity: 0.55; }
+
+  /* ── Switches ─────────────────────────────────────────────────────── */
+  & .toggle-wrap {
+    flex-shrink: 0;
+    width: var(--tgl-w); height: var(--tgl-h);
+    background: var(--tgl-bg);
+    border: var(--tgl-border);
+    border-radius: var(--tgl-radius);
+    box-shadow: var(--tgl-shadow);
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  & .tgl-knob {
+    top: calc((var(--tgl-h) - 2 * var(--tgl-bw) - var(--knob)) / 2);
+    left: var(--knob-inset);
+    width: var(--knob); height: var(--knob);
+    background: var(--knob-bg);
+    border: var(--knob-border);
+    border-radius: var(--knob-radius);
+    box-shadow: var(--knob-shadow);
+    transition: transform var(--dur) var(--ease), background-color var(--dur) var(--ease);
+  }
+  & .toggle-wrap.on {
+    background: var(--tgl-on-bg);
+    border: var(--tgl-on-border);
+  }
+  & .toggle-wrap.on .tgl-knob {
+    background: var(--knob-on-bg);
+    transform: translateX(calc(var(--tgl-w) - 2 * var(--tgl-bw) - 2 * var(--knob-inset) - var(--knob)));
+  }
+  & .sg-toggle-row { gap: 12px; font-size: 11px; font-weight: 400; }
+
+  /* ── Filter & sort chips ──────────────────────────────────────────── */
+  & :is(.filter-btn, .sort-btn) {
+    width: 100%;
+    padding: 5px 8px;
+    font-family: var(--font-ui);
+    font-size: 11px;
+    font-weight: 400;
+    text-decoration: none;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--chip-fg);
+    background: var(--chip-bg);
+    border: var(--chip-border);
+    border-radius: var(--chip-radius);
+    box-shadow: var(--chip-shadow);
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  & :is(.filter-btn, .sort-btn):hover {
+    color: var(--chip-hover-fg);
+    background: var(--chip-hover-bg);
+    border: var(--chip-hover-border);
+  }
+  & :is(.filter-btn, .sort-btn).active {
+    font-weight: 700;
+    color: var(--chip-active-fg) !important;
+    background: var(--chip-active-bg) !important;
+    border: var(--chip-active-border) !important;
+    box-shadow: var(--chip-active-shadow);
+  }
+
+  /* ── Play mode ────────────────────────────────────────────────────── */
+  & .hero-mode-label {
+    font-family: var(--font-ui);
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--seg-label);
+  }
+  & .mode-toggle-wrap {
+    position: relative;
+    display: inline-flex;
+    padding: var(--seg-pad);
+    overflow: hidden;
+    background: var(--seg-bg);
+    border: var(--seg-border);
+    border-radius: var(--seg-radius);
+    box-shadow: var(--seg-shadow);
+  }
+  & .mode-slider { display: none; }
+  & .mode-btn {
+    position: relative;
+    z-index: 1;
+    width: 72px;
+    padding: 6px 0;
+    font-family: var(--btn-font);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-align: center;
+    color: var(--seg-fg);
+    background: transparent;
+    border: 0;
+    border-right: var(--seg-divider);
+    border-radius: var(--seg-btn-radius);
+    box-shadow: none;
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  & .mode-btn:last-of-type { border-right: 0; }
+  & .mode-btn.active {
+    color: var(--seg-active-fg);
+    background: var(--seg-active-bg);
+    box-shadow: var(--seg-active-shadow);
+  }
+  /* Pressed. Defaults to no change; the retro skins set their own. */
+  & .mode-btn:active:not(.active) {
+    color: var(--seg-press-fg);
+    background: var(--seg-press-bg);
+    box-shadow: var(--seg-press-shadow);
+  }
+
+  /* ── Hero ─────────────────────────────────────────────────────────── */
+  & .home-hero {
+    background: var(--surface-sunken);
+    border: var(--hero-border);
+    border-radius: var(--hero-radius);
+    box-shadow: var(--hero-shadow);
+  }
+  & .hero-note { font-family: var(--font-ui); font-size: 10px; }
+
+  /* ── Download progress ────────────────────────────────────────────── */
+  & .dl-progress-block { margin-top: 10px; padding: 12px 14px; }
+  & .dlp-phase { font-family: var(--font-ui); font-size: 12px; color: var(--text); letter-spacing: 0; }
+  & .dlp-pct { font-family: var(--font-ui); font-size: 16px; color: var(--accent-text); }
+  & .dlp-dot {
+    width: 8px; height: 8px;
+    background: var(--accent);
+    border-radius: var(--dot-radius);
+    box-shadow: none;
+    animation: sk-pulse 1.2s ease-in-out infinite;
+  }
+  & .dlp-bar-wrap {
+    height: var(--bar-h);
+    padding: var(--bar-pad);
+    background: var(--bar-bg);
+    border: var(--bar-border);
+    border-radius: var(--bar-radius);
+    box-shadow: var(--bar-shadow);
+  }
+  & .dlp-bar-fill {
+    background: var(--bar-fill);
+    background-size: var(--bar-fill-size);
+    border-radius: var(--bar-fill-radius);
+    box-shadow: var(--bar-fill-shadow);
+    transition: var(--bar-trans, none);
+  }
+  & .dlp-step,
+  & .dlp-stat {
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--tile-radius);
+    box-shadow: var(--tile-shadow);
+  }
+  & .dlp-step {
+    font-family: var(--font-ui);
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    color: var(--muted);
+    opacity: 1;
+  }
+  & .dlp-step.active { color: var(--accent-text); }
+  & .dlp-step.done { color: var(--text); }
+  & .dlp-step-idx {
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+  }
+  & .dlp-step.active .dlp-step-idx { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+  & .dlp-step.done .dlp-step-idx { color: #ffffff; background: var(--ok); border-color: var(--ok); }
+  & .dlp-stat-label { font-family: var(--font-ui); font-size: 9px; color: var(--muted); }
+  & .dlp-stat-val { font-family: var(--font-ui); font-size: 12px; color: var(--text); }
+
+  /* ── Status cards ─────────────────────────────────────────────────── */
+  & .qs-card { padding: 10px 12px; gap: 6px; }
+  & .qs-label {
+    font-family: var(--title-font);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: var(--title-case);
+    letter-spacing: var(--title-ls);
+    color: var(--muted);
+  }
+  & .qs-value { font-family: var(--font-ui); font-size: 13px; font-weight: 700; color: var(--text); }
+  & .qs-icon-indicator {
+    width: 8px; height: 8px;
+    background: var(--line-strong);
+    border-radius: var(--dot-radius);
+    box-shadow: none;
+  }
+  & .qs-card:is(.online, .installed) .qs-icon-indicator { background: var(--ok); }
+  & .qs-card.offline .qs-icon-indicator { background: var(--err); }
+  & .qs-card:is(.not-installed, .update-available) .qs-icon-indicator { background: var(--warn); }
+  & .qs-card.online .qs-value { color: var(--ok); }
+  & .qs-card.offline .qs-value { color: var(--err); }
+  & .qs-card.update-available .qs-value { color: var(--warn); }
+
+  & .status-dot { border-radius: var(--dot-radius); }
+  & .status-dot.online { background-color: var(--ok); }
+  & .status-dot.offline { background-color: var(--line-strong); }
+  & .test-result { font-family: var(--font-ui); }
+  & .test-result.ok { color: var(--ok); }
+  & .test-result.error { color: var(--err); }
+}

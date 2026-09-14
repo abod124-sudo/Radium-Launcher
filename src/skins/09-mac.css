@@ -1,0 +1,654 @@
+/* ══════════════════════════════════════════════════════════════════════
+   MAC OS — Classic (Platinum, Mac OS 8/9) and Mac OS X Aqua
+
+   Platinum: the ridged caption with its centred title and boxes at the
+   left, #dddddd faces, one-pixel bevels, black-outlined push buttons with
+   the thick default ring, lavender highlight, Balloon Help toasts.
+
+   Aqua: pinstripes, gel traffic lights that show their symbols on hover,
+   capsule gel buttons (the default one in blue, gently throbbing in
+   dialogs), a source-list sidebar, blue-striped lists, the barber-pole
+   progress bar and Growl-style notices. Lucida Sans Unicode is Windows'
+   own Lucida Grande.
+   ══════════════════════════════════════════════════════════════════════ */
+
+@keyframes sk-aqua-throb   { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.12); } }
+@keyframes sk-aqua-stripes { to { background-position: 0 0, 16px 0; } }
+
+body:is(.theme-macosclassic, .theme-macosaqua) {
+  /* The window buttons stay on the right in Windows order — minimise,
+     maximise, close — because this is a Windows app and that is where hands
+     go. The title stays centred over the whole bar: the drag area is padded
+     on the left by the width the buttons take on the right (--ctl-span). */
+  & .titlebar-drag { justify-content: center; padding-left: var(--ctl-span); }
+  & .modal-titlebar { position: relative; justify-content: center; }
+  & .modal-close-btn { position: absolute; right: 8px; top: 50%; margin-top: calc(var(--mclose-h) / -2); }
+  & .avatar-dummy { display: none; }
+}
+
+/* ── Mac OS Classic (Platinum) ────────────────────────────────────────── */
+body.theme-macosclassic {
+  --raised:  inset 1px 1px #ffffff, inset -1px -1px #999999;
+  --pressed: inset 1px 1px #444444, inset -1px -1px #999999;
+  --chicago: 'Charcoal', 'Chicago', Tahoma, 'Segoe UI', sans-serif;
+
+  --font-ui:   Verdana, Geneva, Tahoma, sans-serif;
+  --font-mono: Monaco, 'Lucida Console', monospace;
+  --fs: 11px;
+  --heading-font: var(--chicago);
+  --heading-size: 11px;
+
+  --text: #000000;
+  --muted: #555555;
+  --heading: #000000;
+  --accent: #6666cc;
+  --accent-text: #333399;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(102, 102, 204, 0.16);
+  --focus: #6666cc;
+  --link: #333399;
+  --link-hover: #000000;
+  --ok: #006600;
+  --warn: #7a5500;
+  --err: #aa0000;
+  --info: #333399;
+  --line: #999999;
+  --line-strong: #666666;
+  --sel-bg: #ccccff;
+  --sel-fg: #000000;
+
+  --win-color: #dddddd;
+  --surface: #dddddd;
+  --surface-sunken: #ffffff;
+  --btn-color: #dddddd;
+  --win-bg: #dddddd;
+  --win-bw: 1px;
+  --win-bc: #000000;
+  --content-pad: 10px;
+
+  --panel-bg: #dddddd;
+  --panel-border: 1px solid #999999;
+  --panel-shadow: inset 1px 1px #ffffff, 1px 1px 0 #ffffff;
+  --well-bg: #ffffff;
+  --well-border: 1px solid #666666;
+  --well-shadow: 1px 1px 0 #ffffff;
+  --tile-bg: #eeeeee;
+  --tile-border: 1px solid #999999;
+  --tile-shadow: inset 1px 1px #ffffff;
+  --tile-value: #333399;
+  --card-bg: #dddddd;
+  --card-border: 1px solid #666666;
+  --card-shadow: var(--raised);
+  --card-hover-bg: #e6e6f7;
+  --card-hover-border: 1px solid #333399;
+  --media-bg: #ffffff;
+  --media-border: 1px solid #000000;
+  --avatar-radius: 0;
+  --badge-radius: 0;
+
+  --header-fg: #000000;
+  --header-size: 13px;
+  --header-border: 1px solid #999999;
+  --header-shadow: 0 1px 0 #ffffff;
+  --header-pad: 0 0 6px;
+  --title-border: 0;
+
+  --tb-h: 22px;
+  --tb-bg: repeating-linear-gradient(180deg, #ffffff 0 1px, #999999 1px 2px) 4px 5px / calc(100% - 8px) 12px no-repeat, #dddddd;
+  --tb-fg: #000000;
+  --tb-font: var(--chicago);
+  --tb-size: 12px;
+  --tb-weight: 700;
+  --tb-border: 1px solid #000000;
+  --tb-shadow: inset 1px 1px #ffffff, inset -1px 0 #999999;
+  --tb-pad: 0 6px;
+  --ctl-w: 13px;
+  --ctl-h: 13px;
+  --ctl-gap: 6px;
+  --ctl-span: 61px; /* 6 + 3 × 13 + 2 × 6 + 10 of patch, less its −6px margin */
+  --ctl-bg: linear-gradient(135deg, #ffffff 0%, #bbbbbb 100%);
+  --ctl-fg: #333333;
+  --ctl-border: 1px solid #333333;
+  --ctl-shadow: inset 1px 1px #ffffff, inset -1px -1px #888888;
+  --ctl-hover-bg: linear-gradient(135deg, #ffffff 0%, #bbbbbb 100%);
+  --ctl-hover-fg: #333333;
+  --ctl-active-bg: #888888;
+  --ctl-active-shadow: inset 1px 1px #555555;
+  --ctl-close-hover-bg: linear-gradient(135deg, #ffffff 0%, #bbbbbb 100%);
+  --ctl-close-hover-fg: #333333;
+  --ctl-close-hover-border: 1px solid #333333;
+  /* Minimise / maximise / close symbols in the Platinum boxes. The real
+     windowshade (two bars) and zoom (a square in the corner) glyphs, and the
+     blank close box, read as broken icons on buttons in Windows order. */
+  --glyph-size: 8px;
+  --glyph-min: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect x='1' y='5' width='6' height='2'/%3E%3C/svg%3E");
+  --glyph-max: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Cpath fill-rule='evenodd' d='M0 0h8v8H0zM1 2v5h6V2z'/%3E%3C/svg%3E");
+  --glyph-cls: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M1 1l6 6M7 1L1 7' stroke='%23000' stroke-width='1.5'/%3E%3C/svg%3E");
+
+  --side-bg: #dddddd;
+  --side-border: 0;
+  --side-shadow: inset -1px 0 #999999, inset -2px 0 #ffffff;
+  --side-divider: 1px solid #999999;
+  --side-gap: 1px;
+  --logo-size: 32px;
+  --logo-render: pixelated;
+  --brand-fg: #000000;
+  --brand-font: var(--chicago);
+  --brand-size: 15px;
+  --version-fg: #555555;
+
+  --nav-fg: #000000;
+  --nav-border: 0;
+  --nav-pad: 4px 8px;
+  --nav-font: var(--chicago);
+  --nav-size: 12px;
+  --nav-weight: 400;
+  --nav-hover-bg: #cccccc;
+  --nav-hover-fg: #000000;
+  --nav-active-bg: #ccccff;
+  --nav-active-fg: #000000;
+  --nav-press-bg: #ccccff;
+  --nav-press-fg: #000000;
+
+  --field-pad: 3px 5px;
+  --field-focus-border: 1px solid #333333;
+  --field-focus-shadow: 0 0 0 2px #9999ee;
+
+  --btn-bg: #dddddd;
+  --btn-fg: #000000;
+  --btn-border: 1px solid #000000;
+  --btn-radius: 4px;
+  --btn-shadow: var(--raised);
+  --btn-pad: 3px 14px;
+  --btn-font: var(--chicago);
+  --btn-size: 12px;
+  --btn-weight: 400;
+  --btn-hover-bg: #dddddd;
+  --btn-active-bg: #777777;
+  --btn-active-fg: #ffffff;
+  --btn-active-shadow: var(--pressed);
+  --btn-disabled-fg: #999999;
+
+  --pri-bg: #dddddd;
+  --pri-fg: #000000;
+  --pri-border: 1px solid #000000;
+  --pri-radius: 5px;
+  --pri-shadow: var(--raised), 0 0 0 2px #dddddd, 0 0 0 4px #000000;
+  --pri-weight: 700;
+  --pri-hover-bg: #dddddd;
+  --pri-active-bg: #777777;
+  --pri-active-shadow: var(--pressed), 0 0 0 2px #dddddd, 0 0 0 4px #000000;
+
+  --danger-bg: #dddddd;
+  --danger-fg: #aa0000;
+  --danger-border: 1px solid #000000;
+  --danger-shadow: var(--raised);
+  --danger-hover-bg: #e6e6e6;
+  --run-bg: #777777;
+  --run-fg: #ffffff;
+  --run-border: 1px solid #000000;
+  --run-shadow: var(--pressed), 0 0 0 2px #dddddd, 0 0 0 4px #000000;
+  --run-hover-bg: #6a6a6a;
+
+  --menu-bg: #dddddd;
+  --menu-fg: #000000;
+  --menu-border: 1px solid #000000;
+  --menu-shadow: var(--raised), 2px 2px 0 rgba(0, 0, 0, 0.35);
+  --menu-pad: 2px 0;
+  --item-pad: 3px 18px 3px 12px;
+  --item-size: 12px;
+  --item-hover-bg: #444499;
+  --item-hover-fg: #ffffff;
+  --sep: 1px dotted #777777;
+
+  --th-bg: linear-gradient(180deg, #eeeeee 0%, #cccccc 100%);
+  --th-fg: #000000;
+  --th-weight: 400;
+  --th-shadow: inset 1px 1px #ffffff;
+  --th-line: #666666;
+  --th-sep: #999999;
+  --td-line: #eeeeee;
+  --row-bg: #ffffff;
+  --row-hover-bg: #ccccff;
+  --row-hover-fg: #000000;
+
+  --chip-fg: #000000;
+  --chip-hover-bg: #eeeeee;
+  --chip-hover-fg: #000000;
+  --chip-active-bg: #ccccff;
+  --chip-active-fg: #000000;
+
+  --seg-bg: #dddddd;
+  --seg-border: 1px solid #000000;
+  --seg-radius: 4px;
+  --seg-shadow: var(--raised);
+  --seg-fg: #000000;
+  --seg-divider: 1px solid #000000;
+  --seg-active-bg: #777777;
+  --seg-active-fg: #ffffff;
+  --seg-active-shadow: inset 1px 1px #444444;
+  --seg-label: #dddddd;
+  --seg-press-bg: #777777;
+  --seg-press-fg: #ffffff;
+  --seg-press-shadow: inset 1px 1px #444444;
+
+  --tgl-w: 32px;
+  --tgl-h: 16px;
+  --tgl-bw: 1px;
+  --tgl-radius: 0;
+  --tgl-bg: #ffffff;
+  --tgl-border: 1px solid #000000;
+  --tgl-shadow: inset 1px 1px #aaaaaa;
+  --knob: 10px;
+  --knob-inset: 2px;
+  --knob-radius: 1px;
+  --knob-bg: #bbbbbb;
+  --knob-border: 1px solid #333333;
+  --knob-shadow: inset 1px 1px #ffffff;
+  --tgl-on-bg: #ccccff;
+  --knob-on-bg: #6666cc;
+
+  --bar-h: 12px;
+  --bar-pad: 0;
+  --bar-bg: #eeeeee;
+  --bar-border: 1px solid #000000;
+  --bar-radius: 0;
+  --bar-shadow: inset 1px 1px #999999, inset -1px -1px #ffffff;
+  --bar-fill: linear-gradient(180deg, #ccccff 0%, #9999ee 40%, #6666cc 100%);
+  --bar-trans: width 0.2s linear;
+
+  --sb-size: 15px;
+  --sb-track: #bbbbbb;
+  --sb-track-border: 1px solid #888888;
+  --sb-thumb: repeating-linear-gradient(180deg, #ffffff 0 1px, #6666aa 1px 2px) center / 7px 8px no-repeat, linear-gradient(90deg, #ccccff 0%, #aaaaee 100%);
+  --sb-thumb-border: 1px solid #000000;
+  --sb-thumb-radius: 0;
+  --sb-thumb-shadow: inset 1px 1px #eeeeff;
+  --sb-thumb-hover: repeating-linear-gradient(180deg, #ffffff 0 1px, #6666aa 1px 2px) center / 7px 8px no-repeat, linear-gradient(90deg, #ddddff 0%, #bbbbf5 100%);
+
+  --overlay: rgba(0, 0, 0, 0.15);
+  --modal-bg: #dddddd;
+  --modal-border: 1px solid #000000;
+  --modal-shadow: var(--raised), 2px 2px 0 rgba(0, 0, 0, 0.35);
+  --mtb-bg: var(--tb-bg);
+  --mtb-fg: #000000;
+  --mtb-font: var(--chicago);
+  --mtb-border: 1px solid #999999;
+  --mtb-pad: 4px 8px;
+  --mclose-w: 13px;
+  --mclose-h: 13px;
+  --mfoot-border: 0;
+
+  --toast-bg: #ffffcc;
+  --toast-fg: #000000;
+  --toast-border: 1px solid #000000;
+  --toast-radius: 8px;
+  --toast-shadow: 2px 2px 0 rgba(0, 0, 0, 0.3);
+
+  --hero-border: 1px solid #000000;
+
+  & .titlebar-app-name,
+  & .modal-title { padding: 0 8px; background: #dddddd; }
+  /* The boxes sit in a gap cut out of the ridges, the same way the title
+     does, instead of the ridges running through between them. The gap runs
+     on to the window's right edge (the negative margin cancels the bar's
+     6px padding): stopping short left a sliver of ridges past the last box.
+     The boxes are centred in it, and carry no outline ring of their own —
+     the ring used to mask the ridges and drew uneven lines at 125–150%
+     display scaling. */
+  & .titlebar-controls {
+    align-self: center;
+    align-items: center;
+    height: 16px;
+    margin-right: -6px;
+    padding: 0 10px 0 6px;
+    background: #dddddd;
+  }
+  & .tb-ctrl.cls:active,
+  & .modal-close-btn:active { background: #888888; box-shadow: inset 1px 1px #555555, 0 0 0 2px #dddddd; }
+  & .modal-close-btn,
+  & .modal-close-btn:hover { box-shadow: inset 1px 1px #ffffff, inset -1px -1px #888888, 0 0 0 2px #dddddd; }
+  & .sidebar-logo { box-shadow: 0 1px 0 #ffffff; }
+  & .sidebar-footer { box-shadow: inset 0 1px 0 #ffffff; }
+  & .manage-sep { margin: 3px 0; }
+  /* Uninstall highlights like every other menu row, in red rather than the
+     selection blue. With the push-button danger colours (grey face, red
+     text) it got no highlight at all and looked as if hovering did nothing. */
+  & #manageMenu .manage-item.danger:hover,
+  & #manageMenu .manage-item.danger:focus-visible {
+    color: #ffffff !important;
+    background: #aa0000 !important;
+  }
+
+  & .settings-group { margin-top: 7px; }
+  & .settings-group > .sg-title {
+    align-self: flex-start;
+    margin: -19px 0 0 -4px;
+    padding: 0 4px;
+    background: #dddddd;
+  }
+
+  & :is(.btn-play, .btn-download-big, .modal-btn-primary):active { color: #ffffff; }
+  & .home-hero-bar :is(.btn-play, .btn-download-big) { margin-left: 4px; }
+  & .toast::before { display: none; }
+  & .toast { padding: 8px 12px; }
+  & .dlp-step-idx { border-radius: 0; }
+  & .dlp-dot { border-radius: 0; }
+}
+
+/* ── Mac OS X Aqua ────────────────────────────────────────────────────── */
+body.theme-macosaqua {
+  --pinstripe: repeating-linear-gradient(180deg, #f3f3f3 0 2px, #e8e8e8 2px 4px);
+  --gel-white: linear-gradient(180deg, #ffffff 0%, #f6f6f6 45%, #e2e2e2 50%, #eeeeee 85%, #fbfbfb 100%);
+  --gel-blue:  linear-gradient(180deg, #d8ebfd 0%, #9ccaf6 30%, #62a4ee 48%, #3b86e3 52%, #6fb2f2 85%, #b8dcfb 100%);
+  --gel-blue-hi: linear-gradient(180deg, #e3f1fe 0%, #acd4f8 30%, #74b1f1 48%, #4f96ea 52%, #82bff5 85%, #c6e3fc 100%);
+  --gel-press: linear-gradient(180deg, #9fc3f0 0%, #6ea5ea 45%, #4588e0 50%, #78b0f0 100%);
+  --source-sel: linear-gradient(180deg, #6aa0e5 0%, #2a6ad6 100%);
+
+  --font-ui:   'Lucida Grande', 'Lucida Sans Unicode', 'Segoe UI', sans-serif;
+  --font-mono: Monaco, Consolas, monospace;
+  --fs: 12px;
+  --heading-size: 11px;
+
+  --text: #000000;
+  --muted: #5e5e5e;
+  --heading: #2b2b2b;
+  --accent: #3875d7;
+  --accent-text: #1d5bbf;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(56, 117, 215, 0.14);
+  --focus: #3875d7;
+  --link: #1d5bbf;
+  --link-hover: #3875d7;
+  --ok: #1f7a2a;
+  --warn: #9a5a00;
+  --err: #c0271d;
+  --info: #1d5bbf;
+  --line: #d4d4d4;
+  --line-strong: #a5a5a5;
+  --sel-bg: #b5d5ff;
+  --sel-fg: #000000;
+
+  --win-color: #ececec;
+  --surface: #ffffff;
+  --surface-sunken: #ffffff;
+  --btn-color: #f2f2f2;
+  --win-bg: var(--pinstripe);
+  --win-bw: 1px;
+  --win-bc: #7c7c7c;
+  --content-bg: transparent;
+  --content-pad: 14px;
+
+  --panel-bg: rgba(0, 0, 0, 0.035);
+  --panel-border: 1px solid rgba(0, 0, 0, 0.13);
+  --panel-radius: 6px;
+  --panel-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.07);
+  --well-bg: #ffffff;
+  --well-border: 1px solid #9a9a9a;
+  --well-radius: 0;
+  --well-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+  --tile-bg: #fafafa;
+  --tile-border: 1px solid #cfcfcf;
+  --tile-radius: 5px;
+  --tile-shadow: inset 0 1px 0 #ffffff;
+  --tile-value: #1d5bbf;
+  --card-bg: #ffffff;
+  --card-border: 1px solid #c3c3c3;
+  --card-radius: 6px;
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --card-hover-border: 1px solid #6a9ad8;
+  --card-hover-shadow: 0 0 0 3px rgba(80, 150, 230, 0.35);
+  --media-bg: #ffffff;
+  --media-border: 1px solid #b8b8b8;
+  --media-radius: 3px;
+  --avatar-radius: 4px;
+  --badge-radius: 999px;
+
+  --header-fg: #000000;
+  --header-size: 14px;
+  --header-border: 1px solid #b5b5b5;
+  --header-shadow: 0 1px 0 #ffffff;
+  --header-pad: 0 0 6px;
+  --header-tshadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  --title-border: 0;
+  --title-fg: #2b2b2b;
+
+  --tb-h: 26px;
+  --tb-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0) 70%), repeating-linear-gradient(180deg, #e6e6e6 0 2px, #d9d9d9 2px 4px);
+  --tb-fg: #1a1a1a;
+  --tb-font: 'Lucida Grande', 'Lucida Sans Unicode', 'Segoe UI', sans-serif;
+  --tb-size: 13px;
+  --tb-weight: 400;
+  --tb-border: 1px solid #8f8f8f;
+  --tb-tshadow: 0 1px 0 rgba(255, 255, 255, 0.75);
+  --tb-pad: 0 8px;
+  --ctl-w: 14px;
+  --ctl-h: 14px;
+  --ctl-gap: 7px;
+  --ctl-span: 56px; /* 3 × 14px lights + 2 × 7px gaps */
+  --ctl-radius: 50%;
+  --ctl-border: 1px solid rgba(0, 0, 0, 0.4);
+  --ctl-fg: transparent;
+  --ctl-hover-fg: transparent;
+  --ctl-hover-bg: none;
+  --ctl-active-bg: none;
+  --ctl-close-fg: transparent;
+  --ctl-close-hover-fg: transparent;
+  --ctl-close-hover-border: 1px solid rgba(0, 0, 0, 0.4);
+  --glyph-size: 8px;
+  --glyph-min: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M1 4h6' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E");
+  --glyph-max: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M1 4h6M4 1v6' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E");
+  --glyph-cls: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath d='M1.5 1.5l5 5M6.5 1.5l-5 5' stroke='%23000' stroke-width='1.5'/%3E%3C/svg%3E");
+
+  --side-bg: linear-gradient(180deg, #e8edf3 0%, #d6dde6 100%);
+  --side-border: 1px solid #a3a3a3;
+  --side-divider: 1px solid #c3cad3;
+  --side-gap: 1px;
+  --logo-size: 28px;
+  --logo-radius: 0;
+  --brand-fg: #1a1a1a;
+  --brand-size: 15px;
+  --version-fg: #6b7380;
+
+  --nav-fg: #1c1c1c;
+  --nav-border: 1px solid transparent;
+  --nav-radius: 3px;
+  --nav-pad: 5px 9px;
+  --nav-size: 12px;
+  --nav-weight: 400;
+  --nav-hover-bg: rgba(56, 117, 215, 0.1);
+  --nav-hover-fg: #000000;
+  --nav-active-bg: var(--source-sel);
+  --nav-active-fg: #ffffff;
+  --nav-active-border: 1px solid #4a7fd3;
+  --nav-active-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  --nav-press-bg: var(--source-sel);
+  --nav-press-fg: #ffffff;
+  --nav-press-border: 1px solid #4a7fd3;
+
+  --field-pad: 3px 6px;
+  --field-size: 12px;
+  --field-focus-border: 1px solid #6a9ad8;
+  --field-focus-shadow: 0 0 0 3px rgba(80, 150, 230, 0.55);
+
+  --btn-bg: var(--gel-white);
+  --btn-fg: #000000;
+  --btn-border: 1px solid #8e8e8e;
+  --btn-radius: 999px;
+  --btn-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 #ffffff;
+  --btn-pad: 3px 16px;
+  --btn-size: 12px;
+  --btn-weight: 400;
+  --btn-hover-bg: var(--gel-white);
+  --btn-hover-border: 1px solid #6a6a6a;
+  --btn-active-bg: var(--gel-press);
+  --btn-active-border: 1px solid #3b6db8;
+  --btn-disabled-fg: #9a9a9a;
+
+  --pri-bg: var(--gel-blue);
+  --pri-fg: #000000;
+  --pri-border: 1px solid #2c5fa8;
+  --pri-radius: 999px;
+  --pri-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --pri-weight: 400;
+  --pri-hover-bg: var(--gel-blue-hi);
+  --pri-active-bg: linear-gradient(180deg, #8fb8ea 0%, #4d8ade 45%, #2a6fcf 50%, #5f9fe8 100%);
+
+  --danger-bg: linear-gradient(180deg, #fde0dd 0%, #f6a39b 30%, #e8574b 48%, #d6392d 52%, #ee7b70 85%, #fbc3bd 100%);
+  --danger-fg: #000000;
+  --danger-border: 1px solid #9c2a20;
+  --danger-hover-bg: linear-gradient(180deg, #feeae8 0%, #f8b3ac 30%, #ec675c 48%, #de4a3e 52%, #f28b81 85%, #fcd0cb 100%);
+  --danger-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --run-bg: var(--danger-bg);
+  --run-fg: #000000;
+  --run-border: var(--danger-border);
+  --run-shadow: var(--danger-shadow);
+  --run-hover-bg: var(--danger-hover-bg);
+
+  --menu-bg: #fafafa;
+  --menu-fg: #000000;
+  --menu-border: 1px solid #b0b0b0;
+  --menu-radius: 0 0 5px 5px;
+  --menu-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+  --menu-pad: 4px 0;
+  --item-pad: 3px 20px 3px 14px;
+  --item-radius: 0;
+  --item-size: 13px;
+  --item-hover-bg: var(--source-sel);
+  --item-hover-fg: #ffffff;
+  --sep: 1px solid #dcdcdc;
+
+  --th-bg: linear-gradient(180deg, #fdfdfd 0%, #ececec 50%, #dedede 51%, #eaeaea 100%);
+  --th-fg: #000000;
+  --th-weight: 400;
+  --th-line: #9f9f9f;
+  --th-sep: #c3c3c3;
+  --td-line: transparent;
+  --row-bg: #ffffff;
+  --row-alt: #edf3fe;
+  --row-hover-bg: #3875d7;
+  --row-hover-fg: #ffffff;
+
+  --chip-fg: #1c1c1c;
+  --chip-radius: 999px;
+  --chip-hover-bg: rgba(0, 0, 0, 0.06);
+  --chip-hover-fg: #000000;
+  --chip-active-bg: var(--source-sel);
+  --chip-active-fg: #ffffff;
+
+  --seg-bg: var(--gel-white);
+  --seg-border: 1px solid #6e6e6e;
+  --seg-radius: 999px;
+  --seg-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --seg-fg: #000000;
+  --seg-divider: 1px solid #8e8e8e;
+  --seg-active-bg: var(--gel-press);
+  --seg-active-fg: #000000;
+  --seg-label: #e8e8e8;
+  --seg-press-bg: linear-gradient(180deg, #8fb8ea 0%, #4d8ade 45%, #2a6fcf 50%, #5f9fe8 100%);
+  --seg-press-fg: #000000;
+
+  --tgl-w: 34px;
+  --tgl-h: 18px;
+  --tgl-bw: 1px;
+  --tgl-radius: 999px;
+  --tgl-bg: var(--gel-white);
+  --tgl-border: 1px solid #8e8e8e;
+  --tgl-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+  --knob: 14px;
+  --knob-inset: 1px;
+  --knob-bg: var(--gel-white);
+  --knob-border: 1px solid #8e8e8e;
+  --knob-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --tgl-on-bg: var(--gel-blue);
+  --tgl-on-border: 1px solid #2c5fa8;
+  --knob-on-bg: var(--gel-white);
+
+  --bar-h: 14px;
+  --bar-pad: 0;
+  --bar-bg: linear-gradient(180deg, #d4d4d4 0%, #f5f5f5 100%);
+  --bar-border: 1px solid #8e8e8e;
+  --bar-radius: 999px;
+  --bar-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  --bar-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0.1) 50%, rgba(0, 0, 0, 0) 51%, rgba(255, 255, 255, 0.25) 100%),
+              linear-gradient(45deg, #4f8fe4 25%, #86b9f2 25%, #86b9f2 50%, #4f8fe4 50%, #4f8fe4 75%, #86b9f2 75%);
+  --bar-fill-size: 100% 100%, 16px 16px;
+  --bar-fill-radius: 999px;
+  --bar-trans: width 0.3s ease;
+
+  --sb-size: 15px;
+  --sb-track: linear-gradient(90deg, #dcdcdc 0%, #f4f4f4 40%, #f4f4f4 60%, #e2e2e2 100%);
+  --sb-thumb: linear-gradient(90deg, #3a7ae0 0%, #7fb4f2 35%, #a9cdf7 50%, #5c9aea 75%, #3a7ae0 100%);
+  --sb-thumb-border: 1px solid #2c5fa8;
+  --sb-thumb-radius: 999px;
+  --sb-thumb-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  --sb-thumb-hover: linear-gradient(90deg, #4a88e8 0%, #92c1f5 35%, #bad8f9 50%, #6ca8ee 75%, #4a88e8 100%);
+
+  --overlay: rgba(0, 0, 0, 0.25);
+  --modal-bg: var(--pinstripe);
+  --modal-border: 1px solid #7c7c7c;
+  --modal-radius: 6px 6px 5px 5px;
+  --modal-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --mtb-bg: var(--tb-bg);
+  --mtb-fg: #1a1a1a;
+  --mtb-border: 1px solid #8f8f8f;
+  --mtb-pad: 5px 30px;
+  --mtb-size: 13px;
+  --mtb-weight: 400;
+  --mclose-w: 14px;
+  --mclose-h: 14px;
+  --mfoot-border: 0;
+
+  --toast-bg: rgba(24, 24, 24, 0.88);
+  --toast-fg: #ffffff;
+  --toast-border: 1px solid rgba(255, 255, 255, 0.16);
+  --toast-radius: 8px;
+  --toast-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+
+  --hero-border: 1px solid #7c7c7c;
+  --hero-radius: 5px;
+  --dur: 0.15s;
+
+  /* Traffic lights: gel spheres, symbols only while the group is hovered. */
+  & .tb-ctrl,
+  & .tb-ctrl:hover,
+  & .tb-ctrl:active,
+  & .modal-close-btn,
+  & .modal-close-btn:hover {
+    box-shadow: inset 0 -1px 2px rgba(255, 255, 255, 0.5), 0 1px 1px rgba(255, 255, 255, 0.6);
+  }
+  & .tb-ctrl.cls,
+  & .tb-ctrl.cls:hover,
+  & .tb-ctrl.cls:active,
+  & .modal-close-btn,
+  & .modal-close-btn:hover {
+    background: radial-gradient(circle at 50% 24%, rgba(255, 255, 255, 0.95) 0 20%, rgba(255, 255, 255, 0) 46%),
+                radial-gradient(circle at 50% 78%, #ff968e 0%, #e1463f 55%, #a61f19 100%);
+  }
+  & .tb-ctrl.min,
+  & .tb-ctrl.min:hover,
+  & .tb-ctrl.min:active {
+    background: radial-gradient(circle at 50% 24%, rgba(255, 255, 255, 0.95) 0 20%, rgba(255, 255, 255, 0) 46%),
+                radial-gradient(circle at 50% 78%, #ffe28a 0%, #e9a82a 55%, #a86f0e 100%);
+  }
+  & .tb-ctrl.max,
+  & .tb-ctrl.max:hover,
+  & .tb-ctrl.max:active {
+    background: radial-gradient(circle at 50% 24%, rgba(255, 255, 255, 0.95) 0 20%, rgba(255, 255, 255, 0) 46%),
+                radial-gradient(circle at 50% 78%, #9ee88a 0%, #3fae38 55%, #1e7a1a 100%);
+  }
+  & .tb-ctrl:active,
+  & .modal-close-btn:active { filter: brightness(0.8); }
+  & .titlebar-controls:hover .tb-ctrl,
+  & .modal-close-btn:hover { color: rgba(60, 0, 0, 0.7); }
+
+  & .native-search-bar .cfg-input { border-radius: 999px; padding: 4px 12px; }
+  & .modal-btn.modal-btn-primary { animation: sk-aqua-throb 1.6s ease-in-out infinite; }
+  & .dlp-bar-fill { animation: sk-aqua-stripes 0.8s linear infinite; }
+  & .home-hero-bar :is(.btn-play, .btn-download-big) { font-weight: 700; }
+  & .toast::before { display: none; }
+  & .toast { padding: 9px 14px; }
+  & .dlp-step-idx { border-radius: 50%; }
+
+  & .settings-group > .sg-title { padding-bottom: 0; }
+}
