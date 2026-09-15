@@ -398,6 +398,16 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   /* Dialogs fade their backdrop and pop the box in. */
   & .modal-overlay { animation: sk-overlay-in 0.2s ease; }
   & .modal-box { animation: sk-modal-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+  /* Kept on their own compositing layer for as long as they are open. While
+     one animates it is already on a layer, and its text is drawn at the box's
+     true position, which is often fractional: a flex-centred dialog of odd
+     height, or any box at 125% scaling. When the animation ended the layer
+     was dropped and the text redrawn snapped to the pixel grid, jumping about
+     half a pixel up — the stutter at the end of every popup. Measured in
+     headless Edge at 125%: 9,056 pixels differed between the last animation
+     frame and the settled dialog; with this, none. Hidden popups are
+     display:none, so no layer is held while they are closed. */
+  & :is(.modal-box, .network-menu, .manage-menu, .cselect-menu) { will-change: transform; }
   /* And back out. hideModal() in app.js adds .is-closing and waits
      MODAL_EXIT_MS (180ms) before hiding — keep the two in step. */
   & .modal-overlay.is-closing { animation: sk-overlay-out 0.18s ease-in forwards; }
@@ -436,18 +446,11 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   & .qs-card:is(.not-installed, .update-available) .qs-icon-indicator { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
   & .dlp-dot { box-shadow: 0 0 0 3px var(--accent-soft); }
   & .dlp-step-idx { border-radius: 50%; }
-  & .home-hero-bar #btnManageClient {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 999px;
-    box-shadow: none;
-  }
-  & .home-hero-bar #btnManageClient:hover,
-  & .home-hero-bar #btnManageClient[aria-expanded="true"] {
-    background: rgba(255, 255, 255, 0.16);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-  }
+  /* The gear is not restyled here: it keeps the skin's push-button look from
+     02-controls.css — a rounded square in --raised with a --line-strong edge,
+     dark on the dark skins and white on the light ones — which is what it was
+     before the remake. A translucent white circle over the scrim was tried and
+     read as a different, out-of-place control. */
   & .home-hero-bar #btnManageClient svg { transition: transform 0.25s var(--ease); }
   & .home-hero-bar #btnManageClient[aria-expanded="true"] svg { transform: rotate(90deg); }
 }

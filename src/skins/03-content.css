@@ -194,7 +194,7 @@ body:not(.glass-enabled) {
   & .ct-swatches { grid-template-columns: minmax(0, 360px); }
   & .ct-swatch { gap: 10px; padding: 5px 6px 5px 8px; font-size: 11px; }
   & .ct-swatch .ct-note { color: var(--muted); }
-  & .theme-color-input::-webkit-color-swatch { border: 1px solid var(--line-strong) !important; }
+  & :is(.tint-swatch, .tint-preset) { border-color: var(--line-strong); }
   & input[type="checkbox"] { accent-color: var(--accent); }
 
   /* ── Dialogs ──────────────────────────────────────────────────────── */

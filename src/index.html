@@ -641,11 +641,25 @@
               <p class="sg-hint">Frosts every panel and blurs behind popups. Turn it off for a lighter version that stays smooth on older or integrated graphics.</p>
 
               <div class="ct-swatches">
-                <div class="ct-swatch">
-                  <input type="color" id="theme-glassBg" class="theme-color-input" value="#0b0c14">
+                <div class="ct-swatch tint-picker-host">
+                  <!-- Our own picker, not <input type="color">: that opens
+                       Chromium's white system popup. See the tint picker in app.js. -->
+                  <button type="button" id="theme-glassBg" class="tint-swatch" aria-label="Glass tint colour" aria-haspopup="dialog" aria-expanded="false" aria-controls="tintPicker"></button>
                   <span>Glass Tint</span>
                   <span class="ct-note">used when no image</span>
                   <button class="btn-open-folder" id="btnResetGlassTint">Reset</button>
+                  <div class="tint-picker" id="tintPicker" role="dialog" aria-label="Glass tint" hidden>
+                    <div class="tint-sv" id="tintSv" tabindex="0" role="slider" aria-label="Saturation and brightness">
+                      <div class="tint-sv-thumb" id="tintSvThumb"></div>
+                    </div>
+                    <div class="tint-hue" id="tintHue" tabindex="0" role="slider" aria-label="Hue" aria-valuemin="0" aria-valuemax="360">
+                      <div class="tint-hue-thumb" id="tintHueThumb"></div>
+                    </div>
+                    <div class="tint-row">
+                      <input type="text" id="tintHex" class="cfg-input tint-hex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Hex colour">
+                    </div>
+                    <div class="tint-presets" id="tintPresets"></div>
+                  </div>
                 </div>
               </div>
 

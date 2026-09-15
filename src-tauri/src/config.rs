@@ -92,10 +92,14 @@ impl GlassSettings {
         // the two shapes that can legitimately appear there and to characters
         // that cannot terminate the declaration.
         let img = self.bg_image.trim();
-        let shape_ok = img.is_empty()
-            || img.starts_with("https://")
-            || img.starts_with("data:image/");
-        let chars_ok = !img.contains(['\'', '"', '(', ')', '{', '}', '\\', ';'])
+        let is_data = img.starts_with("data:image/");
+        let shape_ok = img.is_empty() || img.starts_with("https://") || is_data;
+        // A data: URI legitimately carries a `;` (the `;base64` marker), and
+        // inside the quoted url() it cannot end the declaration — so it is
+        // exempt from that one character, as in `safeBackdrop()` in app.js.
+        // Rejecting it here used to wipe every picked local image on save.
+        let chars_ok = !img.contains(['\'', '"', '(', ')', '{', '}', '\\'])
+            && (is_data || !img.contains(';'))
             && !img.chars().any(|c| c.is_control());
         if !shape_ok || !chars_ok {
             self.bg_image = String::new();
@@ -1128,24 +1132,22 @@ mod tests {
         // The two shapes the picker and the URL field actually produce.
         for good in [
             "https://example.invalid/wallpaper.jpg",
-            "data:image/jpeg;base64,/9j/4AAQSkZJRg",
+            // What the file picker stores. Its `;` is fine inside the quoted
+            // url(); this used to be dropped, losing every local image on save.
+            "data:image/jpeg;base64,/9j/4AAQSkZJRg+/=",
             "",
         ] {
-            // `data:` URIs carry a `;`, which is fine inside the quoted url()
-            // — the check that matters is that they can't close it.
             glass.bg_image = good.into();
-            glass.sanitize();
-            if good.starts_with("data:") {
-                assert_eq!(glass.bg_image, "", "the `;` in a data URI is caught");
-            } else {
-                assert_eq!(glass.bg_image, good, "{good:?} should survive");
-            }
+            assert!(!glass.sanitize(), "{good:?} should not be reported as repaired");
+            assert_eq!(glass.bg_image, good, "{good:?} should survive");
         }
 
         // Anything that could terminate the declaration, or reach a scheme the
         // backdrop has no business using.
         for bad in [
             "https://x/a.jpg') no-repeat; } body { color: red } .z {",
+            "https://x/a.jpg;color:red",
+            "data:image/png;base64,AAAA') } body { color: red } .z {",
             "javascript:alert(1)",
             "http://example.invalid/x.jpg",
             "file:///C:/Windows/win.ini",

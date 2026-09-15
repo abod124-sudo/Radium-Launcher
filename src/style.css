@@ -1566,7 +1566,7 @@ body.animations-enabled.theme-moderndark .hero-gear[aria-expanded="false"]:hover
 /* A settings group is its own stacking context on the modern skins, so a menu
    hanging below one was painted under the next group. The group holding the
    open menu is lifted above its siblings for as long as it is open. */
-.settings-group.cselect-host { position: relative; z-index: 20; }
+.settings-group:is(.cselect-host, .tint-host) { position: relative; z-index: 20; }
 .cfg-path-display {
   font-family: var(--font-mono); font-size: 9px; color: var(--green-dim);
   background: var(--bg-dark); border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
@@ -3846,27 +3846,64 @@ body.theme-moderndark .people-avatar[src="logo.png"] {
 /* Round chips, so a color reads as a color and not as one more button.
    Bordered with the theme's own line color rather than a fixed white, which
    vanished against the light skins. */
-.theme-color-input {
-  -webkit-appearance: none;
-  border: none;
+.tint-swatch,
+.tint-preset {
   width: 20px;
   height: 20px;
-  border-radius: 50% !important;
-  cursor: pointer;
-  background: none;
   padding: 0;
-  outline: none;
   flex-shrink: 0;
   box-sizing: border-box;
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  background: var(--swatch, #0b0c14);
+  cursor: pointer;
 }
-.theme-color-input::-webkit-color-swatch-wrapper {
-  padding: 0;
+.tint-swatch:disabled { cursor: default; }
+
+/* ── Glass tint picker ── (glassCss() gives it the glass look; the tint is
+   only editable while glass is on, so this is the fallback layout.) */
+.tint-picker-host { position: relative; }
+.tint-picker {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+  width: 236px; box-sizing: border-box; padding: 10px;
+  display: flex; flex-direction: column; gap: 10px;
+  background-color: var(--bg-main);
+  background-image: linear-gradient(var(--bg-panel), var(--bg-panel));
+  border: 1px solid var(--border-dark);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  cursor: default;
 }
-.theme-color-input::-webkit-color-swatch {
-  border: 1px solid var(--border-light) !important;
-  border-radius: 50% !important;
-  box-sizing: border-box;
+.tint-picker[hidden] { display: none; }
+.tint-picker.opens-up { top: auto; bottom: calc(100% + 6px); }
+.tint-sv,
+.tint-hue { position: relative; touch-action: none; outline: none; }
+.tint-sv {
+  height: 132px; cursor: crosshair;
+  background:
+    linear-gradient(to top, #000, transparent),
+    linear-gradient(to right, #fff, var(--tint-hue-color, #f00));
 }
+.tint-hue {
+  height: 12px; margin: 0 7px; cursor: pointer;
+  background: linear-gradient(to right, #f00 0%, #ff0 16.67%, #0f0 33.33%, #0ff 50%, #00f 66.67%, #f0f 83.33%, #f00 100%);
+}
+/* Positioned with left/top percentages set from JS and centred on that point. */
+.tint-sv-thumb,
+.tint-hue-thumb {
+  position: absolute; width: 14px; height: 14px; box-sizing: border-box;
+  border: 2px solid #fff; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%); pointer-events: none;
+  background: var(--tint-current);
+}
+.tint-hue-thumb { top: 50%; width: 16px; height: 16px; background: var(--tint-hue-color); }
+.tint-sv:focus-visible,
+.tint-hue:focus-visible { box-shadow: 0 0 0 2px #0a84ff; }
+/* No separate preview circle: the swatch the picker opens from and the
+   square's thumb already show the colour live. */
+.tint-row { display: flex; align-items: center; gap: 8px; }
+.tint-picker .tint-hex { flex: 1; min-width: 0; font-family: var(--font-mono); }
+.tint-presets { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; justify-items: center; }
 
 /* ════════════════════════════════════════════════════════════════════════
    FIXES — modal titlebar theming

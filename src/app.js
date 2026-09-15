@@ -1070,7 +1070,7 @@ async function loadConfig() {
   setToggle('tgl-glassEnabled', glassOn);
   // On unless explicitly switched off, matching GlassSettings::default.
   setToggle('tgl-glassFull', config.glass.fullEffects !== false);
-  setValue('theme-glassBg', safeColor(config.glass.tint, DEFAULT_GLASS_TINT));
+  setGlassTintUI(safeColor(config.glass.tint, DEFAULT_GLASS_TINT));
   setBgImageUI(config.glass.bgImage || '');
   updateGlassControls(glassOn);
 
@@ -1218,16 +1218,27 @@ function glassCss(tint, bgImage, fullEffects = false) {
   // red tint still gives a red field.
   const backdrop = safeBgImage
     ? `linear-gradient(rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.22)), url('${safeBgImage}') center / cover no-repeat`
-    : `radial-gradient(70% 80% at 6% 4%, color-mix(in oklab, ${safeGlassBg} 38%, #5e5ce6) 0%, transparent 72%),
-          radial-gradient(64% 76% at 98% 2%, color-mix(in oklab, ${safeGlassBg} 40%, #0a84ff) 0%, transparent 72%),
-          radial-gradient(56% 60% at 58% 52%, color-mix(in oklab, ${safeGlassBg} 58%, #5856d6) 0%, transparent 74%),
-          radial-gradient(78% 78% at 92% 106%, color-mix(in oklab, ${safeGlassBg} 38%, #bf5af2) 0%, transparent 72%),
-          radial-gradient(68% 70% at 2% 102%, color-mix(in oklab, ${safeGlassBg} 42%, #30b0c7) 0%, transparent 72%),
-          linear-gradient(160deg, color-mix(in oklab, ${safeGlassBg} 78%, #2c2c6e), ${safeGlassBg})`;
+    : `radial-gradient(70% 80% at 6% 4%, color-mix(in oklab, var(--lg-tint) 38%, #5e5ce6) 0%, transparent 72%),
+          radial-gradient(64% 76% at 98% 2%, color-mix(in oklab, var(--lg-tint) 40%, #0a84ff) 0%, transparent 72%),
+          radial-gradient(56% 60% at 58% 52%, color-mix(in oklab, var(--lg-tint) 58%, #5856d6) 0%, transparent 74%),
+          radial-gradient(78% 78% at 92% 106%, color-mix(in oklab, var(--lg-tint) 38%, #bf5af2) 0%, transparent 72%),
+          radial-gradient(68% 70% at 2% 102%, color-mix(in oklab, var(--lg-tint) 42%, #30b0c7) 0%, transparent 72%),
+          linear-gradient(160deg, color-mix(in oklab, var(--lg-tint) 78%, #2c2c6e), var(--lg-tint))`;
 
   return `
+        /* The tint, as a property rather than baked into the gradients, so
+           the picker can preview a drag by setting it on <body> instead of
+           rebuilding this sheet every frame. Registered as non-inherited so
+           that change restyles <body> alone, not every element under it. */
+        @property --lg-tint {
+          syntax: '<color>';
+          inherits: false;
+          initial-value: #0b0c14;
+        }
+
         /* ── Tokens ───────────────────────────────────────────────────── */
         ${G} {
+          --lg-tint: ${safeGlassBg};
           /* Not \`background-attachment: fixed\`. <body> never scrolls, so
              fixed bought nothing — and a fixed background is repainted on the
              main thread whenever anything above it changes, so a hover
@@ -2388,6 +2399,102 @@ function glassCss(tint, bgImage, fullEffects = false) {
           padding: 6px 10px !important;
         }
 
+        /* Tint picker. A solid popover like the custom selects, and for the
+           same reason: it opens inside a settings group, which is already a
+           backdrop-filter, so a blur here would never draw. No blur also
+           keeps it clear of the small-element blur artifacts. */
+        ${G} .tint-swatch {
+          width: 22px !important;
+          height: 22px !important;
+          border: none !important;
+          box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+            0 1px 3px rgba(0, 0, 0, 0.35) !important;
+          transition: transform 0.25s var(--lg-spring), box-shadow 0.2s var(--lg-ease) !important;
+        }
+        ${G} .tint-swatch:not(:disabled):hover { transform: scale(1.1) !important; }
+        ${G} .tint-swatch.is-open {
+          box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+            0 0 0 2px rgba(10, 132, 255, 0.95),
+            0 0 0 5px rgba(10, 132, 255, 0.28) !important;
+        }
+        ${G} .tint-picker {
+          width: 244px !important;
+          padding: 12px !important;
+          gap: 12px !important;
+          background:
+            radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+            #1e2030 !important;
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+          border: none !important;
+          border-radius: 18px !important;
+          box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, 0.18),
+            inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+            0 24px 60px -18px rgba(0, 0, 0, 0.65),
+            0 2px 6px rgba(0, 0, 0, 0.2) !important;
+        }
+        ${G} .tint-sv {
+          height: 140px !important;
+          border-radius: 10px !important;
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10) !important;
+        }
+        ${G} .tint-hue {
+          height: 14px !important;
+          border-radius: 999px !important;
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14) !important;
+        }
+        ${G} .tint-sv-thumb,
+        ${G} .tint-hue-thumb {
+          width: 18px !important;
+          height: 18px !important;
+          border: 3px solid #ffffff !important;
+          box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18), 0 3px 8px rgba(0, 0, 0, 0.45) !important;
+        }
+        ${G} .tint-hue-thumb { width: 20px !important; height: 20px !important; }
+        ${G} .tint-sv:focus-visible,
+        ${G} .tint-hue:focus-visible {
+          box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+            0 0 0 2px rgba(10, 132, 255, 0.9) !important;
+        }
+        ${G} .tint-picker .tint-hex {
+          height: 30px !important;
+          padding: 0 12px !important;
+          border-radius: 999px !important;
+          font-family: var(--font-mono) !important;
+          font-size: 12px !important;
+          letter-spacing: 0.5px !important;
+        }
+        ${G} .tint-preset {
+          width: 22px !important;
+          height: 22px !important;
+          border: none !important;
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22) !important;
+          transition: transform 0.25s var(--lg-spring), box-shadow 0.2s var(--lg-ease) !important;
+        }
+        ${G} .tint-preset:hover { transform: scale(1.12) !important; }
+        ${G} .tint-preset.active {
+          box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+            0 0 0 2px #1e2030,
+            0 0 0 3.5px rgba(255, 255, 255, 0.85) !important;
+        }
+        /* The same drop and lift as the custom selects. */
+        ${G}.animations-enabled .tint-picker:not([hidden]) {
+          animation: networkMenuDrop 0.2s var(--lg-ease);
+          transform-origin: top left;
+        }
+        ${G}.animations-enabled .tint-picker.opens-up:not([hidden]) {
+          transform-origin: bottom left;
+        }
+        ${G}.animations-enabled .tint-picker.is-closing {
+          animation: networkMenuLift 0.14s ease-in forwards;
+        }
+
         /* ── Rooms and People ─────────────────────────────────────────── */
         ${G} #roomsSidebar > div {
           border-radius: 18px !important;
@@ -2610,6 +2717,16 @@ function glassCss(tint, bgImage, fullEffects = false) {
         ${G} .modal-box { animation: glassModalIn 0.42s var(--lg-spring) !important; }
         ${G} .modal-overlay.is-closing { animation: glassOverlayOut 0.18s ease-in forwards !important; }
         ${G} .modal-overlay.is-closing .modal-box { animation: glassModalOut 0.18s ease-in forwards !important; }
+        /* Popups stay on their own compositing layer while open. Otherwise
+           the layer an entrance animation creates is dropped when it ends,
+           and text drawn at a fractional position (a flex-centred dialog of
+           odd height, 125% scaling) is redrawn snapped to the pixel grid —
+           a half-pixel jump up as every popup settles. None of these carry
+           a blur, so the held layer is the kind proven clean on the user's
+           GPU; the frosted toasts are left out. */
+        ${G} :is(.modal-box, .network-menu, .manage-menu, .cselect-menu, .tint-picker) {
+          will-change: transform;
+        }
         @keyframes glassOverlayIn  { from { opacity: 0; } to { opacity: 1; } }
         @keyframes glassOverlayOut { from { opacity: 1; } to { opacity: 0; } }
         @keyframes glassModalIn {
@@ -2894,6 +3011,9 @@ function applyTheme(theme) {
     .join(' ');
 
   document.getElementById(GLASS_STYLE_ID)?.remove();
+  // A tint picker drag previews through this inline property; the sheet built
+  // below carries the same colour, so the override is no longer needed.
+  document.body.style.removeProperty('--lg-tint');
   // The pre-paint cache boot.js injects. Dropped here so the real stylesheet
   // replaces it rather than stacking on top of it.
   document.getElementById(GLASS_BOOT_STYLE_ID)?.remove();
@@ -3017,20 +3137,282 @@ $('tgl-glassFull')?.addEventListener('click', () => {
   saveThemeSettings();
 });
 
-$('theme-glassBg')?.addEventListener('input', () => {
-  config.glass = { ...(config.glass || {}), tint: $('theme-glassBg').value };
-  // Redrawn immediately so dragging the picker is a live preview; only the
-  // write to disk waits.
-  applyTheme(config.theme);
-  debouncedSaveThemeSettings();
-});
-
 /// The tint a fresh install starts with. Mirrors `GlassSettings::default` in
 /// config.rs.
 const DEFAULT_GLASS_TINT = '#0b0c14';
 
+// ─── Glass tint picker ──────────────────────────────────────────────────────
+// Drawn by the launcher rather than `<input type="color">`, whose popup is
+// Chromium's own white dialog and matched none of the skins.
+//
+// It also used to be slow to drag: every `input` event rebuilt the whole glass
+// stylesheet and wrote it to localStorage. Now a drag is read at most once per
+// frame, and each frame only sets `--lg-tint` on <body> (see glassCss()). The
+// sheet is rebuilt once, after the picker closes, so the boot cache gets the
+// final colour.
+
+/// Dark tints that suit the glass field: the default, then a spread of hues.
+const TINT_PRESETS = ['#0b0c14', '#1b1036', '#0a1d3f', '#06302e', '#0d2a16', '#3b0f22', '#3a2208', '#2a2b31'];
+
+/// Hue is kept separately from the hex so dragging to grey or black and back
+/// does not snap the hue slider to red.
+const tintState = { h: 0, s: 0, v: 0, dirty: false };
+
+const clamp01 = (n) => Math.min(1, Math.max(0, n));
+
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1, 7), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d + 6) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return { h, s: max ? d / max : 0, v: max };
+}
+
+function hsvToHex(h, s, v) {
+  const channel = (n) => {
+    const k = (n + h / 60) % 6;
+    return Math.round((v - v * s * Math.max(0, Math.min(k, 4 - k, 1))) * 255);
+  };
+  return '#' + [channel(5), channel(3), channel(1)].map(c => c.toString(16).padStart(2, '0')).join('');
+}
+
+/// `#abc` or `abcdef`, with or without the hash, as `#aabbcc`; null otherwise.
+function parseHexInput(raw) {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(raw).trim());
+  if (!m) return null;
+  const digits = m[1].length === 3 ? [...m[1]].map(c => c + c).join('') : m[1];
+  return '#' + digits.toLowerCase();
+}
+
+/// Show a tint on the swatch button, without applying it.
+function setGlassTintUI(hex) {
+  $('theme-glassBg')?.style.setProperty('--swatch', hex);
+}
+
+function syncTintStateFromHex(hex) {
+  const { h, s, v } = rgbToHsv(...hexToRgb(hex));
+  // A grey carries no hue of its own; keep the one the slider is on.
+  if (s > 0 && v > 0) tintState.h = h;
+  tintState.s = s;
+  tintState.v = v;
+}
+
+function paintTintPicker(hex, { syncHexField = true } = {}) {
+  const picker = $('tintPicker');
+  if (!picker) return;
+  const { h, s, v } = tintState;
+  picker.style.setProperty('--tint-current', hex);
+  picker.style.setProperty('--tint-hue-color', `hsl(${h} 100% 50%)`);
+
+  const svThumb = $('tintSvThumb');
+  if (svThumb) {
+    svThumb.style.left = `${s * 100}%`;
+    svThumb.style.top = `${(1 - v) * 100}%`;
+  }
+  const hueThumb = $('tintHueThumb');
+  if (hueThumb) hueThumb.style.left = `${(h / 360) * 100}%`;
+
+  $('tintSv')?.setAttribute('aria-valuetext', hex.toUpperCase());
+  $('tintHue')?.setAttribute('aria-valuenow', String(Math.round(h)));
+  if (syncHexField && $('tintHex')) $('tintHex').value = hex.toUpperCase();
+
+  for (const chip of $('tintPresets')?.children || []) {
+    chip.classList.toggle('active', chip.dataset.value === hex);
+  }
+}
+
+/// Live preview: cheap enough to run every frame of a drag.
+function previewGlassTint(hex) {
+  setGlassTintUI(hex);
+  if (config.glass?.tint === hex) return;
+  config.glass = { ...(config.glass || {}), tint: hex };
+  document.body.style.setProperty('--lg-tint', hex);
+  tintState.dirty = true;
+  debouncedSaveThemeSettings();
+}
+
+function applyTintState(opts) {
+  const hex = hsvToHex(tintState.h, tintState.s, tintState.v);
+  paintTintPicker(hex, opts);
+  previewGlassTint(hex);
+}
+
+/// Pointer drags on the square and the hue bar. Pointer capture keeps the drag
+/// alive when a fast flick leaves the control; the latest position is applied
+/// once per animation frame however many events arrive in between.
+function bindTintDrag(el, onPoint) {
+  if (!el) return;
+  let rect = null;
+  let last = null;
+  let frame = 0;
+  const flush = () => {
+    frame = 0;
+    if (rect && last) onPoint(last, rect);
+  };
+  const queue = (e) => {
+    last = { x: e.clientX, y: e.clientY };
+    if (!frame) frame = requestAnimationFrame(flush);
+  };
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    rect = el.getBoundingClientRect();
+    el.setPointerCapture(e.pointerId);
+    el.focus({ preventScroll: true });
+    queue(e);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (el.hasPointerCapture(e.pointerId)) queue(e);
+  });
+}
+
+bindTintDrag($('tintSv'), (p, r) => {
+  tintState.s = clamp01((p.x - r.left) / r.width);
+  tintState.v = 1 - clamp01((p.y - r.top) / r.height);
+  applyTintState();
+});
+bindTintDrag($('tintHue'), (p, r) => {
+  tintState.h = clamp01((p.x - r.left) / r.width) * 360;
+  applyTintState();
+});
+
+$('tintSv')?.addEventListener('keydown', (e) => {
+  const step = e.shiftKey ? 0.1 : 0.01;
+  const moves = { ArrowLeft: ['s', -step], ArrowRight: ['s', step], ArrowDown: ['v', -step], ArrowUp: ['v', step] };
+  const move = moves[e.key];
+  if (!move) return;
+  e.preventDefault();
+  tintState[move[0]] = clamp01(tintState[move[0]] + move[1]);
+  applyTintState();
+});
+$('tintHue')?.addEventListener('keydown', (e) => {
+  const step = e.shiftKey ? 10 : 1;
+  const delta = { ArrowLeft: -step, ArrowDown: -step, ArrowRight: step, ArrowUp: step }[e.key];
+  if (delta === undefined) return;
+  e.preventDefault();
+  tintState.h = Math.min(360, Math.max(0, tintState.h + delta));
+  applyTintState();
+});
+
+$('tintHex')?.addEventListener('input', (e) => {
+  const hex = parseHexInput(e.target.value);
+  if (!hex) return;
+  syncTintStateFromHex(hex);
+  // The field is left as typed until it is committed.
+  paintTintPicker(hex, { syncHexField: false });
+  previewGlassTint(hex);
+});
+$('tintHex')?.addEventListener('change', (e) => {
+  e.target.value = safeColor(config.glass?.tint, DEFAULT_GLASS_TINT).toUpperCase();
+});
+$('tintHex')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    closeTintPicker(true);
+  }
+});
+
+(function buildTintPresets() {
+  const host = $('tintPresets');
+  if (!host) return;
+  for (const hex of TINT_PRESETS) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'tint-preset';
+    chip.dataset.value = hex;
+    chip.style.setProperty('--swatch', hex);
+    chip.setAttribute('aria-label', hex.toUpperCase());
+    chip.addEventListener('click', () => {
+      syncTintStateFromHex(hex);
+      paintTintPicker(hex);
+      previewGlassTint(hex);
+    });
+    host.appendChild(chip);
+  }
+})();
+
+function openTintPicker() {
+  const btn = $('theme-glassBg');
+  const picker = $('tintPicker');
+  if (!btn || !picker || btn.disabled) return;
+
+  const hex = safeColor(config.glass?.tint, DEFAULT_GLASS_TINT);
+  syncTintStateFromHex(hex);
+  paintTintPicker(hex);
+
+  // Lifted over the next settings group, as an open custom select is.
+  picker.closest('.settings-group')?.classList.add('tint-host');
+  picker.classList.remove('opens-up');
+  showDropdown(picker);
+
+  // Open upward when there is not room below inside the settings scroller.
+  const bounds = scrollParentOf(picker.parentElement).getBoundingClientRect();
+  const t = btn.getBoundingClientRect();
+  const below = bounds.bottom - t.bottom;
+  const above = t.top - bounds.top;
+  if (picker.offsetHeight + 8 > below && above > below) picker.classList.add('opens-up');
+
+  btn.setAttribute('aria-expanded', 'true');
+  btn.classList.add('is-open');
+  $('tintSv')?.focus({ preventScroll: true });
+}
+
+function closeTintPicker(refocus = false) {
+  const btn = $('theme-glassBg');
+  const picker = $('tintPicker');
+  if (!picker || picker.hidden || picker.classList.contains('is-closing')) return;
+
+  hideDropdown(picker);
+  btn?.setAttribute('aria-expanded', 'false');
+  btn?.classList.remove('is-open');
+  if (refocus) btn?.focus();
+
+  // After the exit animation, so the one full stylesheet rebuild does not land
+  // on top of it. Skipped if the picker was reopened in the meantime.
+  setTimeout(() => {
+    if (!picker.hidden) return;
+    picker.closest('.settings-group')?.classList.remove('tint-host');
+    if (!tintState.dirty) return;
+    tintState.dirty = false;
+    applyTheme(config.theme);
+    clearTimeout(_themeSaveTimer);
+    saveThemeSettings();
+  }, MENU_EXIT_MS);
+}
+
+$('theme-glassBg')?.addEventListener('click', () => {
+  if ($('theme-glassBg').getAttribute('aria-expanded') === 'true') closeTintPicker();
+  else openTintPicker();
+});
+
+// Dismissal on press rather than click: a drag that starts on the square and
+// is released outside the picker must not count as a click outside it.
+document.addEventListener('pointerdown', (e) => {
+  const picker = $('tintPicker');
+  if (!picker || picker.hidden) return;
+  if (picker.contains(e.target) || $('theme-glassBg')?.contains(e.target)) return;
+  closeTintPicker();
+}, true);
+document.addEventListener('keydown', (e) => {
+  const picker = $('tintPicker');
+  if (!picker || picker.hidden || e.key !== 'Escape') return;
+  e.preventDefault();
+  closeTintPicker(true);
+});
+
 $('btnResetGlassTint')?.addEventListener('click', () => {
-  setValue('theme-glassBg', DEFAULT_GLASS_TINT);
+  setGlassTintUI(DEFAULT_GLASS_TINT);
   config.glass = { ...(config.glass || {}), tint: DEFAULT_GLASS_TINT };
   applyTheme(config.theme);
   // Not debounced: a click is one change, and a pending picker save would
@@ -3070,50 +3452,74 @@ const BG_IMAGE_MAX_EDGE = 2560;
 /// disabled the boot cache. Re-encoding to fit keeps the whole chain cheap.
 const BG_IMAGE_MAX_STORED_BYTES = 1_400_000;
 
+/// Decode a picked file into something a canvas can draw.
+///
+/// Never through `URL.createObjectURL`: the CSP's `img-src` has no `blob:`, so
+/// an `<img>` pointed at a blob URL is refused and fires `error` — which is
+/// why every picked file, JPEG included, used to be reported as "not an image".
+/// `createImageBitmap` decodes the bytes directly and is not subject to
+/// `img-src`; a `data:` URL (which the CSP does allow) covers anything it
+/// declines, such as SVG.
+async function decodeImageFile(file) {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(file);
+    } catch (e) {
+      // Fall through to the data: URL path.
+    }
+  }
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+  return img;
+}
+
 /// Downscale and re-encode a picked image to something worth storing.
 ///
 /// Resolves to a JPEG data URI inside [`BG_IMAGE_MAX_STORED_BYTES`], stepping
 /// the quality down until it fits. Rejects rather than storing something that
 /// cannot be made small enough.
-function prepareBackgroundImage(file) {
-  return new Promise((resolve, reject) => {
-    if (file.size > BG_IMAGE_MAX_INPUT_BYTES) {
-      reject(new Error(`That image is ${formatBytes(file.size)}. Pick one under ${formatBytes(BG_IMAGE_MAX_INPUT_BYTES)}.`));
-      return;
+async function prepareBackgroundImage(file) {
+  if (file.size > BG_IMAGE_MAX_INPUT_BYTES) {
+    throw new Error(`That image is ${formatBytes(file.size)}. Pick one under ${formatBytes(BG_IMAGE_MAX_INPUT_BYTES)}.`);
+  }
+
+  let source;
+  try {
+    source = await decodeImageFile(file);
+  } catch (e) {
+    throw new Error('That file could not be read as an image.');
+  }
+
+  try {
+    const width = source.width;
+    const height = source.height;
+    if (!width || !height) throw new Error('That file could not be read as an image.');
+
+    const scale = Math.min(1, BG_IMAGE_MAX_EDGE / Math.max(width, height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not process that image.');
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+
+    // JPEG throughout: a backdrop sits behind a dark scrim and has no
+    // transparency to preserve, and PNG at this size is several times larger.
+    for (const quality of [0.82, 0.7, 0.6, 0.5, 0.4]) {
+      const encoded = canvas.toDataURL('image/jpeg', quality);
+      if (encoded.length <= BG_IMAGE_MAX_STORED_BYTES) return encoded;
     }
-
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, BG_IMAGE_MAX_EDGE / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('Could not process that image.'));
-        return;
-      }
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-      // JPEG throughout: a backdrop sits behind a dark scrim and has no
-      // transparency to preserve, and PNG at this size is several times larger.
-      for (const quality of [0.82, 0.7, 0.6, 0.5, 0.4]) {
-        const encoded = canvas.toDataURL('image/jpeg', quality);
-        if (encoded.length <= BG_IMAGE_MAX_STORED_BYTES) {
-          resolve(encoded);
-          return;
-        }
-      }
-      reject(new Error('That image is too detailed to store. Try a smaller one.'));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('That file could not be read as an image.'));
-    };
-    img.src = url;
-  });
+    throw new Error('That image is too detailed to store. Try a smaller one.');
+  } finally {
+    source.close?.();
+  }
 }
 
 $('theme-bgImage')?.addEventListener('input', (e) => {
