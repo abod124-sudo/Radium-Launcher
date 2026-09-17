@@ -261,6 +261,40 @@ function otherNetworkInstallDir(network) {
     fetchPhotoWebDetails: (photoId) => invoke('fetch_photo_web_details', { photoId: String(photoId), network: activeNetwork }),
     fetchPhotoComments:   (photoId) => invoke('fetch_photo_comments', { photoId: String(photoId), network: activeNetwork }),
 
+    // Vanilla account. The session cookie stays in the backend: these return
+    // only `{ authenticated, player }`, a token count and notification rows.
+    vanillaLogin:         () => invoke('vanilla_login'),
+    vanillaLogout:        () => invoke('vanilla_logout'),
+    vanillaAuthStatus:    () => invoke('vanilla_auth_status'),
+    vanillaAccount:       () => invoke('vanilla_account'),
+    vanillaNotifications: () => invoke('vanilla_notifications'),
+    vanillaRoomCheered:      (roomId)        => invoke('vanilla_room_cheered', { roomId }),
+    vanillaSetRoomCheer:     (roomId, cheer) => invoke('vanilla_set_room_cheer', { roomId, cheer }),
+    vanillaCheeredPhotos:    ()              => invoke('vanilla_cheered_photos'),
+    vanillaTogglePhotoCheer: (photoId)       => invoke('vanilla_toggle_photo_cheer', { photoId: String(photoId) }),
+    vanillaSubscribed:       (playerId)      => invoke('vanilla_subscribed', { playerId }),
+    vanillaSetSubscribed:    (playerId, subscribe) => invoke('vanilla_set_subscribed', { playerId, subscribe }),
+    vanillaJoinRoom:         (roomId)        => invoke('vanilla_join_room', { roomId }),
+    vanillaCurrentRoom:      ()              => invoke('vanilla_current_room'),
+    // Background (tray) and start with Windows.
+    getAutostart: ()        => invoke('get_autostart'),
+    setAutostart: (enabled) => invoke('set_autostart', { enabled }),
+    onLauncherHidden: async (cb) => {
+      if (unlistenMap['launcher-hidden']) unlistenMap['launcher-hidden']();
+      unlistenMap['launcher-hidden'] = await listen('launcher-hidden', () => cb());
+    },
+
+    // Desktop notification pop-up (a separate always-on-top window).
+    desktopNotify:     (cards) => invoke('desktop_notify', { cards }),
+    onDesktopNotifOpen: async (cb) => {
+      if (unlistenMap['desktop-notif-open']) unlistenMap['desktop-notif-open']();
+      unlistenMap['desktop-notif-open'] = await listen('desktop-notif-open', (event) => cb(event.payload));
+    },
+    onVanillaAuth: async (cb) => {
+      if (unlistenMap['vanilla-auth-changed']) unlistenMap['vanilla-auth-changed']();
+      unlistenMap['vanilla-auth-changed'] = await listen('vanilla-auth-changed', (event) => cb(event.payload));
+    },
+
     // Window state events
     onWindowMaximizedState: async (cb) => {
       if (unlistenMap['window-maximized-state']) unlistenMap['window-maximized-state']();
@@ -589,6 +623,8 @@ function buildPhotoCard(photo, backToView) {
   const embedded = !!photo.CreatorUsername;
   const creator = photo.CreatorDisplayName || photo.CreatorUsername || '';
   const roomName = photo.RoomName || '';
+  // On Vanilla the count is the cheer button, as on vanillarec.net.
+  const vanillaCheers = activeNetwork === 'vanilla' && (photo.Id ?? photo.id) != null;
 
   let dateStr = '';
   const createdAt = photo.CreatedAt || photo.createdAt;
@@ -625,7 +661,7 @@ function buildPhotoCard(photo, backToView) {
     </div>
     ${tagged.length ? `<div class="feed-post-tagged"><span class="feed-tagged-label">In this photo:</span></div>` : ''}
     <div class="feed-post-footer">
-      <span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>
+      ${vanillaCheers ? '' : `<span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>`}
       ${hasComments ? `<span class="feed-post-stat"><span class="comments-count">${comments}</span> Comments</span>` : ''}
     </div>
   `;
@@ -633,6 +669,8 @@ function buildPhotoCard(photo, backToView) {
   card.querySelector('.image-wrap')?.addEventListener('click', () => {
     showPhotoDetails(photo, backToView);
   });
+
+  if (vanillaCheers) card.querySelector('.feed-post-footer')?.prepend(buildCardCheer(photo));
 
   // Names are attached as elements, not interpolated markup, so a display name
   // containing quotes can't break out of a JS string context.
@@ -1030,13 +1068,12 @@ if (logoImg) {
   });
 }
 
-// Fetch version tag
+// The launcher's own version. Not shown in the sidebar: it is written to the
+// LOGS tab at startup and sent with a bug report.
 let launcherVersion = '';
 async function loadVersion() {
   const v = await window.radium?.getVersion();
   if (v) launcherVersion = v;
-  const el = $('versionTag');
-  if (el && v) el.textContent = `v${v}`;
 }
 
 async function loadConfig() {
@@ -1052,6 +1089,11 @@ async function loadConfig() {
   setToggle('tgl-closeOnLaunch',    config.closeOnLaunch    === true);
   setToggle('tgl-autoUpdate',       config.autoUpdate       !== false);
   setToggle('tgl-disableWarnings',   config.disableWarnings   === true);
+  setToggle('tgl-runInBackground',   config.runInBackground   !== false);
+  syncLaunchOptionLabel();
+  refreshAutostartToggle();
+  setToggle('tgl-notifPopups',       config.notifPopups       !== false);
+  setToggle('tgl-notifSound',        config.notifSound        !== false);
 
   // Play mode
   playMode = config.playMode || 'screen';
@@ -1572,17 +1614,6 @@ function glassCss(tint, bgImage, fullEffects = false) {
           from { transform: translateY(8px); }
         }
 
-        ${G} .version-tag {
-          background: rgba(255, 255, 255, 0.07) !important;
-          border: none !important;
-          border-radius: 999px !important;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
-          color: var(--text-muted) !important;
-          font-family: var(--font-ui) !important;
-          font-size: 11px !important;
-          backdrop-filter: none !important;
-        }
-
         /* ── Menus ────────────────────────────────────────────────────── */
         ${G} .network-menu .nav-btn,
         ${G} .manage-menu .manage-item {
@@ -2016,8 +2047,8 @@ function glassCss(tint, bgImage, fullEffects = false) {
         }
         /* Pressed sinks quickly; release springs back through the base
            transition. Beats every skin's own :active scale. */
-        ${G} .btn-play:active,
-        ${G} .btn-download-big:active {
+        ${G} .btn-play:is(:active, .is-pressed),
+        ${G} .btn-download-big:is(:active, .is-pressed) {
           transform: scale(0.97) !important;
           transition:
             box-shadow 0.12s var(--lg-ease),
@@ -2027,8 +2058,8 @@ function glassCss(tint, bgImage, fullEffects = false) {
             inset 0 0 0 1px rgba(255, 255, 255, 0.18),
             0 4px 14px -8px rgba(0, 0, 0, 0.6) !important;
         }
-        ${G} .btn-play:active::before,
-        ${G} .btn-download-big:active::before {
+        ${G} .btn-play:is(:active, .is-pressed)::before,
+        ${G} .btn-download-big:is(:active, .is-pressed)::before {
           opacity: 0.45 !important;
         }
         ${G} .btn-play .play-text,
@@ -2039,7 +2070,7 @@ function glassCss(tint, bgImage, fullEffects = false) {
            too, so a running button cannot flash either. */
         ${G} .btn-play.running,
         ${G} .btn-play.running:hover,
-        ${G} .btn-play.running:active {
+        ${G} .btn-play.running:is(:active, .is-pressed) {
           background-color: rgba(255, 69, 58, 0.45) !important;
           color: #ffffff !important;
         }
@@ -2061,8 +2092,8 @@ function glassCss(tint, bgImage, fullEffects = false) {
           ${G} .btn-download-big,
           ${G} .btn-play:hover,
           ${G} .btn-download-big:hover,
-          ${G} .btn-play:active,
-          ${G} .btn-download-big:active {
+          ${G} .btn-play:is(:active, .is-pressed),
+          ${G} .btn-download-big:is(:active, .is-pressed) {
             transform: none !important;
           }
         }
@@ -3072,12 +3103,79 @@ function setToggle(id, val) {
 }
 function getToggle(id) { return $(id)?.classList.contains('on') ?? false; }
 
-['tgl-minimizeOnLaunch', 'tgl-closeOnLaunch', 'tgl-autoUpdate', 'tgl-disableWarnings'].forEach(id =>
+// "Start with Windows" isn't in config.json: the registry entry is the truth,
+// so the switch is read from and written to it directly.
+async function refreshAutostartToggle() {
+  try {
+    setToggle('tgl-launchAtStartup', await window.radium.getAutostart());
+  } catch (e) {}
+}
+$('tgl-launchAtStartup')?.addEventListener('click', async () => {
+  const el = $('tgl-launchAtStartup');
+  if (el.dataset.pending === 'true') return;
+  el.dataset.pending = 'true';
+  const want = !getToggle('tgl-launchAtStartup');
+  setToggle('tgl-launchAtStartup', want);
+  try {
+    const now = await window.radium.setAutostart(want);
+    setToggle('tgl-launchAtStartup', now);
+    addLog(now ? 'Radium Launcher will start with Windows' : 'Radium Launcher will no longer start with Windows', 'info');
+  } catch (err) {
+    setToggle('tgl-launchAtStartup', !want);
+    toast(String(err), 'error');
+  } finally {
+    el.dataset.pending = 'false';
+  }
+});
+
+// The first time the window is closed into the tray, say so, once — otherwise
+// the launcher just seems to have quit.
+const TRAY_HINT_KEY = 'radium-tray-hint-shown';
+let trayHintShown = false;
+window.radium?.onLauncherHidden?.(() => {
+  if (trayHintShown) return;
+  try {
+    if (localStorage.getItem(TRAY_HINT_KEY)) { trayHintShown = true; return; }
+    localStorage.setItem(TRAY_HINT_KEY, '1');
+  } catch (e) {}
+  trayHintShown = true;
+  window.radium.desktopNotify([{
+    id: 'tray-hint',
+    sender: null,
+    icon: 'bell',
+    app: 'Radium Launcher',
+    style: notifPopStyle(),
+    parts: [
+      { t: 'Still running in the background. ', b: true },
+      { t: 'Open it or quit from the tray icon. You can turn this off in Settings.' },
+    ],
+  }]).catch(() => {});
+});
+
+['tgl-minimizeOnLaunch', 'tgl-closeOnLaunch', 'tgl-autoUpdate', 'tgl-disableWarnings',
+ 'tgl-runInBackground', 'tgl-notifPopups', 'tgl-notifSound'].forEach(id =>
   $(id)?.addEventListener('click', () => {
     $(id).classList.toggle('on');
+    // Minimising and hiding on launch are two answers to the same question,
+    // so turning one on turns the other off.
+    if (getToggle(id)) {
+      if (id === 'tgl-minimizeOnLaunch') setToggle('tgl-closeOnLaunch', false);
+      if (id === 'tgl-closeOnLaunch') setToggle('tgl-minimizeOnLaunch', false);
+    }
+    if (id === 'tgl-runInBackground') syncLaunchOptionLabel();
     autoSaveSettings();
   })
 );
+
+/// With tray mode on, closing only hides the window, so the launch option
+/// says what it will actually do.
+function syncLaunchOptionLabel() {
+  const label = $('lblCloseOnLaunch');
+  if (!label) return;
+  label.textContent = getToggle('tgl-runInBackground')
+    ? 'Hide launcher when game starts'
+    : 'Close launcher when game starts';
+}
 
 /// Persist the theme and glass settings without touching anything else.
 ///
@@ -3578,6 +3676,9 @@ async function autoSaveSettings() {
     closeOnLaunch:    getToggle('tgl-closeOnLaunch'),
     autoUpdate:       getToggle('tgl-autoUpdate'),
     disableWarnings:  getToggle('tgl-disableWarnings'),
+    runInBackground:  getToggle('tgl-runInBackground'),
+    notifPopups:      getToggle('tgl-notifPopups'),
+    notifSound:       getToggle('tgl-notifSound'),
     // No `installDir` here on purpose. The install-dir span shows whichever
     // network is active, so copying it into the flat (Radium) field on every
     // autosave silently repointed Radium at the Vanilla folder. The Change /
@@ -3610,7 +3711,7 @@ async function autoSaveSettings() {
     addLog('Configuration auto-saved.', 'ok');
     await checkInstall();
   } else {
-    showAutosaveIndicator('error', '✕ Save failed');
+    showAutosaveIndicator('error', '2715 Save failed');
     addLog('Auto-save failed.', 'error');
   }
 
@@ -4916,7 +5017,9 @@ async function doLaunch() {
     addLog(`Game running${pidPart} — mode: ${playMode}`, 'ok');
     toast(`Radium launched in ${playMode.toUpperCase()} mode!`, 'ok');
     if (config.closeOnLaunch === true) {
-      addLog('Launcher configured to exit on game start. Exiting...', 'info');
+      addLog(config.runInBackground !== false
+        ? 'Launcher set to step aside on game start. Hiding to the tray...'
+        : 'Launcher configured to exit on game start. Exiting...', 'info');
       setTimeout(() => {
         window.radium?.close();
       }, 1000);
@@ -5013,6 +5116,46 @@ async function checkAvAndLaunch() {
   addLog('No antivirus requiring exclusion detected.', 'ok');
   await proceedAfterAvCheck();
 }
+
+// ── Press feedback that survives a quick click ───────────────────────────
+// `:active` only lasts while the button is held. A fast click lets go within a
+// frame or two, before the press transition has moved at all, so the big
+// buttons seemed to ignore the click. `.is-pressed` holds the same press styles
+// (every skin lists it beside :active) for at least PRESS_MIN_MS.
+
+const PRESS_MIN_MS = 170;
+const PRESSABLE = '.btn-play, .btn-download-big, .room-play-btn';
+const pressTimers = new WeakMap();
+
+function holdPressed(btn, heldSince) {
+  clearTimeout(pressTimers.get(btn));
+  btn.classList.add('is-pressed');
+  return () => {
+    const left = Math.max(0, PRESS_MIN_MS - (performance.now() - heldSince));
+    pressTimers.set(btn, setTimeout(() => btn.classList.remove('is-pressed'), left));
+  };
+}
+
+document.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  const btn = e.target.closest?.(PRESSABLE);
+  if (!btn || btn.disabled) return;
+  const release = holdPressed(btn, performance.now());
+  const done = () => {
+    window.removeEventListener('pointerup', done);
+    window.removeEventListener('pointercancel', done);
+    release();
+  };
+  window.addEventListener('pointerup', done);
+  window.addEventListener('pointercancel', done);
+});
+
+// Enter / Space fire `click` with no pointer at all (detail is 0).
+document.addEventListener('click', (e) => {
+  if (e.detail !== 0) return;
+  const btn = e.target.closest?.(PRESSABLE);
+  if (btn && !btn.disabled) holdPressed(btn, performance.now())();
+});
 
 $('btnPlay')?.addEventListener('click', async () => {
   if (isGameRunning) {
@@ -5185,7 +5328,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     const info = await window.radium?.checkForUpdate();
     if (!info) {
       if (resultEl) {
-        resultEl.textContent = '✕ No response';
+        resultEl.textContent = '2715 No response';
         resultEl.className = 'test-result error';
       }
       toast('Update check failed.', 'error');
@@ -5193,7 +5336,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     }
     if (info.error) {
       if (resultEl) {
-        resultEl.textContent = '✕ Error';
+        resultEl.textContent = '2715 Error';
         resultEl.className = 'test-result error';
       }
       addLog(`Update check failed: ${info.error}`, 'info');
@@ -5218,7 +5361,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     }
   } catch (e) {
     if (resultEl) {
-      resultEl.textContent = '✕ Error';
+      resultEl.textContent = '2715 Error';
       resultEl.className = 'test-result error';
     }
     addLog(`Update check error: ${e.message}`, 'info');
@@ -5616,6 +5759,1074 @@ document.addEventListener('keydown', (e) => {
     opts[next]?.focus();
   }
 });
+
+// ── Vanilla account ──────────────────────────────────────────────────────
+// Sign-in happens on Vanilla's own page in a separate window (see
+// vanilla_auth.rs). Nothing here ever sees the password or the session; the
+// backend hands over a display name, an avatar and a token count.
+
+let vanillaPlayer = null;
+
+/// Fit a long name into the account button: first a smaller face on one line
+/// (down to 12px), then two lines, then 11px on two lines, and only after
+/// that an ellipsis. Re-run whenever the name, the skin or the sidebar's width
+/// changes, since each skin sets its own face and size.
+function fitAccountName() {
+  const name = $('vanillaAccountName');
+  if (!name) return;
+  name.style.fontSize = '';
+  name.classList.remove('two-lines');
+  if (!vanillaPlayer || !name.clientWidth) return;
+
+  const wide = () => name.scrollWidth > name.clientWidth + 0.5;
+  const tall = () => name.scrollHeight > name.clientHeight + 0.5;
+  let size = parseFloat(getComputedStyle(name).fontSize) || 14;
+  while (wide() && size > 12) {
+    size = Math.max(12, size - 0.5);
+    name.style.fontSize = `${size}px`;
+  }
+  if (!wide()) return;
+  name.classList.add('two-lines');
+  if (tall()) name.style.fontSize = '11px';
+}
+if (window.ResizeObserver) {
+  const nameEl = document.getElementById('vanillaAccountName');
+  if (nameEl) new ResizeObserver(() => fitAccountName()).observe(nameEl);
+}
+// A skin switch changes the face without resizing the box.
+new MutationObserver(() => requestAnimationFrame(fitAccountName))
+  .observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+function renderVanillaAccount() {
+  const name = $('vanillaAccountName');
+  const avatar = $('vanillaAccountAvatar');
+  const btn = $('vanillaAccountBtn');
+  const bell = $('vanillaNotifsBtn');
+  if (!name || !avatar || !btn) return;
+
+  if (vanillaPlayer) {
+    const handle = vanillaPlayer.userName || vanillaPlayer.displayName || 'account';
+    name.textContent = vanillaPlayer.displayName || handle;
+    const shown = vanillaPlayer.displayName && vanillaPlayer.displayName !== handle
+      ? `${vanillaPlayer.displayName} (@${handle})` : `@${handle}`;
+    btn.title = `Signed in to Vanilla as ${shown}`;
+    avatar.src = vanillaPlayer.AvatarUrl
+      ? thumbSrc(vanillaPlayer.AvatarUrl, avatarWidth(28))
+      : defaultAvatarUrl(28);
+    avatar.hidden = false;
+    btn.setAttribute('aria-haspopup', 'menu');
+    $('vanillaAccountFullName').textContent = `@${handle}`;
+    // The display name too, when it isn't just the username.
+    const display = $('vanillaAccountDisplay');
+    if (display) {
+      const differs = vanillaPlayer.displayName && vanillaPlayer.displayName !== handle;
+      display.textContent = differs ? vanillaPlayer.displayName : '';
+      display.hidden = !differs;
+    }
+    if (bell) bell.hidden = false;
+    fitAccountName();
+  } else {
+    name.textContent = 'LOG IN';
+    fitAccountName();
+    btn.title = 'Sign in with your Vanilla account';
+    avatar.hidden = true;
+    avatar.removeAttribute('src');
+    btn.removeAttribute('aria-haspopup');
+    $('vanillaAccountTokens').textContent = '';
+    if (bell) bell.hidden = true;
+    vanillaNotifs = [];
+    setVanillaBadge();
+    closeAccountMenu();
+    closeNotifPanel();
+  }
+}
+
+/// Token balance and notifications, fetched after sign-in. Neither is worth an
+/// error message of its own: an expired session is reported through the auth
+/// event, and anything else just leaves them blank.
+async function refreshVanillaExtras() {
+  if (!vanillaPlayer) return;
+  try {
+    const acct = await window.radium.vanillaAccount();
+    $('vanillaAccountTokens').textContent = `${Number(acct.tokens || 0).toLocaleString()} tokens`;
+  } catch (e) {}
+  loadVanillaNotifications();
+}
+
+function applyVanillaAuth(state) {
+  const was = vanillaPlayer;
+  vanillaPlayer = state && state.authenticated && state.player ? state.player : null;
+  renderVanillaAccount();
+
+  // Cheer and subscribe buttons on whatever is open reflect the new account.
+  if (was?.id !== vanillaPlayer?.id) {
+    cheeredPhotoIds = null;
+    announcedNotifIds = null;
+    refreshSocialButtons();
+  }
+
+  if (vanillaPlayer) {
+    if (!was) addLog(`Signed in to Vanilla as @${vanillaPlayer.userName}`, 'ok');
+    refreshVanillaExtras();
+    return;
+  }
+  if (state && state.error && !state.hasSession) {
+    toast(`Vanilla sign-in failed: ${state.error}`, 'error');
+  }
+  if (was) {
+    const expired = state && state.reason === 'expired';
+    addLog(expired ? 'Vanilla session expired, signed out' : 'Signed out of Vanilla', 'info');
+    if (expired) toast('Your Vanilla session expired. Please sign in again.', 'info');
+  }
+}
+
+function closeAccountMenu() {
+  const btn = $('vanillaAccountBtn');
+  hideDropdown($('vanillaAccountMenu'));
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('is-open');
+  }
+}
+
+function openAccountMenu() {
+  closeNotifPanel();
+  const menu = $('vanillaAccountMenu');
+  const btn = $('vanillaAccountBtn');
+  showDropdown(menu);
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'true');
+    btn.classList.add('is-open');
+  }
+  menu?.querySelector('.network-option')?.focus();
+}
+
+$('vanillaAccountBtn')?.addEventListener('click', async () => {
+  if (vanillaPlayer) {
+    const menu = $('vanillaAccountMenu');
+    if (menu && !menu.hidden) closeAccountMenu(); else openAccountMenu();
+    return;
+  }
+  // Opens Vanilla's sign-in window; the result arrives as `vanilla-auth-changed`.
+  try {
+    await window.radium.vanillaLogin();
+  } catch (err) {
+    toast(String(err), 'error');
+  }
+});
+
+$('vanillaProfileBtn')?.addEventListener('click', () => {
+  closeAccountMenu();
+  if (vanillaPlayer?.userName) showCreatorProfile(vanillaPlayer.userName);
+});
+$('vanillaLogoutBtn')?.addEventListener('click', async () => {
+  closeAccountMenu();
+  try {
+    await window.radium.vanillaLogout();
+  } catch (e) {
+    toast(String(e), 'error');
+  }
+});
+
+// ── Vanilla notifications ────────────────────────────────────────────────
+// A panel off the bell next to the account button, laid out like the one on
+// vanillarec.net. Vanilla keeps no read state on its side (its website keeps
+// it in the browser), so neither does this: which ones have been seen is a
+// per-account list in localStorage.
+
+let vanillaNotifs = [];
+let notifsLoading = false;
+
+/// Wording per notification type, matching the website. `{s}` is the sender
+/// and `{m}` a free-text message; both are inserted as text, never markup.
+const VANILLA_NOTIF_TEXT = {
+  1: '{s} declined your game invite.',
+  2: 'Failed to join game.',
+  3: 'Party switched activity.',
+  4: '{s} sent you a friend request. Accept in-game.',
+  5: 'A vote to kick was initiated.',
+  6: '{s} invited you to play.',
+  7: 'Party switched activity.',
+  10: '{s} requested an invite to join you.',
+  11: '{s} declined your invite request.',
+  20: '{s} is now online.',
+  30: '{s}: {m}',
+  40: '{s} accepted your friend request.',
+  50: '{s} cheered you.',
+  51: 'An anonymous player cheered you.',
+  60: 'You were added as a room co-owner.',
+  61: 'You were removed as a room co-owner.',
+  62: '{s} invited you to be a room co-owner.',
+  70: '{s} published a new room.',
+  80: '{s} is attending your event.',
+  81: '{s} invited you to an event.',
+  90: '{s} invited you to join a club.',
+  91: '{s} joined your club.',
+  100: 'Coach: {m}',
+};
+
+/// Types that aren't from a person, shown with an icon instead of an avatar.
+const VANILLA_SYSTEM_NOTIFS = new Set([2, 3, 5, 7, 51, 60, 61, 100]);
+
+const READ_NOTIFS_CAP = 500;
+
+function readNotifsKey() {
+  return vanillaPlayer ? `radium-vanilla-read-notifs-${vanillaPlayer.id}` : null;
+}
+
+function readNotifIds() {
+  const key = readNotifsKey();
+  if (!key) return new Set();
+  try {
+    const list = JSON.parse(localStorage.getItem(key) || '[]');
+    return new Set(Array.isArray(list) ? list.map(String) : []);
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function markNotifsRead(ids) {
+  const key = readNotifsKey();
+  if (!key || !ids.length) return;
+  const seen = readNotifIds();
+  ids.forEach(id => seen.add(String(id)));
+  try {
+    localStorage.setItem(key, JSON.stringify([...seen].slice(-READ_NOTIFS_CAP)));
+  } catch (e) {}
+}
+
+function unreadNotifs() {
+  const seen = readNotifIds();
+  return vanillaNotifs.filter(n => n.id != null && !seen.has(String(n.id)));
+}
+
+function setVanillaBadge() {
+  const badge = $('vanillaNotifBadge');
+  if (!badge) return;
+  const count = unreadNotifs().length;
+  badge.hidden = !count;
+  badge.textContent = count > 99 ? '99+' : String(count || '');
+  $('vanillaNotifsBtn')?.setAttribute('aria-label', count ? `Notifications, ${count} unread` : 'Notifications');
+}
+
+async function loadVanillaNotifications() {
+  if (!vanillaPlayer || notifsLoading) return;
+  notifsLoading = true;
+  try {
+    const account = vanillaPlayer.id;
+    const list = await window.radium.vanillaNotifications();
+    if (vanillaPlayer?.id !== account) return;
+    vanillaNotifs = Array.isArray(list) ? list : [];
+    setVanillaBadge();
+    announceNewNotifs(vanillaNotifs);
+    if (!$('vanillaNotifsPanel')?.hidden) renderNotifPanel();
+  } catch (e) {
+    if (!$('vanillaNotifsPanel')?.hidden) renderNotifPanel(String(e));
+  } finally {
+    notifsLoading = false;
+  }
+}
+
+function formatNotifTime(iso) {
+  const t = Date.parse(iso || '');
+  if (isNaN(t)) return '';
+  const mins = Math.floor((Date.now() - t) / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(t).toLocaleDateString();
+}
+
+/// The message as text nodes, with the sender's name in bold.
+function notifMessage(n) {
+  const template = VANILLA_NOTIF_TEXT[n.type] || 'New notification from {s}.';
+  const frag = document.createDocumentFragment();
+  for (const part of template.split(/(\{s\}|\{m\})/)) {
+    if (part === '{s}') {
+      const b = document.createElement('strong');
+      b.textContent = n.senderName || 'A player';
+      frag.appendChild(b);
+    } else if (part === '{m}') {
+      frag.appendChild(document.createTextNode(n.message || ''));
+    } else if (part) {
+      frag.appendChild(document.createTextNode(part));
+    }
+  }
+  return frag;
+}
+
+/// The sender's picture, or an icon for notifications no person sent.
+function notifAvatar(n, size) {
+  if (VANILLA_SYSTEM_NOTIFS.has(n.type) || !n.senderId) {
+    const icon = document.createElement('span');
+    icon.className = 'notif-avatar notif-avatar-system';
+    const glyph = document.createElement('span');
+    glyph.className = `vn-icon ${n.type === 51 ? 'vn-icon-thumb' : 'vn-icon-info'}`;
+    icon.appendChild(glyph);
+    return icon;
+  }
+  const img = document.createElement('img');
+  img.className = 'notif-avatar';
+  img.alt = '';
+  img.loading = 'lazy';
+  img.src = n.senderAvatar ? thumbSrc(n.senderAvatar, avatarWidth(size)) : defaultAvatarUrl(size);
+  return img;
+}
+
+function notifRow(n, unread) {
+  const row = document.createElement(n.senderName ? 'button' : 'div');
+  row.className = 'notif-item';
+  if (n.senderName) row.type = 'button';
+  row.classList.toggle('unread', unread);
+  row.appendChild(notifAvatar(n, 32));
+
+  const body = document.createElement('span');
+  body.className = 'notif-body';
+  const text = document.createElement('span');
+  text.className = 'notif-text';
+  text.appendChild(notifMessage(n));
+  const time = document.createElement('span');
+  time.className = 'notif-time';
+  time.textContent = formatNotifTime(n.sentTime);
+  body.append(text, time);
+  row.appendChild(body);
+
+  if (n.senderName) {
+    row.addEventListener('click', () => {
+      closeNotifPanel();
+      showCreatorProfile(n.senderName);
+    });
+  }
+  return row;
+}
+
+function notifState(message, loading = false) {
+  const el = document.createElement('div');
+  el.className = 'notif-empty';
+  if (!loading) {
+    const icon = document.createElement('span');
+    icon.className = 'vn-icon vn-icon-bell notif-empty-icon';
+    el.appendChild(icon);
+  }
+  const text = document.createElement('span');
+  text.textContent = message;
+  el.appendChild(text);
+  return el;
+}
+
+function renderNotifPanel(error) {
+  const list = $('vanillaNotifsList');
+  if (!list) return;
+  const unread = unreadNotifs();
+  const mark = $('vanillaNotifsMarkRead');
+  if (mark) mark.disabled = unread.length === 0;
+
+  if (error && !vanillaNotifs.length) {
+    list.replaceChildren(notifState(error));
+    return;
+  }
+  if (!vanillaNotifs.length) {
+    list.replaceChildren(notifsLoading ? notifState('Loading…', true) : notifState('No new notifications'));
+    return;
+  }
+  // Unread first, then newest first, as on the website.
+  const unreadIds = new Set(unread.map(n => String(n.id)));
+  const sorted = [...vanillaNotifs].sort((a, b) => {
+    const au = unreadIds.has(String(a.id)), bu = unreadIds.has(String(b.id));
+    if (au !== bu) return au ? -1 : 1;
+    return String(b.sentTime || '').localeCompare(String(a.sentTime || ''));
+  });
+  list.replaceChildren(...sorted.map(n => notifRow(n, unreadIds.has(String(n.id)))));
+}
+
+/// Place the panel beside the sidebar, bottom-aligned with the bell, and no
+/// taller than the room above it (the title bar included).
+function positionNotifPanel() {
+  const panel = $('vanillaNotifsPanel');
+  const bell = $('vanillaNotifsBtn');
+  const sidebar = document.querySelector('.sidebar');
+  if (!panel || !bell || !sidebar) return;
+  const gap = 10;
+  const bellBox = bell.getBoundingClientRect();
+  const titlebar = $('titlebar')?.getBoundingClientRect().bottom || 0;
+  panel.style.left = `${Math.round(sidebar.getBoundingClientRect().right + gap)}px`;
+  panel.style.bottom = `${Math.max(gap, Math.round(window.innerHeight - bellBox.bottom))}px`;
+  panel.style.maxHeight = `${Math.max(200, Math.min(460, Math.round(bellBox.bottom - titlebar - gap)))}px`;
+}
+
+function openNotifPanel() {
+  closeAccountMenu();
+  const panel = $('vanillaNotifsPanel');
+  const bell = $('vanillaNotifsBtn');
+  if (!panel) return;
+  positionNotifPanel();
+  renderNotifPanel();
+  showDropdown(panel);
+  bell?.setAttribute('aria-expanded', 'true');
+  bell?.classList.add('is-open');
+  loadVanillaNotifications();
+}
+
+/// Closing counts everything that was on show as seen, like the website.
+function closeNotifPanel() {
+  const panel = $('vanillaNotifsPanel');
+  if (!panel || panel.hidden) return;
+  markNotifsRead(vanillaNotifs.map(n => n.id).filter(id => id != null));
+  setVanillaBadge();
+  hideDropdown(panel);
+  const bell = $('vanillaNotifsBtn');
+  bell?.setAttribute('aria-expanded', 'false');
+  bell?.classList.remove('is-open');
+}
+
+$('vanillaNotifsBtn')?.addEventListener('click', () => {
+  const panel = $('vanillaNotifsPanel');
+  if (panel && !panel.hidden) closeNotifPanel(); else openNotifPanel();
+});
+
+$('vanillaNotifsMarkRead')?.addEventListener('click', () => {
+  markNotifsRead(vanillaNotifs.map(n => n.id).filter(id => id != null));
+  setVanillaBadge();
+  renderNotifPanel();
+});
+
+window.addEventListener('resize', () => {
+  if (!$('vanillaNotifsPanel')?.hidden) positionNotifPanel();
+});
+
+// Check for new ones every minute while signed in, so pop-ups arrive close to
+// when the notification did. One small request. While the launcher is
+// minimised it only keeps checking if pop-ups are on.
+setInterval(() => {
+  if (!vanillaPlayer) return;
+  if (document.hidden && !notifPrefs().popups) return;
+  loadVanillaNotifications();
+}, 60 * 1000);
+
+// ── Notification pop-ups ─────────────────────────────────────────────────
+// Steam-style cards for notifications that arrive while the launcher is
+// running, always in their own window in the corner of the screen (see
+// desktop_notify.rs), never inside the launcher. What was already there at
+// sign-in is not announced.
+
+/// Ids already seen for the signed-in account; `null` until its first load,
+/// which only records a baseline.
+let announcedNotifIds = null;
+const NOTIF_POP_MAX = 3;
+
+function announceNewNotifs(list) {
+  const withIds = list.filter(n => n.id != null);
+  if (!announcedNotifIds) {
+    announcedNotifIds = new Set(withIds.map(n => String(n.id)));
+    return;
+  }
+  const fresh = withIds.filter(n => !announcedNotifIds.has(String(n.id)));
+  fresh.forEach(n => announcedNotifIds.add(String(n.id)));
+
+  if (!fresh.length || activeNetwork !== 'vanilla') return;
+  const seen = readNotifIds();
+  const show = fresh
+    .filter(n => !seen.has(String(n.id)))
+    .sort((a, b) => String(a.sentTime || '').localeCompare(String(b.sentTime || '')));
+  if (show.length) deliverNotifPops(show);
+}
+
+function notifPrefs() {
+  return {
+    popups: config?.notifPopups !== false,
+    sound: config?.notifSound !== false,
+  };
+}
+
+/// Show new notifications in the desktop pop-up, and play the chime once for
+/// the batch. Skipped while the game is running (a topmost window over a
+/// full-screen game can knock it out of full screen), and while the launcher
+/// is in front with its notification list open, which already shows them.
+function deliverNotifPops(list, { force = false } = {}) {
+  const prefs = notifPrefs();
+  if (!force) {
+    if (!prefs.popups || isGameRunning) return;
+    const listOpen = !$('vanillaNotifsPanel')?.hidden;
+    if (listOpen && document.hasFocus()) return;
+  }
+
+  // At most NOTIF_POP_MAX cards: the newest, led by an "N more" card.
+  const items = list.length > NOTIF_POP_MAX
+    ? [{ more: list.length - (NOTIF_POP_MAX - 1) }, ...list.slice(-(NOTIF_POP_MAX - 1))]
+    : list;
+
+  const style = notifPopStyle();
+  window.radium.desktopNotify(items.map(it => desktopCard(it, style))).catch(() => {});
+  if (prefs.sound) playNotifChime();
+}
+
+/// A card for the desktop pop-up: plain data, rendered there as text.
+function desktopCard(it, style) {
+  if (it.more) {
+    return { id: null, sender: null, icon: 'bell', app: 'Vanilla', style,
+             parts: [{ t: `${it.more} more new notifications` }] };
+  }
+  const n = it;
+  const system = VANILLA_SYSTEM_NOTIFS.has(n.type) || !n.senderId;
+  const template = VANILLA_NOTIF_TEXT[n.type] || 'New notification from {s}.';
+  const parts = template.split(/(\{s\}|\{m\})/).filter(Boolean).map(part =>
+    part === '{s}' ? { t: n.senderName || 'A player', b: true }
+      : part === '{m}' ? { t: n.message || '' }
+      : { t: part });
+  return {
+    id: n.id ?? null,
+    sender: n.senderName || null,
+    icon: system ? (n.type === 51 ? 'thumb' : 'info') : null,
+    avatar: system ? '' : (n.senderAvatar ? thumbSrc(n.senderAvatar, avatarWidth(40)) : ''),
+    app: 'Vanilla',
+    parts,
+    style,
+  };
+}
+
+/// What a pop-up card looks like under the current skin (the `.notif-pop`
+/// rules in style.css, applied to a hidden probe), for the desktop window to
+/// copy — so it matches whatever theme, or Liquid Glass, is on.
+function notifPopStyle() {
+  const host = $('toastContainer');
+  if (!host) return null;
+  const probe = document.createElement('div');
+  probe.className = 'network-menu notif-pop';
+  probe.style.cssText = 'visibility:hidden;animation:none';
+  const avatar = document.createElement('span');
+  avatar.className = 'notif-avatar';
+  const app = document.createElement('span');
+  app.className = 'notif-pop-app';
+  const text = document.createElement('span');
+  text.className = 'notif-pop-text';
+  const name = document.createElement('strong');
+  text.appendChild(name);
+  probe.append(avatar, app, text);
+  host.appendChild(probe);
+  const box = getComputedStyle(probe);
+  const style = {
+    'bg': box.backgroundColor,
+    'bg-image': box.backgroundImage,
+    'border': `${box.borderTopWidth} ${box.borderTopStyle} ${box.borderTopColor}`,
+    'radius': box.borderTopLeftRadius,
+    'shadow': box.boxShadow,
+    'fg': getComputedStyle(text).color,
+    'muted': getComputedStyle(app).color,
+    'accent': getComputedStyle(name).color,
+    'font': getComputedStyle(text).fontFamily,
+    'system-bg': `color-mix(in srgb, ${getComputedStyle(text).color} 12%, transparent)`,
+    'avatar-radius': getComputedStyle(avatar).borderTopLeftRadius,
+    motion: document.body.classList.contains('animations-enabled'),
+    retro: isRetroSkin(),
+    // Liquid Glass: the pop-up window asks Windows for real blur behind it.
+    glass: document.body.classList.contains('glass-enabled'),
+  };
+  probe.remove();
+  return style;
+}
+
+// ── The chime ────────────────────────────────────────────────────────────
+// Two soft sine notes, synthesised, so there's no sound file to ship. The
+// audio context is created on the first click anywhere: a page may not start
+// sound before the user has interacted with it.
+
+let chimeCtx = null;
+function ensureChimeCtx() {
+  try {
+    if (!chimeCtx) chimeCtx = new AudioContext();
+    if (chimeCtx.state === 'suspended') chimeCtx.resume();
+  } catch (e) {}
+}
+document.addEventListener('pointerdown', ensureChimeCtx, { once: true, capture: true });
+
+let lastChimeAt = 0;
+function playNotifChime() {
+  const now = performance.now();
+  if (now - lastChimeAt < 1500) return;
+  lastChimeAt = now;
+  ensureChimeCtx();
+  if (!chimeCtx) return;
+  try {
+    const t = chimeCtx.currentTime + 0.01;
+    [[880, 0], [1318.5, 0.1]].forEach(([freq, delay]) => {
+      const osc = chimeCtx.createOscillator();
+      const gain = chimeCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t + delay);
+      gain.gain.exponentialRampToValueAtTime(0.16, t + delay + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.4);
+      osc.connect(gain).connect(chimeCtx.destination);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.45);
+    });
+  } catch (e) {}
+}
+
+// A desktop card was clicked: the launcher has already been brought forward.
+window.radium?.onDesktopNotifOpen?.((card) => {
+  if (card?.id === 'tray-hint') return;
+  if (card?.id != null) {
+    markNotifsRead([card.id]);
+    setVanillaBadge();
+  }
+  if (card?.sender) showCreatorProfile(String(card.sender));
+  else if (vanillaPlayer) openNotifPanel();
+});
+
+// Settings → Send a test pop-up.
+$('btnTestNotif')?.addEventListener('click', () => {
+  deliverNotifPops([{
+    id: null,
+    type: 4,
+    senderId: vanillaPlayer?.id || 1,
+    senderName: vanillaPlayer?.userName || 'Coach',
+    senderAvatar: vanillaPlayer?.AvatarUrl || '',
+    sentTime: new Date().toISOString(),
+  }], { force: true });
+});
+
+/// The retro skins, whose desktop pop-up slides up like Steam's old one
+/// instead of fading in. Everything except the modern family and Liquid Glass.
+const MODERN_SKIN_CLASSES = ['theme-neondark', 'theme-modernlight', 'theme-moderngreen',
+                             'theme-blackandwhite', 'theme-blackandwhite-inverted'];
+function isRetroSkin() {
+  const cl = document.body.classList;
+  return !cl.contains('glass-enabled') && !MODERN_SKIN_CLASSES.some(c => cl.contains(c));
+}
+
+document.addEventListener('click', (e) => {
+  const menu = $('vanillaAccountMenu');
+  if (menu && !menu.hidden && !menu.contains(e.target) && !$('vanillaAccountBtn')?.contains(e.target)) {
+    closeAccountMenu();
+  }
+  const panel = $('vanillaNotifsPanel');
+  if (panel && !panel.hidden && !panel.contains(e.target) && !$('vanillaNotifsBtn')?.contains(e.target)) {
+    closeNotifPanel();
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('vanillaAccountMenu')?.hidden) {
+    closeAccountMenu();
+    $('vanillaAccountBtn')?.focus();
+  }
+  if (!$('vanillaNotifsPanel')?.hidden) {
+    closeNotifPanel();
+    $('vanillaNotifsBtn')?.focus();
+  }
+});
+
+// ── Vanilla cheers, subscriptions and Play ───────────────────────────────
+// All of these act as the signed-in account, so each one offers the sign-in
+// window instead when nobody is signed in.
+
+/// The room, photo and player whose detail views are open, so their buttons
+/// can be repainted when the account changes.
+let socialRoom = null;
+let socialPhoto = null;
+let socialPerson = null;
+/// Ids (as strings) of photos the account has cheered; `null` until fetched.
+let cheeredPhotoIds = null;
+/// The Play request in progress, if any: `{ roomId, cancelled, label }`.
+let roomJoin = null;
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function requireVanillaLogin(what) {
+  if (vanillaPlayer) return true;
+  toast(`Sign in to Vanilla to ${what}.`, 'info');
+  window.radium.vanillaLogin().catch(e => toast(String(e), 'error'));
+  return false;
+}
+
+/// Cheer tiles: pressed state only; the icon and count stay as they are.
+function setCheerPressed(btn, on) {
+  if (!btn) return;
+  btn.classList.toggle('is-on', on);
+  btn.setAttribute('aria-pressed', String(on));
+  btn.title = on ? 'Cheered. Click to remove your cheer' : 'Cheer';
+  if (btn.classList.contains('card-cheer')) btn.setAttribute('aria-label', `${btn.querySelector('.cheers-count')?.textContent || 0} cheers`);
+}
+
+/// Cheer tiles are only buttons on Vanilla; elsewhere they are plain stats.
+function setCheerEnabled(btn, enabled) {
+  if (!btn) return;
+  btn.disabled = !enabled;
+  if (!enabled) {
+    setCheerPressed(btn, false);
+    btn.removeAttribute('title');
+  }
+}
+
+function bumpCount(el, delta) {
+  // Only plain counts ("1,234"); an abbreviated or missing one is left alone.
+  const text = String(el?.textContent ?? '').trim();
+  if (!/^[\d,]+$/.test(text)) return;
+  el.textContent = Math.max(0, parseInt(text.replace(/,/g, ''), 10) + delta).toLocaleString();
+}
+
+// Room cheer ─────────────────────────────────────────────────────────────
+
+async function paintRoomCheer(room) {
+  const btn = $('roomsDetailCheerBtn');
+  setCheerEnabled(btn, !!room);
+  setCheerPressed(btn, false);
+  if (!btn || !room || !vanillaPlayer) return;
+  try {
+    const on = await window.radium.vanillaRoomCheered(room.RoomId);
+    if (socialRoom === room) setCheerPressed(btn, on);
+  } catch (e) {}
+}
+
+$('roomsDetailCheerBtn')?.addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const room = socialRoom;
+  if (!room || btn.dataset.pending === 'true') return;
+  if (!requireVanillaLogin('cheer rooms')) return;
+
+  const next = btn.getAttribute('aria-pressed') !== 'true';
+  btn.dataset.pending = 'true';
+  setCheerPressed(btn, next);
+  bumpCount($('roomsDetailCheers'), next ? 1 : -1);
+  try {
+    await window.radium.vanillaSetRoomCheer(room.RoomId, next);
+  } catch (err) {
+    if (socialRoom === room) {
+      setCheerPressed(btn, !next);
+      bumpCount($('roomsDetailCheers'), next ? -1 : 1);
+    }
+    toast(`Couldn't update cheer: ${err}`, 'error');
+  } finally {
+    btn.dataset.pending = 'false';
+  }
+});
+
+// Photo cheer ────────────────────────────────────────────────────────────
+// The same photo can be on screen more than once (a feed card, a room's
+// grid, the detail view), so every control for it is kept in step through
+// `data-photo-id`, and one toggle at a time is allowed per photo.
+
+let cheeredPhotosLoad = null;
+const photoCheerPending = new Set();
+
+const photoIdOf = photo => String(photo?.Id ?? photo?.id ?? '');
+
+/// The account's cheered photo ids, fetched once and shared by every card.
+function cheeredPhotoSet() {
+  if (!vanillaPlayer) return Promise.resolve(null);
+  if (cheeredPhotoIds) return Promise.resolve(cheeredPhotoIds);
+  if (!cheeredPhotosLoad) {
+    const account = vanillaPlayer.id;
+    cheeredPhotosLoad = window.radium.vanillaCheeredPhotos()
+      .then(list => {
+        if (vanillaPlayer?.id !== account) return null;
+        cheeredPhotoIds = new Set(list);
+        return cheeredPhotoIds;
+      })
+      .catch(() => null)
+      .finally(() => { cheeredPhotosLoad = null; });
+  }
+  return cheeredPhotosLoad;
+}
+
+/// Every cheer control for one photo: its cards, and the detail view if open.
+function photoCheerControls(id) {
+  const controls = [...document.querySelectorAll('.card-cheer')].filter(el => el.dataset.photoId === id);
+  const detail = $('photoDetailCheerBtn');
+  if (detail && socialPhoto && photoIdOf(socialPhoto) === id) controls.push(detail);
+  return controls;
+}
+
+function showPhotoCheer(id, cheered, count) {
+  for (const btn of photoCheerControls(id)) {
+    if (count != null) {
+      const el = btn.querySelector('.cheers-count, #photoDetailCheers');
+      if (el) el.textContent = Number(count).toLocaleString();
+    }
+    setCheerPressed(btn, cheered);
+  }
+}
+
+async function togglePhotoCheer(photo) {
+  const id = photoIdOf(photo);
+  if (!id || photoCheerPending.has(id)) return;
+  if (!requireVanillaLogin('cheer photos')) return;
+
+  photoCheerPending.add(id);
+  try {
+    // Vanilla toggles and reports the result, so nothing is guessed here.
+    const res = await window.radium.vanillaTogglePhotoCheer(id);
+    if (cheeredPhotoIds) {
+      if (res.cheered) cheeredPhotoIds.add(id); else cheeredPhotoIds.delete(id);
+    }
+    if (res.cheerCount != null) photo.CheerCount = res.cheerCount;
+    showPhotoCheer(id, res.cheered, res.cheerCount);
+  } catch (err) {
+    toast(`Couldn't update cheer: ${err}`, 'error');
+  } finally {
+    photoCheerPending.delete(id);
+  }
+}
+
+/// The thumbs-up pill in a photo card's footer.
+function buildCardCheer(photo) {
+  const id = photoIdOf(photo);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'card-cheer';
+  btn.dataset.photoId = id;
+
+  const icon = document.createElement('span');
+  icon.className = 'vn-icon vn-icon-thumb cheer-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  const count = document.createElement('span');
+  count.className = 'cheers-count';
+  count.textContent = (Number(photo.CheerCount ?? photo.cheerCount) || 0).toLocaleString();
+  btn.append(icon, count);
+
+  setCheerPressed(btn, false);
+  paintCardCheer(btn);
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePhotoCheer(photo);
+  });
+  return btn;
+}
+
+async function paintCardCheer(btn) {
+  const set = await cheeredPhotoSet();
+  setCheerPressed(btn, !!set && set.has(btn.dataset.photoId));
+}
+
+async function paintPhotoCheer(photo) {
+  const btn = $('photoDetailCheerBtn');
+  setCheerEnabled(btn, !!photo);
+  setCheerPressed(btn, false);
+  if (!btn || !photo) return;
+  const set = await cheeredPhotoSet();
+  if (socialPhoto === photo) setCheerPressed(btn, !!set && set.has(photoIdOf(photo)));
+}
+
+$('photoDetailCheerBtn')?.addEventListener('click', () => {
+  if (socialPhoto) togglePhotoCheer(socialPhoto);
+});
+
+// Subscribe ──────────────────────────────────────────────────────────────
+
+function setSubscribed(btn, on) {
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', String(on));
+  btn.textContent = on ? 'SUBSCRIBED' : 'SUBSCRIBE';
+  // Filled while it is an invitation, quiet once it's done — as on the site.
+  btn.classList.toggle('modal-btn-primary', !on);
+  btn.classList.toggle('modal-btn-secondary', on);
+  btn.title = on ? 'Click to unsubscribe' : '';
+}
+
+async function paintSubscribe(person) {
+  const btn = $('peopleDetailSubscribeBtn');
+  if (!btn) return;
+  setSubscribed(btn, false);
+  const id = Number(person?.id);
+  // Hidden on your own profile and on rows without a real id.
+  btn.hidden = !person || !id || id === vanillaPlayer?.id;
+  if (btn.hidden || !vanillaPlayer) return;
+  try {
+    const on = await window.radium.vanillaSubscribed(id);
+    if (socialPerson === person) setSubscribed(btn, on);
+  } catch (e) {}
+}
+
+$('peopleDetailSubscribeBtn')?.addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const person = socialPerson;
+  const id = Number(person?.id);
+  if (!id || btn.dataset.pending === 'true') return;
+  if (!requireVanillaLogin('subscribe to players')) return;
+
+  const next = btn.getAttribute('aria-pressed') !== 'true';
+  btn.dataset.pending = 'true';
+  setSubscribed(btn, next);
+  bumpCount($('peopleDetailSubscribers'), next ? 1 : -1);
+  try {
+    await window.radium.vanillaSetSubscribed(id, next);
+  } catch (err) {
+    if (socialPerson === person) {
+      setSubscribed(btn, !next);
+      bumpCount($('peopleDetailSubscribers'), next ? -1 : 1);
+    }
+    toast(`Couldn't update subscription: ${err}`, 'error');
+  } finally {
+    btn.dataset.pending = 'false';
+  }
+});
+
+// Play (join a room) ─────────────────────────────────────────────────────
+
+/// How long Play keeps retrying while the game starts and the player signs in.
+const JOIN_WAIT_MS = 3 * 60 * 1000;
+const JOIN_RETRY_MS = 5000;
+
+function paintPlayButton() {
+  const btn = $('roomsDetailPlay');
+  if (!btn) return;
+  const waiting = roomJoin && socialRoom && roomJoin.roomId === socialRoom.RoomId;
+  const label = btn.querySelector('.room-play-label') || btn;
+  label.textContent = waiting ? roomJoin.label : '▶ PLAY';
+  btn.classList.toggle('is-busy', !!waiting);
+  btn.title = waiting ? 'Click to cancel' : 'Join this room in the game';
+}
+
+function setJoinLabel(job, label) {
+  job.label = label;
+  if (roomJoin === job) paintPlayButton();
+}
+
+/// Start the game through the same checks the Home Play button runs.
+function startGameForJoin() {
+  if (isGameRunning || isGameLaunching || !isInstalled) return;
+  isGameLaunching = true;
+  checkAvAndLaunch();
+}
+
+const normRoom = s => String(s ?? '').toLowerCase().replace('^', '').trim();
+
+/// After Vanilla accepts the join, watch `/me` until the game is in the room.
+async function confirmJoined(job, room) {
+  const until = Date.now() + 30000;
+  while (!job.cancelled && Date.now() < until) {
+    try {
+      const cur = await window.radium.vanillaCurrentRoom();
+      if (cur && (normRoom(cur.id) === normRoom(room.RoomId) || normRoom(cur.name) === normRoom(room.Name))) {
+        return true;
+      }
+    } catch (e) {}
+    await sleep(1500);
+  }
+  return false;
+}
+
+async function playRoom(room) {
+  const job = { roomId: room.RoomId, cancelled: false, label: 'JOINING…' };
+  roomJoin = job;
+  paintPlayButton();
+  const roomName = room.Name || 'the room';
+  let prompted = false;
+  const deadline = Date.now() + JOIN_WAIT_MS;
+
+  try {
+    while (!job.cancelled) {
+      let res;
+      try {
+        res = await window.radium.vanillaJoinRoom(room.RoomId);
+      } catch (err) {
+        toast(`Couldn't join: ${err}`, 'error');
+        return;
+      }
+      if (job.cancelled) return;
+
+      if (res.success) {
+        setJoinLabel(job, 'JOINING…');
+        addLog(`Vanilla is sending your game to ^${roomName}`, 'info');
+        if (await confirmJoined(job, room)) {
+          toast(`Joined ^${roomName}`, 'ok');
+          addLog(`Joined ^${roomName}`, 'ok');
+          setJoinLabel(job, '✓ JOINED');
+          await sleep(2000);
+        } else if (!job.cancelled) {
+          toast(`Sent to ^${roomName}. Check your game.`, 'info');
+        }
+        return;
+      }
+
+      if (!res.notOnline) {
+        toast(res.message || `Vanilla couldn't join ^${roomName}.`, 'error');
+        return;
+      }
+
+      // The game isn't running, or isn't signed in yet. Start it once, then
+      // keep asking until the player is in, or time runs out.
+      if (!prompted) {
+        prompted = true;
+        if (!isGameRunning) {
+          if (!isInstalled) {
+            toast('Install the Vanilla client first.', 'error');
+            return;
+          }
+          toast('Starting the game. Sign in to your Vanilla account in-game and you will join automatically.', 'info', 7000);
+          startGameForJoin();
+        } else {
+          toast('Sign in to your Vanilla account in-game. You will join automatically.', 'info', 7000);
+        }
+      }
+      if (Date.now() > deadline) {
+        toast('Gave up waiting for the game. Press Play again once you are signed in in-game.', 'error', 6000);
+        return;
+      }
+      setJoinLabel(job, 'WAITING FOR GAME…');
+      await sleep(JOIN_RETRY_MS);
+    }
+  } finally {
+    if (roomJoin === job) roomJoin = null;
+    paintPlayButton();
+  }
+}
+
+$('roomsDetailPlay')?.addEventListener('click', () => {
+  const room = socialRoom;
+  if (!room || !room.RoomId) return;
+  // A second click on the room already joining cancels it.
+  if (roomJoin && roomJoin.roomId === room.RoomId) {
+    roomJoin.cancelled = true;
+    roomJoin = null;
+    paintPlayButton();
+    return;
+  }
+  if (!requireVanillaLogin('join rooms')) return;
+  // Only one join at a time: a new room replaces the old request.
+  if (roomJoin) roomJoin.cancelled = true;
+  playRoom(room);
+});
+
+// Entry points from the detail views ────────────────────────────────────
+
+function setupRoomSocial(room) {
+  socialRoom = activeNetwork === 'vanilla' && room?.RoomId ? room : null;
+  paintPlayButton();
+  paintRoomCheer(socialRoom);
+}
+
+function setupPhotoSocial(photo) {
+  socialPhoto = activeNetwork === 'vanilla' && (photo?.Id ?? photo?.id) != null ? photo : null;
+  paintPhotoCheer(socialPhoto);
+}
+
+function setupPersonSocial(person) {
+  socialPerson = activeNetwork === 'vanilla' ? person : null;
+  paintSubscribe(socialPerson);
+}
+
+function refreshSocialButtons() {
+  document.querySelectorAll('.card-cheer').forEach(btn => {
+    setCheerPressed(btn, false);
+    paintCardCheer(btn);
+  });
+  if (socialRoom) paintRoomCheer(socialRoom);
+  if (socialPhoto) paintPhotoCheer(socialPhoto);
+  if (socialPerson) paintSubscribe(socialPerson);
+}
+
+(async () => {
+  if (!window.radium?.onVanillaAuth) return;
+  await window.radium.onVanillaAuth(applyVanillaAuth);
+  try {
+    applyVanillaAuth(await window.radium.vanillaAuthStatus());
+  } catch (e) {}
+})();
 
 // ── Custom selects ───────────────────────────────────────────────────────
 // Every <select class="cfg-input"> is rebuilt as a button and a menu — see the
@@ -6759,6 +7970,7 @@ async function showPhotoDetails(photo, backToView) {
 
   const cheersEl = $('photoDetailCheers');
   if (cheersEl) cheersEl.textContent = photo.CheerCount || photo.cheerCount || '0';
+  setupPhotoSocial(photo);
 
   // Comments, only where the network has them. Vanilla reports no count at
   // all, and a hardcoded "0 COMMENTS" would read as "nobody commented" rather
@@ -6885,6 +8097,7 @@ const PHOTO_BACK_TARGETS = {
 };
 
 $('btnPhotoDetailBack')?.addEventListener('click', () => {
+  socialPhoto = null;
   $('tab-photo-detail').classList.remove('active');
 
   const target = PHOTO_BACK_TARGETS[currentBackToView];
@@ -6988,6 +8201,7 @@ async function showRoomDetails(room) {
 
   list.classList.add('hidden');
   detail.classList.remove('hidden');
+  setupRoomSocial(room);
 
   // Load scraped web details asynchronously (handle both PascalCase and camelCase APIs)
   const webDetails = await getRoomWebDetails(room.Name || room.name || '');
@@ -7019,6 +8233,8 @@ async function showRoomDetails(room) {
 }
 
 function hideRoomDetails() {
+  // A Play request already under way carries on; only the view is closed.
+  socialRoom = null;
   const list = $('roomsListView');
   const detail = $('roomsDetailView');
   if (list && detail) {
@@ -7103,6 +8319,7 @@ async function showPlayerDetails(person) {
 
   list.classList.add('hidden');
   detail.classList.remove('hidden');
+  setupPersonSocial(person);
 
   // Load scraped web details asynchronously
   let webDetails = null;
@@ -7389,6 +8606,7 @@ async function loadPlayerRooms(userId, append = false) {
 }
 
 function hidePlayerDetails() {
+  socialPerson = null;
   const list = $('peopleListView');
   const detail = $('peopleDetailView');
   if (list && detail) {
@@ -7562,7 +8780,7 @@ document.addEventListener('keydown', (e) => {
     const fullLogs = [...startupFaults, ...fullLogBuffer].join('\n');
 
     const diagnostics = {
-      launcherVersion: $('versionTag')?.textContent || 'unknown',
+      launcherVersion: launcherVersion ? `v${launcherVersion}` : 'unknown',
       isInstalled: isInstalled,
       isGameRunning: isGameRunning,
       isDownloading: isDownloading,

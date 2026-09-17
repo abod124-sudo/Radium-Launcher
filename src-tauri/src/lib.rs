@@ -1,5 +1,7 @@
+pub mod background;
 pub mod config;
 pub mod defender;
+pub mod desktop_notify;
 pub mod download;
 pub mod game;
 pub mod scraper;
@@ -7,6 +9,7 @@ pub mod server;
 pub mod thumbs;
 pub mod updater;
 pub mod vanilla;
+pub mod vanilla_auth;
 
 use tauri::Manager;
 
@@ -18,11 +21,9 @@ pub fn run() {
         // running, this fires in the existing process instead of opening a second
         // window — we restore and focus the current window so it comes to front.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            // Also how a launcher hidden in the tray comes back when it is
+            // started again from the Start menu or a shortcut.
+            background::show_main(app);
         }))
         .plugin(tauri_plugin_shell::init())
         // Every remote image in the UI is loaded through here rather than
@@ -84,6 +85,28 @@ pub fn run() {
             scraper::fetch_user_web_details,
             scraper::fetch_photo_web_details,
             scraper::fetch_photo_comments,
+            // Vanilla account
+            vanilla_auth::vanilla_login,
+            vanilla_auth::vanilla_logout,
+            vanilla_auth::vanilla_auth_status,
+            vanilla_auth::vanilla_account,
+            vanilla_auth::vanilla_notifications,
+            vanilla_auth::vanilla_room_cheered,
+            vanilla_auth::vanilla_set_room_cheer,
+            vanilla_auth::vanilla_cheered_photos,
+            vanilla_auth::vanilla_toggle_photo_cheer,
+            vanilla_auth::vanilla_subscribed,
+            vanilla_auth::vanilla_set_subscribed,
+            vanilla_auth::vanilla_join_room,
+            vanilla_auth::vanilla_current_room,
+            // Background / startup
+            background::get_autostart,
+            background::set_autostart,
+            // Desktop notification pop-up
+            desktop_notify::desktop_notify,
+            desktop_notify::desktop_notif_take,
+            desktop_notify::desktop_notif_layout,
+            desktop_notify::desktop_notif_open,
             // Download / Install
             download::download_client,
             download::cancel_download,
@@ -133,15 +156,39 @@ pub fn run() {
             // Start game monitoring background task
             game::start_game_monitor(app_handle.clone());
 
+            // Tray icon. Not fatal: without it the launcher still works, it
+            // just can't be reopened from the tray.
+            let _ = background::setup_tray(&app_handle);
+            background::apply_startup_default(&app_handle);
+            background::sharpen_window_icon(&app_handle);
+
+            // The window is created hidden (tauri.conf.json). Started with
+            // Windows, it stays in the tray; otherwise it is shown now.
+            if !background::started_in_background() {
+                background::show_main(&app_handle);
+            }
+
             // Listen for window maximize/unmaximize events
             if let Some(window) = app.get_webview_window("main") {
                 let window_clone = window.clone();
+                let popup_app = app_handle.clone();
                 window.on_window_event(move |event| {
                     use tauri::Emitter;
-                    if let tauri::WindowEvent::Resized(_) = event {
-                        if let Ok(maximized) = window_clone.is_maximized() {
-                            let _ = window_clone.emit("window-maximized-state", maximized);
+                    match event {
+                        tauri::WindowEvent::Resized(_) => {
+                            if let Ok(maximized) = window_clone.is_maximized() {
+                                let _ = window_clone.emit("window-maximized-state", maximized);
+                            }
                         }
+                        // The notification pop-up is a separate, usually hidden
+                        // window; left open it would keep the app running.
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            if background::hide_instead_of_close(&popup_app) {
+                                api.prevent_close();
+                            }
+                        }
+                        tauri::WindowEvent::Destroyed => desktop_notify::close_popup(&popup_app),
+                        _ => {}
                     }
                 });
             }

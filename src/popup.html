@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Radium notifications</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <!-- The notification pop-up (see desktop_notify.rs). Cards are handed over
+       by the launcher window, already written; this page only lays them out,
+       times them, and reports its height so the window can be sized to fit. -->
+  <div id="stack" aria-live="polite"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

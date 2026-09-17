@@ -105,7 +105,7 @@ body:not(.glass-enabled) {
      .home-hero-bar rule below; a padding reset in this shared rule used to
      strip a dialog's main button of its top and left padding while held,
      shrinking it and throwing its label up and left. */
-  & :is(.btn-play, .btn-download-big, .modal-btn-primary):active {
+  & :is(.btn-play, .btn-download-big, .modal-btn-primary):is(:active, .is-pressed) {
     background: var(--pri-active-bg);
     border: var(--pri-active-border);
     box-shadow: var(--pri-active-shadow);
@@ -121,7 +121,7 @@ body:not(.glass-enabled) {
     transform: none;
   }
   & .home-hero-bar :is(.btn-play, .btn-download-big),
-  & .home-hero-bar :is(.btn-play, .btn-download-big):active {
+  & .home-hero-bar :is(.btn-play, .btn-download-big):is(:active, .is-pressed) {
     min-width: 148px; height: 44px;
     padding: 0 22px;
     font-size: 15px;

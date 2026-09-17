@@ -5,7 +5,7 @@
   <!-- Mirrors app.security.csp in src-tauri/tauri.conf.json. Both apply, and a
        browser enforces the intersection, so a source added to only one of them
        is still blocked — change them together. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https: asset: https://asset.localhost radiumimg: http://radiumimg.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com https://api.vanillarec.net https://vanillarec.net;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https: asset: https://asset.localhost radiumimg: http://radiumimg.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com;" />
   <title>Radium Launcher</title>
   <!-- Inter ships with the launcher rather than being fetched from Google on
        every start. It used to be a render-blocking stylesheet request to
@@ -111,7 +111,33 @@
       </nav>
 
       <div class="sidebar-footer">
-        <div class="version-tag" id="versionTag">...</div>
+        <!-- Vanilla account. Signing in happens on Vanilla's own page in a
+             separate window; this only ever shows the name, avatar and token
+             count the backend hands over, never the session itself. -->
+        <div class="account-slot network-only-vanilla">
+          <div class="account-row">
+            <button class="nav-btn account-btn" id="vanillaAccountBtn"
+                    aria-haspopup="menu" aria-expanded="false">
+              <img class="account-avatar" id="vanillaAccountAvatar" alt="" hidden />
+              <span class="account-name" id="vanillaAccountName">LOG IN</span>
+            </button>
+            <button class="nav-btn notif-bell" id="vanillaNotifsBtn" aria-label="Notifications"
+                    aria-haspopup="dialog" aria-expanded="false" hidden>
+              <span class="vn-icon vn-icon-bell" aria-hidden="true"></span>
+              <span class="notif-badge" id="vanillaNotifBadge" hidden></span>
+            </button>
+          </div>
+          <div class="network-menu account-menu" id="vanillaAccountMenu" role="menu"
+               aria-label="Vanilla account" hidden>
+            <div class="account-meta">
+              <span class="account-meta-display" id="vanillaAccountDisplay" hidden></span>
+              <span class="account-meta-name" id="vanillaAccountFullName"></span>
+              <span class="account-meta-tokens" id="vanillaAccountTokens"></span>
+            </div>
+            <button class="nav-btn network-option" role="menuitem" id="vanillaProfileBtn">MY PROFILE</button>
+            <button class="nav-btn network-option" role="menuitem" id="vanillaLogoutBtn">LOG OUT</button>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -361,16 +387,28 @@
 
                     <!-- Description -->
                     <p id="roomsDetailDescription" class="room-description">Room description goes here...</p>
+
+                    <!-- Vanilla only: sends the running game into this room. -->
+                    <button type="button" class="modal-btn modal-btn-primary room-play-btn network-only-vanilla"
+                            id="roomsDetailPlay">
+                      <span class="room-play-label">&#9654; PLAY</span>
+                    </button>
                   </div>
                 </div>
 
                 <!-- Footer Stats & Meta -->
                 <div class="room-card-footer">
                   <div class="room-stats-grid">
-                    <div class="room-stat-item bevel-inset">
-                      <div id="roomsDetailCheers" class="room-stat-val">0</div>
+                    <!-- A button so that, on Vanilla, the tile itself cheers the
+                         room, as on vanillarec.net. Disabled on other networks. -->
+                    <button type="button" class="room-stat-item bevel-inset cheer-stat" id="roomsDetailCheerBtn"
+                            aria-pressed="false" disabled>
+                      <div class="room-stat-val">
+                        <span class="vn-icon vn-icon-thumb cheer-icon" aria-hidden="true"></span>
+                        <span id="roomsDetailCheers">0</span>
+                      </div>
                       <div class="room-stat-lbl">CHEERS</div>
-                    </div>
+                    </button>
                     <div class="room-stat-item bevel-inset">
                       <div id="roomsDetailFavorites" class="room-stat-val">0</div>
                       <div class="room-stat-lbl">FAVORITES</div>
@@ -471,6 +509,10 @@
                       <div id="peopleDetailRoles" class="profile-roles"></div>
                     </div>
                   </div>
+                  <!-- Vanilla only. Vanilla has no friends API; subscribing is
+                       what its website offers. Hidden on your own profile. -->
+                  <button type="button" class="modal-btn modal-btn-primary subscribe-btn network-only-vanilla"
+                          id="peopleDetailSubscribeBtn" aria-pressed="false" hidden>SUBSCRIBE</button>
                 </div>
 
                 <!-- Profile Body (Stats & Bio) -->
@@ -683,13 +725,27 @@
           <div class="settings-group">
             <div class="sg-title">OPTIONS</div>
             <div class="sg-toggle-row">
+              <span>Keep running in the tray when the window is closed</span>
+              <div class="toggle-wrap" id="tgl-runInBackground">
+                <div class="tgl-knob"></div>
+              </div>
+            </div>
+            <div class="sg-toggle-row">
+              <span>Start Radium Launcher when Windows starts</span>
+              <div class="toggle-wrap" id="tgl-launchAtStartup">
+                <div class="tgl-knob"></div>
+              </div>
+            </div>
+            <div class="sg-toggle-row">
               <span>Minimize launcher when game starts</span>
               <div class="toggle-wrap" id="tgl-minimizeOnLaunch">
                 <div class="tgl-knob"></div>
               </div>
             </div>
             <div class="sg-toggle-row">
-              <span>Close launcher when game starts</span>
+              <!-- Reads "Hide" or "Close" depending on tray mode; see
+                   syncLaunchOptionLabel() in app.js. -->
+              <span id="lblCloseOnLaunch">Close launcher when game starts</span>
               <div class="toggle-wrap" id="tgl-closeOnLaunch">
                 <div class="tgl-knob"></div>
               </div>
@@ -709,6 +765,27 @@
             <div class="sg-row" style="margin-top: 12px; margin-bottom: 4px;">
               <button class="btn-test-server" id="btnCheckUpdates">CHECK FOR LAUNCHER UPDATES</button>
               <span class="test-result" id="updateCheckResult" style="margin-left: 10px; font-weight: bold; font-size: 12px; line-height: 24px; vertical-align: middle;"></span>
+            </div>
+          </div>
+
+          <!-- Vanilla notification pop-ups. Vanilla only: they come from the
+               signed-in Vanilla account. -->
+          <div class="settings-group network-only-vanilla">
+            <div class="sg-title">NOTIFICATIONS</div>
+            <div class="sg-toggle-row">
+              <span>Show a pop-up in the corner of the screen for new Vanilla notifications</span>
+              <div class="toggle-wrap" id="tgl-notifPopups">
+                <div class="tgl-knob"></div>
+              </div>
+            </div>
+            <div class="sg-toggle-row">
+              <span>Play a sound</span>
+              <div class="toggle-wrap" id="tgl-notifSound">
+                <div class="tgl-knob"></div>
+              </div>
+            </div>
+            <div class="sg-row" style="margin-top: 12px; margin-bottom: 4px;">
+              <button class="btn-test-server" id="btnTestNotif">SEND A TEST POP-UP</button>
             </div>
           </div>
 
@@ -809,10 +886,14 @@
               <!-- Stats & Date. A flex row rather than a fixed grid so hiding
                    the comment stat on a network that has none closes the gap. -->
               <div class="bevel-inset photo-detail-span photo-detail-stats">
-                <div class="photo-detail-stat">
-                  <div id="photoDetailCheers" class="photo-detail-stat-value">0</div>
+                <button type="button" class="photo-detail-stat cheer-stat" id="photoDetailCheerBtn"
+                        aria-pressed="false" disabled>
+                  <div class="photo-detail-stat-value">
+                    <span class="vn-icon vn-icon-thumb cheer-icon" aria-hidden="true"></span>
+                    <span id="photoDetailCheers">0</span>
+                  </div>
                   <div class="photo-detail-stat-label">CHEERS</div>
-                </div>
+                </button>
                 <div id="photoDetailCommentsStat" class="photo-detail-stat" hidden>
                   <div id="photoDetailComments" class="photo-detail-stat-value">0</div>
                   <div class="photo-detail-stat-label">COMMENTS</div>
@@ -1129,6 +1210,19 @@
   </div>
 
   <!-- Toast -->
+  <!-- Vanilla notifications, opened from the bell in the sidebar. At the top
+       level rather than inside the sidebar: a skin can make the sidebar its
+       own layer (Liquid Glass does), and a popover inside it would then be
+       drawn under the main content however high its z-index. -->
+  <div class="network-menu notif-panel" id="vanillaNotifsPanel" role="dialog"
+       aria-label="Notifications" hidden>
+    <div class="notif-head">
+      <span class="notif-title">Notifications</span>
+      <button type="button" class="notif-mark" id="vanillaNotifsMarkRead">Mark all as read</button>
+    </div>
+    <div class="notif-list" id="vanillaNotifsList"></div>
+  </div>
+
   <div class="toast-container" id="toastContainer"></div>
 
   <script src="app.js"></script>

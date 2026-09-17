@@ -341,7 +341,7 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
                 transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
   & .home-hero-bar :is(.btn-play, .btn-download-big):hover { transform: translateY(-1px); }
-  & .home-hero-bar :is(.btn-play, .btn-download-big):active { transform: scale(0.96); }
+  & .home-hero-bar :is(.btn-play, .btn-download-big):is(:active, .is-pressed) { transform: scale(0.96); }
 
   /* The gear nudges round on hover, and turns fully while its menu is open. */
   & .home-hero-bar #btnManageClient[aria-expanded="false"]:hover svg { transform: rotate(45deg); }

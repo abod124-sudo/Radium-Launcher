@@ -40,10 +40,10 @@ use crate::server::{http, USER_AGENT};
 const API_BASE: &str = "https://api.vanillarec.net";
 
 /// Vanilla's website, which fronts the same API at `/api.php?path=...`.
-const SITE_BASE: &str = "https://vanillarec.net";
+pub(crate) const SITE_BASE: &str = "https://vanillarec.net";
 
 /// Sent with proxied requests; the proxy only answers when it is present.
-const SITE_REFERER: &str = "https://vanillarec.net/";
+pub(crate) const SITE_REFERER: &str = "https://vanillarec.net/";
 
 /// Vanilla rejects a proxied search of fewer than this many characters with a
 /// 400 (`{"error":"query_too_short"}`), so we short-circuit instead. It applies
@@ -926,6 +926,44 @@ async fn resolve_creators(ids: &BTreeSet<i64>) -> CreatorMap {
     }
 
     map
+}
+
+/// `(username, avatar URL)` for each id, through the same cached lookup the
+/// Rooms tab uses. For the signed-in notifications list.
+pub(crate) async fn player_names(ids: &BTreeSet<i64>) -> HashMap<i64, (String, String)> {
+    resolve_creators(ids)
+        .await
+        .into_iter()
+        .map(|(id, info)| (id, (info.username, info.avatar)))
+        .collect()
+}
+
+/// The signed-in player from `auth/session`, cut down to what the account
+/// button shows. Built field by field so nothing else in the record — whatever
+/// Vanilla chooses to put in it — is passed on to the frontend.
+///
+/// The avatar fields are tried in the order the website's own
+/// `getPlayerPfpUrl()` tries them.
+pub(crate) fn account_summary(p: &Value) -> Value {
+    let username = str_field(p, "username").unwrap_or_default();
+    let display = str_field(p, "displayName").filter(|s| !s.trim().is_empty()).unwrap_or(username);
+    let avatar = ["profileImageUrl", "avatarImageUrl", "iconUrl"]
+        .iter()
+        .find_map(|k| image_url(str_field(p, k)))
+        .or_else(|| {
+            ["profileImage", "pfp", "avatarImageName", "profileImageName", "imageName"]
+                .iter()
+                .filter_map(|k| str_field(p, k))
+                .find(|s| !s.trim().is_empty())
+                .map(|s| if s.starts_with('/') || s.starts_with("http") { image_url(Some(s)).unwrap_or_default() } else { image_for_name(s) })
+        })
+        .unwrap_or_default();
+    json!({
+        "id": p.get("id").and_then(Value::as_i64),
+        "userName": username,
+        "displayName": display,
+        "AvatarUrl": avatar,
+    })
 }
 
 /// Cap on [`CREATOR_CACHE`]. Roughly a thousand pages' worth of creators, well

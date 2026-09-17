@@ -258,7 +258,6 @@ body:is(.theme-win95, .theme-win98) {
   & .sidebar-logo .logo-combo.active,
   & .sidebar-logo .logo-combo.active:hover { background: #c0c0c0; box-shadow: var(--pressed); }
   & .nav-btn.active { padding: 6px 9px 4px 11px; }
-  & .version-tag { text-align: center; }
 
   /* Group boxes: the title sits on the etched line. */
   & .settings-group { margin-top: 7px; }
@@ -283,7 +282,7 @@ body:is(.theme-win95, .theme-win98) {
   /* PLAY is a fixed 44px box with 22px sides; the press nudges its label 1px
      right and down by trading padding across, never by dropping a side
      (setting only padding-left once pulled the label ~10px off centre). */
-  & .home-hero-bar :is(.btn-play, .btn-download-big):active { padding: 2px 21px 0 23px; }
+  & .home-hero-bar :is(.btn-play, .btn-download-big):is(:active, .is-pressed) { padding: 2px 21px 0 23px; }
 
   /* Pressed push buttons: the bevel inverts and the label drops 1px right
      and down, as every Win32 button did. Padding carries the shift, so each

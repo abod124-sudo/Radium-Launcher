@@ -328,7 +328,7 @@ body.theme-macosclassic {
     background: #dddddd;
   }
 
-  & :is(.btn-play, .btn-download-big, .modal-btn-primary):active { color: #ffffff; }
+  & :is(.btn-play, .btn-download-big, .modal-btn-primary):is(:active, .is-pressed) { color: #ffffff; }
   & .home-hero-bar :is(.btn-play, .btn-download-big) { margin-left: 4px; }
   & .toast::before { display: none; }
   & .toast { padding: 8px 12px; }

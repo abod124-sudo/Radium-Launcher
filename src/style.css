@@ -202,25 +202,6 @@ body.theme-moderndark .sidebar-logo {
 body.theme-moderndark .sidebar-footer {
   border-top: 1px solid var(--border-light) !important;
 }
-/* The version badge kept its Win9x inset bevel (a 2px dark-top frame) and the
-   Lucida Console face from --font-mono on every modern skin: the footer around
-   it was modernised, the badge inside it was not, leaving the one corner of the
-   sidebar still drawn like Windows 98.
-
-   Split light from dark the same way the footer above is, rather than using
-   --border-light for all five: on the light skins that token is a translucent
-   *white*, which is legible as an edge on the dark art it frames elsewhere but
-   disappears against this badge's own pale background. */
-body.theme-moderndark .version-tag {
-  border: 1px solid var(--border-light) !important;
-  border-radius: 8px !important;
-  box-shadow: none !important;
-  /* `inherit`, not a --font-* token: naming one here would pin the badge to
-     Tahoma and leave it as the one element in the sidebar not in the skin's
-     own face. Inheriting follows whatever <body> is set to. */
-  font-family: inherit !important;
-  padding: 6px !important;
-}
 /* Nav Tab Buttons */
 body.theme-moderndark .nav-btn {
   border-radius: 8px !important;
@@ -692,17 +673,387 @@ img[src$="vanilla-logo.png"] { image-rendering: auto !important; }
 .pill-dot.online {
   background: var(--status-online); border-color: #003300;
 }
-.version-tag {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--green);
-  text-align: center;
-  font-weight: bold;
-  background: var(--bg-dark);
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  padding: 5px;
+/* ── Vanilla account, notifications and social buttons ────────────────
+   Everything here wears an existing class (nav-btn, network-menu, modal-btn,
+   the stat tiles) so each skin paints it; these rules only lay it out.
+
+   Icons are the Material Design glyphs vanillarec.net itself uses (Apache
+   2.0), drawn as masks so they take the text colour of whatever holds them. */
+.vn-icon {
+  display: inline-block; flex-shrink: 0;
+  width: 1em; height: 1em;
+  background-color: currentColor;
+  -webkit-mask: var(--vn-glyph) center / contain no-repeat;
+          mask: var(--vn-glyph) center / contain no-repeat;
 }
+.vn-icon-thumb {
+  --vn-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z'/%3E%3C/svg%3E");
+}
+.vn-icon-bell {
+  --vn-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z'/%3E%3C/svg%3E");
+}
+.vn-icon-info {
+  --vn-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z'/%3E%3C/svg%3E");
+}
+
+/* The footer holds only the Vanilla account row now that the version badge is
+   gone, so on any other network it would be an empty strip with a divider
+   above it. */
+body:not(.network-vanilla) .sidebar-footer { display: none; }
+
+/* Account row: [avatar  name] [bell] */
+.account-slot { position: relative; }
+.account-row { display: flex; align-items: stretch; gap: 4px; }
+.account-row .account-btn {
+  display: flex; align-items: center; gap: 6px;
+  flex: 1; min-width: 0; width: auto;
+}
+/* Larger than a nav row: it's the one place that says who is signed in. The
+   `body .sidebar-footer` prefix outranks each skin's .nav-btn sizing. */
+body .sidebar-footer .account-row .account-btn {
+  min-height: 42px;
+  padding: 6px 8px;
+  gap: 8px;
+  font-size: 14px;
+}
+body .sidebar-footer .account-row .notif-bell { width: 38px; }
+/* A username is shown as written. Several skins set their nav rows in
+   capitals with wide tracking (Steam 2010), which turned "abod124" into
+   "ABOD1…"; the ids outrank that. "LOG IN" keeps the skin's look. */
+body #vanillaAccountBtn:is([aria-haspopup]) #vanillaAccountName {
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+/* A name too long for one line even at 12px gets a second (fitAccountName). */
+#vanillaAccountName.two-lines {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+/* Liquid Glass pads every .nav-btn 12px a side with !important, which left
+   the name about 60px; the ids outrank it for these two. */
+body.glass-enabled #vanillaAccountBtn { padding: 6px 8px !important; }
+body.glass-enabled #vanillaNotifsBtn { padding: 0 !important; }
+/* While their popup is open these two are highlighted with `.is-open`, not
+   the nav's `.active`: every skin gives `.active` the current-tab treatment
+   (its own padding, an indicator bar, a pressed bevel), which made the button
+   jump when it was clicked. */
+body .sidebar-footer .account-row :is(.account-btn, .notif-bell).is-open {
+  background: color-mix(in srgb, var(--text) 12%, transparent) !important;
+}
+/* Retro skins: held down, or with their popup open, the two press in the way
+   that skin presses a sidebar tab (its --nav-press-* tokens). The label moves
+   by a pixel with a padding swap that keeps the size, rather than the skin's
+   own press padding, so nothing around them shifts. Luna is left on the tint
+   above: its press tokens are its hover link style, blue on its blue pane. */
+body:not(.glass-enabled):not(:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
+                                  .theme-blackandwhite, .theme-blackandwhite-inverted)) {
+  &:not(:is(.theme-winxp, .theme-royalenoir)) :is(#vanillaAccountBtn, #vanillaNotifsBtn):is(:active, .is-open) {
+    color: var(--nav-press-fg);
+    background: var(--nav-press-bg) !important;
+    border: var(--nav-press-border);
+    box-shadow: var(--nav-press-shadow);
+  }
+  & #vanillaAccountBtn:is(:active, .is-open) { padding: 7px 7px 5px 9px; }
+  & #vanillaNotifsBtn:is(:active, .is-open) .vn-icon { transform: translate(1px, 1px); }
+}
+/* XP's sidebar rows are its blue link colour, which reads on the light top of
+   its task pane but not on the dark blue at the bottom, where these two sit.
+   They take the colour XP gives its sidebar footer text (--version-fg). */
+body.theme-winxp:not(.glass-enabled) :is(#vanillaAccountBtn, #vanillaNotifsBtn) {
+  color: var(--version-fg);
+}
+body .sidebar-footer .notif-bell .vn-icon { width: 20px; height: 20px; }
+/* Square by default, which is what the retro skins want (their own avatars
+   are square-framed), and a rounded square on the modern family and Liquid
+   Glass, which round everything else they draw. */
+.account-avatar {
+  width: 28px; height: 28px; flex-shrink: 0;
+  object-fit: cover; border-radius: 0;
+  border: 1px solid var(--border-dark);
+}
+body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
+        .theme-blackandwhite, .theme-blackandwhite-inverted) .account-avatar,
+body.glass-enabled .account-avatar {
+  border-radius: 7px;
+}
+.account-name {
+  min-width: 0; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.account-row .notif-bell {
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; width: 34px; padding: 0;
+}
+.notif-bell .vn-icon { width: 17px; height: 17px; }
+.account-row .notif-bell[hidden] { display: none; }
+.notif-badge {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: #e5484d; color: #fff;
+  font-family: var(--font-ui); font-size: 9px; font-weight: bold;
+  line-height: 16px; text-align: center;
+  box-shadow: 0 0 0 2px var(--bg-panel);
+  pointer-events: none;
+}
+.notif-badge[hidden] { display: none; }
+
+/* Account menu opens upward from the footer (the skins set `top`). */
+.sidebar-footer .network-menu.account-menu {
+  top: auto !important;
+  bottom: calc(100% + 4px);
+}
+.account-meta {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 4px 6px 6px;
+  border-bottom: 1px solid var(--border-dark);
+  font-family: var(--font-mono); font-size: 10px; color: var(--text);
+  min-width: 0;
+}
+/* The menu is where a name too long for the button is read in full, so it
+   wraps rather than being cut. */
+.account-meta-display {
+  font-family: var(--font-ui); font-size: 12px; font-weight: bold;
+  overflow-wrap: anywhere;
+}
+.account-meta-display[hidden] { display: none; }
+.account-meta-name { font-weight: bold; overflow-wrap: anywhere; }
+.account-meta-tokens { color: var(--green-dim); }
+.account-meta-tokens:empty { display: none; }
+
+/* Notifications panel: beside the sidebar, bottom-aligned with the bell.
+   Fixed, with `left`, `bottom` and `max-height` set from app.js, since the
+   sidebar's width and inset vary by skin. The id outranks the popover rules
+   every skin (and Liquid Glass, with !important) writes for .network-menu;
+   the panel keeps their surface but not their placement or padding. */
+body #vanillaNotifsPanel.network-menu {
+  position: fixed !important;
+  top: auto !important; right: auto !important;
+  width: 340px;
+  max-height: 460px;
+  padding: 0 !important; gap: 0 !important;
+  overflow: hidden;
+  z-index: 1000;
+}
+.notif-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line, var(--border-dark));
+  flex-shrink: 0;
+}
+.notif-title {
+  font-family: var(--font-ui); font-size: 13px; font-weight: bold;
+  color: var(--text);
+}
+.notif-mark {
+  background: none; border: 0; padding: 2px 0;
+  font-family: var(--font-ui); font-size: 11px;
+  color: var(--accent-text, var(--green));
+  cursor: pointer;
+}
+.notif-mark:hover:not(:disabled) { text-decoration: underline; }
+.notif-mark:disabled { color: var(--text-muted); cursor: default; }
+.notif-list {
+  display: flex; flex-direction: column;
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+}
+.notif-item {
+  position: relative;
+  display: flex; align-items: flex-start; gap: 10px;
+  width: 100%; box-sizing: border-box;
+  padding: 10px 14px 10px 26px;
+  background: transparent; border: 0;
+  border-bottom: 1px solid var(--line, var(--border-dark));
+  font: inherit; color: inherit; text-align: left;
+}
+.notif-item:last-child { border-bottom: 0; }
+button.notif-item { cursor: pointer; }
+button.notif-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+button.notif-item:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: -2px; }
+.notif-item.unread::before {
+  content: "";
+  position: absolute; left: 11px; top: 24px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent, var(--green));
+}
+/* Same shape as the account picture: square on the retro skins, a rounded
+   square on the modern family and Liquid Glass. */
+.notif-avatar {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: 0; object-fit: cover;
+  background: var(--bg-dark);
+}
+body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
+        .theme-blackandwhite, .theme-blackandwhite-inverted) .notif-avatar,
+body.glass-enabled .notif-avatar {
+  border-radius: 7px;
+}
+.notif-avatar-system {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent-text, var(--green));
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+.notif-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-top: 1px; }
+.notif-text {
+  font-family: var(--font-ui); font-size: 12px; line-height: 1.4;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.notif-text strong { font-weight: bold; }
+.notif-item:not(.unread) .notif-text { color: color-mix(in srgb, var(--text) 75%, transparent); }
+.notif-time { font-family: var(--font-ui); font-size: 10px; color: var(--text-muted); }
+.notif-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 36px 16px;
+  font-family: var(--font-ui); font-size: 12px; color: var(--text-muted);
+}
+.notif-avatar-system .vn-icon { width: 16px; height: 16px; }
+.notif-empty-icon { width: 28px; height: 28px; }
+
+/* Notification pop-up card. Never shown in the launcher: notifPopStyle() in
+   app.js reads these from a hidden probe and sends the result to the desktop
+   pop-up window, so the card there wears the current skin. It wears
+   .network-menu for each skin's popover surface. */
+.notif-pop.network-menu {
+  position: fixed !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+.notif-pop-app { color: var(--text-muted); }
+.notif-pop-text { color: var(--text); font-family: var(--font-ui); }
+.notif-pop-text strong { color: var(--accent-text, var(--green)); }
+
+/* Cheer: on Vanilla the CHEERS tile itself is the button, with the website's
+   thumbs-up beside the count. It is lit once cheered. */
+.cheer-stat {
+  font: inherit; color: inherit;
+  border: 0;
+  -webkit-appearance: none; appearance: none;
+}
+.photo-detail-stats .cheer-stat { background: transparent; }
+.cheer-stat:disabled { color: inherit; cursor: default; }
+.cheer-stat:not(:disabled) { cursor: pointer; }
+.cheer-stat:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 2px; }
+/* The count is drawn as the website's cheer pill: muted thumb and a soft
+   chip, lit in the accent once cheered. !important because every skin
+   colours stat values at a higher specificity than a component rule can
+   reach, and the cheered state has to read in all of them. */
+.cheer-stat :is(.room-stat-val, .photo-detail-stat-value) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+body.network-vanilla .cheer-stat :is(.room-stat-val, .photo-detail-stat-value) {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.cheer-icon {
+  width: 14px; height: 14px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+body:not(.network-vanilla) .cheer-icon { display: none; }
+.cheer-stat:not(:disabled):hover :is(.room-stat-val, .photo-detail-stat-value) {
+  background: color-mix(in srgb, var(--text) 13%, transparent);
+}
+.cheer-stat:not(:disabled):active .cheer-icon { transform: scale(0.8); }
+.cheer-stat.is-on :is(.room-stat-val, .photo-detail-stat-value) {
+  color: var(--accent-text, var(--green)) !important;
+  background: color-mix(in srgb, var(--accent, var(--green)) 18%, transparent) !important;
+}
+.cheer-stat.is-on .cheer-icon { color: var(--accent-text, var(--green)); }
+
+/* The same pill in a photo card's footer. */
+.card-cheer {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 11px;
+  border: 0; border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text);
+  font-family: var(--font-ui); font-size: 11px; font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.card-cheer:hover { background: color-mix(in srgb, var(--text) 13%, transparent); }
+.card-cheer:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 2px; }
+.card-cheer:active .cheer-icon { transform: scale(0.8); }
+.card-cheer.is-on {
+  color: var(--accent-text, var(--green));
+  background: color-mix(in srgb, var(--accent, var(--green)) 18%, transparent);
+}
+.card-cheer.is-on .cheer-icon { color: var(--accent-text, var(--green)); }
+
+/* Retro skins: no pill. The cheer control is drawn as that skin's own push
+   button (bevel, corners, face and hover from the skin's button tokens), and
+   a cheer shows the way those skins show "on": the button stays pressed in.
+   The modern family and Liquid Glass keep the pill above. */
+body:not(.glass-enabled):not(:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
+                                  .theme-blackandwhite, .theme-blackandwhite-inverted)) {
+  & :is(.card-cheer,
+        .cheer-stat .room-stat-val,
+        .cheer-stat .photo-detail-stat-value) {
+    font-family: var(--btn-font);
+    color: var(--btn-fg);
+    background: var(--btn-bg) !important;
+    border: var(--btn-border);
+    border-radius: var(--btn-radius);
+    box-shadow: var(--btn-shadow);
+    text-shadow: var(--btn-tshadow);
+  }
+  & .card-cheer { height: 24px; padding: 0 10px; }
+  & .cheer-stat :is(.room-stat-val, .photo-detail-stat-value) { padding: 2px 10px; }
+  & .card-cheer:hover,
+  & .cheer-stat:not(:disabled):hover :is(.room-stat-val, .photo-detail-stat-value) {
+    color: var(--btn-hover-fg);
+    background: var(--btn-hover-bg) !important;
+    border: var(--btn-hover-border);
+    box-shadow: var(--btn-hover-shadow);
+  }
+  & :is(.card-cheer, .cheer-stat) .cheer-icon { color: currentColor; }
+  & :is(.card-cheer:active, .card-cheer.is-on),
+  & .cheer-stat:not(:disabled):active :is(.room-stat-val, .photo-detail-stat-value),
+  & .cheer-stat.is-on :is(.room-stat-val, .photo-detail-stat-value) {
+    background: var(--btn-active-bg) !important;
+    border: var(--btn-active-border);
+    box-shadow: var(--btn-active-shadow);
+  }
+  & .card-cheer.is-on,
+  & .cheer-stat.is-on :is(.room-stat-val, .photo-detail-stat-value) {
+    color: var(--btn-active-fg) !important;
+  }
+  & :is(.card-cheer, .cheer-stat) .cheer-icon { transition: none; }
+}
+/* Luna's pressed face is barely darker than its normal one, so the thumb
+   carries the state there as well. */
+body:is(.theme-winxp, .theme-royalenoir):not(.glass-enabled) :is(.card-cheer, .cheer-stat).is-on .cheer-icon {
+  color: var(--accent-text);
+}
+
+/* Play is the room's main action, so it sits under the description rather
+   than in the stats row, where it read as a fourth stat. */
+.room-details-content .room-play-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+  min-width: 150px; min-height: 42px;
+  padding: 0 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; letter-spacing: 1px;
+}
+.room-details-content .room-play-btn.is-busy { font-size: 11px; letter-spacing: 0.5px; }
+
+/* Subscribe sits at the right end of the profile header. */
+.profile-header-content .subscribe-btn {
+  align-self: center; flex-shrink: 0;
+  min-width: 118px;
+  margin-left: auto;
+}
+.profile-header-content .subscribe-btn[hidden] { display: none; }
 
 /* Main Content */
 .main-content {
@@ -1105,7 +1456,7 @@ body.network-vanilla .status-dot.unknown {
   display: flex; align-items: center; justify-content: center; gap: 9px;
 }
 .btn-play:hover { background: color-mix(in srgb, var(--bg-btn) 82%, var(--text)); }
-.btn-play:active {
+.btn-play:is(:active, .is-pressed) {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding-top: 2px; padding-left: 2px;
 }
@@ -1167,7 +1518,7 @@ body.glass-enabled .btn-play.running {
 body.glass-enabled .btn-play.running:hover {
   background: rgba(220, 38, 38, 0.35) !important;
 }
-body.glass-enabled .btn-play.running:active {
+body.glass-enabled .btn-play.running:is(:active, .is-pressed) {
   transform: scale(0.97) !important;
 }
 
@@ -3244,7 +3595,7 @@ body.theme-moderndark .btn-play:hover {
   box-shadow: 0 8px 25px rgba(255, 0, 127, 0.5) !important;
 }
 
-body.theme-moderndark .btn-play:active {
+body.theme-moderndark .btn-play:is(:active, .is-pressed) {
   transform: scale(0.97) !important;
   box-shadow: 0 2px 10px rgba(255, 0, 127, 0.3) !important;
 }
@@ -3558,8 +3909,8 @@ body.animations-enabled.theme-moderndark .network-menu.is-closing .network-optio
 }
 
 /* Smooth active button click compression scaling */
-body.animations-enabled.theme-moderndark .btn-play:active,
-body.animations-enabled.theme-moderndark .btn-download-big:active,
+body.animations-enabled.theme-moderndark .btn-play:is(:active, .is-pressed),
+body.animations-enabled.theme-moderndark .btn-download-big:is(:active, .is-pressed),
 body.animations-enabled.theme-moderndark .modal-btn:active,
 body.animations-enabled.theme-moderndark .btn-exclude-av:active,
 body.animations-enabled.theme-moderndark .launch-secondary-actions button:active {

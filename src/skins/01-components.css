@@ -150,17 +150,6 @@ body:not(.glass-enabled) {
     box-shadow: none;
     image-rendering: var(--logo-render);
   }
-  & .version-tag {
-    padding: 4px 6px;
-    font-family: var(--version-font);
-    font-size: 10px;
-    font-weight: 400;
-    color: var(--version-fg);
-    background: var(--version-bg);
-    border: var(--version-border);
-    border-radius: var(--version-radius);
-    box-shadow: var(--version-shadow);
-  }
 
   /* ── Navigation rows ──────────────────────────────────────────────── */
   & .nav-btn {

@@ -185,6 +185,16 @@ pub struct Config {
     pub baseline_theme: String,
     pub close_on_launch: bool,
     pub disable_warnings: bool,
+    /// Vanilla notification pop-ups (in their own window in the corner of the
+    /// screen), and whether they play a sound.
+    pub notif_popups: bool,
+    pub notif_sound: bool,
+    /// Closing the window hides it to the tray instead of quitting.
+    pub run_in_background: bool,
+    /// Whether "start with Windows" has had its on-by-default applied. The
+    /// setting itself lives in the registry; this only stops the default from
+    /// being applied again after the user turns it off.
+    pub autostart_initialized: bool,
     /// The Liquid Glass effect, layered over whichever skin is selected.
     pub glass: GlassSettings,
     /// Read from an older config so glass survives the removal of the custom
@@ -238,6 +248,7 @@ impl Config {
         self.client_version_sync_prompted = current.client_version_sync_prompted;
         self.game_exe_path = current.game_exe_path.clone();
         self.orphaned_client_dir = current.orphaned_client_dir.clone();
+        self.autostart_initialized = current.autostart_initialized;
         // Vanilla's install state is written by the same backend commands and is
         // just as absent from a stale frontend copy, so it needs the identical
         // treatment. `vanilla.client_url` and `vanilla.defender_excluded` are
@@ -356,6 +367,10 @@ impl Default for Config {
             baseline_theme: DEFAULT_THEME.to_string(),
             close_on_launch: false,
             disable_warnings: false,
+            notif_popups: true,
+            run_in_background: true,
+            autostart_initialized: false,
+            notif_sound: true,
             glass: GlassSettings::default(),
             legacy_custom_theme: None,
             client_build: String::new(),

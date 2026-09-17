@@ -266,7 +266,7 @@ body.theme-steam-green {
   & .dlp-step-idx { border-radius: 0; }
   /* 1px right and down: padding traded across PLAY's fixed box (see the
      Win9x rule in 05-windows-classic.css for why not padding-left alone). */
-  & .home-hero-bar :is(.btn-play, .btn-download-big):active { padding: 2px 21px 0 23px; }
+  & .home-hero-bar :is(.btn-play, .btn-download-big):is(:active, .is-pressed) { padding: 2px 21px 0 23px; }
 
   /* Pressed VGUI buttons sink and their label drops 1px, like Win32's. */
   & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,

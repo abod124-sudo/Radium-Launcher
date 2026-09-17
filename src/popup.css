@@ -1,0 +1,169 @@
+/* The notification pop-up. Its colours are not fixed here: the launcher sends
+   the look of its own theme and popup.js applies it to these variables. The
+   values below are only a fallback for the moment before the first card
+   arrives. */
+:root {
+  --pop-bg: #16181f;
+  --pop-bg-image: none;
+  --pop-border: 1px solid rgba(255, 255, 255, 0.12);
+  --pop-radius: 10px;
+  --pop-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --pop-fg: #f2f2f2;
+  --pop-muted: #9aa0aa;
+  --pop-accent: #ffffff;
+  --pop-font: 'Segoe UI', system-ui, sans-serif;
+  --pop-system-bg: rgba(255, 255, 255, 0.1);
+  --pop-avatar-radius: 8px;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--pop-font);
+  user-select: none;
+}
+
+#stack {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 320px;
+  box-sizing: border-box;
+  padding: 12px 34px 12px 12px;
+  background-color: var(--pop-bg);
+  background-image: var(--pop-bg-image);
+  border: var(--pop-border);
+  border-radius: var(--pop-radius);
+  box-shadow: var(--pop-shadow);
+  color: var(--pop-fg);
+  cursor: pointer;
+  animation: pop-in 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pop.leaving { animation: pop-out 0.22s ease-in forwards; }
+
+/* Liquid Glass: the desktop shows through the card, with a lit edge, rather
+   than the flat panel that stood out against the wallpaper. Windows' own blur
+   behind the window is not used — it applies to a whole window, and this one
+   is taller than the cards, so it would haze the empty space above them. */
+.glass .pop {
+  background-color: color-mix(in srgb, var(--pop-bg) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+              0 18px 40px -16px rgba(0, 0, 0, 0.7);
+}
+
+/* Retro skins: Steam's old pop-up, rising out of its own slot (moved down by
+   its height and clipped by the same amount) with no fade, and sinking back.
+   popup.js's RETRO_LEAVE_MS matches the exit. */
+.retro .pop { animation: pop-rise 0.3s ease-out; }
+.retro .pop.leaving { animation: pop-sink 0.3s ease-in forwards; }
+@keyframes pop-rise {
+  from { transform: translateY(100%); clip-path: inset(0 0 100% 0); }
+  to   { transform: none; clip-path: inset(0 0 0 0); }
+}
+@keyframes pop-sink {
+  from { transform: none; clip-path: inset(0 0 0 0); }
+  to   { transform: translateY(100%); clip-path: inset(0 0 100% 0); }
+}
+.no-motion .pop, .no-motion.retro .pop, .no-motion .pop.leaving { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .pop, .retro .pop, .pop.leaving, .retro .pop.leaving { animation: none; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes pop-out {
+  to { opacity: 0; transform: translateX(28px); }
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--pop-avatar-radius);
+  object-fit: cover;
+  background: rgba(0, 0, 0, 0.25);
+}
+.avatar.system {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pop-accent);
+  background: var(--pop-system-bg);
+}
+.glyph {
+  width: 20px;
+  height: 20px;
+  background-color: currentColor;
+  -webkit-mask: var(--glyph) center / contain no-repeat;
+          mask: var(--glyph) center / contain no-repeat;
+}
+.glyph-thumb {
+  --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z'/%3E%3C/svg%3E");
+}
+.glyph-bell {
+  --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z'/%3E%3C/svg%3E");
+}
+.glyph-info {
+  --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z'/%3E%3C/svg%3E");
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.app {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pop-muted);
+}
+.text {
+  font-size: 12.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.text strong { color: var(--pop-accent); font-weight: bold; }
+
+.close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--pop-muted);
+  cursor: pointer;
+}
+.close:hover {
+  color: var(--pop-fg);
+  background: rgba(127, 127, 127, 0.18);
+}

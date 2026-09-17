@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notif-popup",
+  "description": "The notification pop-up: it only needs to hear that cards are waiting.",
+  "windows": ["notif-popup"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

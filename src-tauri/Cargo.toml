@@ -29,13 +29,25 @@ sha2 = "0.10"
 rfd = "0.15"
 # Decode/resize/re-encode only. Default features pull in every format there is;
 # the images this touches are the PNGs and JPEGs the two networks serve.
+# Wipes the Vanilla session cookie from memory when it is dropped.
+zeroize = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    # DPAPI, which encrypts the stored Vanilla session to the Windows user.
+    "Win32_Security_Cryptography",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Threading",
+    # Showing the notification pop-up without taking focus from the game.
+    "Win32_UI_WindowsAndMessaging",
+    # The per-user "Run" value that starts the launcher with Windows.
+    "Win32_System_Registry",
+    # The tray icon's size at the current display scaling, and loading the
+    # window icon at the sizes Windows actually draws.
+    "Win32_UI_HiDpi",
+    "Win32_System_LibraryLoader",
 ] }
 
 # Optimise dependencies even in dev builds, while leaving this crate itself

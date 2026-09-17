@@ -147,7 +147,6 @@ body:is(.theme-winxp, .theme-royalenoir) {
   }
   & .sidebar-nav { flex: 0 0 auto; }
   & .sidebar-footer { margin-top: auto; padding-top: 10px; border: 0; }
-  & .version-tag { text-align: left; padding: 0 2px; }
   & .nav-btn:hover { text-decoration: underline; }
   & .nav-btn.active { font-weight: 700; text-decoration: none; }
 
