@@ -277,7 +277,7 @@ fn launch_game_impl(
 
     // 3. Resolve client directory + game executable for the selected network
     let network = config::Network::parse(config.get("network").and_then(|v| v.as_str()));
-    let cfg = config::ensure_config(&app);
+    let cfg = config::current(&app);
     let client_dir = config::get_client_dir_for(&app, &cfg, network);
 
     // Prefer the saved exe path; otherwise search the client dir for a known exe.
@@ -380,7 +380,14 @@ fn launch_game_impl(
         .unwrap_or(false);
 
     if close || cfg.close_on_launch {
-        app.exit(0);
+        if cfg.run_in_background {
+            // Tray mode: the setting reads "Hide launcher when game starts",
+            // and quitting here would also stop the notification pop-ups
+            // the tray exists to keep running.
+            crate::background::hide_main(&app);
+        } else {
+            app.exit(0);
+        }
     }
 
     Ok(json!({ "success": true, "pid": pid_value }))

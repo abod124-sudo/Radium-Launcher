@@ -110,7 +110,10 @@ fn image_url(rel: Option<&str>) -> Option<String> {
     if rel.starts_with("http://") || rel.starts_with("https://") {
         return Some(rel.to_string());
     }
-    Some(format!("{}{}", API_BASE, rel))
+    // Joined with exactly one `/`. Glued on as-is, a value without its leading
+    // slash named another host: `images/x` became `api.vanillarec.netimages`,
+    // and `@elsewhere.example/x` put the API host in the userinfo slot.
+    Some(format!("{}/{}", API_BASE, rel.trim_start_matches('/')))
 }
 
 /// Absolute URL for an image named by a bulk row's `ImageName` or
@@ -1304,7 +1307,12 @@ pub async fn user_web_details(username: &str) -> Value {
 }
 
 pub async fn fetch_user_photos(user_id: &str, skip: i64, take: i64) -> Value {
-    let path = format!("/api/website/players/{}/photos", user_id);
+    // A number, like every other id put into a proxied path: the proxy takes
+    // the whole API path as one parameter, so `1/../..` would aim it elsewhere.
+    let Ok(id) = user_id.trim().parse::<i64>() else {
+        return json!({ "success": false, "error": "Invalid player id." });
+    };
+    let path = format!("/api/website/players/{}/photos", id);
     match api_get_json(&path).await {
         Ok(d) => {
             // This endpoint takes no count and returns the whole set in one go.
@@ -1505,6 +1513,16 @@ mod tests {
         );
         assert_eq!(image_url(Some("")), None);
         assert_eq!(image_url(None), None);
+    }
+
+    #[test]
+    fn image_url_without_a_leading_slash_stays_on_the_api_host() {
+        assert_eq!(
+            image_url(Some("images/2_webso")).unwrap(),
+            "https://api.vanillarec.net/images/2_webso"
+        );
+        let odd = reqwest::Url::parse(&image_url(Some("@elsewhere.example/x")).unwrap()).unwrap();
+        assert_eq!(odd.host_str(), Some("api.vanillarec.net"));
     }
 
     #[test]

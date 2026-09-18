@@ -98,60 +98,101 @@ fn tray_icon_size() -> u32 {
     32
 }
 
-/// Give the window the icon sizes Windows actually draws.
+/// Give a window the icon sizes Windows actually draws.
 ///
-/// Tauri hands a window one image — the 256px entry of icon.ico — and Windows
-/// then shrinks it for the taskbar and the Alt-Tab list itself, which is what
-/// made it look blurry. `icon.ico` carries every size from 16 to 256, and the
-/// build embeds it in the exe as resource 32512, so the right entries can be
-/// loaded at the exact sizes and set on the window instead.
+/// Tauri hands every window one image — the 256px entry of icon.ico — and
+/// Windows then shrinks it itself for the title bar, the taskbar and Alt-Tab,
+/// which is what made it look blurry: most visibly in the title bar of the
+/// Vanilla sign-in window, the one window with a native frame. `icon.ico`
+/// carries every size from 16 to 256, and the build embeds it in the exe as
+/// resource 32512, so the right entries are loaded at the exact sizes for the
+/// window's display scaling and set on the window instead.
+///
+/// Posted rather than sent, so it is safe from any thread: the sign-in window
+/// is created from an async command, not on the thread that owns it.
 #[cfg(windows)]
-pub fn sharpen_window_icon(app: &AppHandle) {
-    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
+pub fn sharpen_window_icon(win: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, GetDpiForWindow};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR, SM_CXICON,
-        SM_CXSMICON, WM_SETICON,
+        PostMessageW, ICON_BIG, ICON_SMALL, WM_SETICON,
     };
-    /// The nameID tauri-winres gives the app icon.
-    const ICON_RESOURCE_ID: u32 = 32512;
 
-    let Some(win) = app.get_webview_window("main") else { return };
     let Ok(hwnd) = win.hwnd() else { return };
     let hwnd = hwnd.0 as _;
-
-    // SAFETY: the module handle is this exe's; LoadImageW returns null when
-    // the resource or size is unavailable, and a null icon is not sent on.
+    // SAFETY: plain queries; `hwnd` is this live window's handle.
+    let dpi = match unsafe { GetDpiForWindow(hwnd) } {
+        0 => unsafe { GetDpiForSystem() },
+        dpi => dpi,
+    };
+    let Some((small, big)) = app_icons_for_dpi(dpi) else { return };
+    // SAFETY: the icons are cached for the life of the process (see
+    // `app_icons_for_dpi`), so they outlive the window using them.
     unsafe {
-        let module = GetModuleHandleW(std::ptr::null());
-        let dpi = GetDpiForSystem();
-        for (which, metric) in [(ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)] {
-            let px = GetSystemMetricsForDpi(metric, dpi);
-            let icon = LoadImageW(
-                module, ICON_RESOURCE_ID as *const u16, IMAGE_ICON, px, px, LR_DEFAULTCOLOR,
-            );
-            if !icon.is_null() {
-                SendMessageW(hwnd, WM_SETICON, which as usize, icon as isize);
-            }
-        }
+        PostMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, small);
+        PostMessageW(hwnd, WM_SETICON, ICON_BIG as usize, big);
     }
 }
 
 #[cfg(not(windows))]
-pub fn sharpen_window_icon(_: &AppHandle) {}
+pub fn sharpen_window_icon(_: &tauri::WebviewWindow) {}
+
+/// The app icon at the small (title bar) and large (Alt-Tab) sizes Windows
+/// draws at `dpi`, as raw `HICON`s.
+///
+/// Loaded once per DPI and never freed. Loading afresh for every window leaked
+/// two icon handles each time the sign-in window opened, and a window must not
+/// be left holding an icon that has been destroyed.
+#[cfg(windows)]
+fn app_icons_for_dpi(dpi: u32) -> Option<(isize, isize)> {
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::HiDpi::GetSystemMetricsForDpi;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        LoadImageW, IMAGE_ICON, LR_DEFAULTCOLOR, SM_CXICON, SM_CXSMICON,
+    };
+    /// The nameID tauri-winres gives the app icon.
+    const ICON_RESOURCE_ID: u32 = 32512;
+    static CACHE: std::sync::Mutex<Vec<(u32, isize, isize)>> = std::sync::Mutex::new(Vec::new());
+
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&(_, small, big)) = cache.iter().find(|(d, _, _)| *d == dpi) {
+        return Some((small, big));
+    }
+    // SAFETY: the module handle is this exe's; LoadImageW returns null when
+    // the resource or size is unavailable, and a null icon is not used.
+    let load = |metric| unsafe {
+        let px = GetSystemMetricsForDpi(metric, dpi);
+        let icon = LoadImageW(
+            GetModuleHandleW(std::ptr::null()),
+            ICON_RESOURCE_ID as *const u16,
+            IMAGE_ICON,
+            px,
+            px,
+            LR_DEFAULTCOLOR,
+        );
+        (!icon.is_null()).then_some(icon as isize)
+    };
+    let icons = (load(SM_CXSMICON)?, load(SM_CXICON)?);
+    cache.push((dpi, icons.0, icons.1));
+    Some(icons)
+}
 
 /// Called for the main window's close request. Returns true when the close
 /// was turned into a hide.
 pub fn hide_instead_of_close(app: &AppHandle) -> bool {
-    if !crate::config::ensure_config(app).run_in_background {
+    if !crate::config::current(app).run_in_background {
         return false;
     }
+    hide_main(app);
+    true
+}
+
+/// Hide the launcher window to the tray.
+pub fn hide_main(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.hide();
     }
     // The launcher's page decides whether to say where it went (once).
     let _ = app.emit_to("main", "launcher-hidden", ());
-    true
 }
 
 // ── Start with Windows ───────────────────────────────────────────────────
@@ -188,6 +229,7 @@ pub fn apply_startup_default(app: &AppHandle) {
     if cfg!(debug_assertions) {
         return;
     }
+    let _lock = crate::config::write_lock();
     let mut cfg = crate::config::ensure_config(app);
     if !cfg.autostart_initialized {
         let _ = set_autostart(true);

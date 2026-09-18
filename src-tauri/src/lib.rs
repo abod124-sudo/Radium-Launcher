@@ -20,10 +20,14 @@ pub fn run() {
         // plugin. When the user launches the launcher again while one is already
         // running, this fires in the existing process instead of opening a second
         // window — we restore and focus the current window so it comes to front.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Also how a launcher hidden in the tray comes back when it is
-            // started again from the Start menu or a shortcut.
-            background::show_main(app);
+            // started again from the Start menu or a shortcut. Not when the
+            // second start is the startup entry itself: that one asked to
+            // stay in the tray.
+            if !args.iter().any(|a| a == background::BACKGROUND_ARG) {
+                background::show_main(app);
+            }
         }))
         .plugin(tauri_plugin_shell::init())
         // Every remote image in the UI is loaded through here rather than
@@ -69,6 +73,7 @@ pub fn run() {
             // Config
             cmd_get_config,
             cmd_save_config,
+            cmd_set_glass_backdrop,
             // Server / Data
             server::ping_server,
             server::get_player_count,
@@ -133,9 +138,6 @@ pub fn run() {
             updater::check_for_update,
             updater::download_update,
             updater::get_version,
-            // Debug
-            cmd_debug_exec,
-            cmd_debug_paths,
             // Bug Report
             submit_bug_report,
         ])
@@ -160,7 +162,9 @@ pub fn run() {
             // just can't be reopened from the tray.
             let _ = background::setup_tray(&app_handle);
             background::apply_startup_default(&app_handle);
-            background::sharpen_window_icon(&app_handle);
+            if let Some(main) = app.get_webview_window("main") {
+                background::sharpen_window_icon(&main);
+            }
 
             // The window is created hidden (tauri.conf.json). Started with
             // Windows, it stays in the tray; otherwise it is shown now.
@@ -316,8 +320,8 @@ fn empty_response(status: u16) -> tauri::http::Response<Vec<u8>> {
 // Config commands - thin wrappers that pass the app handle
 #[tauri::command(async)]
 fn cmd_get_config(app: tauri::AppHandle) -> serde_json::Value {
-    let cfg = config::ensure_config(&app);
-    serde_json::to_value(&cfg).unwrap_or(serde_json::json!({}))
+    let cfg = config::current(&app);
+    serde_json::to_value(&*cfg).unwrap_or(serde_json::json!({}))
 }
 
 #[tauri::command(async)]
@@ -363,7 +367,8 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             // a stale settings save silently reverts those to their defaults —
             // which reported a freshly-downloaded client as "outdated" on the
             // very next check, causing an endless re-download loop.
-            let current = config::ensure_config(&app);
+            let _lock = config::write_lock();
+            let current = config::current(&app);
             cfg.preserve_backend_managed_fields(&current);
 
             // Last line of defence for the per-network install dirs: whatever
@@ -379,81 +384,21 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
     }
 }
 
-// Debug commands
+/// Set the Liquid Glass backdrop, and nothing else.
+///
+/// Its own command because the value can be a 1.4 MB data URI: whole-config
+/// saves leave it out and keep the stored one (see
+/// `preserve_backend_managed_fields`), so an autosave no longer ships and
+/// re-parses it. Returns the value as stored, which is blank if it was not a
+/// backdrop that is safe to put in the stylesheet.
 #[tauri::command(async)]
-fn cmd_debug_exec(app: tauri::AppHandle, mode: String) -> serde_json::Value {
-    let bat_name = if mode == "vr" {
-        "RecRoom_VR.bat"
-    } else {
-        "RecRoom_ScreenMode.bat"
-    };
-    let cfg = config::ensure_config(&app);
-    let client_dir = config::get_client_dir(&app, &cfg);
-    let bat_path = std::path::Path::new(&client_dir).join(bat_name);
-
-    if !bat_path.exists() {
-        return serde_json::json!({
-            "ok": false,
-            "msg": format!("Not found: {}", bat_path.display())
-        });
-    }
-
-    // Spawn (don't wait) — the bat launches the game, so blocking on its output
-    // would freeze this command until the game exits.
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        match std::process::Command::new("cmd")
-            .raw_arg("/c")
-            .raw_arg(format!("\"{}\"", bat_path.to_string_lossy()))
-            .current_dir(&client_dir)
-            .creation_flags(0x00000008) // DETACHED_PROCESS
-            .spawn()
-        {
-            Ok(child) => serde_json::json!({ "ok": true, "pid": child.id() }),
-            Err(e) => serde_json::json!({ "ok": false, "err": e.to_string() }),
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        match std::process::Command::new("sh")
-            .arg("-c")
-            .arg(format!("\"{}\"", bat_path.to_string_lossy()))
-            .current_dir(&client_dir)
-            .spawn()
-        {
-            Ok(child) => serde_json::json!({ "ok": true, "pid": child.id() }),
-            Err(e) => serde_json::json!({ "ok": false, "err": e.to_string() }),
-        }
-    }
-}
-
-#[tauri::command(async)]
-fn cmd_debug_paths(app: tauri::AppHandle) -> serde_json::Value {
-    let cfg = config::ensure_config(&app);
-    let client_dir = config::get_client_dir(&app, &cfg);
-    let user_data = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-
-    let screen_bat = std::path::Path::new(&client_dir).join("RecRoom_ScreenMode.bat");
-    let vr_bat = std::path::Path::new(&client_dir).join("RecRoom_VR.bat");
-    let exe = std::path::Path::new(&client_dir).join("RecRoom.exe");
-
-    serde_json::json!({
-        "CLIENT_DIR": client_dir,
-        "USER_DATA": user_data,
-        "screenBat": screen_bat.to_string_lossy(),
-        "screenBatExists": screen_bat.exists(),
-        "vrBat": vr_bat.to_string_lossy(),
-        "vrBatExists": vr_bat.exists(),
-        "exe": exe.to_string_lossy(),
-        "exeExists": exe.exists(),
-    })
+fn cmd_set_glass_backdrop(app: tauri::AppHandle, value: String) -> Result<String, String> {
+    let _lock = config::write_lock();
+    let mut cfg = config::ensure_config(&app);
+    cfg.glass.bg_image = value;
+    cfg.glass.sanitize();
+    config::save_config(&app, &cfg)?;
+    Ok(cfg.glass.bg_image)
 }
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -484,9 +429,104 @@ fn client_status_label(is_installed: bool, client_build: &str) -> &'static str {
     }
 }
 
+/// The signed-in Windows user's profile folder (`C:\Users\<name>`), if known.
+fn user_profile_dir() -> Option<String> {
+    std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()
+        .map(|p| p.trim_end_matches(['\\', '/']).to_string())
+        // Too short to be a profile path; replacing it would mangle the text.
+        .filter(|p| p.len() >= 4)
+}
+
+/// `text` with the user's profile folder replaced by `%USERPROFILE%`.
+///
+/// Bug reports go to a Discord channel, and the log lines and install path
+/// they carry spell out `C:\Users\<name>\...` — the person's Windows account
+/// name, which a report needs no more than it needs their password. Matched
+/// case-insensitively (Windows paths are) and in the three spellings that
+/// reach the log: backslashes, forward slashes and JSON-escaped backslashes.
+fn redact_profile_path(text: &str, profile: &str) -> String {
+    let mut out = text.to_string();
+    for needle in [
+        profile.to_string(),
+        profile.replace('\\', "/"),
+        profile.replace('\\', "\\\\"),
+    ] {
+        out = replace_path_ignore_ascii_case(&out, &needle, "%USERPROFILE%");
+    }
+    out
+}
+
+/// Replace every ASCII-case-insensitive occurrence of the path `needle` in
+/// `haystack` that ends where a path component ends — so `C:\Users\Jane` is
+/// not matched inside `C:\Users\Janet`.
+///
+/// Compared byte by byte, but only ever cut at a match's first and last byte:
+/// non-ASCII bytes must match exactly, so a match begins and ends on the same
+/// character boundaries it has in `needle`, and slicing there cannot panic.
+fn replace_path_ignore_ascii_case(haystack: &str, needle: &str, with: &str) -> String {
+    let (hay, pat) = (haystack.as_bytes(), needle.as_bytes());
+    if pat.is_empty() || pat.len() > hay.len() {
+        return haystack.to_string();
+    }
+    let ends_component = |at: usize| {
+        hay.get(at)
+            // A '.' ends it: after a profile path that is far more often the
+            // end of a log sentence than the rest of a longer account name.
+            .map(|b| !(b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_') || *b >= 0x80))
+            .unwrap_or(true)
+    };
+    let mut out = String::with_capacity(haystack.len());
+    let (mut last, mut i) = (0, 0);
+    while i + pat.len() <= hay.len() {
+        if hay[i..i + pat.len()].eq_ignore_ascii_case(pat) && ends_component(i + pat.len()) {
+            out.push_str(&haystack[last..i]);
+            out.push_str(with);
+            i += pat.len();
+            last = i;
+        } else {
+            i += 1;
+        }
+    }
+    out.push_str(&haystack[last..]);
+    out
+}
+
 #[cfg(test)]
 mod bug_report_tests {
     use super::*;
+
+    #[test]
+    fn the_profile_path_is_redacted_in_every_spelling() {
+        let profile = r"C:\Users\Jane Doe";
+        let text = concat!(
+            r"Install dir: C:\Users\Jane Doe\AppData\Roaming\com.radium.launcher\client",
+            "\n",
+            r"Exe: c:\users\jane doe\x\RecRoom.exe | C:/Users/Jane Doe/y | C:\\Users\\Jane Doe\\z",
+        );
+        let out = redact_profile_path(text, profile);
+        assert!(!out.to_lowercase().contains("jane"), "{out}");
+        assert!(out.contains(r"%USERPROFILE%\AppData\Roaming"));
+        assert!(out.contains("%USERPROFILE%/y"));
+        assert!(out.contains(r"%USERPROFILE%\\z"));
+    }
+
+    #[test]
+    fn redaction_leaves_other_text_and_multibyte_characters_alone() {
+        let profile = r"C:\Users\Zoë";
+        let text = r"é C:\Users\Zoë\x — C:\Users\Zoey stays, D:\Users\Zoë stays";
+        let out = redact_profile_path(text, profile);
+        assert_eq!(out, r"é %USERPROFILE%\x — C:\Users\Zoey stays, D:\Users\Zoë stays");
+        assert_eq!(replace_path_ignore_ascii_case("abc", "", "x"), "abc");
+        assert_eq!(replace_path_ignore_ascii_case("ab", "abc", "x"), "ab");
+    }
+
+    #[test]
+    fn another_account_sharing_the_name_prefix_is_not_touched() {
+        let out = redact_profile_path(r"C:\Users\Janet\x and C:\Users\Jane.", r"C:\Users\Jane");
+        assert_eq!(out, r"C:\Users\Janet\x and %USERPROFILE%.");
+    }
 
     #[test]
     fn online_label_is_tri_state() {
@@ -546,9 +586,17 @@ async fn submit_bug_report(
     let sanitized_desc = trimmed
         .replace("@everyone", "`@everyone`")
         .replace("@here", "`@here`");
+    // The Windows account name is not the report's to send. See
+    // `redact_profile_path`; applied to the description and the log file.
+    let profile = user_profile_dir();
+    let redact = |text: String| match &profile {
+        Some(p) => redact_profile_path(&text, p),
+        None => text,
+    };
+    let sanitized_desc = redact(sanitized_desc);
 
     // 4. Gather System Diagnostics
-    let cfg = config::ensure_config(&app);
+    let cfg = config::current(&app);
     let os_name = std::env::consts::OS;
     let os_arch = std::env::consts::ARCH;
 
@@ -730,11 +778,11 @@ Install Location: {}",
     );
 
     // Always attach the file — even with no runtime logs the header is useful.
-    let log_body = if logs.is_empty() {
+    let log_body = redact(if logs.is_empty() {
         format!("{}(no runtime log lines captured this session)\n", log_header)
     } else {
         format!("{}{}", log_header, logs)
-    };
+    });
     let logs_part = reqwest::multipart::Part::text(log_body)
         .file_name("logs.txt")
         .mime_str("text/plain")

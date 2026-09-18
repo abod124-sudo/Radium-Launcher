@@ -257,6 +257,11 @@ impl Config {
         self.vanilla.client_version = current.vanilla.client_version.clone();
         self.vanilla.client_etag = current.vanilla.client_etag.clone();
         self.vanilla.game_exe_path = current.vanilla.game_exe_path.clone();
+        // The glass backdrop has its own command (`cmd_set_glass_backdrop`).
+        // It can be a 1.4 MB data URI, so the frontend leaves it out of every
+        // whole-config save rather than shipping it over IPC on each autosave;
+        // what arrives here is therefore always blank and must not win.
+        self.glass.bg_image = current.glass.bg_image.clone();
     }
 
     /// The currently selected network.
@@ -759,7 +764,25 @@ pub fn dedupe_install_dirs_at(config: &mut Config, app_data_dir: &std::path::Pat
 /// can only go stale if something outside edits config.json mid-session; that
 /// is picked up on the next restart, which is the same guarantee as before for
 /// anyone doing it.
-static CACHED: std::sync::RwLock<Option<Config>> = std::sync::RwLock::new(None);
+///
+/// Held behind an `Arc` so a read shares it rather than copying it: the glass
+/// backdrop alone can be a 1.4 MB data URI, and cloning the whole config for
+/// every command that wanted one flag was a megabyte-sized copy each time.
+static CACHED: std::sync::RwLock<Option<std::sync::Arc<Config>>> = std::sync::RwLock::new(None);
+
+/// Held across every read-modify-write of the config.
+///
+/// Each updater reads the config, changes its own fields and writes the whole
+/// thing back. Two of them at once — a settings autosave landing just as a
+/// download stamps in its build id — each read the old copy, and the second
+/// write silently undid the first. Taking this for the whole sequence makes
+/// them queue. Never hold it across an `.await`.
+static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Take the config write lock. See [`WRITE_LOCK`].
+pub fn write_lock() -> std::sync::MutexGuard<'static, ()> {
+    WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Drop the memoized config, so the next read comes from disk.
 ///
@@ -769,17 +792,25 @@ pub fn invalidate_cache() {
     *CACHED.write().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
-/// Reads config.json from the app data directory, creating it with defaults if
-/// it doesn't exist. Migrates the old `apiUrl` values to the current endpoint.
+/// The current config, shared rather than copied. For reading.
 ///
-/// Served from [`CACHED`] after the first call.
-pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
+/// Reads config.json from the app data directory the first time, creating it
+/// with defaults if it doesn't exist and running the one-time migrations, and
+/// is served from [`CACHED`] after that.
+pub fn current(app_handle: &tauri::AppHandle) -> std::sync::Arc<Config> {
     if let Some(cfg) = CACHED.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
         return cfg.clone();
     }
-    let cfg = load_config(app_handle);
+    let cfg = std::sync::Arc::new(load_config(app_handle));
     *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
     cfg
+}
+
+/// An owned copy of the current config, for changing and then passing to
+/// [`save_config`]. Take [`write_lock`] first. Code that only reads should use
+/// [`current`], which doesn't copy.
+pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
+    (*current(app_handle)).clone()
 }
 
 /// The uncached read, including the one-time migrations and repairs.
@@ -933,7 +964,7 @@ pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(),
 
     // Only after the rename succeeded: a failed write must leave the cache
     // holding what is actually on disk, not what we hoped to put there.
-    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(config.clone());
+    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(std::sync::Arc::new(config.clone()));
 
     Ok(())
 }
@@ -1222,6 +1253,26 @@ mod tests {
         assert_eq!(Network::parse(Some("")), Network::Radium);
         assert_eq!(Network::parse(Some("nonsense")), Network::Radium);
         assert_eq!(Network::parse(Some("vanilla")), Network::Vanilla);
+    }
+
+    #[test]
+    fn a_save_without_the_backdrop_keeps_the_stored_one() {
+        // The frontend strips `glass.bgImage` from whole-config saves; it is
+        // written by its own command. A save must not blank it.
+        let mut on_disk = Config::default();
+        on_disk.glass.bg_image = "data:image/jpeg;base64,/9j/AAAA".to_string();
+
+        let mut incoming = config_from_frontend_json(serde_json::json!({
+            "glass": { "enabled": true, "tint": "#123456" }
+        }));
+        assert_eq!(incoming.glass.bg_image, "");
+
+        incoming.preserve_backend_managed_fields(&on_disk);
+
+        assert_eq!(incoming.glass.bg_image, "data:image/jpeg;base64,/9j/AAAA");
+        // The rest of the glass object is still the frontend's to change.
+        assert!(incoming.glass.enabled);
+        assert_eq!(incoming.glass.tint, "#123456");
     }
 
     #[test]

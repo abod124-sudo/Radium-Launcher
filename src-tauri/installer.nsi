@@ -1,3 +1,22 @@
+; Radium Launcher NSIS template.
+;
+; Tauri's own template (tauri-cli v2.11.2, crates/tauri-bundler/src/bundle/
+; windows/nsis/installer.nsi) with the Radium changes below applied. Keep the
+; {{handlebars}} placeholders: `tauri build` fills in the version, the icons and
+; the path of the exe it has just built. Never commit a filled-in copy here:
+; the last one pinned the installer to v3.5.2 and to a months-old exe under
+; target\x86_64-pc-windows-msvc.
+;
+; To move to a newer Tauri, take its template and re-apply the lines marked
+; "Radium:":
+;   1. One-click install: every installer page is skipped, the reinstall
+;      page included. The uninstaller keeps its pages.
+;   2. /DESKTOP forces the desktop shortcut, even in update mode (the
+;      launcher's self-updater passes it).
+;   3. The desktop shortcut is always created, and the install page closes
+;      by itself.
+;   4. The launcher starts after every install.
+;   5. The old Electron build of the launcher is uninstalled first.
 Unicode true
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)
@@ -6,11 +25,11 @@ ManifestDPIAware true
 ; https://github.com/tauri-apps/tauri/pull/10106
 ManifestDPIAwareness PerMonitorV2
 
-!if "lzma" == "none"
+!if "{{compression}}" == "none"
   SetCompress off
 !else
   ; Set the compression algorithm. We default to LZMA.
-  SetCompressor /SOLID "lzma"
+  SetCompressor /SOLID "{{compression}}"
 !endif
 
 !include MUI2.nsh
@@ -25,50 +44,49 @@ ManifestDPIAwareness PerMonitorV2
 ${StrCase}
 ${StrLoc}
 
+{{#if installer_hooks}}
+!include "{{installer_hooks}}"
+{{/if}}
 
 !define WEBVIEW2APPGUID "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
-!define MANUFACTURER "abod124-sudo"
-!define PRODUCTNAME "Radium Launcher"
-!define VERSION "3.5.2"
-!define VERSIONWITHBUILD "3.5.2.0"
-!define HOMEPAGE ""
-!define INSTALLMODE "currentUser"
-!define LICENSE ""
-!define INSTALLERICON "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\icons\icon.ico"
-!ifndef SIDEBARIMAGE
-  !define SIDEBARIMAGE "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\icons\nsis-sidebar.bmp"
-!endif
-!ifndef HEADERIMAGE
-  !define HEADERIMAGE "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\icons\nsis-header.bmp"
-!endif
-!define UNINSTALLERICON "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\icons\icon.ico"
-!define UNINSTALLERHEADERIMAGE ""
-!define MAINBINARYNAME "radium-launcher"
-!define MAINBINARYSRCPATH "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\target\x86_64-pc-windows-msvc\release\radium-launcher.exe"
-!define BUNDLEID "com.radium.launcher"
-!define COPYRIGHT ""
-!define OUTFILE "nsis-output.exe"
-!define ARCH "x64"
-!define ADDITIONALPLUGINSPATH "C:\Users\Abdullah Alrabiaah\AppData\Local\tauri\NSIS\Plugins\x86-unicode\additional"
-!define ALLOWDOWNGRADES "true"
-!define DISPLAYLANGUAGESELECTOR "false"
-!define INSTALLWEBVIEW2MODE "downloadBootstrapper"
-!define WEBVIEW2INSTALLERARGS "/silent"
-!define WEBVIEW2BOOTSTRAPPERPATH ""
-!define WEBVIEW2INSTALLERPATH ""
-!define MINIMUMWEBVIEW2VERSION ""
+!define MANUFACTURER "{{manufacturer}}"
+!define PRODUCTNAME "{{product_name}}"
+!define VERSION "{{version}}"
+!define VERSIONWITHBUILD "{{version_with_build}}"
+!define HOMEPAGE "{{homepage}}"
+!define INSTALLMODE "{{install_mode}}"
+!define LICENSE "{{license}}"
+!define INSTALLERICON "{{installer_icon}}"
+!define SIDEBARIMAGE "{{sidebar_image}}"
+!define HEADERIMAGE "{{header_image}}"
+!define UNINSTALLERICON "{{uninstaller_icon}}"
+!define UNINSTALLERHEADERIMAGE "{{uninstaller_header_image}}"
+!define MAINBINARYNAME "{{main_binary_name}}"
+!define MAINBINARYSRCPATH "{{main_binary_path}}"
+!define BUNDLEID "{{bundle_id}}"
+!define COPYRIGHT "{{copyright}}"
+!define OUTFILE "{{out_file}}"
+!define ARCH "{{arch}}"
+!define ADDITIONALPLUGINSPATH "{{additional_plugins_path}}"
+!define ALLOWDOWNGRADES "{{allow_downgrades}}"
+!define DISPLAYLANGUAGESELECTOR "{{display_language_selector}}"
+!define INSTALLWEBVIEW2MODE "{{install_webview2_mode}}"
+!define WEBVIEW2INSTALLERARGS "{{webview2_installer_args}}"
+!define WEBVIEW2BOOTSTRAPPERPATH "{{webview2_bootstrapper_path}}"
+!define WEBVIEW2INSTALLERPATH "{{webview2_installer_path}}"
+!define MINIMUMWEBVIEW2VERSION "{{minimum_webview2_version}}"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}"
 !define MANUKEY "Software\${MANUFACTURER}"
 !define MANUPRODUCTKEY "${MANUKEY}\${PRODUCTNAME}"
-!define UNINSTALLERSIGNCOMMAND ""
-!define ESTIMATEDSIZE "5954"
-!define STARTMENUFOLDER ""
+!define UNINSTALLERSIGNCOMMAND "{{uninstaller_sign_cmd}}"
+!define ESTIMATEDSIZE "{{estimated_size}}"
+!define STARTMENUFOLDER "{{start_menu_folder}}"
 
 Var PassiveMode
 Var UpdateMode
 Var NoShortcutMode
-Var PlaceDesktop
+Var PlaceDesktop ; Radium: /DESKTOP
 Var WixMode
 Var OldMainBinaryName
 
@@ -162,18 +180,18 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 ; Installer pages, must be ordered as they appear
 ; 1. Welcome Page
-!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
+!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip ; Radium: one-click install
 !insertmacro MUI_PAGE_WELCOME
 
 ; 2. License Page (if defined)
 !if "${LICENSE}" != ""
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip ; Radium: one-click install
   !insertmacro MUI_PAGE_LICENSE "${LICENSE}"
 !endif
 
 ; 3. Install mode (if it is set to `both`)
 !if "${INSTALLMODE}" == "both"
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip ; Radium: one-click install
   !insertmacro MULTIUSER_PAGE_INSTALLMODE
 !endif
 
@@ -182,7 +200,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 Var ReinstallPageCheck
 Page custom PageReinstall PageLeaveReinstall
 Function PageReinstall
-  Abort
+  Abort ; Radium: one-click install, never ask about reinstalling
   ; Uninstall previous WiX installation if exists.
   ;
   ; A WiX installer stores the installation info in registry
@@ -382,13 +400,13 @@ Function PageLeaveReinstall
 FunctionEnd
 
 ; 5. Choose install directory page
-!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
+!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip ; Radium: one-click install
 !insertmacro MUI_PAGE_DIRECTORY
 
 ; 6. Start menu shortcut page
 Var AppStartMenuFolder
 !if "${STARTMENUFOLDER}" != ""
-  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip ; Radium: one-click install
   !define MUI_STARTMENUPAGE_DEFAULTFOLDER "${STARTMENUFOLDER}"
 !else
   !define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
@@ -410,7 +428,7 @@ Var AppStartMenuFolder
 ; Show run app after installation.
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION RunMainBinary
-!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip
+!define MUI_PAGE_CUSTOMFUNCTION_PRE Skip ; Radium: one-click install
 !insertmacro MUI_PAGE_FINISH
 
 Function RunMainBinary
@@ -463,9 +481,13 @@ FunctionEnd
 !insertmacro MUI_UNPAGE_INSTFILES
 
 ;Languages
-!insertmacro MUI_LANGUAGE "English"
+{{#each languages}}
+!insertmacro MUI_LANGUAGE "{{this}}"
+{{/each}}
 !insertmacro MUI_RESERVEFILE_LANGDLL
-  !include "C:\Users\Abdullah Alrabiaah\.gemini\antigravity\scratch\radium-electron\src-tauri\target\x86_64-pc-windows-msvc\release\nsis\x64\English.nsh"
+{{#each language_files}}
+  !include "{{this}}"
+{{/each}}
 
 Function .onInit
   ${GetOptions} $CMDLINE "/P" $PassiveMode
@@ -478,6 +500,7 @@ Function .onInit
     StrCpy $NoShortcutMode 1
   ${EndIf}
 
+  ; Radium: /DESKTOP forces the desktop shortcut, even in update mode.
   ${GetOptions} $CMDLINE "/DESKTOP" $PlaceDesktop
   ${IfNot} ${Errors}
     StrCpy $PlaceDesktop 1
@@ -642,11 +665,10 @@ Section Install
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
-  ; Detect and uninstall legacy Electron-builder version
+  ; Radium: uninstall the legacy Electron-builder version, silently.
   ReadRegStr $R0 HKCU "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\5f3d1d92-0efd-5de0-8d08-6ed57216c90a" "UninstallString"
   ${If} $R0 != ""
     DetailPrint "Uninstalling legacy Radium Launcher..."
-    ; Provide /S argument for silent uninstallation
     ExecWait '$R0 /S' $0
   ${EndIf}
 
@@ -654,12 +676,32 @@ Section Install
   File "${MAINBINARYSRCPATH}"
 
   ; Copy resources
+  {{#each resources_dirs}}
+    CreateDirectory "$INSTDIR\\{{this}}"
+  {{/each}}
+  {{#each resources}}
+    File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
+  {{/each}}
 
   ; Copy external binaries
+  {{#each binaries}}
+    File /a "/oname={{this}}" "{{no-escape @key}}"
+  {{/each}}
 
   ; Create file associations
+  {{#each file_associations as |association| ~}}
+    {{#each association.ext as |ext| ~}}
+       !insertmacro APP_ASSOCIATE "{{ext}}" "{{or association.name ext}}" "{{association-description association.description ext}}" "$INSTDIR\${MAINBINARYNAME}.exe,0" "Open with ${PRODUCTNAME}" "$INSTDIR\${MAINBINARYNAME}.exe $\"%1$\""
+    {{/each}}
+  {{/each}}
 
   ; Register deep links
+  {{#each deep_link_protocols as |protocol| ~}}
+    WriteRegStr SHCTX "Software\Classes\\{{protocol}}" "URL Protocol" ""
+    WriteRegStr SHCTX "Software\Classes\\{{protocol}}" "" "URL:${BUNDLEID} protocol"
+    WriteRegStr SHCTX "Software\Classes\\{{protocol}}\DefaultIcon" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0"
+    WriteRegStr SHCTX "Software\Classes\\{{protocol}}\shell\open\command" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
+  {{/each}}
 
   ; Create uninstaller
   WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -709,21 +751,22 @@ Section Install
     Call CreateOrUpdateStartMenuShortcut
   !insertmacro MUI_STARTMENU_WRITE_END
 
-  ; Always create the desktop shortcut.
-  ; The finish page is skipped (Skip pre-function), so the checkbox there
-  ; never fires. We create the shortcut here unconditionally; the function
-  ; itself handles update-mode and no-shortcut-mode guards.
+  ; Radium: always create the desktop shortcut. The finish page, whose
+  ; checkbox would otherwise offer it, is skipped. The function itself still
+  ; honours update mode and /NS.
   Call CreateOrUpdateDesktopShortcut
 
   !ifmacrodef NSIS_HOOK_POSTINSTALL
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
 
-  ; Auto close this page
+  ; Radium: always close this page by itself.
   SetAutoClose true
 SectionEnd
 
 Function .onInstSuccess
+  ; Radium: start the launcher after every install. The finish page, which
+  ; holds the "run" toggle, is skipped.
   ${GetOptions} $CMDLINE "/ARGS" $R0
   nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
 FunctionEnd
@@ -761,17 +804,37 @@ Section Uninstall
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
 
   ; Delete resources
+  {{#each resources}}
+    Delete "$INSTDIR\\{{this.[1]}}"
+  {{/each}}
 
   ; Delete external binaries
+  {{#each binaries}}
+    Delete "$INSTDIR\\{{this}}"
+  {{/each}}
 
   ; Delete app associations
+  {{#each file_associations as |association| ~}}
+    {{#each association.ext as |ext| ~}}
+      !insertmacro APP_UNASSOCIATE "{{ext}}" "{{or association.name ext}}"
+    {{/each}}
+  {{/each}}
 
   ; Delete deep links
+  {{#each deep_link_protocols as |protocol| ~}}
+    ReadRegStr $R7 SHCTX "Software\Classes\\{{protocol}}\shell\open\command" ""
+    ${If} $R7 == "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
+      DeleteRegKey SHCTX "Software\Classes\\{{protocol}}"
+    ${EndIf}
+  {{/each}}
 
 
   ; Delete uninstaller
   Delete "$INSTDIR\uninstall.exe"
 
+  {{#each resources_ancestors}}
+  RMDir /REBOOTOK "$INSTDIR\\{{this}}"
+  {{/each}}
   RMDir "$INSTDIR"
 
   ; Remove shortcuts if not updating
@@ -919,7 +982,7 @@ Function CreateOrUpdateDesktopShortcut
   ${EndIf}
 
   ; Skip creating shortcut if in update mode or no shortcut mode
-  ; but always create if migrating from wix OR the user opted in via /DESKTOP
+  ; but always create if migrating from wix, or (Radium) when /DESKTOP is set
   ${If} $WixMode = 0
   ${AndIf} $PlaceDesktop <> 1
     ${If} $UpdateMode = 1

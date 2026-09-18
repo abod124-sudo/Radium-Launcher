@@ -110,6 +110,26 @@ static DOWNLOAD_PAUSED: AtomicBool = AtomicBool::new(false);
 /// re-download), which would race on the same client.zip and client directory.
 static DOWNLOAD_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+/// How long to wait for the client zip's response headers.
+const RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// How often the download loop looks at the pause and cancel flags while it
+/// waits for the next chunk.
+const FLAG_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// A download that receives nothing for this long is given up on (and can be
+/// resumed), rather than left holding the download guard forever.
+const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// An `Instant` far enough back that the first progress event is sent at once.
+///
+/// `Instant::now() - interval` panics if the clock is younger than `interval`,
+/// and the release profile turns a panic into an abort.
+fn emit_now_baseline(interval: std::time::Duration) -> std::time::Instant {
+    let now = std::time::Instant::now();
+    now.checked_sub(interval).unwrap_or(now)
+}
+
 /// RAII guard that clears `DOWNLOAD_IN_PROGRESS` on every exit path.
 struct DownloadGuard;
 impl Drop for DownloadGuard {
@@ -309,7 +329,7 @@ async fn resolve_download_info(
         // platform as "coming soon" with dead download buttons — so the URL is
         // whatever the user configured in Settings. The UI does not offer a
         // Download action at all while this is blank.
-        let cfg = config::ensure_config(app);
+        let cfg = config::current(app);
         let url = cfg.vanilla.client_url.trim().to_string();
         if url.is_empty() {
             return Err(
@@ -371,7 +391,7 @@ async fn resolve_download_info(
 /// Steam-style update prompt.
 #[tauri::command]
 pub async fn check_client_update(app: tauri::AppHandle, network: Option<String>) -> Value {
-    let cfg = config::ensure_config(&app);
+    let cfg = config::current(&app);
     let network = Network::parse(network.as_deref());
 
     if cfg.game_exe_for(network).is_empty() {
@@ -437,6 +457,7 @@ pub async fn check_client_update(app: tauri::AppHandle, network: Option<String>)
         // which the settings UI can have saved a change the user just made.
         // Saving the stale copy over it reverted that change silently. Only
         // this one flag belongs to this function.
+        let _lock = config::write_lock();
         let mut updated_cfg = config::ensure_config(&app);
         updated_cfg.client_version_sync_prompted = true;
         let _ = config::save_config(&app, &updated_cfg);
@@ -511,7 +532,7 @@ async fn download_client_impl(
     DOWNLOAD_CANCELLED.store(false, Ordering::SeqCst);
     DOWNLOAD_PAUSED.store(false, Ordering::SeqCst);
 
-    let cfg = config::ensure_config(&app);
+    let cfg = config::current(&app);
     let client_dir = config::get_client_dir_for(&app, &cfg, network);
     let user_data = app
         .path()
@@ -573,7 +594,13 @@ async fn download_client_impl(
         let _ = fs::remove_file(&meta_path);
     }
 
+    // No overall `.timeout()`: that would cap the whole multi-gigabyte body.
+    // Stalls are caught per read in the loop below instead. `https_only` also
+    // covers redirects, which the `https://` check above cannot see — a CDN
+    // bouncing to plain http would otherwise be followed.
     let http = reqwest::Client::builder()
+        .https_only(true)
+        .connect_timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -590,9 +617,9 @@ async fn download_client_impl(
         }
     }
 
-    let response = req
-        .send()
+    let response = tokio::time::timeout(RESPONSE_TIMEOUT, req.send())
         .await
+        .map_err(|_| "The download server did not respond. Try again later.".to_string())?
         .map_err(|e| format!("Download request failed: {}", e))?;
 
     let status = response.status();
@@ -636,7 +663,7 @@ async fn download_client_impl(
     // Throttle progress events: chunks can arrive hundreds of times per second,
     // and each emit is an IPC round-trip to the webview.
     const EMIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
-    let mut last_emit = std::time::Instant::now() - EMIT_INTERVAL;
+    let mut last_emit = emit_now_baseline(EMIT_INTERVAL);
 
     // Stream the response body to disk — append when resuming, otherwise create.
     use futures_util::StreamExt;
@@ -651,7 +678,18 @@ async fn download_client_impl(
             .map_err(|e| format!("Failed to create partial file: {}", e))?
     };
 
-    while let Some(chunk_result) = stream.next().await {
+    let mut last_data = std::time::Instant::now();
+    loop {
+        // Waited on in short slices rather than outright. Pause and Cancel are
+        // only flags, and a connection that goes quiet without closing never
+        // hands back another chunk: waiting on `next()` alone left both buttons
+        // dead and the download guard held until the launcher was restarted.
+        let chunk_result = match tokio::time::timeout(FLAG_POLL_INTERVAL, stream.next()).await {
+            Ok(Some(chunk)) => Some(chunk),
+            Ok(None) => break,
+            Err(_) => None,
+        };
+
         // Cancellation wipes the partial file — the user wants to start fresh.
         if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
             drop(file);
@@ -677,6 +715,20 @@ async fn download_client_impl(
             }));
             return Err("Paused".into());
         }
+
+        let Some(chunk_result) = chunk_result else {
+            // Nothing arrived in this slice. Keep the .part so the next run
+            // resumes, but give up on a connection that has gone silent.
+            if last_data.elapsed() >= STALL_TIMEOUT {
+                drop(file);
+                return Err(format!(
+                    "The download stalled (no data for {} seconds). Resume to continue.",
+                    STALL_TIMEOUT.as_secs()
+                ));
+            }
+            continue;
+        };
+        last_data = std::time::Instant::now();
 
         let chunk = match chunk_result {
             Ok(c) => c,
@@ -809,6 +861,7 @@ async fn download_client_impl(
 
     // Save the bat path and the installed client build id to config.
     {
+        let _lock = config::write_lock();
         let mut cfg = config::ensure_config(&app);
         let exe = if bat_path.is_empty() {
             cfg.game_exe_for(network).to_string()
@@ -905,7 +958,7 @@ fn extract_client_zip(
         .map_err(|e| format!("Failed to create client dir: {}", e))?;
 
     let mut written: u64 = 0;
-    let mut last_emit = std::time::Instant::now() - EMIT_INTERVAL;
+    let mut last_emit = emit_now_baseline(EMIT_INTERVAL);
 
     for i in 0..entry_count {
         // Honor cancellation during extraction too — previously Cancel only
@@ -1074,8 +1127,13 @@ async fn uninstall_client_impl(
     if game::check_game_running() {
         return Err("Cannot uninstall while the game is running.".into());
     }
+    // A running download or extraction is writing into the folder this would
+    // delete, and would then record an install that is no longer there.
+    if DOWNLOAD_IN_PROGRESS.load(Ordering::SeqCst) {
+        return Err("Cannot uninstall while a download is in progress.".into());
+    }
 
-    let cfg = config::ensure_config(&app);
+    let cfg = config::current(&app);
     let client_dir = config::get_client_dir_for(&app, &cfg, network);
 
     if Path::new(&client_dir).exists() {
@@ -1089,6 +1147,7 @@ async fn uninstall_client_impl(
     }
 
     // Clear relevant config fields.
+    let _lock = config::write_lock();
     let mut cfg = config::ensure_config(&app);
     cfg.clear_client_install(network);
     match network {
@@ -1112,7 +1171,7 @@ pub async fn check_install(
     app: tauri::AppHandle,
     network: Option<String>,
 ) -> Result<Value, String> {
-    let cfg = config::ensure_config(&app);
+    let cfg = config::current(&app);
     let network = Network::parse(network.as_deref());
     let client_dir = config::get_client_dir_for(&app, &cfg, network);
 
@@ -1172,7 +1231,7 @@ pub async fn check_install(
 /// Open the game client directory in the system file explorer.
 #[tauri::command]
 pub async fn open_client_folder(app: tauri::AppHandle, network: Option<String>) -> bool {
-    let cfg = config::ensure_config(&app);
+    let cfg = config::current(&app);
     let client_dir = config::get_client_dir_for(&app, &cfg, Network::parse(network.as_deref()));
 
     if Path::new(&client_dir).exists() {
@@ -1287,7 +1346,7 @@ pub fn is_overly_broad_dir(dir: &str) -> bool {
     let lower = without_trailing.to_lowercase();
 
     // Any directory this shallow is a top-level system or profile folder.
-    const DENY_SUFFIXES: [&str; 8] = [
+    const DENY_SUFFIXES: &[&str] = &[
         "\\windows",
         "\\program files",
         "\\program files (x86)",
@@ -1296,6 +1355,10 @@ pub fn is_overly_broad_dir(dir: &str) -> bool {
         "\\users\\public",
         "\\system32",
         "\\appdata",
+        "\\appdata\\local",
+        "\\appdata\\locallow",
+        "\\appdata\\roaming",
+        "\\appdata\\local\\temp",
     ];
     if DENY_SUFFIXES.iter().any(|s| lower.ends_with(s)) {
         return true;
@@ -1314,6 +1377,18 @@ pub fn is_overly_broad_dir(dir: &str) -> bool {
     }
     if components.len() <= 3 && components.get(1).map(|c| *c == "users").unwrap_or(false) {
         // e.g. "c:\users\abdullah"
+        return true;
+    }
+    // The profile's own well-known folders: Downloads and the Desktop are
+    // where downloaded executables land, so they are the last places real-time
+    // protection should be switched off for.
+    const PROFILE_FOLDERS: [&str; 8] = [
+        "desktop", "documents", "downloads", "music", "pictures", "videos", "onedrive", "saved games",
+    ];
+    if components.len() == 4
+        && components[1] == "users"
+        && PROFILE_FOLDERS.contains(&components[3])
+    {
         return true;
     }
 
@@ -1507,6 +1582,24 @@ mod install_dir_scope_tests {
                 dir
             );
         }
+    }
+
+    #[test]
+    fn a_profiles_own_folders_are_too_broad() {
+        for dir in [
+            "C:\\Users\\Abdullah\\Downloads",
+            "C:\\Users\\Abdullah\\Desktop\\",
+            "c:/users/abdullah/documents",
+            "C:\\Users\\Abdullah\\OneDrive",
+            "C:\\Users\\Abdullah\\AppData\\Local",
+            "C:\\Users\\Abdullah\\AppData\\Roaming",
+            "C:\\Users\\Abdullah\\AppData\\Local\\Temp",
+        ] {
+            assert!(is_overly_broad_dir(dir), "should have been rejected as too broad: {:?}", dir);
+        }
+        // A dedicated folder inside one of them is still fine.
+        assert!(!is_overly_broad_dir("C:\\Users\\Abdullah\\Downloads\\Radium"));
+        assert!(!is_overly_broad_dir("C:\\Users\\Abdullah\\AppData\\Local\\Radium\\client"));
     }
 
     #[test]

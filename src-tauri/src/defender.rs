@@ -35,7 +35,7 @@ fn is_path_safe(path: &str) -> bool {
 /// process so that the user sees a single UAC prompt.
 #[tauri::command]
 pub async fn add_defender_exclusion(app: tauri::AppHandle) -> Value {
-    let cfg = config::ensure_config(&app);
+    let cfg = config::current(&app);
     let client_dir = config::get_client_dir(&app, &cfg);
 
     if !is_path_safe(&client_dir) {
@@ -49,7 +49,8 @@ pub async fn add_defender_exclusion(app: tauri::AppHandle) -> Value {
         return json!({
             "success": false,
             "error": format!(
-                "Refusing to change antivirus settings for '{}': that folder is too broad.                  Point the client install folder at a dedicated directory first.",
+                "Refusing to change antivirus settings for '{}': that folder is too broad. \
+                 Point the client install folder at a dedicated directory first.",
                 client_dir
             )
         });
@@ -101,7 +102,7 @@ pub async fn add_defender_exclusion(app: tauri::AppHandle) -> Value {
 /// instead of `Add-MpPreference`.
 #[tauri::command]
 pub async fn remove_defender_exclusion(app: tauri::AppHandle) -> Value {
-    let cfg = config::ensure_config(&app);
+    let cfg = config::current(&app);
     let client_dir = config::get_client_dir(&app, &cfg);
 
     if !is_path_safe(&client_dir) {
@@ -115,7 +116,8 @@ pub async fn remove_defender_exclusion(app: tauri::AppHandle) -> Value {
         return json!({
             "success": false,
             "error": format!(
-                "Refusing to change antivirus settings for '{}': that folder is too broad.                  Point the client install folder at a dedicated directory first.",
+                "Refusing to change antivirus settings for '{}': that folder is too broad. \
+                 Point the client install folder at a dedicated directory first.",
                 client_dir
             )
         });
@@ -223,7 +225,9 @@ pub async fn detect_antivirus() -> Vec<AntivirusProduct> {
                     // Skip products whose real-time protection is off ("00" in the
                     // middle byte). This drops a passive Defender when a
                     // third-party AV is active, plus disabled/stale entries.
-                    if state.len() == 6 && &state[2..4] == "00" {
+                    // `get` rather than slicing: a byte range that splits a
+                    // character would panic, and panics abort in release.
+                    if state.len() == 6 && state.get(2..4) == Some("00") {
                         continue;
                     }
 

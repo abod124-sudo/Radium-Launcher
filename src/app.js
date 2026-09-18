@@ -110,8 +110,8 @@ function configInstallDir(network = activeNetwork) {
 /// real path. Per-network, since the two default to different folders.
 function defaultInstallDirHint(network = activeNetwork) {
   return network === 'vanilla'
-    ? '%APPDATA%\com.radium.launcher\client-vanilla'
-    : '%APPDATA%\com.radium.launcher\client';
+    ? '%APPDATA%\\com.radium.launcher\\client-vanilla'
+    : '%APPDATA%\\com.radium.launcher\\client';
 }
 
 function setConfigInstallDir(dir, network = activeNetwork) {
@@ -172,6 +172,13 @@ function otherNetworkInstallDir(network) {
   return installDirSpan(other)?.textContent.trim() || configInstallDir(other) || '';
 }
 
+/// `cfg` without `glass.bgImage`. See saveConfig in the shim below.
+function withoutBackdrop(cfg) {
+  if (!cfg || !cfg.glass || !('bgImage' in cfg.glass)) return cfg;
+  const { bgImage, ...glass } = cfg.glass;
+  return { ...cfg, glass };
+}
+
 (function setupTauriShim() {
   const { invoke } = window.__TAURI__.core;
   const { listen } = window.__TAURI__.event;
@@ -188,9 +195,13 @@ function otherNetworkInstallDir(network) {
     maximize: () => appWindow.toggleMaximize(),
     close:    () => appWindow.close(),
 
-    // Config
+    // Config. The glass backdrop can be a 1.4 MB data URI, so it is left out
+    // of every whole-config save (the backend keeps the stored one) and is
+    // written only through setGlassBackdrop — otherwise each autosave, toggle
+    // and play-mode click shipped it over IPC and had it re-parsed.
     getConfig:  ()    => invoke('cmd_get_config'),
-    saveConfig: (cfg) => invoke('cmd_save_config', { config: cfg }),
+    saveConfig: (cfg) => invoke('cmd_save_config', { config: withoutBackdrop(cfg) }),
+    setGlassBackdrop: (value) => invoke('cmd_set_glass_backdrop', { value: String(value || '') }),
 
     // Server. Every command below takes the active network so the backend can
     // route to the right API without the call sites having to care.
@@ -300,10 +311,6 @@ function otherNetworkInstallDir(network) {
       if (unlistenMap['window-maximized-state']) unlistenMap['window-maximized-state']();
       unlistenMap['window-maximized-state'] = await listen('window-maximized-state', (event) => cb(event.payload));
     },
-
-    // Debug
-    debugExec:  (mode) => invoke('cmd_debug_exec', { mode }),
-    debugPaths: ()     => invoke('cmd_debug_paths'),
 
     // Bug Reporter
     submitBugReport: (description, logs, category, severity, diagnostics) =>
@@ -524,10 +531,17 @@ function photoImageUrl(photo, width) {
   return thumbSrc(photoSourceUrl(photo, width), width);
 }
 
+/// A person with no picture, or whose picture failed to load: the orange
+/// outline mark, centred on a transparent square so a slot's cover crop never
+/// clips it. What used to stand in here was images.png, which is the Radium
+/// logo: on Vanilla every player without a picture, and every desktop pop-up,
+/// wore Radium's brand.
+const PLACEHOLDER_AVATAR = './assets/default-avatar.png';
+
 /// Placeholder avatar for a network. Radium has a real DefaultProfileImage on
-/// its CDN; Vanilla has no such asset, so fall back to the bundled image.
+/// its CDN; Vanilla has no such asset, so it gets the bundled one.
 function defaultAvatarUrl(width) {
-  if (activeNetwork !== 'radium') return './images.png';
+  if (activeNetwork !== 'radium') return PLACEHOLDER_AVATAR;
   return thumbSrc(`${RADIUM_IMG_BASE}/DefaultProfileImage?width=${devicePx(width)}&cropSquare=1`, width);
 }
 
@@ -641,7 +655,7 @@ function buildPhotoCard(photo, backToView) {
       <img class="feed-post-avatar creator-avatar image-loading-placeholder"
            src="${escapeHtml(thumbSrc(photo.CreatorAvatarUrl, avatarWidth(36)) || defaultAvatarUrl(36))}"
            loading="lazy" decoding="async"
-           data-fallback="./images.png" />
+           data-fallback="${PLACEHOLDER_AVATAR}" />
       <div class="feed-post-header-text">
         <div class="feed-post-creator creator-name">${escapeHtml(embedded ? creator : 'Loading...')}</div>
         <div class="feed-post-meta">
@@ -936,7 +950,7 @@ function personAvatarFullUrl(person) {
   if (!name || name === 'DefaultProfileImage') {
     return activeNetwork === 'radium'
       ? `${RADIUM_IMG_BASE}/DefaultProfileImage`
-      : './images.png';
+      : PLACEHOLDER_AVATAR;
   }
   return `${RADIUM_IMG_BASE}/${name}`;
 }
@@ -3547,10 +3561,22 @@ $('btnResetGlassTint')?.addEventListener('click', () => {
 });
 
 /// Set the glass backdrop, redraw, and persist.
-function setGlassBackdrop(value) {
+///
+/// Saved through its own command, never with the rest of the config (see
+/// saveConfig in the shim). `persistDelay` lets the URL field wait for typing
+/// to stop instead of writing config.json on every keystroke.
+let _backdropSaveTimer = null;
+function setGlassBackdrop(value, persistDelay = 0) {
   config.glass = { ...(config.glass || {}), bgImage: value };
   applyTheme(config.theme);
-  saveThemeSettings();
+  clearTimeout(_backdropSaveTimer);
+  _backdropSaveTimer = setTimeout(async () => {
+    try {
+      await window.radium?.setGlassBackdrop(value);
+    } catch (e) {
+      addLog(`Could not save the glass backdrop: ${e}`, 'error');
+    }
+  }, persistDelay);
 }
 
 // ─── Glass backdrop ─────────────────────────────────────────────────────────
@@ -3651,7 +3677,7 @@ $('theme-bgImage')?.addEventListener('input', (e) => {
   if (e.target.value !== '(Local File Selected)') {
     delete e.target.dataset.localBase64;
   }
-  setGlassBackdrop(getBgImageUI());
+  setGlassBackdrop(getBgImageUI(), 600);
 });
 
 $('btnBrowseBgFile')?.addEventListener('click', () => {
@@ -3738,7 +3764,7 @@ async function autoSaveSettings() {
     addLog('Configuration auto-saved.', 'ok');
     await checkInstall();
   } else {
-    showAutosaveIndicator('error', '2715 Save failed');
+    showAutosaveIndicator('error', '✕ Save failed');
     addLog('Auto-save failed.', 'error');
   }
 
@@ -4464,7 +4490,7 @@ $('stopGameModalClose')?.addEventListener('click', closeStopGameModal);
 $('stopGameConfirmBtn')?.addEventListener('click', async () => {
   closeStopGameModal();
   addLog('User confirmed stop game request. Killing game process...', 'info');
-  toast('Stopping Radium...', 'info', 2000);
+  toast(`Stopping ${networkInfo().label}...`, 'info', 2000);
   await window.radium?.killGame();
   setGameRunning(false);
 });
@@ -4499,7 +4525,7 @@ $('uninstallConfirmBtn')?.addEventListener('click', async () => {
   const result = await window.radium?.uninstallClient();
   if (result?.success) {
     addLog('Client uninstalled successfully.', 'ok');
-    toast('Radium client uninstalled.', 'ok');
+    toast(`${networkInfo().label} client uninstalled.`, 'ok');
     await loadConfig();
     await checkInstall();
   } else {
@@ -5022,11 +5048,18 @@ $('steamAppAnywayBtn')?.addEventListener('click', () => {
 async function doLaunch() {
   setGameRunning(true);
   addLog('Launching game...', 'info');
-  toast('Launching Radium...', 'info', 2000);
+  toast(`Launching ${networkInfo().label}...`, 'info', 2000);
 
   let result = null;
   try {
-    result = await window.radium?.launchGame({ ...config, playMode });
+    // Only what launch_game reads (the shim adds `network`). Spreading the
+    // whole config also sent the glass backdrop — up to 1.4 MB — on every PLAY.
+    result = await window.radium?.launchGame({
+      playMode,
+      gameExePath: config.gameExePath || '',
+      minimizeOnLaunch: config.minimizeOnLaunch === true,
+      closeOnLaunch: config.closeOnLaunch === true,
+    });
   } catch (e) {
     console.error('launchGame error:', e);
     result = { success: false, error: e.toString() };
@@ -5042,7 +5075,7 @@ async function doLaunch() {
     // .bat launches report no PID (the cmd.exe wrapper's PID is meaningless).
     const pidPart = (result.pid !== null && result.pid !== undefined) ? ` (PID ${result.pid})` : '';
     addLog(`Game running${pidPart} — mode: ${playMode}`, 'ok');
-    toast(`Radium launched in ${playMode.toUpperCase()} mode!`, 'ok');
+    toast(`${networkInfo().label} launched in ${playMode.toUpperCase()} mode!`, 'ok');
     if (config.closeOnLaunch === true) {
       addLog(config.runInBackground !== false
         ? 'Launcher set to step aside on game start. Hiding to the tray...'
@@ -5355,7 +5388,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     const info = await window.radium?.checkForUpdate();
     if (!info) {
       if (resultEl) {
-        resultEl.textContent = '2715 No response';
+        resultEl.textContent = '✕ No response';
         resultEl.className = 'test-result error';
       }
       toast('Update check failed.', 'error');
@@ -5363,7 +5396,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     }
     if (info.error) {
       if (resultEl) {
-        resultEl.textContent = '2715 Error';
+        resultEl.textContent = '✕ Error';
         resultEl.className = 'test-result error';
       }
       addLog(`Update check failed: ${info.error}`, 'info');
@@ -5388,7 +5421,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     }
   } catch (e) {
     if (resultEl) {
-      resultEl.textContent = '2715 Error';
+      resultEl.textContent = '✕ Error';
       resultEl.className = 'test-result error';
     }
     addLog(`Update check error: ${e.message}`, 'info');
@@ -5836,7 +5869,7 @@ function renderVanillaAccount() {
     name.textContent = vanillaPlayer.displayName || handle;
     const shown = vanillaPlayer.displayName && vanillaPlayer.displayName !== handle
       ? `${vanillaPlayer.displayName} (@${handle})` : `@${handle}`;
-    btn.title = `Signed in to Vanilla as ${shown}`;
+    btn.setAttribute('aria-label', `Signed in to Vanilla as ${shown}`);
     avatar.src = vanillaPlayer.AvatarUrl
       ? thumbSrc(vanillaPlayer.AvatarUrl, avatarWidth(28))
       : defaultAvatarUrl(28);
@@ -5855,7 +5888,7 @@ function renderVanillaAccount() {
   } else {
     name.textContent = 'LOG IN';
     fitAccountName();
-    btn.title = 'Sign in with your Vanilla account';
+    btn.setAttribute('aria-label', 'Sign in with your Vanilla account');
     avatar.hidden = true;
     avatar.removeAttribute('src');
     btn.removeAttribute('aria-haspopup');
@@ -6099,7 +6132,7 @@ function notifAvatar(n, size) {
   img.className = 'notif-avatar';
   img.alt = '';
   img.loading = 'lazy';
-  img.src = n.senderAvatar ? thumbSrc(n.senderAvatar, avatarWidth(size)) : defaultAvatarUrl(size);
+  img.src = n.senderAvatar ? thumbSrc(n.senderAvatar, avatarWidth(size)) : PLACEHOLDER_AVATAR;
   return img;
 }
 
@@ -6253,7 +6286,11 @@ function announceNewNotifs(list) {
   const fresh = withIds.filter(n => !announcedNotifIds.has(String(n.id)));
   fresh.forEach(n => announcedNotifIds.add(String(n.id)));
 
-  if (!fresh.length || activeNetwork !== 'vanilla') return;
+  // Announced whichever network the launcher is showing. These belong to the
+  // signed-in Vanilla account, and while Radium was selected they used to be
+  // marked as announced without ever popping up — and the bell that would
+  // have shown them is hidden on Radium. Opening one switches to Vanilla.
+  if (!fresh.length) return;
   const seen = readNotifIds();
   const show = fresh
     .filter(n => !seen.has(String(n.id)))
@@ -6307,7 +6344,10 @@ function desktopCard(it, style) {
     id: n.id ?? null,
     sender: n.senderName || null,
     icon: system ? (n.type === 51 ? 'thumb' : 'info') : null,
-    avatar: system ? '' : (n.senderAvatar ? thumbSrc(n.senderAvatar, avatarWidth(40)) : ''),
+    // Always Vanilla's, whichever network is showing, so never Radium's
+    // default picture; the placeholder rather than nothing, which the pop-up
+    // used to fill with the Radium logo.
+    avatar: system ? '' : (n.senderAvatar ? thumbSrc(n.senderAvatar, avatarWidth(40)) : PLACEHOLDER_AVATAR),
     app: 'Vanilla',
     parts,
     style,
@@ -6394,11 +6434,18 @@ function playNotifChime() {
 }
 
 // A desktop card was clicked: the launcher has already been brought forward.
-window.radium?.onDesktopNotifOpen?.((card) => {
+window.radium?.onDesktopNotifOpen?.(async (card) => {
   if (card?.id === 'tray-hint') return;
   if (card?.id != null) {
     markNotifsRead([card.id]);
     setVanillaBadge();
+  }
+  // Profiles and the notification list are Vanilla's. setNetwork() refuses
+  // (and says why) during a download or while the game runs; the launcher is
+  // already in front, so that is where it stops.
+  if (activeNetwork !== 'vanilla') {
+    await setNetwork('vanilla');
+    if (activeNetwork !== 'vanilla') return;
   }
   if (card?.sender) showCreatorProfile(String(card.sender));
   else if (vanillaPlayer) openNotifPanel();
@@ -6475,7 +6522,7 @@ function setCheerPressed(btn, on) {
   if (!btn) return;
   btn.classList.toggle('is-on', on);
   btn.setAttribute('aria-pressed', String(on));
-  btn.title = on ? 'Cheered. Click to remove your cheer' : 'Cheer';
+  // aria-pressed already says whether it is cheered; no `title` tooltip.
   if (btn.classList.contains('card-cheer')) btn.setAttribute('aria-label', `${btn.querySelector('.cheers-count')?.textContent || 0} cheers`);
 }
 
@@ -6485,7 +6532,6 @@ function setCheerEnabled(btn, enabled) {
   btn.disabled = !enabled;
   if (!enabled) {
     setCheerPressed(btn, false);
-    btn.removeAttribute('title');
   }
 }
 
@@ -6651,7 +6697,6 @@ function setSubscribed(btn, on) {
   // Filled while it is an invitation, quiet once it's done — as on the site.
   btn.classList.toggle('modal-btn-primary', !on);
   btn.classList.toggle('modal-btn-secondary', on);
-  btn.title = on ? 'Click to unsubscribe' : '';
 }
 
 async function paintSubscribe(person) {
@@ -6705,7 +6750,7 @@ function paintPlayButton() {
   const label = btn.querySelector('.room-play-label') || btn;
   label.textContent = waiting ? roomJoin.label : '▶ PLAY';
   btn.classList.toggle('is-busy', !!waiting);
-  btn.title = waiting ? 'Click to cancel' : 'Join this room in the game';
+  btn.setAttribute('aria-label', waiting ? 'Cancel joining this room' : 'Join this room in the game');
 }
 
 function setJoinLabel(job, label) {
@@ -7337,9 +7382,9 @@ async function loadRooms() {
     if (btnNext) btnNext.disabled = (roomsSkip + roomsTake >= total);
   } else {
     // Escaped: this string can carry text straight from a remote API (an error
-    // object's message, or a prefix of an unparseable response body), and the
-    // CSP allows inline handlers — so unescaped it is a script-injection path
-    // into a webview that can reach every backend command.
+    // object's message, or a prefix of an unparseable response body), and
+    // unescaped markup here reaches a webview that can call every backend
+    // command.
     // Cleared so the next visit retries instead of treating the error as the
     // rendered page.
     roomsRenderKey = '';
@@ -7351,16 +7396,6 @@ async function loadRooms() {
     if (btnNext) btnNext.disabled = true;
   }
 }
-
-window.filterByCreator = function(username) {
-  const searchInput = $('roomsSearch');
-  if (searchInput) {
-    searchInput.value = username;
-    roomsSearchQuery = username;
-    roomsSkip = 0;
-    loadRooms();
-  }
-};
 
 /// Snap a scrollable table's visible height to a whole number of rows.
 ///
@@ -7717,6 +7752,14 @@ let playerRoomsLoading = false;
 
 let currentBackToView = null;
 
+// Bumped each time a detail view opens or closes. Each view fills in from
+// lookups that can take a second or more, so a view opened after another had
+// the first one's stats, bio and photos written over it when those arrived
+// late. A lookup that finds the number moved on drops its result.
+let roomDetailSeq = 0;
+let playerDetailSeq = 0;
+let photoDetailSeq = 0;
+
 // IntersectionObserver instances
 let roomPhotoObserver = null;
 let playerPhotoObserver = null;
@@ -7944,9 +7987,15 @@ async function loadPlayerPhotos(userId, append = false) {
 async function showRoomByName(roomName) {
   if (!roomName) return;
   addLog(`Looking up room "${roomName}"...`, 'info');
-  const res = await window.radium?.fetchRooms({ query: roomName, take: 1 });
-  if (res && res.success && res.data && res.data.Results && res.data.Results.length > 0) {
-    const room = res.data.Results[0];
+  // A search, not a lookup: results come back in the active sort (most
+  // cheered first on Vanilla), and any room whose description mentions the
+  // name matches too. So take a page and prefer the room actually called that.
+  const res = await window.radium?.fetchRooms({ query: roomName, take: 24 });
+  const results = res?.success ? (res.data?.Results || []) : [];
+  if (results.length > 0) {
+    const wanted = roomName.trim().toLowerCase();
+    const room = results.find(r => String(r.Name || r.name || '').trim().toLowerCase() === wanted)
+      || results[0];
     switchTab('rooms');
     showRoomDetails(room);
   } else {
@@ -7960,6 +8009,7 @@ async function showPhotoDetails(photo, backToView) {
   if (!photoId) return;
 
   currentBackToView = backToView;
+  const seq = ++photoDetailSeq;
   
   // Switch to photo detail panel
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -8054,7 +8104,7 @@ async function showPhotoDetails(photo, backToView) {
     // Re-armed on every visit: the shared handler consumes `data-fallback` the
     // first time an image fails, so a panel opened twice would otherwise have
     // no fallback left the second time.
-    creatorAvatarEl.dataset.fallback = './images.png';
+    creatorAvatarEl.dataset.fallback = PLACEHOLDER_AVATAR;
     creatorAvatarEl.src = defaultAvatarUrl(32);
   }
   const roomLinkEl = $('photoDetailRoomLink');
@@ -8066,6 +8116,7 @@ async function showPhotoDetails(photo, backToView) {
   
   // Fetch scraped details from photo webpage
   const res = await getPhotoWebDetails(photoId, photo);
+  if (seq !== photoDetailSeq) return;
   if (res && res.success) {
     const creatorUsername = res.creatorUsername || '';
     const roomName = res.roomName || '';
@@ -8081,9 +8132,10 @@ async function showPhotoDetails(photo, backToView) {
       }
       // fetch avatar of user in background
       const avatarSrc = res.creatorAvatar || (await getUserWebDetails(creatorUsername))?.avatar;
+      if (seq !== photoDetailSeq) return;
       if (avatarSrc && creatorAvatarEl) {
         creatorAvatarEl.classList.add('image-loading-placeholder');
-        creatorAvatarEl.dataset.fallback = './images.png';
+        creatorAvatarEl.dataset.fallback = PLACEHOLDER_AVATAR;
         creatorAvatarEl.src = thumbSrc(avatarSrc, avatarWidth(32));
       } else if (creatorAvatarEl) {
         creatorAvatarEl.classList.remove('image-loading-placeholder');
@@ -8126,6 +8178,7 @@ const PHOTO_BACK_TARGETS = {
 
 $('btnPhotoDetailBack')?.addEventListener('click', () => {
   socialPhoto = null;
+  photoDetailSeq++;
   $('tab-photo-detail').classList.remove('active');
 
   const target = PHOTO_BACK_TARGETS[currentBackToView];
@@ -8152,6 +8205,7 @@ async function showRoomDetails(room) {
   const list = $('roomsListView');
   const detail = $('roomsDetailView');
   if (!list || !detail) return;
+  const seq = ++roomDetailSeq;
   
   const thumbUrl = roomThumbUrl(room, 720);
   
@@ -8233,6 +8287,7 @@ async function showRoomDetails(room) {
 
   // Load scraped web details asynchronously (handle both PascalCase and camelCase APIs)
   const webDetails = await getRoomWebDetails(room.Name || room.name || '');
+  if (seq !== roomDetailSeq) return;
   if (webDetails && webDetails.success) {
     if (cheersEl && webDetails.cheers) cheersEl.textContent = webDetails.cheers;
     if (favsEl && webDetails.favorites) favsEl.textContent = webDetails.favorites;
@@ -8263,6 +8318,7 @@ async function showRoomDetails(room) {
 function hideRoomDetails() {
   // A Play request already under way carries on; only the view is closed.
   socialRoom = null;
+  roomDetailSeq++;
   const list = $('roomsListView');
   const detail = $('roomsDetailView');
   if (list && detail) {
@@ -8275,6 +8331,7 @@ async function showPlayerDetails(person) {
   const list = $('peopleListView');
   const detail = $('peopleDetailView');
   if (!list || !detail) return;
+  const seq = ++playerDetailSeq;
   
   const avatarUrl = personAvatarUrl(person, 80);
   
@@ -8283,7 +8340,7 @@ async function showPlayerDetails(person) {
     avatarEl.classList.add('image-loading-placeholder');
     avatarEl.onload = () => { avatarEl.classList.remove('image-loading-placeholder'); avatarEl.onload = null; };
     avatarEl.src = avatarUrl;
-    avatarEl.onerror = () => { avatarEl.src = './logo.png'; avatarEl.classList.remove('image-loading-placeholder'); avatarEl.onerror = null; };
+    avatarEl.onerror = () => { avatarEl.src = PLACEHOLDER_AVATAR; avatarEl.classList.remove('image-loading-placeholder'); avatarEl.onerror = null; };
     avatarEl.style.cursor = 'pointer';
     avatarEl.onclick = () => {
       showLightbox(personAvatarFullUrl(person), {
@@ -8367,6 +8424,9 @@ async function showPlayerDetails(person) {
   } catch (err) {
     console.error("Error loading web details for user:", err);
   }
+  // A newer profile was opened (or this one closed) while that ran. Its own
+  // call sets up the tabs and loads its photos; this one must not.
+  if (seq !== playerDetailSeq) return;
   if (webDetails && webDetails.success) {
     setProfileStat(friendsEl, webDetails.friends);
     setProfileStat(subsEl, webDetails.subscribers);
@@ -8647,6 +8707,7 @@ async function loadPlayerRooms(userId, append = false) {
 
 function hidePlayerDetails() {
   socialPerson = null;
+  playerDetailSeq++;
   const list = $('peopleListView');
   const detail = $('peopleDetailView');
   if (list && detail) {

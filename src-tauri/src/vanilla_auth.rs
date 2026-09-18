@@ -378,7 +378,10 @@ pub async fn vanilla_login(app: AppHandle) -> Result<(), String> {
     if let Some(main) = app.get_webview_window("main") {
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
     }
-    builder.build().map_err(|e| format!("Couldn't open the sign-in window: {}", e))?;
+    let win = builder.build().map_err(|e| format!("Couldn't open the sign-in window: {}", e))?;
+    // Its native title bar would otherwise show the 256px app icon shrunk by
+    // Windows to 16px, which is what made it look blurry.
+    crate::background::sharpen_window_icon(&win);
     Ok(())
 }
 

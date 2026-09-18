@@ -172,6 +172,66 @@ fn host_allowed(url: &reqwest::Url) -> bool {
         .unwrap_or(false)
 }
 
+/// The client originals are fetched with.
+///
+/// Its own rather than the shared one, for the redirect policy: [`host_allowed`]
+/// only ever sees the URL the page asked for, and the shared client follows
+/// any redirect anywhere. A redirect from one of the allowed hosts could then
+/// have aimed this at loopback or the local network. Redirects to public hosts
+/// are still followed, since an image CDN may legitimately bounce to storage
+/// elsewhere.
+fn fetch_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .gzip(true)
+            .brotli(true)
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() >= 5 || !is_public_destination(attempt.url()) {
+                    attempt.stop()
+                } else {
+                    attempt.follow()
+                }
+            }))
+            .build()
+            .unwrap_or_else(|_| http().clone())
+    })
+}
+
+/// Whether `url` points somewhere on the public internet, as far as the URL
+/// itself can say: not loopback, a private or link-local range, or a
+/// `.localhost` name.
+fn is_public_destination(url: &reqwest::Url) -> bool {
+    if url.scheme() != "https" && url.scheme() != "http" {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            !(ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_broadcast())
+        }
+        Ok(std::net::IpAddr::V6(ip)) => {
+            let first = ip.segments()[0];
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || (first & 0xfe00) == 0xfc00 // unique local
+                || (first & 0xffc0) == 0xfe80 // link-local
+                || ip.to_ipv4_mapped().is_some())
+        }
+        Err(_) => {
+            let name = host.trim_end_matches('.').to_ascii_lowercase();
+            name != "localhost" && !name.ends_with(".localhost")
+        }
+    }
+}
+
 /// Cache filename for one (url, width) pair, without an extension.
 ///
 /// FNV-1a over the URL rather than a real digest: this names a cache entry, and
@@ -329,7 +389,7 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
     let original = {
         let _slot = FETCH_SLOTS.acquire().await.map_err(|e| e.to_string())?;
 
-        let response = http()
+        let response = fetch_client()
             .get(parsed.as_str())
             .timeout(FETCH_TIMEOUT)
             .header("User-Agent", USER_AGENT)
@@ -580,6 +640,34 @@ mod tests {
         assert!(!allowed("http://127.0.0.1:8080/admin"));
         assert!(!allowed("http://localhost/x.png"));
         assert!(!allowed("file:///C:/Windows/win.ini"));
+    }
+
+    #[test]
+    fn redirects_may_not_lead_off_the_public_network() {
+        let public = |u: &str| is_public_destination(&reqwest::Url::parse(u).unwrap());
+
+        assert!(public("https://img.radie.app/Room_1"));
+        assert!(public("https://some-bucket.s3.amazonaws.com/Room_1.png"));
+        assert!(public("https://93.184.216.34/x.png"));
+
+        for local in [
+            "http://127.0.0.1:8080/admin",
+            "http://localhost/x.png",
+            "http://LOCALHOST./x.png",
+            "http://radiumimg.localhost/thumb",
+            "http://192.168.1.1/",
+            "http://10.0.0.5/",
+            "http://172.16.0.1/",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://0.0.0.0/",
+            "http://[::1]/",
+            "http://[fd00::1]/",
+            "http://[fe80::1]/",
+            "http://[::ffff:127.0.0.1]/",
+            "file:///C:/Windows/win.ini",
+        ] {
+            assert!(!public(local), "{local} should be refused");
+        }
     }
 
     /// The whole point, measured against a real room image.

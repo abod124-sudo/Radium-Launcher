@@ -108,10 +108,14 @@
     const img = document.createElement('img');
     img.className = 'avatar';
     img.alt = '';
-    // Only the launcher's own thumbnail scheme or bundled images.
+    // Only the launcher's own thumbnail scheme or bundled images. A missing
+    // or broken picture gets the placeholder avatar (the same one app.js
+    // uses); this used to be images.png, the Radium logo, on what are
+    // Vanilla notifications.
+    const placeholder = './assets/default-avatar.png';
     const src = String(data.avatar || '');
-    img.src = /^(http:\/\/radiumimg\.localhost\/|radiumimg:\/\/|\.\/)/.test(src) ? src : './images.png';
-    img.onerror = () => { img.onerror = null; img.src = './images.png'; };
+    img.src = /^(http:\/\/radiumimg\.localhost\/|radiumimg:\/\/|\.\/)/.test(src) ? src : placeholder;
+    img.onerror = () => { img.onerror = null; img.src = placeholder; };
     return img;
   }
 

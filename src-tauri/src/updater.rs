@@ -112,6 +112,38 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
     })
 }
 
+/// Whether `url` is a release asset of this repository on GitHub.
+///
+/// Checked on the parsed URL, not the string. A prefix test on the raw string
+/// passed `.../releases/download/../../../../other/repo/releases/download/x.exe`,
+/// which the URL parser then normalizes into another repository's release, so
+/// the "official" installer could have come from anyone's repo. `%2e%2e` is
+/// normalized the same way, so comparing after parsing covers both spellings.
+fn is_official_release_asset(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if parsed.scheme() != "https"
+        || parsed.host_str() != Some("github.com")
+        || parsed.port().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return false;
+    }
+    let Some(segments) = parsed.path_segments() else {
+        return false;
+    };
+    let segments: Vec<&str> = segments.collect();
+    // owner / repo / releases / download / <tag> / <asset>
+    segments.len() == 6
+        && segments[0].eq_ignore_ascii_case(GITHUB_OWNER)
+        && segments[1].eq_ignore_ascii_case(GITHUB_REPO)
+        && segments[2] == "releases"
+        && segments[3] == "download"
+        && segments[4..].iter().all(|s| !s.is_empty())
+}
+
 /// Filename prefix for the downloaded launcher installer. Each run appends a
 /// unique suffix (see [`download_update`]), so old ones accumulate in temp.
 const INSTALLER_PREFIX: &str = "RadiumLauncherSetup_update_";
@@ -165,7 +197,7 @@ pub async fn download_update(
     digest: Option<String>,
 ) -> Result<serde_json::Value, String> {
     // Security check: restrict downloads to trusted official release URLs
-    if !url.starts_with("https://github.com/abod124-sudo/Radium-Launcher/releases/download/") {
+    if !is_official_release_asset(&url) {
         return Err("Untrusted update download URL.".into());
     }
 
@@ -259,6 +291,45 @@ pub async fn download_update(
 #[tauri::command(async)]
 pub fn get_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
+}
+
+#[cfg(test)]
+mod release_url_tests {
+    use super::is_official_release_asset;
+
+    #[test]
+    fn a_real_release_asset_is_accepted() {
+        assert!(is_official_release_asset(
+            "https://github.com/abod124-sudo/Radium-Launcher/releases/download/v4.0.0/Radium.Launcher_4.0.0_x64-setup.exe"
+        ));
+    }
+
+    #[test]
+    fn dot_segments_cannot_walk_into_another_repo() {
+        for url in [
+            "https://github.com/abod124-sudo/Radium-Launcher/releases/download/../../../../evil/repo/releases/download/v1/setup.exe",
+            "https://github.com/abod124-sudo/Radium-Launcher/releases/download/%2e%2e/%2e%2e/%2e%2e/%2e%2e/evil/repo/releases/download/v1/setup.exe",
+            "https://github.com/abod124-sudo/Radium-Launcher/releases/download/v1/../../../../../evil/x/releases/download/v1/setup.exe",
+        ] {
+            assert!(!is_official_release_asset(url), "{url} should be refused");
+        }
+    }
+
+    #[test]
+    fn anything_but_the_repo_on_github_is_refused() {
+        for url in [
+            "http://github.com/abod124-sudo/Radium-Launcher/releases/download/v1/setup.exe",
+            "https://github.com.evil.example/abod124-sudo/Radium-Launcher/releases/download/v1/setup.exe",
+            "https://evil.example@github.com/abod124-sudo/Radium-Launcher/releases/download/v1/setup.exe",
+            "https://github.com:8443/abod124-sudo/Radium-Launcher/releases/download/v1/setup.exe",
+            "https://github.com/someone/Radium-Launcher/releases/download/v1/setup.exe",
+            "https://github.com/abod124-sudo/Radium-Launcher/releases/download/v1/",
+            "https://github.com/abod124-sudo/Radium-Launcher/archive/v1.zip",
+            "not a url",
+        ] {
+            assert!(!is_official_release_asset(url), "{url} should be refused");
+        }
+    }
 }
 
 #[cfg(test)]
