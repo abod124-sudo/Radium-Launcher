@@ -88,7 +88,10 @@ pub fn desktop_notif_take() -> Vec<Value> {
 #[tauri::command]
 pub fn desktop_notif_layout(app: AppHandle, height: f64) -> Result<(), String> {
     let Some(win) = app.get_webview_window(POPUP_LABEL) else { return Ok(()) };
-    if !(height > 0.0) {
+    // Written as a positive test of both failure modes rather than as a
+    // negated `>`: the page computes this height, so a zero, a negative or a
+    // NaN all have to hide the window rather than resize it to nonsense.
+    if !height.is_finite() || height <= 0.0 {
         set_shown(&win, None);
         return Ok(());
     }

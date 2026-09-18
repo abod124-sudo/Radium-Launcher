@@ -3174,29 +3174,37 @@ body:not(.network-vanilla) .network-only-vanilla { display: none !important; }
 }
 .people-username-cell .inline-roles { margin-left: 0; flex-shrink: 0; }
 
-.role-badge {
+/* Text chip — every network except Vanilla (which wears its own icons below).
+   Fixed hues rather than theme tokens: a badge should mean the same thing in
+   every skin, and the dark text keeps it legible on each. */
+.role-badge:not(.role-icon) {
   font-family: var(--font-mono);
   font-size: 8px; font-weight: bold; letter-spacing: 0.5px;
   line-height: 1;
   padding: 3px 5px;
   border: 1px solid;
-  /* Fixed, not var(--bg-dark). This used to borrow that variable purely as a
-     shorthand for "a dark colour" — every built-in skin keeps --bg-dark dark,
-     so it worked everywhere they applied. Liquid Glass sets --bg-dark to
-     transparent for its own surfaces, which this badge has nothing to do with,
-     and inherited it anyway: the text turned invisible, leaving a bare colour
-     chip where "DEV" or "MOD" should read. The badge's own background below is
-     already a fixed hue, independent of the active theme; the text needs the
-     same independence. */
+  /* Fixed, not var(--bg-dark): Liquid Glass sets that transparent for its own
+     surfaces, which turned the chip's text invisible. The hue below is fixed
+     too, so the text is held to a fixed dark to match. */
   color: #14171c;
   white-space: nowrap;
   cursor: default;
 }
-/* Fixed hues rather than theme tokens: the point of a badge is that it means
-   the same thing in every skin, and the dark text keeps it legible on each. */
 .role-dev  { background: #7ab8ff; border-color: #4c8ed6; }
 .role-mod  { background: #8ee06a; border-color: #5fae3f; }
 .role-team { background: #f0c060; border-color: #c1913a; }
+
+/* Vanilla's own badge marks (the bronze icons from its site). Fixed art, so
+   like the chips they read the same in every skin; sized by height so each
+   keeps its own width. Slightly larger on a profile than inline in a list. */
+.role-icon {
+  height: 14px; width: auto;
+  display: inline-block; vertical-align: middle;
+  user-select: none; -webkit-user-drag: none;
+}
+/* Bigger on the profile header, but not in a table row — the inline-roles span
+   carries .profile-roles too, so the profile rule is scoped away from it. */
+.profile-roles:not(.inline-roles) .role-icon { height: 18px; }
 
 .profile-stat-item {
   display: flex;

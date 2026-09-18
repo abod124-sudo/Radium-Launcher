@@ -359,6 +359,10 @@ struct RawPlayer {
     profile_image_name: Option<String>,
     #[serde(rename = "Developer", default)]
     developer: Option<bool>,
+    /// Present on every record in the dump (measured 2026-09-18). The proxied
+    /// `players?ids=` record has no level at all, so this is the only source.
+    #[serde(rename = "Level", default)]
+    level: Option<i64>,
     #[serde(rename = "PlayerReputation", default)]
     reputation: Option<RawReputation>,
 }
@@ -479,6 +483,9 @@ struct PlayerRow {
     image_name: String,
     subscribers: i64,
     developer: bool,
+    /// `None` when the record carries none, so the UI hides the stat rather
+    /// than showing a level nobody has (they start at 1).
+    level: Option<i64>,
 }
 
 impl PlayerRow {
@@ -500,6 +507,7 @@ impl PlayerRow {
                 .and_then(|r| r.subscriber_count)
                 .unwrap_or(0),
             developer: raw.developer.unwrap_or(false),
+            level: raw.level.filter(|l| *l > 0),
         })
     }
 }
@@ -756,6 +764,7 @@ fn player_row_json(p: &PlayerRow, staff: Option<&CreatorInfo>) -> Value {
         "profileImage": p.image_name,
         "AvatarUrl": image_for_name(&p.image_name),
         "isOnline": Value::Null,
+        "level": p.level,
         "followerCount": p.subscribers,
         // The dump carries `Developer`; the other two staff flags come from the
         // proxied lookup when it answered.
@@ -1669,6 +1678,22 @@ mod tests {
     }
 
     #[test]
+    fn a_player_level_comes_through_and_a_missing_one_stays_null() {
+        let with_level = PlayerRow::from_raw(
+            serde_json::from_value(json!({ "Id": 5, "Username": "a", "Level": 32 })).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(player_row_json(&with_level, None)["level"], 32);
+
+        // No field, and a zero (nobody is level 0), both mean "unknown": the
+        // profile hides the tile instead of printing a number that isn't real.
+        for raw in [json!({ "Id": 6, "Username": "b" }), json!({ "Id": 7, "Username": "c", "Level": 0 })] {
+            let row = PlayerRow::from_raw(serde_json::from_value(raw).unwrap()).unwrap();
+            assert!(player_row_json(&row, None)["level"].is_null());
+        }
+    }
+
+    #[test]
     fn person_online_state_is_unknown_not_offline() {
         // Vanilla has no presence API. Reporting `false` would render everyone
         // with an "offline" dot, which asserts something we don't know.
@@ -2019,6 +2044,11 @@ mod tests {
         assert_eq!(rows.len(), 12);
         assert_eq!(people["data"]["TotalKnown"], true, "the roster total is now exact");
         assert!(rows[0]["isOnline"].is_null(), "presence must stay tri-state");
+        // Level is what the profile tile and the People column show.
+        assert!(
+            rows.iter().any(|r| r["level"].as_i64().unwrap_or(0) > 0),
+            "no player on the page carries a level — the dump's `Level` field has changed"
+        );
 
         // Searching the roster at all is new; it had no browse-all endpoint.
         let found = fetch_people(0, 12, "nilla").await;

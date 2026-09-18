@@ -463,6 +463,8 @@
                     <!-- Wider than Display Name: this column carries the role
                          badges as well as the handle. -->
                     <th style="width: 210px;">Username</th>
+                    <!-- Vanilla only; Radium's roster carries no level. -->
+                    <th class="network-only-vanilla" style="width: 52px;">Level</th>
                     <th>Bio</th>
                   </tr>
                 </thead>
@@ -520,6 +522,12 @@
                   <div class="profile-details-grid">
                     <!-- Left: Stats -->
                     <div class="profile-sidebar-stats">
+                      <!-- From the player's own row, so it shows at once. Hidden
+                           where the network publishes no level (Radium). -->
+                      <div class="profile-stat-item bevel-inset" hidden>
+                        <div id="peopleDetailLevel" class="profile-stat-val"></div>
+                        <div class="profile-stat-lbl">LEVEL</div>
+                      </div>
                       <div class="profile-stat-item bevel-inset">
                         <div id="peopleDetailFriends" class="profile-stat-val">0</div>
                         <div class="profile-stat-lbl">FRIENDS</div>

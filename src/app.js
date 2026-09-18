@@ -848,28 +848,55 @@ function resetFeed() {
 /// Read from the API's own booleans rather than a bundled list of names, so it
 /// stays correct as staff change. Radium's scraper exposes no equivalent, so
 /// this is empty there and nothing renders.
+/// Vanilla's owners. The API has no owner flag — the site's own badge list
+/// (badgeConfig.js) names them by hand — so this mirrors it: Coach (1), Nilla
+/// (2), liam (3). Founders, so it changes about never; update if the site's
+/// owner list does.
+const VANILLA_OWNER_IDS = new Set([1, 2, 3]);
+
+/// A player's staff roles, most senior first. `key` names both the badge icon
+/// file and its CSS class; `short` is the retro text chip; `full` is the label.
 function playerRoles(person) {
   if (!person) return [];
   const roles = [];
-  if (person.isDeveloper)     roles.push({ short: 'DEV',  full: 'Developer' });
-  if (person.isModerator)     roles.push({ short: 'MOD',  full: 'Moderator' });
-  if (person.isCommunityTeam) roles.push({ short: 'TEAM', full: 'Community Team' });
+  // Owner is Vanilla-only: the id list means different people on another
+  // network, and the badge art is Vanilla's own.
+  if (activeNetwork === 'vanilla' && VANILLA_OWNER_IDS.has(Number(person.id))) {
+    roles.push({ key: 'owner', short: 'OWNER', full: 'Owner' });
+  }
+  if (person.isDeveloper)     roles.push({ key: 'developer',     short: 'DEV',  full: 'Developer' });
+  if (person.isModerator)     roles.push({ key: 'moderator',     short: 'MOD',  full: 'Moderator' });
+  if (person.isCommunityTeam) roles.push({ key: 'communityTeam', short: 'TEAM', full: 'Community Team' });
   return roles;
 }
 
 /// Render a player's roles into `el`, hiding it when they have none.
+///
+/// Vanilla wears its own badge icons (the bronze marks from its site); every
+/// other network keeps the plain coloured text chip, since the icons are
+/// Vanilla-branded and mean nothing elsewhere.
 function renderPlayerRoles(el, person) {
   if (!el) return;
   const roles = playerRoles(person);
   el.innerHTML = '';
   el.hidden = roles.length === 0;
+  const useIcons = activeNetwork === 'vanilla';
   roles.forEach(role => {
-    const pill = document.createElement('span');
-    pill.className = `role-badge role-${role.short.toLowerCase()}`;
-    pill.textContent = role.short;
+    let badge;
+    if (useIcons) {
+      badge = document.createElement('img');
+      badge.className = `role-badge role-icon role-${role.key.toLowerCase()}`;
+      badge.src = `assets/badges/${role.key}.svg`;
+      badge.alt = role.full;
+      badge.draggable = false;
+    } else {
+      badge = document.createElement('span');
+      badge.className = `role-badge role-${role.short.toLowerCase()}`;
+      badge.textContent = role.short;
+    }
     // A screen-reader name, not a `title`: hover tooltips are off app-wide.
-    pill.setAttribute('aria-label', role.full);
-    el.appendChild(pill);
+    badge.setAttribute('aria-label', role.full);
+    el.appendChild(badge);
   });
 }
 
@@ -7406,7 +7433,7 @@ async function loadPeople() {
   const currentSeq = peopleSequenceId;
   const key = peopleKey();
   
-  beginListLoad(bodyEl, '<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading players...</td></tr>');
+  beginListLoad(bodyEl, '<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading players...</td></tr>');
   
   const res = await window.radium?.fetchPeople({
     skip: peopleSkip,
@@ -7426,7 +7453,7 @@ async function loadPeople() {
     bodyEl.innerHTML = '';
     if (people.length === 0) {
       bodyEl.dataset.listPlaceholder = '1';
-      bodyEl.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">No players found.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">No players found.</td></tr>';
     } else {
       delete bodyEl.dataset.listPlaceholder;
       people.forEach(person => {
@@ -7453,6 +7480,7 @@ async function loadPeople() {
           <td class="people-username-cell">
             <span class="username-row"><span class="text-link">@${escapeHtml(person.userName)}</span><span class="profile-roles inline-roles"></span></span>
           </td>
+          <td class="network-only-vanilla">${person.level != null ? escapeHtml(String(person.level)) : ''}</td>
           <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             ${escapeHtml(person.bio || '')}
           </td>
@@ -7478,7 +7506,7 @@ async function loadPeople() {
     // Escaped for the same reason as the rooms error above.
     peopleRenderKey = '';
     bodyEl.dataset.listPlaceholder = '1';
-    bodyEl.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${escapeHtml(res?.error || 'Failed to fetch players')}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${escapeHtml(res?.error || 'Failed to fetch players')}</td></tr>`;
     const btnPrev = $('btnPeoplePrev');
     const btnNext = $('btnPeopleNext');
     if (btnPrev) btnPrev.disabled = true;
@@ -8277,12 +8305,23 @@ async function showPlayerDetails(person) {
   const aboutLabelEl = $('peopleDetailAboutLabel');
   if (aboutLabelEl) aboutLabelEl.textContent = `About ${person.displayName || person.userName || 'Player'}`;
   
+  // Level is on the row itself, so unlike the stats below it needs no lookup.
+  // Absent (Radium, or a record without one) hides the tile.
+  setProfileStat($('peopleDetailLevel'), person.level ?? '');
+
   const friendsEl = $('peopleDetailFriends');
   const subsEl = $('peopleDetailSubscribers');
   const visitsEl = $('peopleDetailVisits');
-  // Show all three while loading; whichever the network can't fill is hidden
-  // once the answer arrives.
-  [friendsEl, subsEl, visitsEl].forEach(el => setProfileStat(el, '...'));
+  // Only show a loading placeholder for stats this network actually publishes.
+  // Vanilla has a subscriber count and nothing else — no friends, no visits —
+  // so flashing those tiles as "..." only to hide them a moment later is the
+  // jump the user sees on opening a profile. Radium's scraped profile has all
+  // three. `webDetails` fills the real values (or '' to hide) once it lands.
+  const hasFriendsStat = activeNetwork !== 'vanilla';
+  const hasVisitsStat  = activeNetwork !== 'vanilla';
+  setProfileStat(friendsEl, hasFriendsStat ? '...' : '');
+  setProfileStat(subsEl, '...');
+  setProfileStat(visitsEl, hasVisitsStat ? '...' : '');
   const bioEl = $('peopleDetailBio');
   if (bioEl) bioEl.textContent = 'Loading bio from web...';
   
@@ -8356,10 +8395,11 @@ async function showPlayerDetails(person) {
     }
   } else {
     // The lookup failed, which is different from the stat not existing: the
-    // numbers are real on this network, we just don't have them right now.
-    setProfileStat(friendsEl, '—');
+    // number is real on this network, we just don't have it right now. A stat
+    // the network doesn't have stays hidden rather than showing a dash.
+    setProfileStat(friendsEl, hasFriendsStat ? '—' : '');
     setProfileStat(subsEl, '—');
-    setProfileStat(visitsEl, '—');
+    setProfileStat(visitsEl, hasVisitsStat ? '—' : '');
     if (bioEl) bioEl.textContent = person.bio || 'This user has not setup a bio yet.';
   }
 
