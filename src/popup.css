@@ -7,7 +7,7 @@
   --pop-bg-image: none;
   --pop-border: 1px solid rgba(255, 255, 255, 0.12);
   --pop-radius: 10px;
-  --pop-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --pop-shadow: none;
   --pop-fg: #f2f2f2;
   --pop-muted: #9aa0aa;
   --pop-accent: #ffffff;
@@ -53,15 +53,19 @@ html, body {
 }
 .pop.leaving { animation: pop-out 0.22s ease-in forwards; }
 
-/* Liquid Glass: the desktop shows through the card, with a lit edge, rather
-   than the flat panel that stood out against the wallpaper. Windows' own blur
-   behind the window is not used — it applies to a whole window, and this one
-   is taller than the cards, so it would haze the empty space above them. */
+/* Liquid Glass: frosted. The backend captures the screen behind the window
+   as it appears and blurs it (frost.rs); each card shows the part under it
+   (--bd-pos, set by popup.js), with the skin's colour laid over it thinly
+   and a lit edge. The card's own rounded corner clips it, so the edge is
+   smooth. Until the picture arrives the card is just the thin tint. */
 .glass .pop {
-  background-color: color-mix(in srgb, var(--pop-bg) 78%, transparent);
+  background:
+    linear-gradient(color-mix(in srgb, var(--pop-bg) 55%, transparent),
+                    color-mix(in srgb, var(--pop-bg) 55%, transparent)),
+    var(--pop-backdrop, none) var(--bd-pos, 0 0) / var(--pop-backdrop-size, cover) no-repeat,
+    color-mix(in srgb, var(--pop-bg) 78%, transparent);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18),
-              inset 0 0 0 1px rgba(255, 255, 255, 0.09),
-              0 18px 40px -16px rgba(0, 0, 0, 0.7);
+              inset 0 0 0 1px rgba(255, 255, 255, 0.09);
 }
 
 /* Retro skins: Steam's old pop-up, rising out of its own slot (moved down by

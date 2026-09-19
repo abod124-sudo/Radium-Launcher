@@ -83,17 +83,35 @@ pub fn desktop_notif_take() -> Vec<Value> {
     QUEUE.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default()
 }
 
+/// Whether the pop-up window is on screen.
+static SHOWN: Mutex<bool> = Mutex::new(false);
+
+/// The frost behind the pop-up under Liquid Glass: the blurred screen under
+/// the window, captured as it appears (see the `frost` module). Sized in
+/// logical pixels, and pinned to the window's bottom like the cards are.
+#[derive(serde::Serialize)]
+pub struct Backdrop {
+    url: String,
+    width: f64,
+    height: f64,
+}
+
 /// Size the window to the page's card stack and pin it to the bottom-right of
 /// the screen, above the taskbar; hide it when the stack is empty.
+///
+/// With `frost` on, a window coming on screen returns its backdrop. One
+/// already showing keeps the backdrop it has: capturing now would picture
+/// the cards themselves.
 #[tauri::command]
-pub fn desktop_notif_layout(app: AppHandle, height: f64) -> Result<(), String> {
-    let Some(win) = app.get_webview_window(POPUP_LABEL) else { return Ok(()) };
+pub fn desktop_notif_layout(app: AppHandle, height: f64, frost: bool) -> Result<Option<Backdrop>, String> {
+    let Some(win) = app.get_webview_window(POPUP_LABEL) else { return Ok(None) };
     // Written as a positive test of both failure modes rather than as a
     // negated `>`: the page computes this height, so a zero, a negative or a
     // NaN all have to hide the window rather than resize it to nonsense.
     if !height.is_finite() || height <= 0.0 {
         set_shown(&win, None);
-        return Ok(());
+        *SHOWN.lock().unwrap_or_else(|e| e.into_inner()) = false;
+        return Ok(None);
     }
 
     // The screen the launcher is on, or the primary one while it's minimised
@@ -111,8 +129,18 @@ pub fn desktop_notif_layout(app: AppHandle, height: f64) -> Result<(), String> {
     let gap = (EDGE_GAP * scale).round() as i32;
     let x = area.position.x + area.size.width as i32 - w - gap;
     let y = area.position.y + area.size.height as i32 - h;
+    let was_shown = std::mem::replace(&mut *SHOWN.lock().unwrap_or_else(|e| e.into_inner()), true);
+    let backdrop = if frost && !was_shown {
+        crate::frost::backdrop(x, y, w, h).map(|url| Backdrop {
+            url,
+            width: w as f64 / scale,
+            height: h as f64 / scale,
+        })
+    } else {
+        None
+    };
     set_shown(&win, Some((x, y, w, h)));
-    Ok(())
+    Ok(backdrop)
 }
 
 /// A card was clicked: bring the launcher forward and let it open the thing.

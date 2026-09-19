@@ -294,6 +294,12 @@ function withoutBackdrop(cfg) {
       if (unlistenMap['launcher-hidden']) unlistenMap['launcher-hidden']();
       unlistenMap['launcher-hidden'] = await listen('launcher-hidden', () => cb());
     },
+    setTrayState: (network, gameRunning, style) => invoke('set_tray_state', { network, gameRunning, style }),
+    showLauncher: () => invoke('show_launcher'),
+    onTrayAction: async (cb) => {
+      if (unlistenMap['tray-action']) unlistenMap['tray-action']();
+      unlistenMap['tray-action'] = await listen('tray-action', (event) => cb(event.payload));
+    },
 
     // Desktop notification pop-up (a separate always-on-top window).
     desktopNotify:     (cards) => invoke('desktop_notify', { cards }),
@@ -322,6 +328,9 @@ function withoutBackdrop(cfg) {
 let config                = {};
 let isGameRunning         = false;
 let isGameLaunching       = false;
+// Set while a launch started from the tray is under way; see playFromTray().
+let revealOnModal         = false;
+let revealOnModalTimer    = null;
 let isDownloading         = false;
 // Cancel requested, but the backend loop only aborts at its next chunk and
 // holds a global "download in progress" guard until it exits. Re-enabling
@@ -3119,6 +3128,8 @@ function applyTheme(theme) {
     // A leftover 'false' from the old setting would otherwise sit in storage.
     localStorage.removeItem('radium-animations');
   } catch (e) {}
+
+  syncTray();
 }
 
 /// Remember enough for boot.js to paint the right thing before the first frame.
@@ -4133,7 +4144,7 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
   if (sizeEl)   sizeEl.textContent   = total > 0
     ? `${formatBytes(downloaded)} / ${formatBytes(total)}`
     : formatBytes(downloaded);
-  if (etaEl)    etaEl.textContent    = eta >= 0 ? `ETA ${formatEta(eta)}` : '—';
+  if (etaEl)    etaEl.textContent    = eta >= 0 ? formatEta(eta) : '—';
 }
 
 async function runClientDownload({ resuming = false } = {}) {
@@ -4975,7 +4986,9 @@ function setGameRunning(running) {
   isGameRunning = running;
   if (running) {
     isGameLaunching = false;
+    revealOnModal = false;
   }
+  syncTray();
   const btn = $('btnPlay');
   if (running) {
     btn?.classList.add('running');
@@ -5230,6 +5243,103 @@ $('btnPlay')?.addEventListener('click', async () => {
   await checkAvAndLaunch();
 });
 
+// Tray menu ────────────────────────────────────────────────────────────────
+// The tray's Play entry launches without opening the window, like Steam's
+// game entries. If the launch then needs the user (a warning, the Steam
+// check), the first dialog it opens brings the window up.
+
+/// Tell the tray menu which network is active, whether the game is running
+/// (its Play entry reads "Play Radium" / "Play Vanilla" / "Stop Game"), and
+/// what the current skin's menus look like.
+function syncTray() {
+  window.radium?.setTrayState(activeNetwork, isGameRunning, trayMenuStyle()).catch(() => {});
+}
+
+/// Only the inset layers of a `box-shadow`: the bevels the retro skins draw
+/// their edges with. The drop shadow is left out of the tray menu and the
+/// notification pop-up, which sit straight on the desktop.
+function insetShadows(shadow) {
+  const layers = (shadow || '').split(/,(?![^(]*\))/).map(s => s.trim()).filter(s => /\binset\b/.test(s));
+  return layers.length ? layers.join(', ') : 'none';
+}
+
+/// What a menu looks like under the current skin, for the tray menu's window
+/// to copy (traymenu.css). Measured from the Manage Client menu, which is in
+/// the page, hidden, whatever tab is showing — so it follows every skin and
+/// Liquid Glass. Hover can't be measured, so it comes from the skin's tokens,
+/// with a tint of the text colour where a look sets none.
+function trayMenuStyle() {
+  const menu = $('manageMenu');
+  const row = menu?.querySelector('.manage-item:not(.danger)');
+  const sep = menu?.querySelector('.manage-sep');
+  if (!menu || !row) return null;
+  const box = getComputedStyle(menu);
+  const item = getComputedStyle(row);
+  const token = (name, fallback) => item.getPropertyValue(name).trim() || fallback;
+  const side = (s, edge) => `${s[`border${edge}Width`]} ${s[`border${edge}Style`]} ${s[`border${edge}Color`]}`;
+  const fg = item.color;
+  const style = {
+    'bg': box.backgroundColor,
+    'bg-image': box.backgroundImage,
+    'border': side(box, 'Top'),
+    'radius': box.borderTopLeftRadius,
+    'shadow': insetShadows(box.boxShadow),
+    'pad': box.padding,
+    'fg': fg,
+    'font': item.fontFamily,
+    'size': item.fontSize,
+    'weight': item.fontWeight,
+    'item-pad': item.padding,
+    'item-radius': item.borderTopLeftRadius,
+    'hover-bg': token('--item-hover-bg', `color-mix(in srgb, ${fg} 14%, transparent)`),
+    'hover-fg': token('--item-hover-fg', fg),
+    'sel-weight': token('--item-sel-weight', '700'),
+    'sel-bg': token('--item-sel-bg', 'transparent'),
+    'sel-fg': token('--item-sel-fg', fg),
+    // Opens the way the skin's own menus do: the retro skins set no
+    // entrance (`--menu-in: none`) and pop their menus up instantly.
+    motion: document.body.classList.contains('animations-enabled') && token('--menu-in', '') !== 'none',
+    glass: document.body.classList.contains('glass-enabled'),
+  };
+  if (sep) {
+    const s = getComputedStyle(sep);
+    Object.assign(style, {
+      'sep-top': side(s, 'Top'),
+      'sep-bottom': side(s, 'Bottom'),
+      'sep-shadow': s.boxShadow,
+      'sep-bg': s.backgroundColor,
+      'sep-height': s.height,
+      'sep-margin': s.margin,
+    });
+  }
+  return style;
+}
+
+function playFromTray() {
+  const btn = $('btnPlay');
+  // Anything but a plain launch needs the window: the stop confirmation, a
+  // missing install, a download in the way.
+  if (isGameRunning || !isInstalled || isDownloading || isPaused || !btn || btn.disabled) {
+    window.radium?.showLauncher();
+    switchTab('home');
+    if (isGameRunning) btn?.click();
+    return;
+  }
+  if (isGameLaunching) return;
+  revealOnModal = true;
+  clearTimeout(revealOnModalTimer);
+  // A launch that fails without a dialog must not leave a later, unrelated
+  // dialog popping the window open.
+  revealOnModalTimer = setTimeout(() => { revealOnModal = false; }, 60000);
+  btn.click();
+}
+
+window.radium?.onTrayAction?.(({ action, value }) => {
+  if (action === 'play') playFromTray();
+  else if (action === 'tab') switchTab(value);
+  else if (action === 'network') setNetwork(value);
+});
+
 function showSacModal() {
   showModal($('sacModal'));
 }
@@ -5463,6 +5573,7 @@ function applyNetworkUI(name) {
   });
 
   updateDownloadCta();
+  syncTray();
 }
 
 /// Mark the switcher as just-changed for one animation.
@@ -5704,6 +5815,10 @@ const modalCloseTokens = new WeakMap();
 /// Show a dialog, cancelling any close still in flight.
 function showModal(modal) {
   if (!modal) return;
+  if (revealOnModal) {
+    revealOnModal = false;
+    window.radium?.showLauncher();
+  }
   modalCloseTokens.set(modal, (modalCloseTokens.get(modal) || 0) + 1);
   modal.classList.remove('is-closing');
   modal.style.display = 'flex';
@@ -6379,7 +6494,7 @@ function notifPopStyle() {
     'bg-image': box.backgroundImage,
     'border': `${box.borderTopWidth} ${box.borderTopStyle} ${box.borderTopColor}`,
     'radius': box.borderTopLeftRadius,
-    'shadow': box.boxShadow,
+    'shadow': insetShadows(box.boxShadow),
     'fg': getComputedStyle(text).color,
     'muted': getComputedStyle(app).color,
     'accent': getComputedStyle(name).color,

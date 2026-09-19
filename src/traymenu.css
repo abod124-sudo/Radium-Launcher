@@ -1,0 +1,159 @@
+/* The tray menu. Like the notification pop-up, its look is not fixed here:
+   app.js measures the launcher's own menus under the current skin and
+   traymenu.js writes that into these variables. The values below are only a
+   fallback for a menu opened before the launcher page has reported. */
+
+/* The modern skins' font, as style.css loads it. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  src: url('assets/fonts/inter-latin.woff2') format('woff2');
+}
+
+:root {
+  --tm-bg: #16181f;
+  --tm-bg-image: none;
+  --tm-border: 1px solid rgba(255, 255, 255, 0.12);
+  --tm-radius: 8px;
+  --tm-shadow: none;
+  --tm-pad: 4px;
+  --tm-fg: #f2f2f2;
+  --tm-font: 'Segoe UI', system-ui, sans-serif;
+  --tm-size: 12px;
+  --tm-weight: 400;
+  --tm-item-pad: 6px 10px;
+  --tm-item-radius: 4px;
+  --tm-hover-bg: rgba(255, 255, 255, 0.1);
+  --tm-hover-fg: #ffffff;
+  --tm-sel-weight: 700;
+  --tm-sel-bg: transparent;
+  --tm-sel-fg: #f2f2f2;
+  --tm-sep-top: 1px solid rgba(255, 255, 255, 0.12);
+  --tm-sep-bottom: 0 none transparent;
+  --tm-sep-shadow: none;
+  --tm-sep-bg: transparent;
+}
+
+html, body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+/* The window is sized to the menu exactly. */
+
+#menu {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 190px;
+  box-sizing: border-box;
+  padding: var(--tm-pad);
+  font-family: var(--tm-font);
+  font-size: var(--tm-size);
+  font-weight: var(--tm-weight);
+  color: var(--tm-fg);
+  background-color: var(--tm-bg);
+  background-image: var(--tm-bg-image);
+  border: var(--tm-border);
+  border-radius: var(--tm-radius);
+  box-shadow: var(--tm-shadow);
+  /* Hidden until the window is on screen, so the frame Windows shows first is
+     never last time's menu (see traymenu.js). */
+  opacity: 0;
+}
+#menu.in { opacity: 1; }
+.motion #menu.in { animation: menu-in 0.14s cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion #menu.in { animation: none; }
+}
+
+/* Liquid Glass: frosted, as the pop-up is. The backend captures the screen
+   behind the menu just before it appears and blurs it (frost.rs); the skin's
+   colour goes over it thinly, with a lit edge. The menu's own rounded corner
+   clips it, so the edge is smooth. */
+.glass #menu {
+  background:
+    linear-gradient(color-mix(in srgb, var(--tm-bg) 55%, transparent),
+                    color-mix(in srgb, var(--tm-bg) 55%, transparent)),
+    var(--tm-backdrop, none) center / 100% 100% no-repeat,
+    color-mix(in srgb, var(--tm-bg) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: var(--tm-item-pad);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: var(--tm-item-radius);
+  outline: none;
+  cursor: default;
+}
+.item:hover,
+.item:focus-visible {
+  color: var(--tm-hover-fg);
+  background: var(--tm-hover-bg);
+}
+.item.selected {
+  font-weight: var(--tm-sel-weight);
+  color: var(--tm-sel-fg);
+  background: var(--tm-sel-bg);
+}
+.item.selected:hover,
+.item.selected:focus-visible {
+  color: var(--tm-hover-fg);
+  background: var(--tm-hover-bg);
+}
+
+.item.play { font-weight: var(--tm-sel-weight); }
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.glyph {
+  width: 12px;
+  height: 12px;
+  margin: 0 2px;
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask: var(--glyph) center / contain no-repeat;
+          mask: var(--glyph) center / contain no-repeat;
+}
+.glyph-play { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 3.5v17a1 1 0 0 0 1.5.87l14-8.5a1 1 0 0 0 0-1.74l-14-8.5A1 1 0 0 0 6 3.5z'/%3E%3C/svg%3E"); }
+.glyph-stop { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='4' width='16' height='16' rx='2'/%3E%3C/svg%3E"); }
+
+.header {
+  padding: 6px 10px 2px;
+  font-size: 0.85em;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.sep {
+  height: var(--tm-sep-height, 0);
+  margin: var(--tm-sep-margin, 3px 1px);
+  background: var(--tm-sep-bg);
+  border-top: var(--tm-sep-top);
+  border-bottom: var(--tm-sep-bottom);
+  box-shadow: var(--tm-sep-shadow);
+}

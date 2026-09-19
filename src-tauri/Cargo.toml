@@ -48,6 +48,8 @@ windows-sys = { version = "0.59", features = [
     # window icon at the sizes Windows actually draws.
     "Win32_UI_HiDpi",
     "Win32_System_LibraryLoader",
+    # Capturing the screen behind the frosted tray menu and pop-up.
+    "Win32_Graphics_Gdi",
 ] }
 
 # Optimise dependencies even in dev builds, while leaving this crate itself

@@ -52,10 +52,41 @@
         const needed = Math.ceil(stack.getBoundingClientRect().height) + TOP_ROOM;
         height = Math.max(windowHeight, needed, ROOM_FOR_STACK + TOP_ROOM);
       }
+      placeBackdrop();
       if (height === windowHeight) return;
       windowHeight = height;
-      invoke('desktop_notif_layout', { height }).catch(() => {});
+      if (!height) backdrop = null;
+      invoke('desktop_notif_layout', { height, frost: document.body.classList.contains('glass') })
+        .then((b) => {
+          if (b && b.url) {
+            backdrop = b;
+            document.documentElement.style.setProperty('--pop-backdrop', `url("${b.url}")`);
+            placeBackdrop();
+          }
+        })
+        .catch(() => {});
     }, 0);
+  }
+
+  // Liquid Glass: the frost is a blurred picture of the screen behind the
+  // window, taken by the backend as the window appears (frost.rs). Each card
+  // shows the part of it that lies under the card, so the picture stays put
+  // while the cards stack and move.
+  let backdrop = null;   // { url, width, height } in CSS pixels
+
+  function placeBackdrop() {
+    if (!backdrop) return;
+    const origin = stack.getBoundingClientRect();
+    // The picture is pinned to the window's bottom-right, as the stack is.
+    const left = innerWidth - backdrop.width;
+    const top = innerHeight - backdrop.height;
+    for (const c of stack.children) {
+      // The card's resting place, ignoring the transforms it animates with.
+      const x = origin.left + c.offsetLeft - left;
+      const y = origin.top + c.offsetTop - top;
+      c.style.setProperty('--bd-pos', `${-x}px ${-y}px`);
+    }
+    document.documentElement.style.setProperty('--pop-backdrop-size', `${backdrop.width}px ${backdrop.height}px`);
   }
 
   function motionOn() {

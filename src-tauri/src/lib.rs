@@ -3,6 +3,7 @@ pub mod config;
 pub mod defender;
 pub mod desktop_notify;
 pub mod download;
+pub mod frost;
 pub mod game;
 pub mod scraper;
 pub mod server;
@@ -107,6 +108,12 @@ pub fn run() {
             // Background / startup
             background::get_autostart,
             background::set_autostart,
+            background::set_tray_state,
+            background::show_launcher,
+            background::tray_menu_state,
+            background::tray_menu_show,
+            background::tray_menu_hide,
+            background::tray_menu_pick,
             // Desktop notification pop-up
             desktop_notify::desktop_notify,
             desktop_notify::desktop_notif_take,
@@ -191,7 +198,10 @@ pub fn run() {
                                 api.prevent_close();
                             }
                         }
-                        tauri::WindowEvent::Destroyed => desktop_notify::close_popup(&popup_app),
+                        tauri::WindowEvent::Destroyed => {
+                            desktop_notify::close_popup(&popup_app);
+                            background::close_tray_menu(&popup_app);
+                        }
                         _ => {}
                     }
                 });

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "tray-menu",
+  "description": "The tray icon's menu: it only needs to hear when to open and close.",
+  "windows": ["tray-menu"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

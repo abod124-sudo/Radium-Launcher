@@ -1,7 +1,9 @@
 //! Running in the background and starting with Windows.
 //!
 //! * **Tray icon.** Always there while the launcher runs. Clicking it brings
-//!   the window back; its menu has Open and Quit.
+//!   the window back. Right-clicking opens a themed menu (a small window,
+//!   not a native menu) that plays or stops the game, opens a page of the
+//!   launcher, switches network, and quits.
 //! * **Close to tray.** With `runInBackground` on (the default), closing the
 //!   window hides it instead of quitting, so notifications keep arriving. Quit
 //!   from the tray menu ends the process. The updater exits the app itself and
@@ -10,7 +12,6 @@
 //!   rights, and the same value name the NSIS uninstaller already removes.
 //!   It launches with [`BACKGROUND_ARG`], which keeps the window hidden.
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -38,25 +39,209 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "tray-open", "Open Radium Launcher", true, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "tray-quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &sep, &quit])?;
+// ── The tray menu ────────────────────────────────────────────────────────
+//
+// Not a native menu: Windows draws those in its own grey, whatever skin the
+// launcher wears. It is a small borderless window (traymenu.html) painted
+// with the look the launcher page reports for its own menus, opened at the
+// cursor on a right-click and hidden again when it loses focus.
 
+pub const TRAY_MENU_LABEL: &str = "tray-menu";
+
+/// What the menu shows, as last reported by the launcher page.
+#[derive(Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrayState {
+    network: String,
+    game_running: bool,
+    /// The launcher's menu look, measured from its own menus (see
+    /// `trayMenuStyle` in app.js). Only ever written into CSS variables.
+    style: Option<serde_json::Value>,
+}
+
+static TRAY_STATE: std::sync::Mutex<Option<TrayState>> = std::sync::Mutex::new(None);
+/// Where the tray was right-clicked, in physical pixels, while the menu is up.
+static TRAY_ANCHOR: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
+
+fn tray_state(app: &AppHandle) -> TrayState {
+    TRAY_STATE.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_else(|| TrayState {
+        network: crate::config::current(app).network.clone(),
+        ..Default::default()
+    })
+}
+
+/// Called by the launcher page when the network, the game's running state or
+/// the skin changes.
+#[tauri::command]
+pub fn set_tray_state(network: String, game_running: bool, style: Option<serde_json::Value>) {
+    *TRAY_STATE.lock().unwrap_or_else(|e| e.into_inner()) = Some(TrayState { network, game_running, style });
+}
+
+/// Bring the window back from the page's side (see `playFromTray` in app.js).
+#[tauri::command]
+pub fn show_launcher(app: AppHandle) {
+    show_main(&app);
+}
+
+fn tray_menu_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
+    if let Some(win) = app.get_webview_window(TRAY_MENU_LABEL) {
+        return Some(win);
+    }
+    let win = tauri::WebviewWindowBuilder::new(app, TRAY_MENU_LABEL, tauri::WebviewUrl::App("traymenu.html".into()))
+        .title("Radium Launcher")
+        .inner_size(320.0, 480.0)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .focused(false)
+        .build()
+        .ok()?;
+    let handle = win.clone();
+    win.on_window_event(move |event| {
+        // Clicking anywhere else closes it, as a menu does. The page does the
+        // hiding, so it can blank itself first (see traymenu.js).
+        if let tauri::WindowEvent::Focused(false) = event {
+            let _ = handle.emit_to(TRAY_MENU_LABEL, "tray-menu-dismiss", ());
+        }
+    });
+    Some(win)
+}
+
+/// Right-click on the tray icon: have the page draw the menu. It measures
+/// itself and calls [`tray_menu_show`] back with its size.
+fn open_tray_menu(app: &AppHandle, x: f64, y: f64) {
+    *TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()) = Some((x, y));
+    if tray_menu_window(app).is_some() {
+        let _ = app.emit_to(TRAY_MENU_LABEL, "tray-menu-open", tray_state(app));
+    }
+}
+
+/// What to draw, for a page that finished loading after the right-click
+/// that opened it. `None` when no menu is waiting to open.
+#[tauri::command]
+pub fn tray_menu_state(app: AppHandle) -> Option<TrayState> {
+    let pending = TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    pending.then(|| tray_state(&app))
+}
+
+/// The page has drawn the menu at `width` x `height` (logical pixels): place
+/// it by the cursor, where Windows would have put its own menu, and bring it
+/// up with focus so a click elsewhere closes it.
+///
+/// Under Liquid Glass (`frost`) it returns the blurred screen behind the
+/// menu for the page to paint as its frost (see the `frost` module).
+#[tauri::command]
+pub fn tray_menu_show(app: AppHandle, width: f64, height: f64, frost: bool) -> Result<Option<String>, String> {
+    let Some((cx, cy)) = *TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()) else { return Ok(None) };
+    let win = app.get_webview_window(TRAY_MENU_LABEL).ok_or("No tray menu window")?;
+    if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
+        return Err("Bad tray menu size".into());
+    }
+
+    let monitor = app
+        .monitor_from_point(cx, cy)
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .ok_or("No monitor found")?;
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    let (left, top) = (area.position.x as f64, area.position.y as f64);
+    let (right, bottom) = (left + area.size.width as f64, top + area.size.height as f64);
+
+    let (mw, mh) = ((width.min(600.0) * scale).round(), (height.min(900.0) * scale).round());
+
+    // Above and to the right of the cursor, flipped where that would leave
+    // the screen, then kept inside the work area (off the taskbar).
+    let mut mx = if cx + mw <= right { cx } else { cx - mw };
+    let mut my = if cy - mh >= top { cy - mh } else { cy };
+    mx = mx.clamp(left, (right - mw).max(left));
+    my = my.clamp(top, (bottom - mh).max(top));
+
+    win.set_size(tauri::PhysicalSize::new(mw as u32, mh as u32)).map_err(|e| e.to_string())?;
+    win.set_position(tauri::PhysicalPosition::new(mx.round() as i32, my.round() as i32))
+        .map_err(|e| e.to_string())?;
+    // Captured while the menu is still hidden, so it isn't in the picture.
+    let backdrop = if frost {
+        crate::frost::backdrop(mx.round() as i32, my.round() as i32, mw as i32, mh as i32)
+    } else {
+        None
+    };
+    win.show().map_err(|e| e.to_string())?;
+    let _ = win.set_always_on_top(true);
+    let _ = win.set_focus();
+    Ok(backdrop)
+}
+
+#[tauri::command]
+pub fn tray_menu_hide(app: AppHandle) {
+    *TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    if let Some(win) = app.get_webview_window(TRAY_MENU_LABEL) {
+        let _ = win.hide();
+    }
+}
+
+/// A choice from the tray menu.
+#[tauri::command]
+pub fn tray_menu_pick(app: AppHandle, id: String) {
+    tray_menu_hide(app.clone());
+    on_menu(&app, &id);
+}
+
+/// Close the tray menu with the launcher, so its hidden window can't keep the
+/// process alive after the main window is gone.
+pub fn close_tray_menu(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(TRAY_MENU_LABEL) {
+        let _ = win.destroy();
+    }
+}
+
+/// A tray menu choice the page carries out, since the page owns what each one
+/// means (the pre-launch checks, the network switch's guards, the tabs).
+#[derive(Clone, serde::Serialize)]
+struct TrayAction {
+    action: &'static str,
+    value: String,
+}
+
+fn on_menu(app: &AppHandle, id: &str) {
+    let action = |action: &'static str, value: &str| {
+        let _ = app.emit_to("main", "tray-action", TrayAction { action, value: value.to_string() });
+    };
+    match id {
+        "open" => show_main(app),
+        "quit" => app.exit(0),
+        // Play stays in the tray, like Steam's game entries: the page reveals
+        // the window itself if the launch needs the user (a warning, a
+        // missing install, the stop confirmation).
+        "play" => action("play", ""),
+        _ => {
+            if let Some(tab) = id.strip_prefix("tab:") {
+                show_main(app);
+                action("tab", tab);
+            } else if let Some(name) = id.strip_prefix("network:") {
+                show_main(app);
+                action("network", name);
+            }
+        }
+    }
+}
+
+pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let mut tray = TrayIconBuilder::with_id("main-tray")
         .tooltip("Radium Launcher")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "tray-open" => show_main(app),
-            "tray-quit" => app.exit(0),
-            _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+        .on_tray_icon_event(|tray, event| match event {
+            TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => {
                 show_main(tray.app_handle());
             }
+            TrayIconEvent::Click { button: MouseButton::Right, button_state: MouseButtonState::Up, position, .. } => {
+                open_tray_menu(tray.app_handle(), position.x, position.y);
+            }
+            _ => {}
         });
     match tray_icon() {
         Some(icon) => tray = tray.icon(icon),
@@ -67,6 +252,8 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         }
     }
     tray.build(app)?;
+    // Made now, hidden, so the first right-click doesn't wait for a webview.
+    let _ = tray_menu_window(app);
     Ok(())
 }
 
