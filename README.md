@@ -41,7 +41,7 @@ An **unofficial** launcher for Rec Room revival servers.
 
 ## Download
 
-**Update 4.0.0 is coming soon.** The link below goes live the moment it's published —
+**Update 4.0.0 is coming soon.(Probably on Vanilla or Radium release)** The link below goes live the moment it's published —
 until then, grab the current build from the [Releases page](https://github.com/abod124-sudo/Radium-Launcher/releases/latest).
 
 | File | Description |
