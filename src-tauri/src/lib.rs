@@ -165,6 +165,10 @@ pub fn run() {
             // Start game monitoring background task
             game::start_game_monitor(app_handle.clone());
 
+            // Give back the Vanilla bulk sets once nothing has read them for a
+            // while. See `vanilla::BULK_IDLE_EVICT`.
+            vanilla::start_idle_eviction();
+
             // Tray icon. Not fatal: without it the launcher still works, it
             // just can't be reopened from the tray.
             let _ = background::setup_tray(&app_handle);

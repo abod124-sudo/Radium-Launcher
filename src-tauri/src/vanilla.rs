@@ -273,6 +273,20 @@ const BULK_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long to leave a failed background refresh alone before trying again.
 const BULK_RETRY_DELAY: Duration = Duration::from_secs(60);
 
+/// How long a bulk set may sit unread before it is dropped from memory.
+///
+/// These are held in an `Arc` for the life of the process, and nothing but a
+/// refresh ever replaced them — so one visit to People left ~51 MB of parsed
+/// player records resident forever, which for a launcher that lives in the
+/// tray between play sessions is most of its footprint. Fifteen minutes is
+/// well past [`BULK_TTL`], so a set is only ever dropped after it would have
+/// been re-downloaded anyway; coming back to the tab then pays one cold fetch
+/// instead of keeping the memory for a day.
+const BULK_IDLE_EVICT: Duration = Duration::from_secs(15 * 60);
+
+/// How often [`start_idle_eviction`] looks for a set to drop.
+const EVICT_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+
 /// How long a resolved player record is reused before it is looked up again.
 ///
 /// Longer than [`BULK_TTL`]: what this caches is a username, an avatar URL and
@@ -560,6 +574,9 @@ struct BulkCache<T> {
     /// be re-attempted by every request, each starting a multi-megabyte
     /// download that is going to fail.
     retry_at: StdMutex<Option<Instant>>,
+    /// When something last read the set, so an idle one can be dropped. `None`
+    /// while nothing is cached.
+    last_read: StdMutex<Option<Instant>>,
 }
 
 impl<T> BulkCache<T> {
@@ -568,6 +585,42 @@ impl<T> BulkCache<T> {
             value: AsyncMutex::const_new(None),
             refreshing: AtomicBool::new(false),
             retry_at: StdMutex::new(None),
+            last_read: StdMutex::new(None),
+        }
+    }
+
+    fn touch(&self) {
+        *self.last_read.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+    }
+
+    /// Drop the cached set if nothing has read it for [`BULK_IDLE_EVICT`].
+    ///
+    /// Skipped while a refresh is in flight: that download is about to store a
+    /// replacement, and dropping the old set first only turns the next read
+    /// into a cold wait for no saving.
+    async fn evict_if_idle(&self) {
+        if self.refreshing.load(Ordering::SeqCst) {
+            return;
+        }
+        {
+            let last = *self.last_read.lock().unwrap_or_else(|e| e.into_inner());
+            match last {
+                Some(at) if at.elapsed() >= BULK_IDLE_EVICT => {}
+                _ => return,
+            }
+        }
+        // Re-checked under the value lock, because a reader may have arrived
+        // between the test above and here.
+        let mut guard = self.value.lock().await;
+        let idle = self
+            .last_read
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .map(|at| at.elapsed() >= BULK_IDLE_EVICT)
+            .unwrap_or(false);
+        if idle {
+            *guard = None;
+            *self.last_read.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
     }
 }
@@ -585,6 +638,7 @@ impl<T: Fetched + Send + Sync + 'static> BulkCache<T> {
             if let Some(snap) = guard.as_ref() {
                 let snap = snap.clone();
                 drop(guard);
+                self.touch();
                 if snap.fetched().elapsed() >= BULK_TTL {
                     self.spawn_refresh(fetch);
                 }
@@ -597,10 +651,12 @@ impl<T: Fetched + Send + Sync + 'static> BulkCache<T> {
         let mut guard = self.value.lock().await;
         if let Some(snap) = guard.as_ref() {
             // Another caller won the race and downloaded it while we queued.
+            self.touch();
             return Ok(snap.clone());
         }
         let snap = fetch().await?;
         *guard = Some(snap.clone());
+        self.touch();
         Ok(snap)
     }
 
@@ -716,6 +772,30 @@ pub fn prefetch() {
     });
     tokio::spawn(async {
         let _ = players_snapshot().await;
+    });
+}
+
+/// Start the sweeper that drops a bulk set nothing has read for a while.
+///
+/// One task for the life of the process, started from the app's setup. It does
+/// nothing at all until a set has actually been downloaded, and it holds no
+/// lock except for the moment it takes to check or drop one — so it never
+/// delays a request. See [`BULK_IDLE_EVICT`] for why this is worth having.
+pub fn start_idle_eviction() {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    if STARTED.set(()).is_err() {
+        return;
+    }
+    tauri::async_runtime::spawn(async {
+        let mut tick = tokio::time::interval(EVICT_SWEEP_INTERVAL);
+        // The first tick fires immediately; skip it so the sweep starts one
+        // interval in rather than during boot.
+        tick.tick().await;
+        loop {
+            tick.tick().await;
+            ROOMS_CACHE.evict_if_idle().await;
+            PLAYERS_CACHE.evict_if_idle().await;
+        }
     });
 }
 

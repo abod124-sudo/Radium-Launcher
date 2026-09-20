@@ -72,9 +72,27 @@ fn tray_state(app: &AppHandle) -> TrayState {
 
 /// Called by the launcher page when the network, the game's running state or
 /// the skin changes.
+///
+/// A menu that is open at the time is told to redraw itself. That is what lets
+/// the network rows act as a selection: picking one switches the launcher
+/// underneath, and the tick moves to the row that won — along with "Play
+/// Radium"/"Play Vanilla" and the Feed row, which only Vanilla has.
 #[tauri::command]
-pub fn set_tray_state(network: String, game_running: bool, style: Option<serde_json::Value>) {
+pub fn set_tray_state(app: AppHandle, network: String, game_running: bool, style: Option<serde_json::Value>) {
     *TRAY_STATE.lock().unwrap_or_else(|e| e.into_inner()) = Some(TrayState { network, game_running, style });
+    if tray_menu_is_open(&app) {
+        let _ = app.emit_to(TRAY_MENU_LABEL, "tray-menu-update", tray_state(&app));
+    }
+}
+
+/// Whether the menu window exists and is on screen.
+///
+/// The anchor is set for as long as a menu is up (`tray_menu_hide` clears it),
+/// so it also covers the moment between the right-click and the page calling
+/// `tray_menu_show` back.
+fn tray_menu_is_open(app: &AppHandle) -> bool {
+    TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+        && app.get_webview_window(TRAY_MENU_LABEL).is_some()
 }
 
 /// Bring the window back from the page's side (see `playFromTray` in app.js).
@@ -90,13 +108,19 @@ fn tray_menu_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     let win = tauri::WebviewWindowBuilder::new(app, TRAY_MENU_LABEL, tauri::WebviewUrl::App("traymenu.html".into()))
         .title("Radium Launcher")
         .inner_size(320.0, 480.0)
+        // Stays hidden until `tray_menu_show` places it. The pop-up next door
+        // is built "visible" far off screen so its webview composites; that
+        // was tried here and is not safe, because a builder `position` that
+        // far out is not honoured — measured 2026-09-20, the window came up at
+        // Windows' own cascade position instead, which would flash an empty
+        // 320x480 frame on screen at startup.
+        .visible(false)
         .decorations(false)
         .transparent(true)
         .shadow(false)
         .resizable(false)
         .always_on_top(true)
         .skip_taskbar(true)
-        .visible(false)
         .focused(false)
         .build()
         .ok()?;
@@ -162,18 +186,30 @@ pub fn tray_menu_show(app: AppHandle, width: f64, height: f64, frost: bool) -> R
     mx = mx.clamp(left, (right - mw).max(left));
     my = my.clamp(top, (bottom - mh).max(top));
 
+    // A menu already on screen is calling back to resize itself — the network
+    // rows switch the launcher in place, and Vanilla's menu is one row taller
+    // than Radium's. It keeps the frost it was given: capturing now would
+    // photograph the menu itself. The picture is stretched to the window
+    // either way (`100% 100%` in traymenu.css), and it is a heavy blur, so one
+    // row's worth of rescale is not visible.
+    let already_up = win.is_visible().unwrap_or(false);
+
     win.set_size(tauri::PhysicalSize::new(mw as u32, mh as u32)).map_err(|e| e.to_string())?;
     win.set_position(tauri::PhysicalPosition::new(mx.round() as i32, my.round() as i32))
         .map_err(|e| e.to_string())?;
     // Captured while the menu is still hidden, so it isn't in the picture.
-    let backdrop = if frost {
+    let backdrop = if frost && !already_up {
         crate::frost::backdrop(mx.round() as i32, my.round() as i32, mw as i32, mh as i32)
     } else {
         None
     };
-    win.show().map_err(|e| e.to_string())?;
-    let _ = win.set_always_on_top(true);
-    let _ = win.set_focus();
+    // Only on the way in. Re-showing and re-focusing a menu that is already up
+    // makes Windows treat the resize as a fresh activation, which flickers.
+    if !already_up {
+        win.show().map_err(|e| e.to_string())?;
+        let _ = win.set_always_on_top(true);
+        let _ = win.set_focus();
+    }
     Ok(backdrop)
 }
 
@@ -186,9 +222,16 @@ pub fn tray_menu_hide(app: AppHandle) {
 }
 
 /// A choice from the tray menu.
+///
+/// The network rows are a selection rather than a command: they leave the menu
+/// up, the way a radio group in a menu does, so the tick can move to the row
+/// that was picked and the rest of the menu can follow the switch. Everything
+/// else closes the menu, as choosing an item should.
 #[tauri::command]
 pub fn tray_menu_pick(app: AppHandle, id: String) {
-    tray_menu_hide(app.clone());
+    if !id.starts_with("network:") {
+        tray_menu_hide(app.clone());
+    }
     on_menu(&app, &id);
 }
 
@@ -224,7 +267,12 @@ fn on_menu(app: &AppHandle, id: &str) {
                 show_main(app);
                 action("tab", tab);
             } else if let Some(name) = id.strip_prefix("network:") {
-                show_main(app);
+                // The window stays where it is: switching network from the
+                // menu is a setting, not a reason to interrupt whatever is on
+                // screen. The page reveals it itself on the one path that
+                // needs the user — a switch it has to refuse, mid-download or
+                // with the game running, which it explains in a toast nobody
+                // would see behind a hidden window.
                 action("network", name);
             }
         }
@@ -253,8 +301,55 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     }
     tray.build(app)?;
     // Made now, hidden, so the first right-click doesn't wait for a webview.
-    let _ = tray_menu_window(app);
+    if let Some(win) = tray_menu_window(app) {
+        warm_tray_menu(win);
+    }
     Ok(())
+}
+
+/// Give the menu's webview one real frame, off screen, before anyone can open
+/// it.
+///
+/// Building the window early is not enough on its own. A window that has been
+/// created but never shown has a webview that has never composited, and the
+/// first `show()` is where that surface gets made — so the first menu of a
+/// session appeared, sat blank for a beat while the renderer caught up, and
+/// only then ran its entrance. Every later menu came from a window that had
+/// been shown once already and was merely hidden, so it had a surface ready
+/// and opened cleanly. That difference is the one that shows.
+///
+/// So the window is shown once here, far enough off screen that nothing is
+/// visible, and hidden again a moment later. From then on it is in exactly the
+/// state every later open finds it in.
+///
+/// The position is set after the build rather than in the builder: a builder
+/// `position` this far out is not honoured (measured 2026-09-20 — the window
+/// came up at Windows' own cascade position instead), which would have put an
+/// empty 320x480 frame on screen at startup. `set_position` goes through
+/// `SetWindowPos`, which takes it.
+fn warm_tray_menu(win: tauri::WebviewWindow) {
+    const OFF_SCREEN: i32 = -32000;
+    if win
+        .set_position(tauri::PhysicalPosition::new(OFF_SCREEN, OFF_SCREEN))
+        .is_err()
+    {
+        // Without a position we can trust, showing it would flash on screen.
+        return;
+    }
+    // Verified rather than assumed, for the same reason.
+    match win.outer_position() {
+        Ok(at) if at.x <= OFF_SCREEN / 2 && at.y <= OFF_SCREEN / 2 => {}
+        _ => return,
+    }
+    if win.show().is_err() {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        // Long enough for the webview to paint once, short enough that it is
+        // done well before anyone reaches the tray icon.
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        let _ = win.hide();
+    });
 }
 
 /// The tray icon, drawn at exactly the size the notification area shows.

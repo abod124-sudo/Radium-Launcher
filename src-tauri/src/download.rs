@@ -288,20 +288,50 @@ fn extract_patch_notes(html: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Compare two dotted version strings (e.g. "0.9.2" or "v3.5.2"), returning
-/// true if `a` is greater than `b`. A leading 'v' is stripped from each side;
-/// non-numeric or missing segments are treated as 0.
-pub fn version_gt(a: &str, b: &str) -> bool {
-    let parse = |s: &str| -> Vec<u64> {
-        s.trim()
-            .trim_start_matches('v')
-            .split('.')
-            .map(|part| part.trim().parse::<u64>().unwrap_or(0))
-            .collect()
+/// The numeric release of a version string, and its pre-release suffix.
+///
+/// `"v4.1.0-beta.2"` is `([4, 1, 0], "beta.2")`; `"4.1.0"` is `([4, 1, 0], "")`.
+/// A leading `v` is dropped, `+build` metadata is discarded (semver says it
+/// takes no part in ordering), everything after the first `-` is the
+/// pre-release suffix, and each remaining dotted segment is read up to its
+/// first non-digit.
+///
+/// Splitting the suffix off is what the old parse missed: it split on `.`
+/// first, so `"4.1.0-beta"` became `["4", "1", "0-beta"]`, and `"0-beta"`
+/// failed to parse and fell back to 0 — making a pre-release compare exactly
+/// equal to the release it precedes. A `-beta` tag on GitHub was therefore
+/// never offered to anyone on the final, and vice versa.
+fn version_parts(s: &str) -> (Vec<u64>, &str) {
+    let s = s.trim().trim_start_matches('v');
+    let s = s.split('+').next().unwrap_or(s);
+    let (release, pre) = match s.find('-') {
+        Some(i) => (&s[..i], &s[i + 1..]),
+        None => (s, ""),
     };
+    let nums = release
+        .split('.')
+        .map(|part| {
+            let digits = part.trim();
+            let end = digits
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(digits.len());
+            digits[..end].parse::<u64>().unwrap_or(0)
+        })
+        .collect();
+    (nums, pre)
+}
 
-    let a_parts = parse(a);
-    let b_parts = parse(b);
+/// Compare two dotted version strings (e.g. "0.9.2", "v3.5.2" or "v4.1.0-rc1"),
+/// returning true if `a` is greater than `b`. A leading 'v' is stripped from
+/// each side; non-numeric or missing segments are treated as 0.
+///
+/// A pre-release sorts *below* the release with the same numbers, as semver
+/// says: `4.1.0-beta < 4.1.0`. Two pre-releases of the same version fall back
+/// to comparing their suffixes as text, which orders the shapes actually used
+/// (`alpha` < `beta` < `rc`, and `rc1` < `rc2`) correctly.
+pub fn version_gt(a: &str, b: &str) -> bool {
+    let (a_parts, a_pre) = version_parts(a);
+    let (b_parts, b_pre) = version_parts(b);
     let max_len = a_parts.len().max(b_parts.len());
 
     for i in 0..max_len {
@@ -314,7 +344,15 @@ pub fn version_gt(a: &str, b: &str) -> bool {
             return false;
         }
     }
-    false
+
+    // Same numbers: only the pre-release suffix can separate them.
+    match (a_pre.is_empty(), b_pre.is_empty()) {
+        // A release beats a pre-release of the same version.
+        (true, false) => true,
+        (false, true) => false,
+        (true, true) => false,
+        (false, false) => a_pre > b_pre,
+    }
 }
 
 /// Fetch the download page and resolve the version + direct URL of the
@@ -951,6 +989,12 @@ fn extract_client_zip(
     }
 
     // The archive is readable and within budget, so the old install can go.
+    //
+    // A `false` here — the folder exists but holds nothing recognisable, e.g.
+    // the remains of a run cancelled before the exe was written — is not worth
+    // refusing over: extraction overwrites by name, and a folder the launcher
+    // doesn't recognise as an install is not one it reports as installed
+    // either. Deleting it anyway is the behaviour the guard exists to prevent.
     if Path::new(client_dir).exists() {
         let _ = safe_clear_client_dir(client_dir);
     }
@@ -1140,10 +1184,23 @@ async fn uninstall_client_impl(
         // Deleting a multi-gigabyte install is seconds of synchronous I/O, so
         // it goes to the blocking pool rather than parking a tokio worker.
         let dir = client_dir.clone();
-        tokio::task::spawn_blocking(move || safe_clear_client_dir(&dir))
+        let cleared = tokio::task::spawn_blocking(move || safe_clear_client_dir(&dir))
             .await
             .map_err(|e| format!("Uninstall task failed: {}", e))?
             .map_err(|e| format!("Failed to clear client dir: {}", e))?;
+
+        // The folder is there but holds nothing this launcher recognises as a
+        // game install, so the safety guard refused to delete anything. Say so
+        // and leave the config alone: clearing it here is what used to leave
+        // the UI reporting "not installed" over gigabytes still on disk.
+        if !cleared {
+            return Err(format!(
+                "Nothing was removed: '{}' holds no recognisable game files, so it \
+                 was left untouched in case it is not a client folder. Delete it \
+                 yourself if it is.",
+                client_dir
+            ));
+        }
     }
 
     // Clear relevant config fields.
@@ -1229,19 +1286,37 @@ pub async fn check_install(
 // ─── Open client folder ─────────────────────────────────────────────────────
 
 /// Open the game client directory in the system file explorer.
+///
+/// `explorer.exe` is named by its full path rather than resolved through
+/// `PATH` (which searches the current directory first on Windows), so a file
+/// dropped beside the launcher cannot stand in for it.
 #[tauri::command]
 pub async fn open_client_folder(app: tauri::AppHandle, network: Option<String>) -> bool {
     let cfg = config::current(&app);
     let client_dir = config::get_client_dir_for(&app, &cfg, Network::parse(network.as_deref()));
 
-    if Path::new(&client_dir).exists() {
-        let _ = std::process::Command::new("explorer")
-            .arg(&client_dir)
-            .spawn();
-        true
-    } else {
-        false
+    if !Path::new(&client_dir).exists() {
+        return false;
     }
+
+    #[cfg(target_os = "windows")]
+    {
+        // explorer.exe lives beside System32 rather than in it; the helper's
+        // fallback covers an install that doesn't match either spelling.
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+        let explorer = format!(r"{}\explorer.exe", root.trim_end_matches('\\'));
+        let explorer = if Path::new(&explorer).exists() {
+            explorer
+        } else {
+            "explorer".to_string()
+        };
+        let _ = std::process::Command::new(explorer).arg(&client_dir).spawn();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(&client_dir).spawn();
+    }
+    true
 }
 
 // ─── Select folder dialog ───────────────────────────────────────────────────
@@ -1399,19 +1474,23 @@ pub fn is_overly_broad_dir(dir: &str) -> bool {
 /// directories, ensuring unrelated user files (like parent project folders)
 /// are left completely untouched.
 ///
-/// Returns an error (without deleting anything) if the target directory does
-/// not appear to be a Rec Room game installation. This is the primary guard
-/// against the "reinstall deletes parent folder" bug class.
-fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<()> {
+/// Returns `Ok(false)` — having deleted nothing — when the target directory
+/// exists but holds no recognisable game files. That is the primary guard
+/// against the "reinstall deletes parent folder" bug class, and the caller has
+/// to know it fired: `uninstall_client` used to report plain success here,
+/// clear the config, and leave the UI saying "not installed" over a client
+/// still sitting on disk. `Ok(true)` means the directory was a game install
+/// (or was already gone) and has been cleared.
+fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
     let path = Path::new(client_dir);
     if !path.exists() {
-        return Ok(());
+        return Ok(true);
     }
 
     // Safety guard: abort if this directory does not look like a game install.
     if !is_game_install_dir(client_dir) {
         // The directory is not empty but has no game files — do not touch it.
-        return Ok(());
+        return Ok(false);
     }
 
     let game_files = [
@@ -1459,7 +1538,7 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<()> {
         }
     }
 
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -1645,6 +1724,30 @@ mod update_check_tests {
         assert!(version_gt("v2.0.0", "1.9.9"));
         assert!(!version_gt("v1.0.0", "v1.0.0"));
         assert!(!version_gt("v1.0.0", "v1.0.1"));
+    }
+
+    #[test]
+    fn a_pre_release_sorts_below_the_release_it_precedes() {
+        // The bug this replaced: "4.1.0-beta" parsed as [4, 1, 0] and compared
+        // exactly equal to "4.1.0", so neither side was ever offered the other.
+        assert!(version_gt("4.1.0", "4.1.0-beta"));
+        assert!(!version_gt("4.1.0-beta", "4.1.0"));
+        assert!(version_gt("v4.1.0", "v4.1.0-rc1"));
+
+        // A pre-release still beats an older release outright.
+        assert!(version_gt("4.1.0-beta", "4.0.0"));
+        assert!(!version_gt("4.0.0", "4.1.0-beta"));
+
+        // Between two pre-releases of the same version, the suffix decides.
+        assert!(version_gt("4.1.0-rc2", "4.1.0-rc1"));
+        assert!(version_gt("4.1.0-beta", "4.1.0-alpha"));
+        assert!(!version_gt("4.1.0-rc1", "4.1.0-rc1"));
+
+        // Build metadata takes no part in the ordering, as semver says.
+        assert!(!version_gt("4.1.0+build8", "4.1.0+build7"));
+        assert!(!version_gt("4.1.0+build7", "4.1.0"));
+        assert!(!version_gt("4.1.0", "4.1.0+build7"));
+        assert!(version_gt("4.1.1+build1", "4.1.0+build9"));
     }
 
     #[test]

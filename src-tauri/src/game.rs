@@ -170,6 +170,103 @@ fn any_process_running(_images: &[&str]) -> bool {
     false
 }
 
+/// Terminate every running process with one of the given image names.
+///
+/// Returns the number that were asked to stop.
+///
+/// Walks the same snapshot as [`any_process_running`] instead of spawning
+/// `taskkill.exe` once per name. `taskkill` was resolved by bare name, so it
+/// came out of whatever the process search order turned up first, and three
+/// spawns cost ~75 ms each of pure process-creation overhead to do what two
+/// handle calls do. This also stops Stop Game from creating hidden console
+/// processes, which is the pattern antivirus heuristics flag.
+#[cfg(target_os = "windows")]
+fn terminate_processes(images: &[&str]) -> u32 {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+
+    // SAFETY: the snapshot handle is checked against INVALID_HANDLE_VALUE and
+    // closed on every exit path; `entry` is zeroed with `dwSize` set before the
+    // first call, as Process32FirstW requires. Each process handle that
+    // OpenProcess returns is closed straight after the terminate attempt, and a
+    // null handle (access denied, or the process exited between the snapshot
+    // and here) is skipped rather than used.
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE {
+            return 0;
+        }
+
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        let mut killed = 0;
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                if image_name_matches(&entry.szExeFile, images) {
+                    let handle = OpenProcess(PROCESS_TERMINATE, 0, entry.th32ProcessID);
+                    if !handle.is_null() {
+                        if TerminateProcess(handle, 1) != 0 {
+                            killed += 1;
+                        }
+                        let _ = CloseHandle(handle);
+                    }
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snapshot);
+        killed
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn terminate_processes(_images: &[&str]) -> u32 {
+    0
+}
+
+/// Read a `REG_DWORD` value, or `None` if the key, the value or the type isn't
+/// there.
+///
+/// Replaces two `reg.exe query` spawns whose stdout was then parsed by
+/// splitting on whitespace and guessing at hex vs decimal. `reg` was resolved
+/// by bare name — so it came from wherever the process search order found one
+/// — each call cost a process creation, and the output is localised on some
+/// Windows installs, which the "find the line containing the value name" parse
+/// quietly depended on not being.
+#[cfg(target_os = "windows")]
+fn reg_dword(hive: windows_sys::Win32::System::Registry::HKEY, path: &str, value: &str) -> Option<u32> {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{RegGetValueW, RRF_RT_REG_DWORD};
+
+    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
+    let (path, value) = (wide(path), wide(value));
+    let mut data: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    // SAFETY: both strings are NUL-terminated; `data` is exactly the four bytes
+    // `size` promises, and RRF_RT_REG_DWORD makes the call fail rather than
+    // write anything else into it.
+    let rc = unsafe {
+        RegGetValueW(
+            hive,
+            path.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            (&mut data as *mut u32).cast(),
+            &mut size,
+        )
+    };
+    (rc == ERROR_SUCCESS).then_some(data)
+}
+
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
 
 /// Checks whether any recognised game executable is currently running.
@@ -191,31 +288,12 @@ pub fn check_steam() -> bool {
 pub fn check_required_steam_app() -> bool {
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        let output = Command::new("reg")
-            .args([
-                "query",
-                r"HKCU\Software\Valve\Steam\Apps\92",
-                "/v",
-                "Installed",
-            ])
-            .creation_flags(0x08000000)
-            .output();
-
-        match output {
-            Ok(o) => {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                stdout
-                    .lines()
-                    .find(|l| l.contains("Installed"))
-                    .map(|l| {
-                        let v = l.trim();
-                        v.ends_with("0x1") || v.ends_with("0x00000001")
-                    })
-                    .unwrap_or(false)
-            }
-            Err(_) => false,
-        }
+        use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
+        reg_dword(
+            HKEY_CURRENT_USER,
+            r"Software\Valve\Steam\Apps\92",
+            "Installed",
+        ) == Some(1)
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -399,80 +477,43 @@ fn launch_game_impl(
 /// (`RecRoom.exe`); see [`GAME_EXES`].
 #[tauri::command(async)]
 pub fn kill_game() -> bool {
+    // Off Windows `terminate_processes` finds nothing and `check_game_running`
+    // already reports false, so nothing can ask for this in the first place.
     #[cfg(target_os = "windows")]
-    use std::os::windows::process::CommandExt;
-
-    #[cfg(target_os = "windows")]
-    for image in GAME_EXES {
-        let _ = Command::new("taskkill")
-            .args(["/F", "/IM", image])
-            .creation_flags(0x08000000)
-            .output();
+    {
+        terminate_processes(&GAME_EXES);
+        true
     }
-
-    // `taskkill` is a Windows binary; there is nothing to call here, and
-    // `check_game_running` already reports false off Windows, so nothing can
-    // ask for this in the first place.
     #[cfg(not(target_os = "windows"))]
     {
-        return false;
+        false
     }
-
-    #[cfg(target_os = "windows")]
-    true
 }
 
 /// Queries the Windows registry to determine whether Smart App Control is
 /// enabled. Returns `{ enabled: bool, state: i32 }`.
+///
+/// `state` is Windows' own value: 0 off, 1 enforcing, 2 evaluation. `-1` means
+/// the value isn't there at all, which is every Windows build before 11 22H2
+/// — and every platform that isn't Windows, where there is no such feature to
+/// ask about rather than a query to run.
 #[tauri::command(async)]
 pub fn check_smart_app_control() -> serde_json::Value {
     #[cfg(target_os = "windows")]
-    use std::os::windows::process::CommandExt;
-
-    #[cfg(target_os = "windows")]
-    let output = Command::new("reg")
-        .args([
-            "query",
-            "HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy",
-            "/v",
+    {
+        use windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE;
+        match reg_dword(
+            HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\CI\Policy",
             "VerifiedAndReputablePolicyState",
-        ])
-        .creation_flags(0x08000000)
-        .output();
-
+        ) {
+            Some(state) => json!({ "enabled": state == 1 || state == 2, "state": state }),
+            None => json!({ "enabled": false, "state": -1 }),
+        }
+    }
     #[cfg(not(target_os = "windows"))]
-    let output = Command::new("reg")
-        .args([
-            "query",
-            "HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy",
-            "/v",
-            "VerifiedAndReputablePolicyState",
-        ])
-        .output();
-
-    match output {
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            // Look for the DWORD value in the output
-            // Format: "    VerifiedAndReputablePolicyState    REG_DWORD    0x00000001"
-            let re_pattern = "VerifiedAndReputablePolicyState";
-            if let Some(line) = stdout.lines().find(|l| l.contains(re_pattern)) {
-                // Parse the value — could be hex (0x...) or decimal
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if let Some(val_str) = parts.last() {
-                    let val = if let Some(hex) = val_str.strip_prefix("0x") {
-                        i32::from_str_radix(hex, 16).unwrap_or(-1)
-                    } else {
-                        val_str.parse::<i32>().unwrap_or(-1)
-                    };
-                    return json!({ "enabled": val == 1 || val == 2, "state": val });
-                }
-            }
-            json!({ "enabled": false, "state": -1 })
-        }
-        Err(e) => {
-            json!({ "enabled": false, "error": e.to_string() })
-        }
+    {
+        json!({ "enabled": false, "state": -1 })
     }
 }
 

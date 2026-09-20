@@ -1,0 +1,1770 @@
+/* Liquid Glass — the effect that stands in for a skin entirely.
+ *
+ * Every selector here opens with `:root body.glass-enabled`, one class more
+ * specific than the moderndark rules glass is layered over (several of which
+ * already carry a pseudo-class and `!important`), and this file is loaded
+ * after style.css, so a tie still lands on glass. Nothing in it matches
+ * unless applyTheme() has put `glass-enabled` on <body>, so it costs a
+ * skinned window nothing but the parse.
+ *
+ * This used to be built as an ~80 KB template literal in app.js and injected
+ * as a <style> on every applyTheme() call — which meant every keystroke in
+ * the backdrop URL field rebuilt the sheet, re-parsed it, and wrote it (with
+ * the backdrop's data: URI inlined, up to 1.4 MB of base64) into
+ * localStorage for boot.js to replay. Only three things about it were ever
+ * dynamic, and all three are now variables the page sets on <body>:
+ *
+ *   --lg-tint        the colour the tint picker chooses. A registered
+ *                    @property, so a drag can preview by setting it on <body>
+ *                    and restyle <body> alone. Falls back to its
+ *                    initial-value below when nothing has set it.
+ *   --lg-backdrop    the backdrop picture, as a `url(...)`, together with the
+ *                    `glass-has-image` class that switches the tint gradients
+ *                    out for it. Held to the shapes `safeBackdrop()` in
+ *                    app.js and `GlassSettings::sanitize` in config.rs allow.
+ *   .glass-full      full effects, on by default and switched off from
+ *                    Settings for weaker GPUs. The last block in this file.
+ */
+
+/* The tint, as a property rather than baked into the gradients, so
+   the picker can preview a drag by setting it on <body> instead of
+   rebuilding this sheet every frame. Registered as non-inherited so
+   that change restyles <body> alone, not every element under it. */
+@property --lg-tint {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: #0b0c14;
+}
+
+/* ── Tokens ───────────────────────────────────────────────────── */
+:root body.glass-enabled {
+  /* Not `background-attachment: fixed`. <body> never scrolls, so
+     fixed bought nothing — and a fixed background is repainted on the
+     main thread whenever anything above it changes, so a hover
+     transition in the sidebar redrew the whole backdrop and every blur
+     on top of it, every frame. */
+  /* The tint field, when no backdrop picture is set. The tint is mixed
+     into Apple's system hues rather than replacing them, so a red tint
+     still gives a red field. `.glass-has-image` below swaps the whole
+     stack out for the picture. */
+  background:
+    radial-gradient(70% 80% at 6% 4%, color-mix(in oklab, var(--lg-tint) 38%, #5e5ce6) 0%, transparent 72%),
+    radial-gradient(64% 76% at 98% 2%, color-mix(in oklab, var(--lg-tint) 40%, #0a84ff) 0%, transparent 72%),
+    radial-gradient(56% 60% at 58% 52%, color-mix(in oklab, var(--lg-tint) 58%, #5856d6) 0%, transparent 74%),
+    radial-gradient(78% 78% at 92% 106%, color-mix(in oklab, var(--lg-tint) 38%, #bf5af2) 0%, transparent 72%),
+    radial-gradient(68% 70% at 2% 102%, color-mix(in oklab, var(--lg-tint) 42%, #30b0c7) 0%, transparent 72%),
+    linear-gradient(160deg, color-mix(in oklab, var(--lg-tint) 78%, #2c2c6e), var(--lg-tint)) !important;
+  /* Sized from the border edge and never tiled. By default a
+     background is laid out in the padding box but painted under the
+     border too, and repeats to fill it — so <body>'s 1px border showed
+     the far side of the gradient wrapped round: a bright pink and
+     purple line down the left and across the top of the window. */
+  background-origin: border-box !important;
+  background-repeat: no-repeat !important;
+
+  /* The shared palette, restated for glass. --bg-dark stays
+     transparent: base rules use it as "the surface behind this", and
+     behind every glass surface is the backdrop. */
+  --bg-dark: transparent !important;
+  --bg-main: transparent !important;
+  --bg-panel: rgba(255, 255, 255, 0.06) !important;
+  --bg-btn: rgba(255, 255, 255, 0.10) !important;
+  --border-light: rgba(255, 255, 255, 0.14) !important;
+  --border-dark: rgba(255, 255, 255, 0.08) !important;
+  --green: #ffffff !important;
+  --green-dim: rgba(235, 235, 245, 0.6) !important;
+  --text: #ffffff !important;
+  --text-muted: rgba(235, 235, 245, 0.6) !important;
+  --status-online: #30d158 !important;
+
+  --lg-accent: #0a84ff;
+  --lg-positive: #30d158;
+  --lg-danger: #ff453a;
+  --lg-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --lg-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  /* A frosted surface: light pooled at the top-left where the glass
+     is thickest, over a faint dark body that keeps white text legible
+     when a bright part of the backdrop sits behind it. */
+  --lg-frost-fill:
+    radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.10), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    rgba(18, 20, 30, 0.30);
+  /* An unfrosted surface: the same light, with more body standing in
+     for the blur. */
+  --lg-fill:
+    radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    rgba(16, 18, 30, 0.52);
+  /* Popovers float over content rather than the backdrop, so they
+     need enough body to hide what they cover without a blur. */
+  --lg-fill-popover:
+    radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.10), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    rgba(28, 30, 42, 0.95);
+  --lg-blur: blur(16px) saturate(170%);
+  /* The specular edge: brightest along the top and left, where the
+     light comes from, with a faint hairline all round. Inset shadows
+     rather than a masked gradient ring, so it is anti-aliased on every
+     renderer and costs no layer of its own. */
+  --lg-rim-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.34),
+    inset -1px -1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  /* Light gathering along the bottom inside edge — what the eye reads
+     as thickness — then a soft contact shadow. */
+  --lg-shadow:
+    inset 0 -14px 28px -22px rgba(255, 255, 255, 0.22),
+    0 1px 1px rgba(0, 0, 0, 0.10),
+    0 14px 34px -14px rgba(0, 0, 0, 0.50);
+  /* Scrolling surfaces cannot host the ring: an absolutely positioned
+     pseudo-element inside a scroller scrolls away with the content. */
+  /* An even hairline, not the offset top highlight the ring-less
+     surfaces used to carry. `inset 0 1px 0` only shows along the
+     straight run of a rounded top edge and thins to nothing round the
+     corners, so on the Filters and Sort By cards it read as a flat
+     white bar laid across the top, stopping short of both corners —
+     over a list scrolling underneath it, at that. */
+  --lg-shadow-scroll:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.11),
+    0 14px 34px -14px rgba(0, 0, 0, 0.50);
+  --lg-control: rgba(255, 255, 255, 0.10);
+  --lg-control-hover: rgba(255, 255, 255, 0.17);
+  --lg-control-rim:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+
+/* A backdrop picture, when one is set: it replaces the tint field entirely.
+   `--lg-backdrop` is set on <body> by applyGlassVars() in app.js (and by
+   boot.js before first paint) as a complete `url(...)`, held to the shapes
+   `safeBackdrop()` allows — https: or data:image/, and no character that
+   could close the declaration. The veil over it stays light: the picture is
+   the point, and the panels carry their own dark body for legibility. */
+:root body.glass-enabled.glass-has-image {
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.22)),
+    var(--lg-backdrop) center / cover no-repeat !important;
+}
+
+/* ── Window chrome ────────────────────────────────────────────── */
+:root body.glass-enabled .titlebar {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  border-radius: 0 !important;
+}
+:root body.glass-enabled .titlebar-app-name {
+  font-family: var(--font-ui) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 1.4px !important;
+  color: rgba(255, 255, 255, 0.55) !important;
+  text-shadow: none !important;
+}
+:root body.glass-enabled .titlebar-controls {
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center !important;
+  margin-right: 8px !important;
+}
+:root body.glass-enabled .tb-ctrl {
+  width: 12px !important;
+  height: 12px !important;
+  aspect-ratio: 1 / 1 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 50% !important;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.28) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: transparent !important;
+  font-size: 8px !important;
+}
+:root body.glass-enabled .tb-ctrl:hover { color: rgba(0, 0, 0, 0.6) !important; }
+:root body.glass-enabled .tb-ctrl.min { order: 1 !important; background: #febc2e !important; }
+:root body.glass-enabled .tb-ctrl.max { order: 2 !important; background: #28c840 !important; }
+:root body.glass-enabled .tb-ctrl.cls { order: 3 !important; background: #ff5f57 !important; }
+
+:root body.glass-enabled .app-layout,
+:root body.glass-enabled .main-content {
+  background: transparent !important;
+}
+:root body.glass-enabled .main-content {
+  padding: 2px 14px 12px 14px !important;
+}
+
+:root body.glass-enabled ::-webkit-scrollbar {
+  width: 10px !important;
+  height: 10px !important;
+  background: transparent !important;
+}
+:root body.glass-enabled ::-webkit-scrollbar-track,
+:root body.glass-enabled ::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+:root body.glass-enabled ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22) !important;
+  background-clip: padding-box !important;
+  border: 3px solid transparent !important;
+  border-radius: 999px !important;
+}
+:root body.glass-enabled ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.36) !important;
+  background-clip: padding-box !important;
+}
+
+/* ── Glass surfaces ───────────────────────────────────────────── */
+:root body.glass-enabled .sidebar,
+:root body.glass-enabled .qs-card,
+:root body.glass-enabled .settings-group,
+:root body.glass-enabled .download-section,
+:root body.glass-enabled .native-grid-container,
+:root body.glass-enabled .native-table-container,
+:root body.glass-enabled #roomsSidebar > div,
+:root body.glass-enabled .native-search-bar input,
+:root body.glass-enabled [id$="DetailView"] > .bevel-inset,
+:root body.glass-enabled #tab-photo-detail > .bevel-inset,
+:root body.glass-enabled .log-output {
+  background: var(--lg-fill) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  border-radius: 22px !important;
+  box-shadow: var(--lg-shadow) !important;
+}
+:root body.glass-enabled .native-grid-container,
+:root body.glass-enabled .native-table-container,
+:root body.glass-enabled #roomsSidebar > div,
+:root body.glass-enabled [id$="DetailView"] > .bevel-inset,
+:root body.glass-enabled #tab-photo-detail > .bevel-inset,
+:root body.glass-enabled .log-output {
+  box-shadow: var(--lg-shadow-scroll) !important;
+}
+:root body.glass-enabled .network-menu,
+:root body.glass-enabled .manage-menu,
+:root body.glass-enabled .modal-box,
+:root body.glass-enabled .toast {
+  background: var(--lg-fill-popover) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  box-shadow:
+    inset 0 -14px 28px -22px rgba(255, 255, 255, 0.2),
+    0 24px 60px -18px rgba(0, 0, 0, 0.65),
+    0 2px 6px rgba(0, 0, 0, 0.2) !important;
+}
+:root body.glass-enabled .network-menu,
+:root body.glass-enabled .manage-menu { border-radius: 18px !important; }
+:root body.glass-enabled .modal-box { border-radius: 26px !important; }
+:root body.glass-enabled .toast { border-radius: 14px !important; }
+
+/* The specular edge. Positioned only where the element isn't already:
+   the two menus are absolutely placed and must stay that way. */
+:root body.glass-enabled .sidebar,
+:root body.glass-enabled .qs-card,
+:root body.glass-enabled .settings-group,
+:root body.glass-enabled .download-section,
+:root body.glass-enabled .modal-box,
+:root body.glass-enabled .toast {
+  position: relative !important;
+}
+:root body.glass-enabled .sidebar::before,
+:root body.glass-enabled .qs-card::before,
+:root body.glass-enabled .settings-group::before,
+:root body.glass-enabled .download-section::before,
+:root body.glass-enabled .modal-box::before,
+:root body.glass-enabled .toast::before,
+:root body.glass-enabled .network-menu::before,
+:root body.glass-enabled .manage-menu::before,
+:root body.glass-enabled .home-hero::before {
+  content: '' !important;
+  display: block !important;
+  position: absolute !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  border-radius: inherit !important;
+  background: none !important;
+  box-shadow: var(--lg-rim-shadow) !important;
+  -webkit-mask: none !important;
+  mask: none !important;
+  pointer-events: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+  animation: none !important;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────── */
+/* Floats inset from the window edge instead of docking against it. */
+:root body.glass-enabled .sidebar {
+  margin: 2px 0 12px 12px !important;
+  padding: 12px 10px !important;
+  border-radius: 24px !important;
+}
+:root body.glass-enabled .sidebar-logo,
+:root body.glass-enabled .sidebar-footer {
+  border: none !important;
+}
+:root body.glass-enabled .sidebar-logo {
+  padding-bottom: 6px !important;
+  margin-bottom: 8px !important;
+}
+:root body.glass-enabled .sidebar-nav { gap: 2px !important; }
+
+/* Every .nav-btn starts neutral: the sidebar rows, the network picker,
+   its options and the hero gear all wear the class, and moderndark
+   paints it a purple gradient. */
+:root body.glass-enabled .nav-btn {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  transition:
+    background-color 0.25s var(--lg-ease),
+    color 0.2s var(--lg-ease),
+    transform 0.4s var(--lg-spring) !important;
+}
+:root body.glass-enabled .nav-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  transform: none !important;
+}
+:root body.glass-enabled .nav-btn:active { transform: scale(0.97) !important; }
+:root body.glass-enabled .nav-btn.active {
+  background: rgba(255, 255, 255, 0.16) !important;
+  box-shadow:
+    var(--lg-control-rim),
+    0 4px 14px -6px rgba(0, 0, 0, 0.45) !important;
+  color: #ffffff !important;
+}
+
+/* Sentence case, from labels written in capitals in the markup. */
+:root body.glass-enabled .sidebar-nav .nav-btn {
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 8px 12px !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  text-transform: lowercase !important;
+  color: rgba(255, 255, 255, 0.78) !important;
+}
+:root body.glass-enabled .sidebar-nav .nav-btn::first-letter { text-transform: uppercase !important; }
+:root body.glass-enabled .sidebar-nav .nav-btn:hover,
+:root body.glass-enabled .sidebar-nav .nav-btn.active { color: #ffffff !important; }
+:root body.glass-enabled .sidebar-nav .nav-btn.active { font-weight: 600 !important; }
+
+/* No browser focus ring. Chromium draws its own white double ring
+   round a focused button, and the tab switch leaves the clicked row
+   focused — so the active item wore a hard white outline that
+   flickered as the pointer moved over its neighbours. Keyboard focus
+   still shows, as the same wash a hover gives. */
+:root body.glass-enabled .nav-btn:focus,
+:root body.glass-enabled .filter-btn:focus,
+:root body.glass-enabled .sort-btn:focus {
+  outline: none !important;
+}
+:root body.glass-enabled .nav-btn:focus-visible:not(.active),
+:root body.glass-enabled .filter-btn:focus-visible:not(.active),
+:root body.glass-enabled .sort-btn:focus-visible:not(.active) {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* The tab entrance: a rise, with no fade. Opacity below 1 on an
+   ancestor makes it the root every backdrop-filter inside it samples
+   from, so while moderndark's fade ran the cards frosted an empty,
+   transparent layer and only picked up the backdrop when it finished
+   — they came in hollow and then snapped. Holding it with
+   `forwards` would only keep them hollow for good. Doubled class to
+   outrank the four-class rule it replaces. */
+:root body.glass-enabled.glass-enabled .tab-panel.active,
+:root body.glass-enabled.glass-enabled #roomsDetailView:not(.hidden) {
+  animation: glassTabIn 0.4s var(--lg-ease) !important;
+}
+@keyframes glassTabIn {
+  from { transform: translateY(8px); }
+}
+
+/* ── Menus ────────────────────────────────────────────────────── */
+:root body.glass-enabled .network-menu .nav-btn,
+:root body.glass-enabled .manage-menu .manage-item {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+  font-weight: 500 !important;
+  text-shadow: none !important;
+  transform: none !important;
+}
+:root body.glass-enabled .network-menu .nav-btn:hover,
+:root body.glass-enabled .manage-menu .manage-item:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+:root body.glass-enabled .manage-menu .manage-item.danger { color: #ff6961 !important; }
+:root body.glass-enabled .manage-menu .manage-item.danger:hover { background: rgba(255, 69, 58, 0.16) !important; }
+:root body.glass-enabled .manage-sep { background: rgba(255, 255, 255, 0.10) !important; }
+
+/* The gear's manage menu: a solid popover, lit like the cards. At 95%
+   it still let the status card underneath read through, and in the
+   app's window that card — a separate GPU layer, for its frost — came
+   through clearly. So the body is solid, and the hero wrap that holds
+   the menu is lifted above the status cards outright. The rim is inset
+   shadows here, so the generic ring on ::before is dropped. */
+:root body.glass-enabled .home-hero-wrap { z-index: 5 !important; }
+:root body.glass-enabled .manage-menu {
+  background:
+    radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    #1e2030 !important;
+  border: none !important;
+  border-radius: 16px !important;
+  min-width: 214px !important;
+  margin-top: 6px !important;
+  padding: 6px !important;
+  gap: 2px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 24px 60px -18px rgba(0, 0, 0, 0.65),
+    0 2px 6px rgba(0, 0, 0, 0.2) !important;
+}
+:root body.glass-enabled .manage-menu::before { display: none !important; }
+:root body.glass-enabled #manageMenu .manage-item {
+  gap: 11px !important;
+  padding: 8px 12px !important;
+  border-radius: 10px !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+  transition: background-color 0.18s var(--lg-ease), color 0.18s var(--lg-ease) !important;
+}
+:root body.glass-enabled #manageMenu .manage-item svg {
+  width: 16px !important;
+  height: 16px !important;
+  opacity: 0.75 !important;
+}
+:root body.glass-enabled #manageMenu .manage-item:hover,
+:root body.glass-enabled #manageMenu .manage-item:focus-visible {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+:root body.glass-enabled #manageMenu .manage-item:hover svg,
+:root body.glass-enabled #manageMenu .manage-item:focus-visible svg { opacity: 1 !important; }
+:root body.glass-enabled #manageMenu .manage-item.danger { color: #ff6961 !important; }
+:root body.glass-enabled #manageMenu .manage-item.danger:hover,
+:root body.glass-enabled #manageMenu .manage-item.danger:focus-visible {
+  background: rgba(255, 69, 58, 0.18) !important;
+  color: #ff7a73 !important;
+}
+:root body.glass-enabled #manageMenu .manage-sep {
+  height: 1px !important;
+  border: none !important;
+  margin: 4px 8px !important;
+  background: rgba(255, 255, 255, 0.10) !important;
+}
+
+/* The network menu opens inside the sidebar, and the sidebar is itself
+   a backdrop-filter — Chromium does not blur a backdrop-filter nested
+   inside another one, so this menu's frost never happened and the
+   66% popover tint left Home, Rooms and People reading straight
+   through it. It gets a solid body instead, lit the same way — even
+   at 97% the nav labels still ghosted through. */
+:root body.glass-enabled .network-menu {
+  background:
+    radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    #1e2030 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 6px !important;
+  gap: 2px !important;
+}
+:root body.glass-enabled .network-menu .network-option {
+  gap: 10px !important;
+  padding: 8px 10px !important;
+  margin: 0 !important;
+}
+:root body.glass-enabled .network-menu .network-option.active {
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: var(--lg-control-rim) !important;
+}
+:root body.glass-enabled .network-option-icon {
+  width: 28px !important;
+  height: 28px !important;
+  border: none !important;
+  border-radius: 7px !important;
+}
+/* Custom selects. The same solid popover as the network menu, for the
+   same reason: they open inside a settings group, which is itself a
+   backdrop-filter, so a blur here would never happen. The menu
+   scrolls, so its edge light is an inset shadow rather than the ring,
+   which would scroll away with the rows. */
+:root body.glass-enabled .cselect-menu {
+  background:
+    radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    #1e2030 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  border-radius: 14px !important;
+  padding: 6px !important;
+  gap: 2px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 24px 60px -18px rgba(0, 0, 0, 0.65),
+    0 2px 6px rgba(0, 0, 0, 0.2) !important;
+}
+:root body.glass-enabled .cselect-menu::-webkit-scrollbar-track { margin: 10px 0 !important; }
+:root body.glass-enabled .cselect-menu .cselect-option {
+  margin: 0 !important;
+  padding: 7px 10px !important;
+  border-radius: 9px !important;
+  font-family: var(--font-ui) !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+:root body.glass-enabled .cselect-menu .cselect-option.active {
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: var(--lg-control-rim) !important;
+  font-weight: 600 !important;
+}
+:root body.glass-enabled .cselect-trigger {
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+  padding: 0 12px !important;
+}
+:root body.glass-enabled .cselect-trigger.is-open {
+  background: rgba(255, 255, 255, 0.10) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(10, 132, 255, 0.95),
+    inset 0 0 0 3px rgba(10, 132, 255, 0.28) !important;
+}
+:root body.glass-enabled.animations-enabled .cselect-menu:not([hidden]) {
+  animation: networkMenuDrop 0.2s var(--lg-ease);
+  transform-origin: top center;
+}
+:root body.glass-enabled.animations-enabled .cselect-menu.opens-up:not([hidden]) {
+  transform-origin: bottom center;
+}
+:root body.glass-enabled.animations-enabled .cselect-menu.is-closing {
+  animation: networkMenuLift 0.14s ease-in forwards;
+}
+
+/* Size comes from the base rule, shared by every skin. */
+:root body.glass-enabled .network-option-name {
+  font-family: var(--font-ui) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.3px !important;
+}
+/* No ✓ on the current network: its row is already lit (the active
+   background and rim above), and the tick read as cheap. */
+:root body.glass-enabled .network-option-check { display: none !important; }
+
+/* ── Tabs ─────────────────────────────────────────────────────── */
+/* Panels no longer wrap the whole tab in one more slab of glass: the
+   cards inside are the surfaces, and glass on glass only muddies. The
+   padding leaves the cards' shadows room inside the scroll clip. */
+:root body.glass-enabled .tab-panel {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  box-sizing: border-box !important;
+  /* Widened into .main-content's 14px side padding, with that much
+     more padding of its own, so the content sits exactly where it did
+     but the clip edge moves out to where a card's shadow has faded.
+     At 2px from the cards, the shadows (which reach ~20px sideways)
+     ended in a hard vertical line down both sides. `width: auto` so
+     the column's stretch alignment can take the negative margins. */
+  width: auto !important;
+  margin: 0 -14px !important;
+  padding: 2px 20px 16px 16px !important;
+}
+:root body.glass-enabled #tab-rooms,
+:root body.glass-enabled #tab-people {
+  padding: 2px 16px 4px 16px !important;
+}
+
+/* Never let a glass surface sit flush against the edge that clips
+   it. Where a backdrop-filter's bottom edge lands exactly on its
+   scroller's clip edge, Chromium intersects the two and loses the
+   border-radius — the frost is drawn as a square behind the rounded
+   card, a second corner at both bottom corners. So the scrollers
+   that end on a glass surface keep a margin of their own:
+   .settings-body is what actually scrolls on Settings (the tab around
+   it does not), and the detail views clip their glass well flush. */
+:root body.glass-enabled #tab-settings { padding-bottom: 0 !important; }
+/* The same widening one level in, into the tab's (now wider) padding,
+   because on Settings this is the box that clips — on all four sides,
+   since the first group sat flush against its top edge too. */
+:root body.glass-enabled .settings-body {
+  margin: -6px -20px 0 -16px !important;
+  padding: 6px 24px 16px 16px !important;
+}
+
+/* The Rooms and People list views, the Rooms sidebar and the two
+   detail views all clipped with overflow, and the glass inside each
+   filled it edge to edge — the Filters and Sort By cards, the room
+   grid, the People table, the detail wells. None of them needs the
+   clip: every child that can outgrow them already scrolls on its own,
+   so they stop clipping and there is no edge left to sit flush on.
+   (Found by walking every view for backdrop-filter surfaces touching
+   an ancestor's clip, rather than one screenshot at a time.) */
+:root body.glass-enabled #roomsListView,
+:root body.glass-enabled #roomsListView > .flex-1,
+:root body.glass-enabled #roomsSidebar,
+:root body.glass-enabled #peopleListView,
+:root body.glass-enabled #roomsDetailView,
+:root body.glass-enabled #peopleDetailView {
+  overflow: visible !important;
+}
+:root body.glass-enabled #roomsDetailView,
+:root body.glass-enabled #peopleDetailView {
+  padding-bottom: 6px !important;
+}
+:root body.glass-enabled .panel-header {
+  border: none !important;
+  background: transparent !important;
+  padding: 6px 4px 10px !important;
+}
+:root body.glass-enabled .panel-header h2 {
+  font-family: var(--font-ui) !important;
+  font-size: 24px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.3px !important;
+  color: #ffffff !important;
+  text-shadow: none !important;
+  text-transform: lowercase !important;
+}
+:root body.glass-enabled .panel-header h2::first-letter { text-transform: uppercase !important; }
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+:root body.glass-enabled .btn-refresh,
+:root body.glass-enabled .btn-save,
+:root body.glass-enabled .btn-test-server,
+:root body.glass-enabled .btn-cancel-dl,
+:root body.glass-enabled .btn-kill,
+:root body.glass-enabled .btn-open-folder,
+:root body.glass-enabled .btn-reinstall,
+:root body.glass-enabled .btn-uninstall,
+:root body.glass-enabled .btn-exclude-av,
+:root body.glass-enabled .modal-btn,
+:root body.glass-enabled .launch-secondary-actions button {
+  background: var(--lg-control) !important;
+  border: none !important;
+  border-radius: 999px !important;
+  box-shadow: var(--lg-control-rim), 0 1px 2px rgba(0, 0, 0, 0.14) !important;
+  color: #ffffff !important;
+  font-family: var(--font-ui) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.1px !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  transition:
+    background-color 0.2s var(--lg-ease),
+    box-shadow 0.2s var(--lg-ease),
+    transform 0.4s var(--lg-spring) !important;
+}
+:root body.glass-enabled .btn-refresh:hover,
+:root body.glass-enabled .btn-save:hover,
+:root body.glass-enabled .btn-test-server:hover,
+:root body.glass-enabled .btn-cancel-dl:hover,
+:root body.glass-enabled .btn-kill:hover,
+:root body.glass-enabled .btn-open-folder:hover,
+:root body.glass-enabled .btn-reinstall:hover,
+:root body.glass-enabled .btn-uninstall:hover,
+:root body.glass-enabled .btn-exclude-av:hover,
+:root body.glass-enabled .modal-btn:hover,
+:root body.glass-enabled .launch-secondary-actions button:hover {
+  background: var(--lg-control-hover) !important;
+  transform: none !important;
+}
+:root body.glass-enabled .btn-refresh:active,
+:root body.glass-enabled .btn-save:active,
+:root body.glass-enabled .btn-test-server:active,
+:root body.glass-enabled .btn-cancel-dl:active,
+:root body.glass-enabled .btn-kill:active,
+:root body.glass-enabled .btn-open-folder:active,
+:root body.glass-enabled .btn-reinstall:active,
+:root body.glass-enabled .btn-uninstall:active,
+:root body.glass-enabled .btn-exclude-av:active,
+:root body.glass-enabled .modal-btn:active,
+:root body.glass-enabled .launch-secondary-actions button:active {
+  background: rgba(255, 255, 255, 0.07) !important;
+  transform: scale(0.96) !important;
+}
+/* Disabled buttons do nothing on hover or press, and keep the plain
+   arrow. moderndark gives them `cursor: not-allowed`, which on
+   Windows is a small circle — over a dimmed Previous on page 1 it
+   read as a stray white dot on the button. */
+:root body.glass-enabled button:disabled,
+:root body.glass-enabled button:disabled:hover,
+:root body.glass-enabled button:disabled:active {
+  cursor: default !important;
+  transform: none !important;
+  filter: none !important;
+}
+/* Dimmed with colour, not opacity, and the same in every state.
+   moderndark fades a disabled button to opacity 0.4, which gives it a
+   compositing layer of its own; in the app's window that layer drew a
+   stray dot at the capsule's left tip, where Previous sits flush
+   against the list view's clip edge. (Never reproduced in headless
+   Chromium — this removes the cause rather than a symptom seen.) */
+:root body.glass-enabled :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+         .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
+         .modal-btn:not(.modal-btn-primary), .launch-secondary-actions button):disabled {
+  opacity: 1 !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: rgba(255, 255, 255, 0.35) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+}
+/* And off that clip edge: 2px either side keeps Previous and Next from
+   touching the edges of the list view that clips them. */
+:root body.glass-enabled .native-pagination {
+  padding-left: 2px !important;
+  padding-right: 2px !important;
+}
+
+:root body.glass-enabled .modal-btn-primary {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)),
+    var(--lg-accent) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 6px 18px -6px rgba(10, 132, 255, 0.6) !important;
+}
+:root body.glass-enabled .modal-btn-primary.modal-btn-danger {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0)),
+    var(--lg-danger) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 6px 18px -6px rgba(255, 69, 58, 0.55) !important;
+}
+:root body.glass-enabled .modal-btn-primary:hover { filter: brightness(1.08) !important; }
+
+/* The primary action: a clear-glass rounded rectangle, milky enough
+   to read as frosted, lit softly from the top with a crisp rim.
+
+   Deliberately one plain box. It used to carry a real frost — a
+   masked backdrop-filter on ::after, cut round from six gradient
+   tiles — and on the GPU that layer came apart at the corners and
+   ends: broken edges and stray white dots, worse under a scale. A
+   rounded box with inset shadows is drawn cleanly by every renderer,
+   and it is what makes the motion below safe to run.
+
+   The fill never changes: background-color and background-image are
+   fixed and neither is transitioned, which is what keeps hover from
+   flashing. The hover highlight is ::before fading in over it, behind
+   the label (`isolation` keeps its negative z-index inside). */
+:root body.glass-enabled .btn-play,
+:root body.glass-enabled .btn-download-big {
+  position: relative !important;
+  isolation: isolate !important;
+  background-color: rgba(255, 255, 255, 0.14) !important;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.09) 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 14px !important;
+  padding: 0 26px !important;
+  font-family: var(--font-ui) !important;
+  font-weight: 600 !important;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 8px 24px -10px rgba(0, 0, 0, 0.6) !important;
+  transition:
+    box-shadow 0.3s var(--lg-ease),
+    transform 0.5s var(--lg-spring) !important;
+}
+:root body.glass-enabled .btn-play::before,
+:root body.glass-enabled .btn-download-big::before {
+  content: '' !important;
+  position: absolute !important;
+  inset: 1px !important;
+  z-index: -1 !important;
+  border-radius: 13px !important;
+  pointer-events: none !important;
+  background: radial-gradient(120% 100% at 50% 0%, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 65%) !important;
+  opacity: 0 !important;
+  transition: opacity 0.3s var(--lg-ease) !important;
+}
+/* Hover lifts and grows a touch on the spring, the highlight fades in
+   and the rim brightens with a soft glow. */
+:root body.glass-enabled .btn-play:hover,
+:root body.glass-enabled .btn-download-big:hover {
+  transform: translateY(-1px) scale(1.03) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.26),
+    0 0 26px -6px rgba(255, 255, 255, 0.32),
+    0 14px 30px -12px rgba(0, 0, 0, 0.65) !important;
+}
+:root body.glass-enabled .btn-play:hover::before,
+:root body.glass-enabled .btn-download-big:hover::before {
+  opacity: 1 !important;
+}
+/* Pressed sinks quickly; release springs back through the base
+   transition. Beats every skin's own :active scale. */
+:root body.glass-enabled .btn-play:is(:active, .is-pressed),
+:root body.glass-enabled .btn-download-big:is(:active, .is-pressed) {
+  transform: scale(0.97) !important;
+  transition:
+    box-shadow 0.12s var(--lg-ease),
+    transform 0.12s var(--lg-ease) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 4px 14px -8px rgba(0, 0, 0, 0.6) !important;
+}
+:root body.glass-enabled .btn-play:is(:active, .is-pressed)::before,
+:root body.glass-enabled .btn-download-big:is(:active, .is-pressed)::before {
+  opacity: 0.45 !important;
+}
+:root body.glass-enabled .btn-play .play-text,
+:root body.glass-enabled .btn-download-big {
+  letter-spacing: 1px !important;
+}
+/* Running: the same glass, tinted red. Its colour is fixed across hover
+   too, so a running button cannot flash either. */
+:root body.glass-enabled .btn-play.running,
+:root body.glass-enabled .btn-play.running:hover,
+:root body.glass-enabled .btn-play.running:is(:active, .is-pressed) {
+  background-color: rgba(255, 69, 58, 0.45) !important;
+  color: #ffffff !important;
+}
+:root body.glass-enabled .btn-play.running {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 210, 206, 0.6),
+    inset 0 0 0 1px rgba(255, 150, 140, 0.24),
+    0 8px 24px -10px rgba(255, 69, 58, 0.6) !important;
+}
+:root body.glass-enabled .btn-play.running:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 220, 216, 0.8),
+    inset 0 0 0 1px rgba(255, 160, 150, 0.32),
+    0 0 26px -6px rgba(255, 69, 58, 0.45),
+    0 14px 30px -12px rgba(255, 69, 58, 0.6) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root body.glass-enabled .btn-play,
+  :root body.glass-enabled .btn-download-big,
+  :root body.glass-enabled .btn-play:hover,
+  :root body.glass-enabled .btn-download-big:hover,
+  :root body.glass-enabled .btn-play:is(:active, .is-pressed),
+  :root body.glass-enabled .btn-download-big:is(:active, .is-pressed) {
+    transform: none !important;
+  }
+}
+
+/* ── Home ─────────────────────────────────────────────────────── */
+:root body.glass-enabled .home-hero {
+  border: none !important;
+  border-radius: 26px !important;
+  box-shadow: 0 18px 44px -20px rgba(0, 0, 0, 0.7) !important;
+}
+:root body.glass-enabled .home-hero::before { z-index: 4 !important; }
+/* A soft scrim rather than a slab of black. It used to carry a
+   progressive blur as well, but that was a full-width live blur
+   clipped to the hero's rounded corners — expensive, and aliased at
+   the bottom corners on the GPU. */
+:root body.glass-enabled .home-hero-bar {
+  z-index: 1 !important;
+  background: linear-gradient(180deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.3) 40%,
+    rgba(0, 0, 0, 0.62) 100%) !important;
+}
+:root body.glass-enabled .hero-mode-label {
+  font-family: var(--font-ui) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.6px !important;
+  color: rgba(255, 255, 255, 0.72) !important;
+}
+
+/* Segmented control: a clear track with a lens that glides between
+   the two segments and overshoots slightly as it lands. */
+:root body.glass-enabled .mode-toggle-wrap {
+  position: relative !important;
+  z-index: 1 !important;
+  display: inline-flex !important;
+  gap: 4px !important;
+  padding: 3px !important;
+  background: rgba(118, 118, 128, 0.32) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  border-radius: 999px !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.10),
+    inset 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+}
+:root body.glass-enabled .mode-btn {
+  position: relative !important;
+  z-index: 2 !important;
+  width: 80px !important;
+  padding: 6px 0 !important;
+  text-align: center !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.4px !important;
+  transition: color 0.25s var(--lg-ease) !important;
+}
+:root body.glass-enabled .mode-btn:hover:not(.active) {
+  color: #ffffff !important;
+  background: transparent !important;
+}
+:root body.glass-enabled .mode-btn.active {
+  color: #ffffff !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+:root body.glass-enabled .mode-slider {
+  display: block !important;
+  position: absolute !important;
+  top: 3px !important;
+  bottom: 3px !important;
+  left: 3px !important;
+  width: 80px !important;
+  z-index: 1 !important;
+  border-radius: 999px !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.2)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 3px 10px -2px rgba(0, 0, 0, 0.4) !important;
+  transition: transform 0.5s var(--lg-spring) !important;
+}
+
+:root body.glass-enabled #btnManageClient,
+:root body.glass-enabled #btnManageClient[aria-expanded="false"]:hover,
+:root body.glass-enabled #btnManageClient[aria-expanded="false"]:focus-visible {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 6px 18px -8px rgba(0, 0, 0, 0.6) !important;
+  color: #ffffff !important;
+}
+:root body.glass-enabled #btnManageClient[aria-expanded="false"]:hover,
+:root body.glass-enabled #btnManageClient.active {
+  background: rgba(255, 255, 255, 0.24) !important;
+}
+
+:root body.glass-enabled .quick-stats { gap: 12px !important; }
+:root body.glass-enabled .qs-card {
+  border-radius: 20px !important;
+  padding: 12px 16px !important;
+  gap: 4px !important;
+  transition: transform 0.4s var(--lg-spring) !important;
+}
+:root body.glass-enabled .qs-label {
+  font-family: var(--font-ui) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.1px !important;
+  text-transform: none !important;
+  color: var(--text-muted) !important;
+}
+:root body.glass-enabled .qs-value {
+  font-family: var(--font-ui) !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.1px !important;
+  color: #ffffff !important;
+}
+:root body.glass-enabled .qs-icon-indicator {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.28) !important;
+  box-shadow: none !important;
+}
+:root body.glass-enabled .qs-card.online .qs-icon-indicator,
+:root body.glass-enabled .qs-card.installed .qs-icon-indicator {
+  background: var(--lg-positive) !important;
+  box-shadow: 0 0 10px rgba(48, 209, 88, 0.8) !important;
+}
+:root body.glass-enabled .qs-card.offline .qs-icon-indicator {
+  background: var(--lg-danger) !important;
+  box-shadow: 0 0 10px rgba(255, 69, 58, 0.8) !important;
+}
+:root body.glass-enabled .qs-card.not-installed .qs-icon-indicator {
+  background: #ffd60a !important;
+  box-shadow: 0 0 10px rgba(255, 214, 10, 0.7) !important;
+}
+
+/* ── Download progress ────────────────────────────────────────── */
+:root body.glass-enabled .dl-progress-block { border-radius: 22px !important; }
+:root body.glass-enabled .dlp-phase,
+:root body.glass-enabled .dlp-pct,
+:root body.glass-enabled .dlp-stat-val { color: #ffffff !important; }
+:root body.glass-enabled .dlp-stat-label { color: var(--text-muted) !important; }
+:root body.glass-enabled .dlp-dot {
+  background: var(--lg-accent) !important;
+  border-radius: 50% !important;
+  box-shadow: 0 0 10px rgba(10, 132, 255, 0.9) !important;
+  animation: dlp-pulse 1s ease-in-out infinite !important;
+}
+:root body.glass-enabled .dlp-bar-wrap {
+  background: rgba(255, 255, 255, 0.10) !important;
+  border: none !important;
+  border-radius: 999px !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25) !important;
+}
+:root body.glass-enabled .dlp-bar-fill {
+  background: linear-gradient(90deg, var(--lg-accent), #64d2ff) !important;
+  border-radius: 999px !important;
+  box-shadow: 0 0 12px rgba(10, 132, 255, 0.55) !important;
+}
+:root body.glass-enabled .dlp-step,
+:root body.glass-enabled .dlp-stat {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: none !important;
+  border-radius: 12px !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+}
+:root body.glass-enabled .dlp-step { opacity: 0.6 !important; }
+:root body.glass-enabled .dlp-step.active,
+:root body.glass-enabled .dlp-step.done { opacity: 1 !important; }
+:root body.glass-enabled .dlp-step.active {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: var(--lg-control-rim) !important;
+}
+:root body.glass-enabled .dlp-step.done { color: rgba(255, 255, 255, 0.85) !important; }
+:root body.glass-enabled .dlp-step-idx {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  border: none !important;
+  border-radius: 50% !important;
+}
+:root body.glass-enabled .dlp-step.active .dlp-step-idx {
+  background: #ffffff !important;
+  color: #0b0c10 !important;
+}
+:root body.glass-enabled .dlp-step.done .dlp-step-idx {
+  background: rgba(255, 255, 255, 0.65) !important;
+  color: #0b0c10 !important;
+}
+
+/* ── Settings ─────────────────────────────────────────────────── */
+:root body.glass-enabled .settings-group {
+  border-radius: 22px !important;
+  padding: 16px 18px !important;
+  gap: 10px !important;
+}
+:root body.glass-enabled .sg-title {
+  font-family: var(--font-ui) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.6px !important;
+  color: var(--text-muted) !important;
+  border: none !important;
+  padding: 0 0 2px !important;
+}
+:root body.glass-enabled .sg-row label,
+:root body.glass-enabled .sg-toggle-row > span {
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  color: #ffffff !important;
+}
+:root body.glass-enabled .sg-toggle-row + .sg-toggle-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.07) !important;
+  padding-top: 8px !important;
+}
+:root body.glass-enabled .sg-hint {
+  font-size: 11px !important;
+  color: rgba(235, 235, 245, 0.5) !important;
+}
+
+:root body.glass-enabled .cfg-input,
+:root body.glass-enabled .cfg-select,
+:root body.glass-enabled .cfg-path-display,
+:root body.glass-enabled select,
+:root body.glass-enabled input[type="text"],
+:root body.glass-enabled input[type="number"],
+:root body.glass-enabled textarea {
+  background: rgba(255, 255, 255, 0.07) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  color: #ffffff !important;
+  min-height: 30px !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 2px rgba(0, 0, 0, 0.18) !important;
+  backdrop-filter: none !important;
+  outline: none !important;
+  transition: background-color 0.2s var(--lg-ease), box-shadow 0.2s var(--lg-ease) !important;
+}
+:root body.glass-enabled .cfg-input:not(select),
+:root body.glass-enabled input[type="text"],
+:root body.glass-enabled input[type="number"],
+:root body.glass-enabled textarea {
+  padding: 6px 12px !important;
+}
+:root body.glass-enabled .cfg-path-display {
+  display: flex !important;
+  align-items: center !important;
+  padding: 0 12px !important;
+}
+:root body.glass-enabled .cfg-input:focus,
+:root body.glass-enabled .cfg-select:focus,
+:root body.glass-enabled select:focus,
+:root body.glass-enabled input[type="text"]:focus,
+:root body.glass-enabled input[type="number"]:focus,
+:root body.glass-enabled textarea:focus {
+  background: rgba(255, 255, 255, 0.10) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(10, 132, 255, 0.9),
+    0 0 0 3px rgba(10, 132, 255, 0.32) !important;
+}
+:root body.glass-enabled ::placeholder { color: rgba(235, 235, 245, 0.35) !important; }
+:root body.glass-enabled select option {
+  background: #1f2029 !important;
+  color: #ffffff !important;
+}
+
+/* Switches, sized and sprung like iOS. Pressing stretches the knob
+   toward where it is about to travel. */
+:root body.glass-enabled .toggle-wrap {
+  position: relative !important;
+  flex-shrink: 0 !important;
+  width: 42px !important;
+  height: 24px !important;
+  border: none !important;
+  border-radius: 999px !important;
+  background: rgba(120, 120, 128, 0.36) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+  transition: background-color 0.25s var(--lg-ease) !important;
+}
+:root body.glass-enabled .tgl-knob {
+  top: 2px !important;
+  left: 2px !important;
+  width: 20px !important;
+  height: 20px !important;
+  border: none !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.04) !important;
+  transform: none !important;
+  transition: transform 0.4s var(--lg-spring), width 0.2s var(--lg-ease) !important;
+}
+:root body.glass-enabled .toggle-wrap:active .tgl-knob { width: 25px !important; }
+:root body.glass-enabled .toggle-wrap.on { background: var(--lg-positive) !important; }
+:root body.glass-enabled .toggle-wrap.on .tgl-knob {
+  background: #ffffff !important;
+  transform: translateX(18px) !important;
+}
+:root body.glass-enabled .toggle-wrap.on:active .tgl-knob { transform: translateX(13px) !important; }
+
+/* Wider than the base 170px: the roomier glass chip otherwise cut
+   "Glass Tint" down to "Glass ...". */
+:root body.glass-enabled .ct-swatches {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
+}
+:root body.glass-enabled .ct-swatch {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: none !important;
+  border-radius: 12px !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07) !important;
+  padding: 6px 10px !important;
+}
+
+/* Tint picker. A solid popover like the custom selects, and for the
+   same reason: it opens inside a settings group, which is already a
+   backdrop-filter, so a blur here would never draw. No blur also
+   keeps it clear of the small-element blur artifacts. */
+:root body.glass-enabled .tint-swatch {
+  width: 22px !important;
+  height: 22px !important;
+  border: none !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    0 1px 3px rgba(0, 0, 0, 0.35) !important;
+  transition: transform 0.25s var(--lg-spring), box-shadow 0.2s var(--lg-ease) !important;
+}
+:root body.glass-enabled .tint-swatch:not(:disabled):hover { transform: scale(1.1) !important; }
+:root body.glass-enabled .tint-swatch.is-open {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    0 0 0 2px rgba(10, 132, 255, 0.95),
+    0 0 0 5px rgba(10, 132, 255, 0.28) !important;
+}
+:root body.glass-enabled .tint-picker {
+  width: 244px !important;
+  padding: 12px !important;
+  gap: 12px !important;
+  background:
+    radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    #1e2030 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  border-radius: 18px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 24px 60px -18px rgba(0, 0, 0, 0.65),
+    0 2px 6px rgba(0, 0, 0, 0.2) !important;
+}
+:root body.glass-enabled .tint-sv {
+  height: 140px !important;
+  border-radius: 10px !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10) !important;
+}
+:root body.glass-enabled .tint-hue {
+  height: 14px !important;
+  border-radius: 999px !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14) !important;
+}
+:root body.glass-enabled .tint-sv-thumb,
+:root body.glass-enabled .tint-hue-thumb {
+  width: 18px !important;
+  height: 18px !important;
+  border: 3px solid #ffffff !important;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18), 0 3px 8px rgba(0, 0, 0, 0.45) !important;
+}
+:root body.glass-enabled .tint-hue-thumb { width: 20px !important; height: 20px !important; }
+:root body.glass-enabled .tint-sv:focus-visible,
+:root body.glass-enabled .tint-hue:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 0 0 2px rgba(10, 132, 255, 0.9) !important;
+}
+:root body.glass-enabled .tint-picker .tint-hex {
+  height: 30px !important;
+  padding: 0 12px !important;
+  border-radius: 999px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  letter-spacing: 0.5px !important;
+}
+:root body.glass-enabled .tint-preset {
+  width: 22px !important;
+  height: 22px !important;
+  border: none !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22) !important;
+  transition: transform 0.25s var(--lg-spring), box-shadow 0.2s var(--lg-ease) !important;
+}
+:root body.glass-enabled .tint-preset:hover { transform: scale(1.12) !important; }
+:root body.glass-enabled .tint-preset.active {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 0 0 2px #1e2030,
+    0 0 0 3.5px rgba(255, 255, 255, 0.85) !important;
+}
+/* The same drop and lift as the custom selects. */
+:root body.glass-enabled.animations-enabled .tint-picker:not([hidden]) {
+  animation: networkMenuDrop 0.2s var(--lg-ease);
+  transform-origin: top left;
+}
+:root body.glass-enabled.animations-enabled .tint-picker.opens-up:not([hidden]) {
+  transform-origin: bottom left;
+}
+:root body.glass-enabled.animations-enabled .tint-picker.is-closing {
+  animation: networkMenuLift 0.14s ease-in forwards;
+}
+
+/* ── Rooms and People ─────────────────────────────────────────── */
+:root body.glass-enabled #roomsSidebar > div {
+  border-radius: 18px !important;
+  padding: 10px !important;
+}
+:root body.glass-enabled .native-search-bar input {
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 12px !important;
+}
+/* Everything drawn inside the field. The search bars sit in the
+   Rooms and People list views, which clip to their own box, so any
+   shadow or focus ring outside the input was cut off down both sides. */
+/* Even hairline, for the same reason as --lg-shadow-scroll: an
+   offset top highlight on a pill is a flat bar between its ends. */
+:root body.glass-enabled .native-search-bar input {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
+}
+:root body.glass-enabled .native-search-bar input:focus {
+  box-shadow:
+    inset 0 0 0 1px rgba(10, 132, 255, 0.95),
+    inset 0 0 0 3px rgba(10, 132, 255, 0.28) !important;
+}
+
+/* Scrollbars are not clipped to border-radius, so in these rounded
+   scrollers the bar ran square into the corners. The track stops
+   short of them; in the People table it also starts below the
+   sticky header instead of running over it. */
+:root body.glass-enabled .native-grid-container::-webkit-scrollbar-track,
+:root body.glass-enabled #roomsSidebar > div::-webkit-scrollbar-track,
+:root body.glass-enabled [id$="DetailView"] > .bevel-inset::-webkit-scrollbar-track,
+:root body.glass-enabled #tab-photo-detail > .bevel-inset::-webkit-scrollbar-track,
+:root body.glass-enabled .log-output::-webkit-scrollbar-track {
+  margin: 14px 0 !important;
+}
+:root body.glass-enabled .native-table-container::-webkit-scrollbar-track {
+  margin: 30px 0 14px !important;
+}
+:root body.glass-enabled .native-grid-container {
+  padding: 10px !important;
+}
+
+:root body.glass-enabled .filter-btn,
+:root body.glass-enabled .sort-btn {
+  width: 100% !important;
+  text-align: left !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, 0.75) !important;
+  padding: 6px 10px !important;
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  transition: background-color 0.2s var(--lg-ease), color 0.2s var(--lg-ease) !important;
+}
+:root body.glass-enabled .filter-btn:hover,
+:root body.glass-enabled .sort-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+:root body.glass-enabled .filter-btn.active,
+:root body.glass-enabled .sort-btn.active {
+  background: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: var(--lg-control-rim) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+:root body.glass-enabled .room-card {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: none !important;
+  border-radius: 16px !important;
+  padding: 8px !important;
+  box-shadow:
+    var(--lg-control-rim),
+    0 6px 18px -10px rgba(0, 0, 0, 0.5) !important;
+  transition:
+    background-color 0.2s var(--lg-ease),
+    transform 0.45s var(--lg-spring),
+    box-shadow 0.25s var(--lg-ease) !important;
+}
+/* Doubled class: moderndark's animated hover is itself four classes
+   deep, one more than this sheet's usual prefix. */
+:root body.glass-enabled.glass-enabled .room-card:hover {
+  background: rgba(255, 255, 255, 0.11) !important;
+  transform: translateY(-2px) !important;
+  box-shadow:
+    var(--lg-control-rim),
+    0 12px 26px -12px rgba(0, 0, 0, 0.6) !important;
+}
+:root body.glass-enabled.glass-enabled .nav-btn:hover { transform: none !important; }
+:root body.glass-enabled .room-card-image { border-radius: 12px !important; border: none !important; }
+:root body.glass-enabled .room-card-name {
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+}
+:root body.glass-enabled .room-card-creator,
+:root body.glass-enabled .room-card-stats { color: var(--text-muted) !important; }
+
+/* The header row only spans the table, which stops at the scrollbar
+   gutter — so it ended short of the container's right edge and left a
+   lighter notch over the scrollbar in the top-right corner. The same
+   colour is painted as a band across the whole top of the container,
+   gutter included, at the header's exact height; both are solid so
+   the two meet without a seam. The band is a plain background, which
+   stays put while the rows scroll. */
+:root body.glass-enabled .native-table-container.bevel-inset {
+  background:
+    linear-gradient(#1c1e2c, #1c1e2c) top left / 100% 30px no-repeat,
+    var(--lg-fill) !important;
+}
+:root body.glass-enabled .native-table th {
+  background: #1c1e2c !important;
+  height: 30px !important;
+  box-sizing: border-box !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-muted) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+:root body.glass-enabled .native-table td {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  font-size: 12px !important;
+}
+:root body.glass-enabled .native-table tr:hover td { background: rgba(255, 255, 255, 0.06) !important; }
+
+/* The room card's lower half — the stats and the Created bar — paints
+   its own --bg-panel. On an opaque skin that is the card's colour and
+   disappears; under glass --bg-panel is a white wash, so it stacked on
+   the card's own fill and laid a lighter band across the bottom with a
+   hard edge where the top half ends. The card already has a fill.
+   The player card's stats-and-bio half does exactly the same. */
+:root body.glass-enabled .room-card-footer,
+:root body.glass-enabled .profile-body-content {
+  background: transparent !important;
+}
+
+/* Inner wells inside the detail views: tinted, not blurred again. */
+:root body.glass-enabled .bevel-inset,
+:root body.glass-enabled .bevel-outset {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: none !important;
+  border-radius: 16px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+}
+:root body.glass-enabled [id$="DetailView"] > .bevel-inset,
+:root body.glass-enabled #tab-photo-detail > .bevel-inset {
+  background: var(--lg-fill) !important;
+  border-radius: 22px !important;
+}
+:root body.glass-enabled .native-grid-container.bevel-inset {
+  background: var(--lg-fill) !important;
+}
+
+:root body.glass-enabled .log-output {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
+    rgba(8, 10, 16, 0.45) !important;
+  border-radius: 18px !important;
+}
+
+/* ── Modals and toasts ────────────────────────────────────────── */
+:root body.glass-enabled .modal-overlay {
+  /* A dim, not a blur: a full-window blur is the single most
+     expensive thing glass could draw, for a moment of decoration. */
+  background: rgba(0, 0, 0, 0.45) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+:root body.glass-enabled .modal-titlebar,
+:root body.glass-enabled .modal-footer {
+  background: transparent !important;
+  border: none !important;
+}
+:root body.glass-enabled .modal-titlebar { padding: 14px 16px 4px 20px !important; }
+:root body.glass-enabled .modal-footer { padding: 10px 18px 16px !important; gap: 8px !important; }
+:root body.glass-enabled .modal-title {
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.6px !important;
+  color: #ffffff !important;
+  text-shadow: none !important;
+}
+:root body.glass-enabled .modal-close-btn {
+  width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  border: none !important;
+  border-radius: 50% !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  font-size: 11px !important;
+  transition: background-color 0.2s var(--lg-ease) !important;
+}
+:root body.glass-enabled .modal-close-btn:hover { background: rgba(255, 255, 255, 0.22) !important; }
+
+/* Dialogs spring in and ease out. Only the dimmer fades, and the box
+   is a solid popover fill with no blur of its own, so nothing
+   frosted is ever faded or scaled (the thing that broke into
+   artefacts on the user's GPU). The exit is timed by MODAL_EXIT_MS
+   in hideModal(), which adds .is-closing. */
+:root body.glass-enabled .modal-overlay { animation: glassOverlayIn 0.22s var(--lg-ease) !important; }
+:root body.glass-enabled .modal-box { animation: glassModalIn 0.42s var(--lg-spring) !important; }
+:root body.glass-enabled .modal-overlay.is-closing { animation: glassOverlayOut 0.18s ease-in forwards !important; }
+:root body.glass-enabled .modal-overlay.is-closing .modal-box { animation: glassModalOut 0.18s ease-in forwards !important; }
+/* Popups stay on their own compositing layer while open. Otherwise
+   the layer an entrance animation creates is dropped when it ends,
+   and text drawn at a fractional position (a flex-centred dialog of
+   odd height, 125% scaling) is redrawn snapped to the pixel grid —
+   a half-pixel jump up as every popup settles. None of these carry
+   a blur, so the held layer is the kind proven clean on the user's
+   GPU; the frosted toasts are left out. */
+:root body.glass-enabled :is(.modal-box, .network-menu, .manage-menu, .cselect-menu, .tint-picker) {
+  will-change: transform;
+}
+@keyframes glassOverlayIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes glassOverlayOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes glassModalIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes glassModalOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(8px) scale(0.97); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root body.glass-enabled .modal-overlay,
+  :root body.glass-enabled .modal-box,
+  :root body.glass-enabled .modal-overlay.is-closing,
+  :root body.glass-enabled .modal-overlay.is-closing .modal-box { animation: none !important; }
+}
+
+/* ── Notifications ──────────────────────────────────────────────
+   Frosted glass. Without a blur, whatever sat under a stack (room
+   titles, the pagination) read straight through the text.
+
+   The frost is on ::before, behind the label, and its edge is covered
+   rather than masked: a blur clipped to a rounded rect stair-steps on
+   the GPU, and the masked tiles that avoid that came apart on the
+   similarly small PLAY button. So the layer is clipped plainly by
+   border-radius, and `outline` — which paints above everything in the
+   toast and is drawn as a smooth stroke — lies over that clip edge.
+
+   The card never fades: an ancestor below full opacity cuts a
+   backdrop-filter off from what is behind it, so a fading toast would
+   arrive unfrosted and snap. It slides in from past the window edge
+   and back out instead, translate only — no scale, which is what
+   resampled the PLAY button's frost. The status light is ::after. */
+:root body.glass-enabled .toast-container {
+  bottom: 16px !important;
+  right: 16px !important;
+  gap: 8px !important;
+  align-items: flex-end !important;
+}
+:root body.glass-enabled .toast {
+  position: relative !important;
+  min-width: 180px !important;
+  max-width: 340px !important;
+  padding: 11px 18px 11px 36px !important;
+  border: none !important;
+  border-radius: 18px !important;
+  isolation: isolate !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  outline: 1.5px solid rgba(255, 255, 255, 0.26) !important;
+  outline-offset: -1.5px !important;
+  color: #ffffff !important;
+  font-family: var(--font-ui) !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+  letter-spacing: 0 !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45) !important;
+  box-shadow:
+    0 14px 34px -12px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.18) !important;
+  /* Leaving: slide back out past the edge, inside toast()'s 300ms. */
+  opacity: 1 !important;
+  transform: translateX(calc(100% + 32px)) !important;
+  transition: transform 0.26s cubic-bezier(0.5, 0, 0.75, 0) !important;
+}
+/* Arriving: spring in from the right. */
+:root body.glass-enabled .toast.show {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: transform 0.55s var(--lg-spring) !important;
+}
+/* The frosted body. The top highlight and lower glow are gradients in
+   its own fill, since an inset shadow on the toast would paint under
+   this layer. */
+:root body.glass-enabled .toast::before {
+  content: '' !important;
+  display: block !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: -1 !important;
+  border-radius: inherit !important;
+  pointer-events: none !important;
+  box-shadow: none !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 50%, rgba(255, 255, 255, 0.10) 100%),
+    rgba(20, 22, 34, 0.38) !important;
+  backdrop-filter: blur(18px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
+}
+:root body.glass-enabled .toast::after {
+  content: '' !important;
+  position: absolute !important;
+  left: 16px !important;
+  top: 50% !important;
+  width: 8px !important;
+  height: 8px !important;
+  margin-top: -4px !important;
+  border-radius: 50% !important;
+  background: #0a84ff !important;
+  box-shadow: 0 0 10px rgba(10, 132, 255, 0.9) !important;
+  pointer-events: none !important;
+}
+:root body.glass-enabled .toast.ok::after {
+  background: #30d158 !important;
+  box-shadow: 0 0 10px rgba(48, 209, 88, 0.9) !important;
+}
+:root body.glass-enabled .toast.error::after {
+  background: #ff453a !important;
+  box-shadow: 0 0 10px rgba(255, 69, 58, 0.9) !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No slide: shown in place, gone in place. */
+  :root body.glass-enabled .toast { transform: none !important; visibility: hidden !important; transition: none !important; }
+  :root body.glass-enabled .toast.show { visibility: visible !important; }
+}
+/* ── Frosted surfaces ───────────────────────────────────────────
+   The frost lives on an ::after behind the content, and its rounded
+   corners come from the mask, not from border-radius. When Chromium
+   draws on the GPU — as the app's window does — it clips a
+   backdrop-filter to a rounded rect without anti-aliasing, so a
+   radius-clipped blur ended every corner in a staircase. Here the
+   blur layer is a plain rectangle, cut round by radial gradients with
+   a 1px soft edge, which every renderer draws smooth. The soft edge is
+   centred on the outline rather than just inside it: inside, it halved
+   the outermost pixel round each corner, which is where a 1px edge
+   line sits, so the line showed full strength along the straight
+   edges and faded on the curves — a flat white bar across the top. --lg-r is the
+   radius each mask is cut to, matching the surface's border-radius.
+   `isolation` gives the layer a stacking context to sit behind the
+   content in, without the z-index that would override .cselect-host
+   lifting a group over its neighbours. */
+:root body.glass-enabled .sidebar { --lg-r: 24px; }
+:root body.glass-enabled .qs-card { --lg-r: 20px; }
+:root body.glass-enabled .settings-group,
+:root body.glass-enabled .download-section { --lg-r: 22px; }
+:root body.glass-enabled .sidebar,
+:root body.glass-enabled .qs-card,
+:root body.glass-enabled .settings-group,
+:root body.glass-enabled .download-section {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  isolation: isolate !important;
+}
+/* The progress panel clips its content by default, and a rounded clip
+   around the frost layer would bring the staircase straight back. */
+:root body.glass-enabled .download-section { overflow: visible !important; }
+:root body.glass-enabled .sidebar::after,
+:root body.glass-enabled .qs-card::after,
+:root body.glass-enabled .settings-group::after,
+:root body.glass-enabled .download-section::after {
+  content: '' !important;
+  display: block !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border-radius: 0 !important;
+  z-index: -1 !important;
+  pointer-events: none !important;
+  background: var(--lg-frost-fill) !important;
+  backdrop-filter: var(--lg-blur) !important;
+  -webkit-backdrop-filter: var(--lg-blur) !important;
+  -webkit-mask:
+    radial-gradient(circle at 100% 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top left / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 0 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top right / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 100% 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom left / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 0 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom right / var(--lg-r) var(--lg-r) no-repeat,
+    linear-gradient(#000 0 0) center / calc(100% - 2 * var(--lg-r) + 2px) 100% no-repeat,
+    linear-gradient(#000 0 0) center / 100% calc(100% - 2 * var(--lg-r) + 2px) no-repeat !important;
+  mask:
+    radial-gradient(circle at 100% 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top left / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 0 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top right / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 100% 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom left / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 0 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom right / var(--lg-r) var(--lg-r) no-repeat,
+    linear-gradient(#000 0 0) center / calc(100% - 2 * var(--lg-r) + 2px) 100% no-repeat,
+    linear-gradient(#000 0 0) center / 100% calc(100% - 2 * var(--lg-r) + 2px) no-repeat !important;
+}
+
+/* ── Full glass effects ─────────────────────────────────────────
+   On by default; switched off from Settings → Liquid Glass. Stronger
+   frost on the framing surfaces, the content wells frosted as well,
+   and a blur behind popups. Switching it off is for older integrated
+   GPUs, which feel every extra blur being redone whenever anything
+   near it repaints.
+
+   The wells scroll, so they cannot carry the frost on an ::after the
+   way the framing surfaces do; they take the corner-shaped mask on
+   themselves instead, which keeps their corners anti-aliased and
+   costs only the outer part of their shadow. The search bars, the
+   play-mode track and the gear stay tinted: their radius follows
+   their height, which a fixed corner mask cannot. */
+:root body.glass-enabled.glass-full { --lg-blur: blur(24px) saturate(185%); }
+:root body.glass-enabled.glass-full .native-grid-container,
+:root body.glass-enabled.glass-full .native-table-container,
+:root body.glass-enabled.glass-full [id$="DetailView"] > .bevel-inset,
+:root body.glass-enabled.glass-full #tab-photo-detail > .bevel-inset { --lg-r: 22px; }
+:root body.glass-enabled.glass-full #roomsSidebar > div,
+:root body.glass-enabled.glass-full .log-output { --lg-r: 18px; }
+:root body.glass-enabled.glass-full .native-grid-container,
+:root body.glass-enabled.glass-full .native-table-container,
+:root body.glass-enabled.glass-full #roomsSidebar > div,
+:root body.glass-enabled.glass-full [id$="DetailView"] > .bevel-inset,
+:root body.glass-enabled.glass-full #tab-photo-detail > .bevel-inset,
+:root body.glass-enabled.glass-full .log-output {
+  /* The lighter tint the frosted surfaces use: with a blur behind
+     them, the wells no longer need the extra body. */
+  --lg-fill: var(--lg-frost-fill);
+  backdrop-filter: var(--lg-blur) !important;
+  -webkit-backdrop-filter: var(--lg-blur) !important;
+  -webkit-mask:
+    radial-gradient(circle at 100% 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top left / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 0 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top right / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 100% 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom left / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 0 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom right / var(--lg-r) var(--lg-r) no-repeat,
+    linear-gradient(#000 0 0) center / calc(100% - 2 * var(--lg-r) + 2px) 100% no-repeat,
+    linear-gradient(#000 0 0) center / 100% calc(100% - 2 * var(--lg-r) + 2px) no-repeat !important;
+  mask:
+    radial-gradient(circle at 100% 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top left / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 0 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top right / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 100% 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom left / var(--lg-r) var(--lg-r) no-repeat,
+    radial-gradient(circle at 0 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom right / var(--lg-r) var(--lg-r) no-repeat,
+    linear-gradient(#000 0 0) center / calc(100% - 2 * var(--lg-r) + 2px) 100% no-repeat,
+    linear-gradient(#000 0 0) center / 100% calc(100% - 2 * var(--lg-r) + 2px) no-repeat !important;
+}
+/* Full-window and square, so no corner to alias. */
+:root body.glass-enabled.glass-full .modal-overlay {
+  background: rgba(0, 0, 0, 0.3) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+}

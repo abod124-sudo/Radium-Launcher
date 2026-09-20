@@ -11,20 +11,37 @@ try {
   // localStorage is hand-editable, and a stray value must not be able to stamp
   // an arbitrary class onto <body>.
   var savedTheme = localStorage.getItem('radium-theme');
-  var glassCss = localStorage.getItem('radium-glass-css') || '';
 
-  if (glassCss) {
+  // Glass: three values, not a stylesheet. The sheet itself is
+  // skins/11-glass.css, linked in index.html and already parsed by the time
+  // this runs — all that is left is to say which tint, which backdrop and
+  // whether full effects are on. This used to inject an ~80 KB generated
+  // stylesheet (with the backdrop's data: URI inside it) read back out of
+  // localStorage on every start.
+  var glass = null;
+  try {
+    glass = JSON.parse(localStorage.getItem('radium-glass') || 'null');
+  } catch (e) {}
+
+  if (glass && typeof glass === 'object') {
     // Glass stands in for the skin entirely — it repaints every colour token
     // and brings its own layout — so it is applied instead of the skin class,
     // exactly as applyTheme() does once the config lands.
     document.body.classList.add('theme-moderndark', 'glass-enabled');
 
-    var style = document.createElement('style');
-    // applyTheme removes this by id as soon as it builds the real one, so the
-    // cache never lingers alongside it or outlives a theme change.
-    style.id = 'glass-boot-style';
-    style.textContent = glassCss;
-    document.head.appendChild(style);
+    // Re-checked here rather than trusted: this came from storage, and the
+    // values go straight into CSS. Mirrors safeColor()/safeBackdrop() in
+    // app.js, which is what wrote them.
+    if (/^#[0-9a-fA-F]{3,8}$/.test(String(glass.tint || ''))) {
+      document.body.style.setProperty('--lg-tint', glass.tint);
+    }
+    var bg = String(glass.bgImage || '');
+    var shapeOk = bg.indexOf('https://') === 0 || bg.indexOf('data:image/') === 0;
+    if (shapeOk && !/['"(){}\\]|[\x00-\x1f\x7f]/.test(bg)) {
+      document.body.style.setProperty('--lg-backdrop', 'url("' + bg + '")');
+      document.body.classList.add('glass-has-image');
+    }
+    if (glass.fullEffects !== false) document.body.classList.add('glass-full');
   } else if (savedTheme && /^[a-z0-9-]+$/.test(savedTheme)) {
     // Modern Neon Dark is drawn under its own class, because theme-moderndark
     // is Liquid Glass's layout. Mirrors skinClass() in app.js.

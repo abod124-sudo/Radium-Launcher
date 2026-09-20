@@ -82,7 +82,16 @@ fn capture(x: i32, y: i32, w: i32, h: i32) -> Option<Vec<u8>> {
         if lines != h {
             return None;
         }
-        Some(bgra.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0]]).collect())
+        // BGRA to RGB. `as_chunks` over a constant size hands back real
+        // `[u8; 4]`s, so the indices below are checked once by the compiler
+        // rather than on every pixel.
+        Some(
+            bgra.as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|p| [p[2], p[1], p[0]])
+                .collect(),
+        )
     }
 }
 

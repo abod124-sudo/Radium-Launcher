@@ -5,7 +5,7 @@
   <!-- Mirrors app.security.csp in src-tauri/tauri.conf.json. Both apply, and a
        browser enforces the intersection, so a source added to only one of them
        is still blocked — change them together. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https: asset: https://asset.localhost radiumimg: http://radiumimg.localhost; connect-src 'self' ipc: http://ipc.localhost https://*.radie.app https://radie.app https://api.radie.app https://launcher.radie.app https://cdn.recroomarchive.org https://api.github.com;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: radiumimg: http://radiumimg.localhost; connect-src 'self' ipc: http://ipc.localhost;" />
   <title>Radium Launcher</title>
   <!-- Inter ships with the launcher rather than being fetched from Google on
        every start. It used to be a render-blocking stylesheet request to
@@ -15,7 +15,8 @@
        external origins. See the @font-face block in style.css. -->
   <link rel="stylesheet" href="style.css" />
   <!-- Skins: tokens, the component layer, then one file per family. None of
-       them can match Liquid Glass; see skins/00-tokens.css. -->
+       them can match Liquid Glass, which is last and stands in for a skin
+       entirely when it is on; see skins/00-tokens.css and skins/11-glass.css. -->
   <link rel="stylesheet" href="skins/00-tokens.css" />
   <link rel="stylesheet" href="skins/01-components.css" />
   <link rel="stylesheet" href="skins/02-controls.css" />
@@ -27,6 +28,10 @@
   <link rel="stylesheet" href="skins/08-steam.css" />
   <link rel="stylesheet" href="skins/09-mac.css" />
   <link rel="stylesheet" href="skins/10-checkboxes.css" />
+  <!-- Last, so a tie between a glass rule and the moderndark layout it is
+       layered over lands on glass. Inert until applyTheme() (or boot.js)
+       puts `glass-enabled` on <body>. -->
+  <link rel="stylesheet" href="skins/11-glass.css" />
 </head>
 <body>
   <script src="boot.js"></script>

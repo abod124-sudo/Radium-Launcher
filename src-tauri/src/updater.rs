@@ -17,7 +17,11 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
         GITHUB_OWNER, GITHUB_REPO
     );
 
+    // Same reasoning as `download_update`: this answer names the URL and the
+    // digest the installer is then fetched and checked against, so it is not
+    // read over a channel a redirect could drop to plain http.
     let client = match reqwest::Client::builder()
+        .https_only(true)
         .timeout(std::time::Duration::from_secs(10))
         .build()
     {
@@ -220,7 +224,15 @@ pub async fn download_update(
 
     // Download the installer. Without timeouts a stalled connection would
     // leave the update modal stuck on "Downloading..." forever.
+    //
+    // `https_only` covers the redirects, which `is_official_release_asset`
+    // cannot see: GitHub bounces a release asset to its object storage, and
+    // without this a hop to plain http would be followed and the bytes could
+    // be rewritten in transit. What arrives here is executed and then elevated
+    // by NSIS, and the digest below is fail-open when the API doesn't publish
+    // one — so the transport is the only guarantee left in that case.
     let client = reqwest::Client::builder()
+        .https_only(true)
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(300))
         .build()

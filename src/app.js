@@ -1183,20 +1183,13 @@ async function loadConfig() {
   await refreshInstallDirRows();
 }
 
-/// The custom palette is written as its own <style>, separate from the bulk of
-/// the generated theme CSS.
-///
-/// Dragging a colour picker fires `input` continuously, and each one used to
-/// rebuild and re-parse the whole ~25 KB custom stylesheet — measured at ~2.3 ms
-/// of parsing per event against ~0.13 ms for the palette alone, before any of
-/// the repainting that a full sheet swap also forces. That is what made the
-/// pickers feel sticky, and worst under Liquid Glass, where every panel carries
 /// Marks the body while Liquid Glass is on; every glass rule hangs off it.
 const GLASS_CLASS = 'glass-enabled';
-/// The generated glass stylesheet, and the copy boot.js injects from cache
-/// before the first paint.
-const GLASS_STYLE_ID = 'glass-style';
-const GLASS_BOOT_STYLE_ID = 'glass-boot-style';
+/// Set while a backdrop picture is in use: it swaps the tint field out for the
+/// picture in `--lg-backdrop`. See `skins/11-glass.css`.
+const GLASS_IMAGE_CLASS = 'glass-has-image';
+/// Full glass effects, on by default. Off gives the lighter look for weak GPUs.
+const GLASS_FULL_CLASS = 'glass-full';
 
 /// Enable or grey out the controls that only mean something under glass, and
 /// grey out Active Skin in the other direction while glass has taken over from
@@ -1273,7 +1266,17 @@ function skinClass(skin) {
 /// coming along now that glass is a setting in its own right.
 const GLASS_LAYOUT_THEME = 'moderndark';
 
-/// The Liquid Glass stylesheet, built for one tint and one optional backdrop.
+/// Point Liquid Glass at a tint, a backdrop and the full-effects switch.
+///
+/// The sheet itself is `skins/11-glass.css`, loaded with the other skins and
+/// inert until `glass-enabled` is on <body>. Only these three things about it
+/// were ever dynamic, so only these three are set here.
+///
+/// It used to be an ~80 KB template literal built in this file and injected as
+/// a <style> on every applyTheme() call — which is once per keystroke in the
+/// backdrop URL field. Each one rebuilt the string, re-parsed the whole sheet,
+/// and wrote it to localStorage for boot.js with the backdrop's data: URI
+/// inlined, up to 1.4 MB of base64 a keypress.
 ///
 /// Glass overrides every colour token itself, which is why it never depended on
 /// the custom palette it used to live next to and why it survived that editor's
@@ -1295,1753 +1298,27 @@ const GLASS_LAYOUT_THEME = 'moderndark';
 ///   anything near it repaints, which is heavy on integrated GPUs; everything
 ///   else is tinted, which over this soft backdrop reads nearly the same.
 ///
-/// Every selector opens with `:root body.glass-enabled`. That is one class more
-/// specific than the moderndark rules glass is layered over — several of which
-/// already carry a pseudo-class and `!important` — and this sheet is appended
-/// after style.css, so a tie still lands on glass.
-function glassCss(tint, bgImage, fullEffects = false) {
-  const safeGlassBg = safeColor(tint, '#0b0c14');
+/// Returns what was applied, so [`cacheThemeForBoot`] can hand boot.js the same
+/// three values to replay before the first paint.
+function applyGlassVars(tint, bgImage, fullEffects = false) {
+  const safeGlassBg = safeColor(tint, DEFAULT_GLASS_TINT);
   const safeBgImage = safeBackdrop(bgImage);
-  const G = ':root body.glass-enabled';
 
-  // With an image the veil stays light: the picture is the point, and the
-  // panels already carry their own dark body for legibility. Without one, the
-  // tint is mixed into Apple's system hues rather than replaced by them, so a
-  // red tint still gives a red field.
-  const backdrop = safeBgImage
-    ? `linear-gradient(rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.22)), url('${safeBgImage}') center / cover no-repeat`
-    : `radial-gradient(70% 80% at 6% 4%, color-mix(in oklab, var(--lg-tint) 38%, #5e5ce6) 0%, transparent 72%),
-          radial-gradient(64% 76% at 98% 2%, color-mix(in oklab, var(--lg-tint) 40%, #0a84ff) 0%, transparent 72%),
-          radial-gradient(56% 60% at 58% 52%, color-mix(in oklab, var(--lg-tint) 58%, #5856d6) 0%, transparent 74%),
-          radial-gradient(78% 78% at 92% 106%, color-mix(in oklab, var(--lg-tint) 38%, #bf5af2) 0%, transparent 72%),
-          radial-gradient(68% 70% at 2% 102%, color-mix(in oklab, var(--lg-tint) 42%, #30b0c7) 0%, transparent 72%),
-          linear-gradient(160deg, color-mix(in oklab, var(--lg-tint) 78%, #2c2c6e), var(--lg-tint))`;
+  const style = document.body.style;
+  style.setProperty('--lg-tint', safeGlassBg);
+  if (safeBgImage) {
+    // A complete `url(...)`, because that is what the stylesheet substitutes.
+    // `setProperty` does not escape, but `safeBackdrop` has already refused
+    // every character that could close the declaration — and a value the
+    // engine still cannot parse is dropped rather than reinterpreted.
+    style.setProperty('--lg-backdrop', `url("${safeBgImage}")`);
+  } else {
+    style.removeProperty('--lg-backdrop');
+  }
+  document.body.classList.toggle(GLASS_IMAGE_CLASS, !!safeBgImage);
+  document.body.classList.toggle(GLASS_FULL_CLASS, !!fullEffects);
 
-  return `
-        /* The tint, as a property rather than baked into the gradients, so
-           the picker can preview a drag by setting it on <body> instead of
-           rebuilding this sheet every frame. Registered as non-inherited so
-           that change restyles <body> alone, not every element under it. */
-        @property --lg-tint {
-          syntax: '<color>';
-          inherits: false;
-          initial-value: #0b0c14;
-        }
-
-        /* ── Tokens ───────────────────────────────────────────────────── */
-        ${G} {
-          --lg-tint: ${safeGlassBg};
-          /* Not \`background-attachment: fixed\`. <body> never scrolls, so
-             fixed bought nothing — and a fixed background is repainted on the
-             main thread whenever anything above it changes, so a hover
-             transition in the sidebar redrew the whole backdrop and every blur
-             on top of it, every frame. */
-          background: ${backdrop} !important;
-          /* Sized from the border edge and never tiled. By default a
-             background is laid out in the padding box but painted under the
-             border too, and repeats to fill it — so <body>'s 1px border showed
-             the far side of the gradient wrapped round: a bright pink and
-             purple line down the left and across the top of the window. */
-          background-origin: border-box !important;
-          background-repeat: no-repeat !important;
-
-          /* The shared palette, restated for glass. --bg-dark stays
-             transparent: base rules use it as "the surface behind this", and
-             behind every glass surface is the backdrop. */
-          --bg-dark: transparent !important;
-          --bg-main: transparent !important;
-          --bg-panel: rgba(255, 255, 255, 0.06) !important;
-          --bg-btn: rgba(255, 255, 255, 0.10) !important;
-          --border-light: rgba(255, 255, 255, 0.14) !important;
-          --border-dark: rgba(255, 255, 255, 0.08) !important;
-          --green: #ffffff !important;
-          --green-dim: rgba(235, 235, 245, 0.6) !important;
-          --text: #ffffff !important;
-          --text-muted: rgba(235, 235, 245, 0.6) !important;
-          --status-online: #30d158 !important;
-
-          --lg-accent: #0a84ff;
-          --lg-positive: #30d158;
-          --lg-danger: #ff453a;
-          --lg-ease: cubic-bezier(0.22, 1, 0.36, 1);
-          --lg-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
-
-          /* A frosted surface: light pooled at the top-left where the glass
-             is thickest, over a faint dark body that keeps white text legible
-             when a bright part of the backdrop sits behind it. */
-          --lg-frost-fill:
-            radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.10), transparent 52%),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
-            rgba(18, 20, 30, 0.30);
-          /* An unfrosted surface: the same light, with more body standing in
-             for the blur. */
-          --lg-fill:
-            radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
-            rgba(16, 18, 30, 0.52);
-          /* Popovers float over content rather than the backdrop, so they
-             need enough body to hide what they cover without a blur. */
-          --lg-fill-popover:
-            radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.10), transparent 52%),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
-            rgba(28, 30, 42, 0.95);
-          --lg-blur: blur(16px) saturate(170%);
-          /* The specular edge: brightest along the top and left, where the
-             light comes from, with a faint hairline all round. Inset shadows
-             rather than a masked gradient ring, so it is anti-aliased on every
-             renderer and costs no layer of its own. */
-          --lg-rim-shadow:
-            inset 1px 1px 0 rgba(255, 255, 255, 0.34),
-            inset -1px -1px 0 rgba(255, 255, 255, 0.12),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.07);
-          /* Light gathering along the bottom inside edge — what the eye reads
-             as thickness — then a soft contact shadow. */
-          --lg-shadow:
-            inset 0 -14px 28px -22px rgba(255, 255, 255, 0.22),
-            0 1px 1px rgba(0, 0, 0, 0.10),
-            0 14px 34px -14px rgba(0, 0, 0, 0.50);
-          /* Scrolling surfaces cannot host the ring: an absolutely positioned
-             pseudo-element inside a scroller scrolls away with the content. */
-          /* An even hairline, not the offset top highlight the ring-less
-             surfaces used to carry. \`inset 0 1px 0\` only shows along the
-             straight run of a rounded top edge and thins to nothing round the
-             corners, so on the Filters and Sort By cards it read as a flat
-             white bar laid across the top, stopping short of both corners —
-             over a list scrolling underneath it, at that. */
-          --lg-shadow-scroll:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.11),
-            0 14px 34px -14px rgba(0, 0, 0, 0.50);
-          --lg-control: rgba(255, 255, 255, 0.10);
-          --lg-control-hover: rgba(255, 255, 255, 0.17);
-          --lg-control-rim:
-            inset 0 1px 0 rgba(255, 255, 255, 0.26),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.07);
-        }
-
-        /* ── Window chrome ────────────────────────────────────────────── */
-        ${G} .titlebar {
-          background: transparent !important;
-          border: none !important;
-          box-shadow: none !important;
-          backdrop-filter: none !important;
-          border-radius: 0 !important;
-        }
-        ${G} .titlebar-app-name {
-          font-family: var(--font-ui) !important;
-          font-size: 11px !important;
-          font-weight: 600 !important;
-          letter-spacing: 1.4px !important;
-          color: rgba(255, 255, 255, 0.55) !important;
-          text-shadow: none !important;
-        }
-        ${G} .titlebar-controls {
-          display: flex !important;
-          gap: 8px !important;
-          align-items: center !important;
-          margin-right: 8px !important;
-        }
-        ${G} .tb-ctrl {
-          width: 12px !important;
-          height: 12px !important;
-          aspect-ratio: 1 / 1 !important;
-          padding: 0 !important;
-          margin: 0 !important;
-          border: none !important;
-          border-radius: 50% !important;
-          box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.28) !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          color: transparent !important;
-          font-size: 8px !important;
-        }
-        ${G} .tb-ctrl:hover { color: rgba(0, 0, 0, 0.6) !important; }
-        ${G} .tb-ctrl.min { order: 1 !important; background: #febc2e !important; }
-        ${G} .tb-ctrl.max { order: 2 !important; background: #28c840 !important; }
-        ${G} .tb-ctrl.cls { order: 3 !important; background: #ff5f57 !important; }
-
-        ${G} .app-layout,
-        ${G} .main-content {
-          background: transparent !important;
-        }
-        ${G} .main-content {
-          padding: 2px 14px 12px 14px !important;
-        }
-
-        ${G} ::-webkit-scrollbar {
-          width: 10px !important;
-          height: 10px !important;
-          background: transparent !important;
-        }
-        ${G} ::-webkit-scrollbar-track,
-        ${G} ::-webkit-scrollbar-corner {
-          background: transparent !important;
-        }
-        ${G} ::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.22) !important;
-          background-clip: padding-box !important;
-          border: 3px solid transparent !important;
-          border-radius: 999px !important;
-        }
-        ${G} ::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.36) !important;
-          background-clip: padding-box !important;
-        }
-
-        /* ── Glass surfaces ───────────────────────────────────────────── */
-        ${G} .sidebar,
-        ${G} .qs-card,
-        ${G} .settings-group,
-        ${G} .download-section,
-        ${G} .native-grid-container,
-        ${G} .native-table-container,
-        ${G} #roomsSidebar > div,
-        ${G} .native-search-bar input,
-        ${G} [id$="DetailView"] > .bevel-inset,
-        ${G} #tab-photo-detail > .bevel-inset,
-        ${G} .log-output {
-          background: var(--lg-fill) !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          border: none !important;
-          border-radius: 22px !important;
-          box-shadow: var(--lg-shadow) !important;
-        }
-        ${G} .native-grid-container,
-        ${G} .native-table-container,
-        ${G} #roomsSidebar > div,
-        ${G} [id$="DetailView"] > .bevel-inset,
-        ${G} #tab-photo-detail > .bevel-inset,
-        ${G} .log-output {
-          box-shadow: var(--lg-shadow-scroll) !important;
-        }
-        ${G} .network-menu,
-        ${G} .manage-menu,
-        ${G} .modal-box,
-        ${G} .toast {
-          background: var(--lg-fill-popover) !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          border: none !important;
-          box-shadow:
-            inset 0 -14px 28px -22px rgba(255, 255, 255, 0.2),
-            0 24px 60px -18px rgba(0, 0, 0, 0.65),
-            0 2px 6px rgba(0, 0, 0, 0.2) !important;
-        }
-        ${G} .network-menu,
-        ${G} .manage-menu { border-radius: 18px !important; }
-        ${G} .modal-box { border-radius: 26px !important; }
-        ${G} .toast { border-radius: 14px !important; }
-
-        /* The specular edge. Positioned only where the element isn't already:
-           the two menus are absolutely placed and must stay that way. */
-        ${G} .sidebar,
-        ${G} .qs-card,
-        ${G} .settings-group,
-        ${G} .download-section,
-        ${G} .modal-box,
-        ${G} .toast {
-          position: relative !important;
-        }
-        ${G} .sidebar::before,
-        ${G} .qs-card::before,
-        ${G} .settings-group::before,
-        ${G} .download-section::before,
-        ${G} .modal-box::before,
-        ${G} .toast::before,
-        ${G} .network-menu::before,
-        ${G} .manage-menu::before,
-        ${G} .home-hero::before {
-          content: '' !important;
-          display: block !important;
-          position: absolute !important;
-          inset: 0 !important;
-          width: auto !important;
-          height: auto !important;
-          padding: 0 !important;
-          border-radius: inherit !important;
-          background: none !important;
-          box-shadow: var(--lg-rim-shadow) !important;
-          -webkit-mask: none !important;
-          mask: none !important;
-          pointer-events: none !important;
-          opacity: 1 !important;
-          transform: none !important;
-          animation: none !important;
-        }
-
-        /* ── Sidebar ──────────────────────────────────────────────────── */
-        /* Floats inset from the window edge instead of docking against it. */
-        ${G} .sidebar {
-          margin: 2px 0 12px 12px !important;
-          padding: 12px 10px !important;
-          border-radius: 24px !important;
-        }
-        ${G} .sidebar-logo,
-        ${G} .sidebar-footer {
-          border: none !important;
-        }
-        ${G} .sidebar-logo {
-          padding-bottom: 6px !important;
-          margin-bottom: 8px !important;
-        }
-        ${G} .sidebar-nav { gap: 2px !important; }
-
-        /* Every .nav-btn starts neutral: the sidebar rows, the network picker,
-           its options and the hero gear all wear the class, and moderndark
-           paints it a purple gradient. */
-        ${G} .nav-btn {
-          background: transparent !important;
-          border: none !important;
-          border-radius: 12px !important;
-          box-shadow: none !important;
-          color: #ffffff !important;
-          text-shadow: none !important;
-          backdrop-filter: none !important;
-          transition:
-            background-color 0.25s var(--lg-ease),
-            color 0.2s var(--lg-ease),
-            transform 0.4s var(--lg-spring) !important;
-        }
-        ${G} .nav-btn:hover {
-          background: rgba(255, 255, 255, 0.08) !important;
-          transform: none !important;
-        }
-        ${G} .nav-btn:active { transform: scale(0.97) !important; }
-        ${G} .nav-btn.active {
-          background: rgba(255, 255, 255, 0.16) !important;
-          box-shadow:
-            var(--lg-control-rim),
-            0 4px 14px -6px rgba(0, 0, 0, 0.45) !important;
-          color: #ffffff !important;
-        }
-
-        /* Sentence case, from labels written in capitals in the markup. */
-        ${G} .sidebar-nav .nav-btn {
-          width: 100% !important;
-          margin: 0 !important;
-          padding: 8px 12px !important;
-          font-family: var(--font-ui) !important;
-          font-size: 13px !important;
-          font-weight: 500 !important;
-          letter-spacing: 0 !important;
-          text-transform: lowercase !important;
-          color: rgba(255, 255, 255, 0.78) !important;
-        }
-        ${G} .sidebar-nav .nav-btn::first-letter { text-transform: uppercase !important; }
-        ${G} .sidebar-nav .nav-btn:hover,
-        ${G} .sidebar-nav .nav-btn.active { color: #ffffff !important; }
-        ${G} .sidebar-nav .nav-btn.active { font-weight: 600 !important; }
-
-        /* No browser focus ring. Chromium draws its own white double ring
-           round a focused button, and the tab switch leaves the clicked row
-           focused — so the active item wore a hard white outline that
-           flickered as the pointer moved over its neighbours. Keyboard focus
-           still shows, as the same wash a hover gives. */
-        ${G} .nav-btn:focus,
-        ${G} .filter-btn:focus,
-        ${G} .sort-btn:focus {
-          outline: none !important;
-        }
-        ${G} .nav-btn:focus-visible:not(.active),
-        ${G} .filter-btn:focus-visible:not(.active),
-        ${G} .sort-btn:focus-visible:not(.active) {
-          background: rgba(255, 255, 255, 0.08) !important;
-        }
-
-        /* The tab entrance: a rise, with no fade. Opacity below 1 on an
-           ancestor makes it the root every backdrop-filter inside it samples
-           from, so while moderndark's fade ran the cards frosted an empty,
-           transparent layer and only picked up the backdrop when it finished
-           — they came in hollow and then snapped. Holding it with
-           \`forwards\` would only keep them hollow for good. Doubled class to
-           outrank the four-class rule it replaces. */
-        ${G}.glass-enabled .tab-panel.active,
-        ${G}.glass-enabled #roomsDetailView:not(.hidden) {
-          animation: glassTabIn 0.4s var(--lg-ease) !important;
-        }
-        @keyframes glassTabIn {
-          from { transform: translateY(8px); }
-        }
-
-        /* ── Menus ────────────────────────────────────────────────────── */
-        ${G} .network-menu .nav-btn,
-        ${G} .manage-menu .manage-item {
-          background: transparent !important;
-          border: none !important;
-          border-radius: 10px !important;
-          box-shadow: none !important;
-          color: #ffffff !important;
-          font-weight: 500 !important;
-          text-shadow: none !important;
-          transform: none !important;
-        }
-        ${G} .network-menu .nav-btn:hover,
-        ${G} .manage-menu .manage-item:hover {
-          background: rgba(255, 255, 255, 0.12) !important;
-        }
-        ${G} .manage-menu .manage-item.danger { color: #ff6961 !important; }
-        ${G} .manage-menu .manage-item.danger:hover { background: rgba(255, 69, 58, 0.16) !important; }
-        ${G} .manage-sep { background: rgba(255, 255, 255, 0.10) !important; }
-
-        /* The gear's manage menu: a solid popover, lit like the cards. At 95%
-           it still let the status card underneath read through, and in the
-           app's window that card — a separate GPU layer, for its frost — came
-           through clearly. So the body is solid, and the hero wrap that holds
-           the menu is lifted above the status cards outright. The rim is inset
-           shadows here, so the generic ring on ::before is dropped. */
-        ${G} .home-hero-wrap { z-index: 5 !important; }
-        ${G} .manage-menu {
-          background:
-            radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
-            #1e2030 !important;
-          border: none !important;
-          border-radius: 16px !important;
-          min-width: 214px !important;
-          margin-top: 6px !important;
-          padding: 6px !important;
-          gap: 2px !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.18),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.09),
-            0 24px 60px -18px rgba(0, 0, 0, 0.65),
-            0 2px 6px rgba(0, 0, 0, 0.2) !important;
-        }
-        ${G} .manage-menu::before { display: none !important; }
-        ${G} #manageMenu .manage-item {
-          gap: 11px !important;
-          padding: 8px 12px !important;
-          border-radius: 10px !important;
-          font-family: var(--font-ui) !important;
-          font-size: 13px !important;
-          font-weight: 500 !important;
-          letter-spacing: 0 !important;
-          color: rgba(255, 255, 255, 0.92) !important;
-          transition: background-color 0.18s var(--lg-ease), color 0.18s var(--lg-ease) !important;
-        }
-        ${G} #manageMenu .manage-item svg {
-          width: 16px !important;
-          height: 16px !important;
-          opacity: 0.75 !important;
-        }
-        ${G} #manageMenu .manage-item:hover,
-        ${G} #manageMenu .manage-item:focus-visible {
-          background: rgba(255, 255, 255, 0.12) !important;
-          color: #ffffff !important;
-        }
-        ${G} #manageMenu .manage-item:hover svg,
-        ${G} #manageMenu .manage-item:focus-visible svg { opacity: 1 !important; }
-        ${G} #manageMenu .manage-item.danger { color: #ff6961 !important; }
-        ${G} #manageMenu .manage-item.danger:hover,
-        ${G} #manageMenu .manage-item.danger:focus-visible {
-          background: rgba(255, 69, 58, 0.18) !important;
-          color: #ff7a73 !important;
-        }
-        ${G} #manageMenu .manage-sep {
-          height: 1px !important;
-          border: none !important;
-          margin: 4px 8px !important;
-          background: rgba(255, 255, 255, 0.10) !important;
-        }
-
-        /* The network menu opens inside the sidebar, and the sidebar is itself
-           a backdrop-filter — Chromium does not blur a backdrop-filter nested
-           inside another one, so this menu's frost never happened and the
-           66% popover tint left Home, Rooms and People reading straight
-           through it. It gets a solid body instead, lit the same way — even
-           at 97% the nav labels still ghosted through. */
-        ${G} .network-menu {
-          background:
-            radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
-            #1e2030 !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          padding: 6px !important;
-          gap: 2px !important;
-        }
-        ${G} .network-menu .network-option {
-          gap: 10px !important;
-          padding: 8px 10px !important;
-          margin: 0 !important;
-        }
-        ${G} .network-menu .network-option.active {
-          background: rgba(255, 255, 255, 0.14) !important;
-          box-shadow: var(--lg-control-rim) !important;
-        }
-        ${G} .network-option-icon {
-          width: 28px !important;
-          height: 28px !important;
-          border: none !important;
-          border-radius: 7px !important;
-        }
-        /* Custom selects. The same solid popover as the network menu, for the
-           same reason: they open inside a settings group, which is itself a
-           backdrop-filter, so a blur here would never happen. The menu
-           scrolls, so its edge light is an inset shadow rather than the ring,
-           which would scroll away with the rows. */
-        ${G} .cselect-menu {
-          background:
-            radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
-            #1e2030 !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          border: none !important;
-          border-radius: 14px !important;
-          padding: 6px !important;
-          gap: 2px !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.18),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.09),
-            0 24px 60px -18px rgba(0, 0, 0, 0.65),
-            0 2px 6px rgba(0, 0, 0, 0.2) !important;
-        }
-        ${G} .cselect-menu::-webkit-scrollbar-track { margin: 10px 0 !important; }
-        ${G} .cselect-menu .cselect-option {
-          margin: 0 !important;
-          padding: 7px 10px !important;
-          border-radius: 9px !important;
-          font-family: var(--font-ui) !important;
-          font-size: 12.5px !important;
-          font-weight: 500 !important;
-          letter-spacing: 0 !important;
-          text-transform: none !important;
-        }
-        ${G} .cselect-menu .cselect-option.active {
-          background: rgba(255, 255, 255, 0.14) !important;
-          box-shadow: var(--lg-control-rim) !important;
-          font-weight: 600 !important;
-        }
-        ${G} .cselect-trigger {
-          font-family: var(--font-ui) !important;
-          font-size: 12px !important;
-          padding: 0 12px !important;
-        }
-        ${G} .cselect-trigger.is-open {
-          background: rgba(255, 255, 255, 0.10) !important;
-          box-shadow:
-            inset 0 0 0 1px rgba(10, 132, 255, 0.95),
-            inset 0 0 0 3px rgba(10, 132, 255, 0.28) !important;
-        }
-        ${G}.animations-enabled .cselect-menu:not([hidden]) {
-          animation: networkMenuDrop 0.2s var(--lg-ease);
-          transform-origin: top center;
-        }
-        ${G}.animations-enabled .cselect-menu.opens-up:not([hidden]) {
-          transform-origin: bottom center;
-        }
-        ${G}.animations-enabled .cselect-menu.is-closing {
-          animation: networkMenuLift 0.14s ease-in forwards;
-        }
-
-        /* Size comes from the base rule, shared by every skin. */
-        ${G} .network-option-name {
-          font-family: var(--font-ui) !important;
-          font-weight: 600 !important;
-          letter-spacing: 0.3px !important;
-        }
-        /* No ✓ on the current network: its row is already lit (the active
-           background and rim above), and the tick read as cheap. */
-        ${G} .network-option-check { display: none !important; }
-
-        /* ── Tabs ─────────────────────────────────────────────────────── */
-        /* Panels no longer wrap the whole tab in one more slab of glass: the
-           cards inside are the surfaces, and glass on glass only muddies. The
-           padding leaves the cards' shadows room inside the scroll clip. */
-        ${G} .tab-panel {
-          background: transparent !important;
-          border: none !important;
-          border-radius: 0 !important;
-          box-shadow: none !important;
-          backdrop-filter: none !important;
-          box-sizing: border-box !important;
-          /* Widened into .main-content's 14px side padding, with that much
-             more padding of its own, so the content sits exactly where it did
-             but the clip edge moves out to where a card's shadow has faded.
-             At 2px from the cards, the shadows (which reach ~20px sideways)
-             ended in a hard vertical line down both sides. \`width: auto\` so
-             the column's stretch alignment can take the negative margins. */
-          width: auto !important;
-          margin: 0 -14px !important;
-          padding: 2px 20px 16px 16px !important;
-        }
-        ${G} #tab-rooms,
-        ${G} #tab-people {
-          padding: 2px 16px 4px 16px !important;
-        }
-
-        /* Never let a glass surface sit flush against the edge that clips
-           it. Where a backdrop-filter's bottom edge lands exactly on its
-           scroller's clip edge, Chromium intersects the two and loses the
-           border-radius — the frost is drawn as a square behind the rounded
-           card, a second corner at both bottom corners. So the scrollers
-           that end on a glass surface keep a margin of their own:
-           .settings-body is what actually scrolls on Settings (the tab around
-           it does not), and the detail views clip their glass well flush. */
-        ${G} #tab-settings { padding-bottom: 0 !important; }
-        /* The same widening one level in, into the tab's (now wider) padding,
-           because on Settings this is the box that clips — on all four sides,
-           since the first group sat flush against its top edge too. */
-        ${G} .settings-body {
-          margin: -6px -20px 0 -16px !important;
-          padding: 6px 24px 16px 16px !important;
-        }
-
-        /* The Rooms and People list views, the Rooms sidebar and the two
-           detail views all clipped with overflow, and the glass inside each
-           filled it edge to edge — the Filters and Sort By cards, the room
-           grid, the People table, the detail wells. None of them needs the
-           clip: every child that can outgrow them already scrolls on its own,
-           so they stop clipping and there is no edge left to sit flush on.
-           (Found by walking every view for backdrop-filter surfaces touching
-           an ancestor's clip, rather than one screenshot at a time.) */
-        ${G} #roomsListView,
-        ${G} #roomsListView > .flex-1,
-        ${G} #roomsSidebar,
-        ${G} #peopleListView,
-        ${G} #roomsDetailView,
-        ${G} #peopleDetailView {
-          overflow: visible !important;
-        }
-        ${G} #roomsDetailView,
-        ${G} #peopleDetailView {
-          padding-bottom: 6px !important;
-        }
-        ${G} .panel-header {
-          border: none !important;
-          background: transparent !important;
-          padding: 6px 4px 10px !important;
-        }
-        ${G} .panel-header h2 {
-          font-family: var(--font-ui) !important;
-          font-size: 24px !important;
-          font-weight: 700 !important;
-          letter-spacing: -0.3px !important;
-          color: #ffffff !important;
-          text-shadow: none !important;
-          text-transform: lowercase !important;
-        }
-        ${G} .panel-header h2::first-letter { text-transform: uppercase !important; }
-
-        /* ── Buttons ──────────────────────────────────────────────────── */
-        ${G} .btn-refresh,
-        ${G} .btn-save,
-        ${G} .btn-test-server,
-        ${G} .btn-cancel-dl,
-        ${G} .btn-kill,
-        ${G} .btn-open-folder,
-        ${G} .btn-reinstall,
-        ${G} .btn-uninstall,
-        ${G} .btn-exclude-av,
-        ${G} .modal-btn,
-        ${G} .launch-secondary-actions button {
-          background: var(--lg-control) !important;
-          border: none !important;
-          border-radius: 999px !important;
-          box-shadow: var(--lg-control-rim), 0 1px 2px rgba(0, 0, 0, 0.14) !important;
-          color: #ffffff !important;
-          font-family: var(--font-ui) !important;
-          font-weight: 600 !important;
-          letter-spacing: 0.1px !important;
-          text-shadow: none !important;
-          backdrop-filter: none !important;
-          transition:
-            background-color 0.2s var(--lg-ease),
-            box-shadow 0.2s var(--lg-ease),
-            transform 0.4s var(--lg-spring) !important;
-        }
-        ${G} .btn-refresh:hover,
-        ${G} .btn-save:hover,
-        ${G} .btn-test-server:hover,
-        ${G} .btn-cancel-dl:hover,
-        ${G} .btn-kill:hover,
-        ${G} .btn-open-folder:hover,
-        ${G} .btn-reinstall:hover,
-        ${G} .btn-uninstall:hover,
-        ${G} .btn-exclude-av:hover,
-        ${G} .modal-btn:hover,
-        ${G} .launch-secondary-actions button:hover {
-          background: var(--lg-control-hover) !important;
-          transform: none !important;
-        }
-        ${G} .btn-refresh:active,
-        ${G} .btn-save:active,
-        ${G} .btn-test-server:active,
-        ${G} .btn-cancel-dl:active,
-        ${G} .btn-kill:active,
-        ${G} .btn-open-folder:active,
-        ${G} .btn-reinstall:active,
-        ${G} .btn-uninstall:active,
-        ${G} .btn-exclude-av:active,
-        ${G} .modal-btn:active,
-        ${G} .launch-secondary-actions button:active {
-          background: rgba(255, 255, 255, 0.07) !important;
-          transform: scale(0.96) !important;
-        }
-        /* Disabled buttons do nothing on hover or press, and keep the plain
-           arrow. moderndark gives them \`cursor: not-allowed\`, which on
-           Windows is a small circle — over a dimmed Previous on page 1 it
-           read as a stray white dot on the button. */
-        ${G} button:disabled,
-        ${G} button:disabled:hover,
-        ${G} button:disabled:active {
-          cursor: default !important;
-          transform: none !important;
-          filter: none !important;
-        }
-        /* Dimmed with colour, not opacity, and the same in every state.
-           moderndark fades a disabled button to opacity 0.4, which gives it a
-           compositing layer of its own; in the app's window that layer drew a
-           stray dot at the capsule's left tip, where Previous sits flush
-           against the list view's clip edge. (Never reproduced in headless
-           Chromium — this removes the cause rather than a symptom seen.) */
-        ${G} :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
-                 .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
-                 .modal-btn:not(.modal-btn-primary), .launch-secondary-actions button):disabled {
-          opacity: 1 !important;
-          background: rgba(255, 255, 255, 0.04) !important;
-          color: rgba(255, 255, 255, 0.35) !important;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
-        }
-        /* And off that clip edge: 2px either side keeps Previous and Next from
-           touching the edges of the list view that clips them. */
-        ${G} .native-pagination {
-          padding-left: 2px !important;
-          padding-right: 2px !important;
-        }
-
-        ${G} .modal-btn-primary {
-          background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)),
-            var(--lg-accent) !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.35),
-            0 6px 18px -6px rgba(10, 132, 255, 0.6) !important;
-        }
-        ${G} .modal-btn-primary.modal-btn-danger {
-          background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0)),
-            var(--lg-danger) !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.3),
-            0 6px 18px -6px rgba(255, 69, 58, 0.55) !important;
-        }
-        ${G} .modal-btn-primary:hover { filter: brightness(1.08) !important; }
-
-        /* The primary action: a clear-glass rounded rectangle, milky enough
-           to read as frosted, lit softly from the top with a crisp rim.
-
-           Deliberately one plain box. It used to carry a real frost — a
-           masked backdrop-filter on ::after, cut round from six gradient
-           tiles — and on the GPU that layer came apart at the corners and
-           ends: broken edges and stray white dots, worse under a scale. A
-           rounded box with inset shadows is drawn cleanly by every renderer,
-           and it is what makes the motion below safe to run.
-
-           The fill never changes: background-color and background-image are
-           fixed and neither is transitioned, which is what keeps hover from
-           flashing. The hover highlight is ::before fading in over it, behind
-           the label (\`isolation\` keeps its negative z-index inside). */
-        ${G} .btn-play,
-        ${G} .btn-download-big {
-          position: relative !important;
-          isolation: isolate !important;
-          background-color: rgba(255, 255, 255, 0.14) !important;
-          background-image:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.09) 100%) !important;
-          color: #ffffff !important;
-          border: none !important;
-          border-radius: 14px !important;
-          padding: 0 26px !important;
-          font-family: var(--font-ui) !important;
-          font-weight: 600 !important;
-          text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3) !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.6),
-            inset 0 -1px 0 rgba(255, 255, 255, 0.14),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.16),
-            0 8px 24px -10px rgba(0, 0, 0, 0.6) !important;
-          transition:
-            box-shadow 0.3s var(--lg-ease),
-            transform 0.5s var(--lg-spring) !important;
-        }
-        ${G} .btn-play::before,
-        ${G} .btn-download-big::before {
-          content: '' !important;
-          position: absolute !important;
-          inset: 1px !important;
-          z-index: -1 !important;
-          border-radius: 13px !important;
-          pointer-events: none !important;
-          background: radial-gradient(120% 100% at 50% 0%, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 65%) !important;
-          opacity: 0 !important;
-          transition: opacity 0.3s var(--lg-ease) !important;
-        }
-        /* Hover lifts and grows a touch on the spring, the highlight fades in
-           and the rim brightens with a soft glow. */
-        ${G} .btn-play:hover,
-        ${G} .btn-download-big:hover {
-          transform: translateY(-1px) scale(1.03) !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.8),
-            inset 0 -1px 0 rgba(255, 255, 255, 0.2),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.26),
-            0 0 26px -6px rgba(255, 255, 255, 0.32),
-            0 14px 30px -12px rgba(0, 0, 0, 0.65) !important;
-        }
-        ${G} .btn-play:hover::before,
-        ${G} .btn-download-big:hover::before {
-          opacity: 1 !important;
-        }
-        /* Pressed sinks quickly; release springs back through the base
-           transition. Beats every skin's own :active scale. */
-        ${G} .btn-play:is(:active, .is-pressed),
-        ${G} .btn-download-big:is(:active, .is-pressed) {
-          transform: scale(0.97) !important;
-          transition:
-            box-shadow 0.12s var(--lg-ease),
-            transform 0.12s var(--lg-ease) !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.5),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.18),
-            0 4px 14px -8px rgba(0, 0, 0, 0.6) !important;
-        }
-        ${G} .btn-play:is(:active, .is-pressed)::before,
-        ${G} .btn-download-big:is(:active, .is-pressed)::before {
-          opacity: 0.45 !important;
-        }
-        ${G} .btn-play .play-text,
-        ${G} .btn-download-big {
-          letter-spacing: 1px !important;
-        }
-        /* Running: the same glass, tinted red. Its colour is fixed across hover
-           too, so a running button cannot flash either. */
-        ${G} .btn-play.running,
-        ${G} .btn-play.running:hover,
-        ${G} .btn-play.running:is(:active, .is-pressed) {
-          background-color: rgba(255, 69, 58, 0.45) !important;
-          color: #ffffff !important;
-        }
-        ${G} .btn-play.running {
-          box-shadow:
-            inset 0 1px 0 rgba(255, 210, 206, 0.6),
-            inset 0 0 0 1px rgba(255, 150, 140, 0.24),
-            0 8px 24px -10px rgba(255, 69, 58, 0.6) !important;
-        }
-        ${G} .btn-play.running:hover {
-          box-shadow:
-            inset 0 1px 0 rgba(255, 220, 216, 0.8),
-            inset 0 0 0 1px rgba(255, 160, 150, 0.32),
-            0 0 26px -6px rgba(255, 69, 58, 0.45),
-            0 14px 30px -12px rgba(255, 69, 58, 0.6) !important;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          ${G} .btn-play,
-          ${G} .btn-download-big,
-          ${G} .btn-play:hover,
-          ${G} .btn-download-big:hover,
-          ${G} .btn-play:is(:active, .is-pressed),
-          ${G} .btn-download-big:is(:active, .is-pressed) {
-            transform: none !important;
-          }
-        }
-
-        /* ── Home ─────────────────────────────────────────────────────── */
-        ${G} .home-hero {
-          border: none !important;
-          border-radius: 26px !important;
-          box-shadow: 0 18px 44px -20px rgba(0, 0, 0, 0.7) !important;
-        }
-        ${G} .home-hero::before { z-index: 4 !important; }
-        /* A soft scrim rather than a slab of black. It used to carry a
-           progressive blur as well, but that was a full-width live blur
-           clipped to the hero's rounded corners — expensive, and aliased at
-           the bottom corners on the GPU. */
-        ${G} .home-hero-bar {
-          z-index: 1 !important;
-          background: linear-gradient(180deg,
-            rgba(0, 0, 0, 0) 0%,
-            rgba(0, 0, 0, 0.3) 40%,
-            rgba(0, 0, 0, 0.62) 100%) !important;
-        }
-        ${G} .hero-mode-label {
-          font-family: var(--font-ui) !important;
-          font-size: 10px !important;
-          font-weight: 600 !important;
-          letter-spacing: 0.6px !important;
-          color: rgba(255, 255, 255, 0.72) !important;
-        }
-
-        /* Segmented control: a clear track with a lens that glides between
-           the two segments and overshoots slightly as it lands. */
-        ${G} .mode-toggle-wrap {
-          position: relative !important;
-          z-index: 1 !important;
-          display: inline-flex !important;
-          gap: 4px !important;
-          padding: 3px !important;
-          background: rgba(118, 118, 128, 0.32) !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          border: none !important;
-          border-radius: 999px !important;
-          box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.10),
-            inset 0 1px 2px rgba(0, 0, 0, 0.2) !important;
-        }
-        ${G} .mode-btn {
-          position: relative !important;
-          z-index: 2 !important;
-          width: 80px !important;
-          padding: 6px 0 !important;
-          text-align: center !important;
-          background: transparent !important;
-          border: none !important;
-          border-radius: 999px !important;
-          box-shadow: none !important;
-          color: rgba(255, 255, 255, 0.7) !important;
-          font-family: var(--font-ui) !important;
-          font-size: 11px !important;
-          font-weight: 600 !important;
-          letter-spacing: 0.4px !important;
-          transition: color 0.25s var(--lg-ease) !important;
-        }
-        ${G} .mode-btn:hover:not(.active) {
-          color: #ffffff !important;
-          background: transparent !important;
-        }
-        ${G} .mode-btn.active {
-          color: #ffffff !important;
-          background: transparent !important;
-          box-shadow: none !important;
-        }
-        ${G} .mode-slider {
-          display: block !important;
-          position: absolute !important;
-          top: 3px !important;
-          bottom: 3px !important;
-          left: 3px !important;
-          width: 80px !important;
-          z-index: 1 !important;
-          border-radius: 999px !important;
-          background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.2)) !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.5),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-            0 3px 10px -2px rgba(0, 0, 0, 0.4) !important;
-          transition: transform 0.5s var(--lg-spring) !important;
-        }
-
-        ${G} #btnManageClient,
-        ${G} #btnManageClient[aria-expanded="false"]:hover,
-        ${G} #btnManageClient[aria-expanded="false"]:focus-visible {
-          width: 40px !important;
-          height: 40px !important;
-          border-radius: 50% !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          background: rgba(255, 255, 255, 0.16) !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.3),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.1),
-            0 6px 18px -8px rgba(0, 0, 0, 0.6) !important;
-          color: #ffffff !important;
-        }
-        ${G} #btnManageClient[aria-expanded="false"]:hover,
-        ${G} #btnManageClient.active {
-          background: rgba(255, 255, 255, 0.24) !important;
-        }
-
-        ${G} .quick-stats { gap: 12px !important; }
-        ${G} .qs-card {
-          border-radius: 20px !important;
-          padding: 12px 16px !important;
-          gap: 4px !important;
-          transition: transform 0.4s var(--lg-spring) !important;
-        }
-        ${G} .qs-label {
-          font-family: var(--font-ui) !important;
-          font-size: 11px !important;
-          font-weight: 500 !important;
-          letter-spacing: 0.1px !important;
-          text-transform: none !important;
-          color: var(--text-muted) !important;
-        }
-        ${G} .qs-value {
-          font-family: var(--font-ui) !important;
-          font-size: 16px !important;
-          font-weight: 600 !important;
-          letter-spacing: -0.1px !important;
-          color: #ffffff !important;
-        }
-        ${G} .qs-icon-indicator {
-          width: 8px !important;
-          height: 8px !important;
-          border-radius: 50% !important;
-          background: rgba(255, 255, 255, 0.28) !important;
-          box-shadow: none !important;
-        }
-        ${G} .qs-card.online .qs-icon-indicator,
-        ${G} .qs-card.installed .qs-icon-indicator {
-          background: var(--lg-positive) !important;
-          box-shadow: 0 0 10px rgba(48, 209, 88, 0.8) !important;
-        }
-        ${G} .qs-card.offline .qs-icon-indicator {
-          background: var(--lg-danger) !important;
-          box-shadow: 0 0 10px rgba(255, 69, 58, 0.8) !important;
-        }
-        ${G} .qs-card.not-installed .qs-icon-indicator {
-          background: #ffd60a !important;
-          box-shadow: 0 0 10px rgba(255, 214, 10, 0.7) !important;
-        }
-
-        /* ── Download progress ────────────────────────────────────────── */
-        ${G} .dl-progress-block { border-radius: 22px !important; }
-        ${G} .dlp-phase,
-        ${G} .dlp-pct,
-        ${G} .dlp-stat-val { color: #ffffff !important; }
-        ${G} .dlp-stat-label { color: var(--text-muted) !important; }
-        ${G} .dlp-dot {
-          background: var(--lg-accent) !important;
-          border-radius: 50% !important;
-          box-shadow: 0 0 10px rgba(10, 132, 255, 0.9) !important;
-          animation: dlp-pulse 1s ease-in-out infinite !important;
-        }
-        ${G} .dlp-bar-wrap {
-          background: rgba(255, 255, 255, 0.10) !important;
-          border: none !important;
-          border-radius: 999px !important;
-          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25) !important;
-        }
-        ${G} .dlp-bar-fill {
-          background: linear-gradient(90deg, var(--lg-accent), #64d2ff) !important;
-          border-radius: 999px !important;
-          box-shadow: 0 0 12px rgba(10, 132, 255, 0.55) !important;
-        }
-        ${G} .dlp-step,
-        ${G} .dlp-stat {
-          background: rgba(255, 255, 255, 0.06) !important;
-          border: none !important;
-          border-radius: 12px !important;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
-        }
-        ${G} .dlp-step { opacity: 0.6 !important; }
-        ${G} .dlp-step.active,
-        ${G} .dlp-step.done { opacity: 1 !important; }
-        ${G} .dlp-step.active {
-          color: #ffffff !important;
-          background: rgba(255, 255, 255, 0.14) !important;
-          box-shadow: var(--lg-control-rim) !important;
-        }
-        ${G} .dlp-step.done { color: rgba(255, 255, 255, 0.85) !important; }
-        ${G} .dlp-step-idx {
-          background: rgba(255, 255, 255, 0.16) !important;
-          color: rgba(255, 255, 255, 0.85) !important;
-          border: none !important;
-          border-radius: 50% !important;
-        }
-        ${G} .dlp-step.active .dlp-step-idx {
-          background: #ffffff !important;
-          color: #0b0c10 !important;
-        }
-        ${G} .dlp-step.done .dlp-step-idx {
-          background: rgba(255, 255, 255, 0.65) !important;
-          color: #0b0c10 !important;
-        }
-
-        /* ── Settings ─────────────────────────────────────────────────── */
-        ${G} .settings-group {
-          border-radius: 22px !important;
-          padding: 16px 18px !important;
-          gap: 10px !important;
-        }
-        ${G} .sg-title {
-          font-family: var(--font-ui) !important;
-          font-size: 11px !important;
-          font-weight: 600 !important;
-          letter-spacing: 0.6px !important;
-          color: var(--text-muted) !important;
-          border: none !important;
-          padding: 0 0 2px !important;
-        }
-        ${G} .sg-row label,
-        ${G} .sg-toggle-row > span {
-          font-size: 12.5px !important;
-          font-weight: 500 !important;
-          color: #ffffff !important;
-        }
-        ${G} .sg-toggle-row + .sg-toggle-row {
-          border-top: 1px solid rgba(255, 255, 255, 0.07) !important;
-          padding-top: 8px !important;
-        }
-        ${G} .sg-hint {
-          font-size: 11px !important;
-          color: rgba(235, 235, 245, 0.5) !important;
-        }
-
-        ${G} .cfg-input,
-        ${G} .cfg-select,
-        ${G} .cfg-path-display,
-        ${G} select,
-        ${G} input[type="text"],
-        ${G} input[type="number"],
-        ${G} textarea {
-          background: rgba(255, 255, 255, 0.07) !important;
-          border: none !important;
-          border-radius: 10px !important;
-          color: #ffffff !important;
-          min-height: 30px !important;
-          box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-            inset 0 1px 2px rgba(0, 0, 0, 0.18) !important;
-          backdrop-filter: none !important;
-          outline: none !important;
-          transition: background-color 0.2s var(--lg-ease), box-shadow 0.2s var(--lg-ease) !important;
-        }
-        ${G} .cfg-input:not(select),
-        ${G} input[type="text"],
-        ${G} input[type="number"],
-        ${G} textarea {
-          padding: 6px 12px !important;
-        }
-        ${G} .cfg-path-display {
-          display: flex !important;
-          align-items: center !important;
-          padding: 0 12px !important;
-        }
-        ${G} .cfg-input:focus,
-        ${G} .cfg-select:focus,
-        ${G} select:focus,
-        ${G} input[type="text"]:focus,
-        ${G} input[type="number"]:focus,
-        ${G} textarea:focus {
-          background: rgba(255, 255, 255, 0.10) !important;
-          box-shadow:
-            inset 0 0 0 1px rgba(10, 132, 255, 0.9),
-            0 0 0 3px rgba(10, 132, 255, 0.32) !important;
-        }
-        ${G} ::placeholder { color: rgba(235, 235, 245, 0.35) !important; }
-        ${G} select option {
-          background: #1f2029 !important;
-          color: #ffffff !important;
-        }
-
-        /* Switches, sized and sprung like iOS. Pressing stretches the knob
-           toward where it is about to travel. */
-        ${G} .toggle-wrap {
-          position: relative !important;
-          flex-shrink: 0 !important;
-          width: 42px !important;
-          height: 24px !important;
-          border: none !important;
-          border-radius: 999px !important;
-          background: rgba(120, 120, 128, 0.36) !important;
-          box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.06),
-            inset 0 1px 2px rgba(0, 0, 0, 0.2) !important;
-          transition: background-color 0.25s var(--lg-ease) !important;
-        }
-        ${G} .tgl-knob {
-          top: 2px !important;
-          left: 2px !important;
-          width: 20px !important;
-          height: 20px !important;
-          border: none !important;
-          border-radius: 999px !important;
-          background: #ffffff !important;
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.04) !important;
-          transform: none !important;
-          transition: transform 0.4s var(--lg-spring), width 0.2s var(--lg-ease) !important;
-        }
-        ${G} .toggle-wrap:active .tgl-knob { width: 25px !important; }
-        ${G} .toggle-wrap.on { background: var(--lg-positive) !important; }
-        ${G} .toggle-wrap.on .tgl-knob {
-          background: #ffffff !important;
-          transform: translateX(18px) !important;
-        }
-        ${G} .toggle-wrap.on:active .tgl-knob { transform: translateX(13px) !important; }
-
-        /* Wider than the base 170px: the roomier glass chip otherwise cut
-           "Glass Tint" down to "Glass ...". */
-        ${G} .ct-swatches {
-          grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
-        }
-        ${G} .ct-swatch {
-          background: rgba(255, 255, 255, 0.06) !important;
-          border: none !important;
-          border-radius: 12px !important;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07) !important;
-          padding: 6px 10px !important;
-        }
-
-        /* Tint picker. A solid popover like the custom selects, and for the
-           same reason: it opens inside a settings group, which is already a
-           backdrop-filter, so a blur here would never draw. No blur also
-           keeps it clear of the small-element blur artifacts. */
-        ${G} .tint-swatch {
-          width: 22px !important;
-          height: 22px !important;
-          border: none !important;
-          box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.28),
-            0 1px 3px rgba(0, 0, 0, 0.35) !important;
-          transition: transform 0.25s var(--lg-spring), box-shadow 0.2s var(--lg-ease) !important;
-        }
-        ${G} .tint-swatch:not(:disabled):hover { transform: scale(1.1) !important; }
-        ${G} .tint-swatch.is-open {
-          box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.28),
-            0 0 0 2px rgba(10, 132, 255, 0.95),
-            0 0 0 5px rgba(10, 132, 255, 0.28) !important;
-        }
-        ${G} .tint-picker {
-          width: 244px !important;
-          padding: 12px !important;
-          gap: 12px !important;
-          background:
-            radial-gradient(130% 90% at 0% 0%, rgba(255, 255, 255, 0.09), transparent 52%),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
-            #1e2030 !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          border: none !important;
-          border-radius: 18px !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.18),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.09),
-            0 24px 60px -18px rgba(0, 0, 0, 0.65),
-            0 2px 6px rgba(0, 0, 0, 0.2) !important;
-        }
-        ${G} .tint-sv {
-          height: 140px !important;
-          border-radius: 10px !important;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10) !important;
-        }
-        ${G} .tint-hue {
-          height: 14px !important;
-          border-radius: 999px !important;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14) !important;
-        }
-        ${G} .tint-sv-thumb,
-        ${G} .tint-hue-thumb {
-          width: 18px !important;
-          height: 18px !important;
-          border: 3px solid #ffffff !important;
-          box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18), 0 3px 8px rgba(0, 0, 0, 0.45) !important;
-        }
-        ${G} .tint-hue-thumb { width: 20px !important; height: 20px !important; }
-        ${G} .tint-sv:focus-visible,
-        ${G} .tint-hue:focus-visible {
-          box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-            0 0 0 2px rgba(10, 132, 255, 0.9) !important;
-        }
-        ${G} .tint-picker .tint-hex {
-          height: 30px !important;
-          padding: 0 12px !important;
-          border-radius: 999px !important;
-          font-family: var(--font-mono) !important;
-          font-size: 12px !important;
-          letter-spacing: 0.5px !important;
-        }
-        ${G} .tint-preset {
-          width: 22px !important;
-          height: 22px !important;
-          border: none !important;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22) !important;
-          transition: transform 0.25s var(--lg-spring), box-shadow 0.2s var(--lg-ease) !important;
-        }
-        ${G} .tint-preset:hover { transform: scale(1.12) !important; }
-        ${G} .tint-preset.active {
-          box-shadow:
-            inset 0 0 0 1px rgba(255, 255, 255, 0.22),
-            0 0 0 2px #1e2030,
-            0 0 0 3.5px rgba(255, 255, 255, 0.85) !important;
-        }
-        /* The same drop and lift as the custom selects. */
-        ${G}.animations-enabled .tint-picker:not([hidden]) {
-          animation: networkMenuDrop 0.2s var(--lg-ease);
-          transform-origin: top left;
-        }
-        ${G}.animations-enabled .tint-picker.opens-up:not([hidden]) {
-          transform-origin: bottom left;
-        }
-        ${G}.animations-enabled .tint-picker.is-closing {
-          animation: networkMenuLift 0.14s ease-in forwards;
-        }
-
-        /* ── Rooms and People ─────────────────────────────────────────── */
-        ${G} #roomsSidebar > div {
-          border-radius: 18px !important;
-          padding: 10px !important;
-        }
-        ${G} .native-search-bar input {
-          border-radius: 999px !important;
-          padding: 8px 16px !important;
-          font-size: 12px !important;
-        }
-        /* Everything drawn inside the field. The search bars sit in the
-           Rooms and People list views, which clip to their own box, so any
-           shadow or focus ring outside the input was cut off down both sides. */
-        /* Even hairline, for the same reason as --lg-shadow-scroll: an
-           offset top highlight on a pill is a flat bar between its ends. */
-        ${G} .native-search-bar input {
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
-        }
-        ${G} .native-search-bar input:focus {
-          box-shadow:
-            inset 0 0 0 1px rgba(10, 132, 255, 0.95),
-            inset 0 0 0 3px rgba(10, 132, 255, 0.28) !important;
-        }
-
-        /* Scrollbars are not clipped to border-radius, so in these rounded
-           scrollers the bar ran square into the corners. The track stops
-           short of them; in the People table it also starts below the
-           sticky header instead of running over it. */
-        ${G} .native-grid-container::-webkit-scrollbar-track,
-        ${G} #roomsSidebar > div::-webkit-scrollbar-track,
-        ${G} [id$="DetailView"] > .bevel-inset::-webkit-scrollbar-track,
-        ${G} #tab-photo-detail > .bevel-inset::-webkit-scrollbar-track,
-        ${G} .log-output::-webkit-scrollbar-track {
-          margin: 14px 0 !important;
-        }
-        ${G} .native-table-container::-webkit-scrollbar-track {
-          margin: 30px 0 14px !important;
-        }
-        ${G} .native-grid-container {
-          padding: 10px !important;
-        }
-
-        ${G} .filter-btn,
-        ${G} .sort-btn {
-          width: 100% !important;
-          text-align: left !important;
-          background: transparent !important;
-          border: none !important;
-          border-radius: 10px !important;
-          box-shadow: none !important;
-          color: rgba(255, 255, 255, 0.75) !important;
-          padding: 6px 10px !important;
-          font-family: var(--font-ui) !important;
-          font-size: 12px !important;
-          font-weight: 500 !important;
-          letter-spacing: 0 !important;
-          text-transform: none !important;
-          transition: background-color 0.2s var(--lg-ease), color 0.2s var(--lg-ease) !important;
-        }
-        ${G} .filter-btn:hover,
-        ${G} .sort-btn:hover {
-          background: rgba(255, 255, 255, 0.08) !important;
-          color: #ffffff !important;
-        }
-        ${G} .filter-btn.active,
-        ${G} .sort-btn.active {
-          background: rgba(255, 255, 255, 0.16) !important;
-          box-shadow: var(--lg-control-rim) !important;
-          color: #ffffff !important;
-          font-weight: 600 !important;
-        }
-
-        ${G} .room-card {
-          background: rgba(255, 255, 255, 0.06) !important;
-          border: none !important;
-          border-radius: 16px !important;
-          padding: 8px !important;
-          box-shadow:
-            var(--lg-control-rim),
-            0 6px 18px -10px rgba(0, 0, 0, 0.5) !important;
-          transition:
-            background-color 0.2s var(--lg-ease),
-            transform 0.45s var(--lg-spring),
-            box-shadow 0.25s var(--lg-ease) !important;
-        }
-        /* Doubled class: moderndark's animated hover is itself four classes
-           deep, one more than this sheet's usual prefix. */
-        ${G}.glass-enabled .room-card:hover {
-          background: rgba(255, 255, 255, 0.11) !important;
-          transform: translateY(-2px) !important;
-          box-shadow:
-            var(--lg-control-rim),
-            0 12px 26px -12px rgba(0, 0, 0, 0.6) !important;
-        }
-        ${G}.glass-enabled .nav-btn:hover { transform: none !important; }
-        ${G} .room-card-image { border-radius: 12px !important; border: none !important; }
-        ${G} .room-card-name {
-          font-family: var(--font-ui) !important;
-          font-size: 13px !important;
-          font-weight: 600 !important;
-          color: #ffffff !important;
-        }
-        ${G} .room-card-creator,
-        ${G} .room-card-stats { color: var(--text-muted) !important; }
-
-        /* The header row only spans the table, which stops at the scrollbar
-           gutter — so it ended short of the container's right edge and left a
-           lighter notch over the scrollbar in the top-right corner. The same
-           colour is painted as a band across the whole top of the container,
-           gutter included, at the header's exact height; both are solid so
-           the two meet without a seam. The band is a plain background, which
-           stays put while the rows scroll. */
-        ${G} .native-table-container.bevel-inset {
-          background:
-            linear-gradient(#1c1e2c, #1c1e2c) top left / 100% 30px no-repeat,
-            var(--lg-fill) !important;
-        }
-        ${G} .native-table th {
-          background: #1c1e2c !important;
-          height: 30px !important;
-          box-sizing: border-box !important;
-          border: none !important;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-          color: var(--text-muted) !important;
-          font-family: var(--font-ui) !important;
-          font-size: 11px !important;
-          font-weight: 600 !important;
-        }
-        ${G} .native-table td {
-          background: transparent !important;
-          border: none !important;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-          font-size: 12px !important;
-        }
-        ${G} .native-table tr:hover td { background: rgba(255, 255, 255, 0.06) !important; }
-
-        /* The room card's lower half — the stats and the Created bar — paints
-           its own --bg-panel. On an opaque skin that is the card's colour and
-           disappears; under glass --bg-panel is a white wash, so it stacked on
-           the card's own fill and laid a lighter band across the bottom with a
-           hard edge where the top half ends. The card already has a fill.
-           The player card's stats-and-bio half does exactly the same. */
-        ${G} .room-card-footer,
-        ${G} .profile-body-content {
-          background: transparent !important;
-        }
-
-        /* Inner wells inside the detail views: tinted, not blurred again. */
-        ${G} .bevel-inset,
-        ${G} .bevel-outset {
-          background: rgba(255, 255, 255, 0.05) !important;
-          border: none !important;
-          border-radius: 16px !important;
-          box-shadow:
-            inset 0 1px 0 rgba(255, 255, 255, 0.10),
-            inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
-        }
-        ${G} [id$="DetailView"] > .bevel-inset,
-        ${G} #tab-photo-detail > .bevel-inset {
-          background: var(--lg-fill) !important;
-          border-radius: 22px !important;
-        }
-        ${G} .native-grid-container.bevel-inset {
-          background: var(--lg-fill) !important;
-        }
-
-        ${G} .log-output {
-          background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
-            rgba(8, 10, 16, 0.45) !important;
-          border-radius: 18px !important;
-        }
-
-        /* ── Modals and toasts ────────────────────────────────────────── */
-        ${G} .modal-overlay {
-          /* A dim, not a blur: a full-window blur is the single most
-             expensive thing glass could draw, for a moment of decoration. */
-          background: rgba(0, 0, 0, 0.45) !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-        }
-        ${G} .modal-titlebar,
-        ${G} .modal-footer {
-          background: transparent !important;
-          border: none !important;
-        }
-        ${G} .modal-titlebar { padding: 14px 16px 4px 20px !important; }
-        ${G} .modal-footer { padding: 10px 18px 16px !important; gap: 8px !important; }
-        ${G} .modal-title {
-          font-family: var(--font-ui) !important;
-          font-size: 12px !important;
-          font-weight: 600 !important;
-          letter-spacing: 0.6px !important;
-          color: #ffffff !important;
-          text-shadow: none !important;
-        }
-        ${G} .modal-close-btn {
-          width: 24px !important;
-          height: 24px !important;
-          padding: 0 !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          background: rgba(255, 255, 255, 0.12) !important;
-          border: none !important;
-          border-radius: 50% !important;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
-          color: rgba(255, 255, 255, 0.8) !important;
-          font-size: 11px !important;
-          transition: background-color 0.2s var(--lg-ease) !important;
-        }
-        ${G} .modal-close-btn:hover { background: rgba(255, 255, 255, 0.22) !important; }
-
-        /* Dialogs spring in and ease out. Only the dimmer fades, and the box
-           is a solid popover fill with no blur of its own, so nothing
-           frosted is ever faded or scaled (the thing that broke into
-           artefacts on the user's GPU). The exit is timed by MODAL_EXIT_MS
-           in hideModal(), which adds .is-closing. */
-        ${G} .modal-overlay { animation: glassOverlayIn 0.22s var(--lg-ease) !important; }
-        ${G} .modal-box { animation: glassModalIn 0.42s var(--lg-spring) !important; }
-        ${G} .modal-overlay.is-closing { animation: glassOverlayOut 0.18s ease-in forwards !important; }
-        ${G} .modal-overlay.is-closing .modal-box { animation: glassModalOut 0.18s ease-in forwards !important; }
-        /* Popups stay on their own compositing layer while open. Otherwise
-           the layer an entrance animation creates is dropped when it ends,
-           and text drawn at a fractional position (a flex-centred dialog of
-           odd height, 125% scaling) is redrawn snapped to the pixel grid —
-           a half-pixel jump up as every popup settles. None of these carry
-           a blur, so the held layer is the kind proven clean on the user's
-           GPU; the frosted toasts are left out. */
-        ${G} :is(.modal-box, .network-menu, .manage-menu, .cselect-menu, .tint-picker) {
-          will-change: transform;
-        }
-        @keyframes glassOverlayIn  { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes glassOverlayOut { from { opacity: 1; } to { opacity: 0; } }
-        @keyframes glassModalIn {
-          from { opacity: 0; transform: translateY(16px) scale(0.96); }
-          to   { opacity: 1; transform: none; }
-        }
-        @keyframes glassModalOut {
-          from { opacity: 1; transform: none; }
-          to   { opacity: 0; transform: translateY(8px) scale(0.97); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          ${G} .modal-overlay,
-          ${G} .modal-box,
-          ${G} .modal-overlay.is-closing,
-          ${G} .modal-overlay.is-closing .modal-box { animation: none !important; }
-        }
-
-        /* ── Notifications ──────────────────────────────────────────────
-           Frosted glass. Without a blur, whatever sat under a stack (room
-           titles, the pagination) read straight through the text.
-
-           The frost is on ::before, behind the label, and its edge is covered
-           rather than masked: a blur clipped to a rounded rect stair-steps on
-           the GPU, and the masked tiles that avoid that came apart on the
-           similarly small PLAY button. So the layer is clipped plainly by
-           border-radius, and \`outline\` — which paints above everything in the
-           toast and is drawn as a smooth stroke — lies over that clip edge.
-
-           The card never fades: an ancestor below full opacity cuts a
-           backdrop-filter off from what is behind it, so a fading toast would
-           arrive unfrosted and snap. It slides in from past the window edge
-           and back out instead, translate only — no scale, which is what
-           resampled the PLAY button's frost. The status light is ::after. */
-        ${G} .toast-container {
-          bottom: 16px !important;
-          right: 16px !important;
-          gap: 8px !important;
-          align-items: flex-end !important;
-        }
-        ${G} .toast {
-          position: relative !important;
-          min-width: 180px !important;
-          max-width: 340px !important;
-          padding: 11px 18px 11px 36px !important;
-          border: none !important;
-          border-radius: 18px !important;
-          isolation: isolate !important;
-          background: transparent !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          outline: 1.5px solid rgba(255, 255, 255, 0.26) !important;
-          outline-offset: -1.5px !important;
-          color: #ffffff !important;
-          font-family: var(--font-ui) !important;
-          font-size: 12.5px !important;
-          font-weight: 600 !important;
-          line-height: 1.35 !important;
-          letter-spacing: 0 !important;
-          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45) !important;
-          box-shadow:
-            0 14px 34px -12px rgba(0, 0, 0, 0.55),
-            0 2px 6px rgba(0, 0, 0, 0.18) !important;
-          /* Leaving: slide back out past the edge, inside toast()'s 300ms. */
-          opacity: 1 !important;
-          transform: translateX(calc(100% + 32px)) !important;
-          transition: transform 0.26s cubic-bezier(0.5, 0, 0.75, 0) !important;
-        }
-        /* Arriving: spring in from the right. */
-        ${G} .toast.show {
-          opacity: 1 !important;
-          transform: none !important;
-          transition: transform 0.55s var(--lg-spring) !important;
-        }
-        /* The frosted body. The top highlight and lower glow are gradients in
-           its own fill, since an inset shadow on the toast would paint under
-           this layer. */
-        ${G} .toast::before {
-          content: '' !important;
-          display: block !important;
-          position: absolute !important;
-          inset: 0 !important;
-          z-index: -1 !important;
-          border-radius: inherit !important;
-          pointer-events: none !important;
-          box-shadow: none !important;
-          background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 50%, rgba(255, 255, 255, 0.10) 100%),
-            rgba(20, 22, 34, 0.38) !important;
-          backdrop-filter: blur(18px) saturate(180%) !important;
-          -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
-        }
-        ${G} .toast::after {
-          content: '' !important;
-          position: absolute !important;
-          left: 16px !important;
-          top: 50% !important;
-          width: 8px !important;
-          height: 8px !important;
-          margin-top: -4px !important;
-          border-radius: 50% !important;
-          background: #0a84ff !important;
-          box-shadow: 0 0 10px rgba(10, 132, 255, 0.9) !important;
-          pointer-events: none !important;
-        }
-        ${G} .toast.ok::after {
-          background: #30d158 !important;
-          box-shadow: 0 0 10px rgba(48, 209, 88, 0.9) !important;
-        }
-        ${G} .toast.error::after {
-          background: #ff453a !important;
-          box-shadow: 0 0 10px rgba(255, 69, 58, 0.9) !important;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          /* No slide: shown in place, gone in place. */
-          ${G} .toast { transform: none !important; visibility: hidden !important; transition: none !important; }
-          ${G} .toast.show { visibility: visible !important; }
-        }
-        /* ── Frosted surfaces ───────────────────────────────────────────
-           The frost lives on an ::after behind the content, and its rounded
-           corners come from the mask, not from border-radius. When Chromium
-           draws on the GPU — as the app's window does — it clips a
-           backdrop-filter to a rounded rect without anti-aliasing, so a
-           radius-clipped blur ended every corner in a staircase. Here the
-           blur layer is a plain rectangle, cut round by radial gradients with
-           a 1px soft edge, which every renderer draws smooth. The soft edge is
-           centred on the outline rather than just inside it: inside, it halved
-           the outermost pixel round each corner, which is where a 1px edge
-           line sits, so the line showed full strength along the straight
-           edges and faded on the curves — a flat white bar across the top. --lg-r is the
-           radius each mask is cut to, matching the surface's border-radius.
-           \`isolation\` gives the layer a stacking context to sit behind the
-           content in, without the z-index that would override .cselect-host
-           lifting a group over its neighbours. */
-        ${G} .sidebar { --lg-r: 24px; }
-        ${G} .qs-card { --lg-r: 20px; }
-        ${G} .settings-group,
-        ${G} .download-section { --lg-r: 22px; }
-        ${G} .sidebar,
-        ${G} .qs-card,
-        ${G} .settings-group,
-        ${G} .download-section {
-          background: transparent !important;
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-          isolation: isolate !important;
-        }
-        /* The progress panel clips its content by default, and a rounded clip
-           around the frost layer would bring the staircase straight back. */
-        ${G} .download-section { overflow: visible !important; }
-        ${G} .sidebar::after,
-        ${G} .qs-card::after,
-        ${G} .settings-group::after,
-        ${G} .download-section::after {
-          content: '' !important;
-          display: block !important;
-          position: absolute !important;
-          inset: 0 !important;
-          border-radius: 0 !important;
-          z-index: -1 !important;
-          pointer-events: none !important;
-          background: var(--lg-frost-fill) !important;
-          backdrop-filter: var(--lg-blur) !important;
-          -webkit-backdrop-filter: var(--lg-blur) !important;
-          -webkit-mask:
-            radial-gradient(circle at 100% 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top left / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 0 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top right / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 100% 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom left / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 0 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom right / var(--lg-r) var(--lg-r) no-repeat,
-            linear-gradient(#000 0 0) center / calc(100% - 2 * var(--lg-r) + 2px) 100% no-repeat,
-            linear-gradient(#000 0 0) center / 100% calc(100% - 2 * var(--lg-r) + 2px) no-repeat !important;
-          mask:
-            radial-gradient(circle at 100% 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top left / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 0 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top right / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 100% 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom left / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 0 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom right / var(--lg-r) var(--lg-r) no-repeat,
-            linear-gradient(#000 0 0) center / calc(100% - 2 * var(--lg-r) + 2px) 100% no-repeat,
-            linear-gradient(#000 0 0) center / 100% calc(100% - 2 * var(--lg-r) + 2px) no-repeat !important;
-        }
-
-${fullEffects ? `
-        /* ── Full glass effects ─────────────────────────────────────────
-           On by default; switched off from Settings → Liquid Glass. Stronger
-           frost on the framing surfaces, the content wells frosted as well,
-           and a blur behind popups. Switching it off is for older integrated
-           GPUs, which feel every extra blur being redone whenever anything
-           near it repaints.
-
-           The wells scroll, so they cannot carry the frost on an ::after the
-           way the framing surfaces do; they take the corner-shaped mask on
-           themselves instead, which keeps their corners anti-aliased and
-           costs only the outer part of their shadow. The search bars, the
-           play-mode track and the gear stay tinted: their radius follows
-           their height, which a fixed corner mask cannot. */
-        ${G} { --lg-blur: blur(24px) saturate(185%); }
-        ${G} .native-grid-container,
-        ${G} .native-table-container,
-        ${G} [id$="DetailView"] > .bevel-inset,
-        ${G} #tab-photo-detail > .bevel-inset { --lg-r: 22px; }
-        ${G} #roomsSidebar > div,
-        ${G} .log-output { --lg-r: 18px; }
-        ${G} .native-grid-container,
-        ${G} .native-table-container,
-        ${G} #roomsSidebar > div,
-        ${G} [id$="DetailView"] > .bevel-inset,
-        ${G} #tab-photo-detail > .bevel-inset,
-        ${G} .log-output {
-          /* The lighter tint the frosted surfaces use: with a blur behind
-             them, the wells no longer need the extra body. */
-          --lg-fill: var(--lg-frost-fill);
-          backdrop-filter: var(--lg-blur) !important;
-          -webkit-backdrop-filter: var(--lg-blur) !important;
-          -webkit-mask:
-            radial-gradient(circle at 100% 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top left / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 0 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top right / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 100% 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom left / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 0 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom right / var(--lg-r) var(--lg-r) no-repeat,
-            linear-gradient(#000 0 0) center / calc(100% - 2 * var(--lg-r) + 2px) 100% no-repeat,
-            linear-gradient(#000 0 0) center / 100% calc(100% - 2 * var(--lg-r) + 2px) no-repeat !important;
-          mask:
-            radial-gradient(circle at 100% 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top left / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 0 100%, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) top right / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 100% 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom left / var(--lg-r) var(--lg-r) no-repeat,
-            radial-gradient(circle at 0 0, #000 calc(var(--lg-r) - 0.5px), transparent calc(var(--lg-r) + 0.5px)) bottom right / var(--lg-r) var(--lg-r) no-repeat,
-            linear-gradient(#000 0 0) center / calc(100% - 2 * var(--lg-r) + 2px) 100% no-repeat,
-            linear-gradient(#000 0 0) center / 100% calc(100% - 2 * var(--lg-r) + 2px) no-repeat !important;
-        }
-        /* Full-window and square, so no corner to alias. */
-        ${G} .modal-overlay {
-          background: rgba(0, 0, 0, 0.3) !important;
-          backdrop-filter: blur(6px) !important;
-          -webkit-backdrop-filter: blur(6px) !important;
-        }
-` : ''}
-      `;
+  return { tint: safeGlassBg, bgImage: safeBgImage, fullEffects: !!fullEffects };
 }
 
 /// A backdrop URL that is safe to interpolate into `url('...')`.
@@ -3086,18 +1363,11 @@ function applyTheme(theme) {
   // 'animations-enabled' and drop everything else, which silently wiped
   // unrelated state classes on <body> (e.g. 'client-installed', which gates the
   // PLAY button and the Manage Client panel) every time the theme changed.
+  const GLASS_MARKERS = [GLASS_CLASS, GLASS_IMAGE_CLASS, GLASS_FULL_CLASS];
   document.body.className = document.body.className
     .split(' ')
-    .filter(c => c && !c.startsWith('theme-') && c !== GLASS_CLASS)
+    .filter(c => c && !c.startsWith('theme-') && !GLASS_MARKERS.includes(c))
     .join(' ');
-
-  document.getElementById(GLASS_STYLE_ID)?.remove();
-  // A tint picker drag previews through this inline property; the sheet built
-  // below carries the same colour, so the override is no longer needed.
-  document.body.style.removeProperty('--lg-tint');
-  // The pre-paint cache boot.js injects. Dropped here so the real stylesheet
-  // replaces it rather than stacking on top of it.
-  document.getElementById(GLASS_BOOT_STYLE_ID)?.remove();
 
   const skin = AVAILABLE_THEMES.includes(theme) ? theme : DEFAULT_THEME;
   const glass = config.glass || {};
@@ -3110,14 +1380,12 @@ function applyTheme(theme) {
   }
 
   if (glassOn) {
-    const css = glassCss(glass.tint, glass.bgImage, glass.fullEffects !== false);
-    const style = document.createElement('style');
-    style.id = GLASS_STYLE_ID;
-    style.textContent = css;
-    document.head.appendChild(style);
-    cacheThemeForBoot(skin, css);
+    cacheThemeForBoot(skin, applyGlassVars(glass.tint, glass.bgImage, glass.fullEffects !== false));
   } else {
-    cacheThemeForBoot(skin, '');
+    // The variables are left on <body> deliberately — they cost nothing while
+    // nothing matches `glass-enabled`, and clearing them would make switching
+    // glass back on flash the default tint for a frame.
+    cacheThemeForBoot(skin, null);
   }
 
   // Animations are always on; the setting that could turn them off is gone.
@@ -3136,11 +1404,22 @@ function applyTheme(theme) {
 ///
 /// Without this the window renders the base stylesheet until the config arrives
 /// over IPC and then snaps to the real skin — a visible flash on every start.
-/// Glass is the expensive case, so its generated sheet is cached verbatim.
-function cacheThemeForBoot(skin, css) {
+///
+/// `glass` is what [`applyGlassVars`] applied, or `null` with glass off. What
+/// used to be stored here was the whole generated stylesheet — ~80 KB, plus the
+/// backdrop's data: URI inlined — rewritten on every applyTheme() call. Now the
+/// sheet is a file the webview caches and only these three values travel.
+function cacheThemeForBoot(skin, glass) {
   try {
     localStorage.setItem('radium-theme', skin);
-    localStorage.setItem('radium-glass-css', css);
+    if (glass) {
+      localStorage.setItem('radium-glass', JSON.stringify(glass));
+    } else {
+      localStorage.removeItem('radium-glass');
+    }
+    // The pre-1.x key, which held the whole generated sheet. Dropped so an
+    // upgrade gives back however many hundred kilobytes it was holding.
+    localStorage.removeItem('radium-glass-css');
   } catch (e) {
     // Quota, or a webview with storage disabled. The only cost is the flash
     // this exists to avoid, so there is nothing to report.
@@ -3297,9 +1576,9 @@ const DEFAULT_GLASS_TINT = '#0b0c14';
 //
 // It also used to be slow to drag: every `input` event rebuilt the whole glass
 // stylesheet and wrote it to localStorage. Now a drag is read at most once per
-// frame, and each frame only sets `--lg-tint` on <body> (see glassCss()). The
-// sheet is rebuilt once, after the picker closes, so the boot cache gets the
-// final colour.
+// frame, and each frame only sets `--lg-tint` on <body> — which is all the
+// sheet (skins/11-glass.css) ever needed from it. The boot cache is written
+// once, after the picker closes, so it gets the final colour.
 
 /// Dark tints that suit the glass field: the default, then a spread of hues.
 const TINT_PRESETS = ['#0b0c14', '#1b1036', '#0a1d3f', '#06302e', '#0d2a16', '#3b0f22', '#3a2208', '#2a2b31'];
@@ -3528,8 +1807,9 @@ function closeTintPicker(refocus = false) {
   btn?.classList.remove('is-open');
   if (refocus) btn?.focus();
 
-  // After the exit animation, so the one full stylesheet rebuild does not land
-  // on top of it. Skipped if the picker was reopened in the meantime.
+  // After the exit animation, so the one full pass — which writes the boot
+  // cache and saves — does not land on top of it. Skipped if the picker was
+  // reopened in the meantime.
   setTimeout(() => {
     if (!picker.hidden) return;
     picker.closest('.settings-group')?.classList.remove('tint-host');
@@ -3579,9 +1859,21 @@ $('btnResetGlassTint')?.addEventListener('click', () => {
 let _backdropSaveTimer = null;
 function setGlassBackdrop(value, persistDelay = 0) {
   config.glass = { ...(config.glass || {}), bgImage: value };
-  applyTheme(config.theme);
+
+  // Live preview is the two CSS variables and nothing else: the sheet is a
+  // file now, and the class list hasn't changed, so there is nothing for
+  // applyTheme() to redo. The full pass — which writes the boot cache, and the
+  // backdrop with it — waits for typing to stop alongside the save. The URL
+  // field calls this on every `input`, and a picked image is a data: URI of up
+  // to 1.4 MB, so doing either of those per keystroke was the whole cost.
+  const glass = config.glass;
+  if (glass.enabled === true) {
+    applyGlassVars(glass.tint, glass.bgImage, glass.fullEffects !== false);
+  }
+
   clearTimeout(_backdropSaveTimer);
   _backdropSaveTimer = setTimeout(async () => {
+    applyTheme(config.theme);
     try {
       await window.radium?.setGlassBackdrop(value);
     } catch (e) {
@@ -5334,10 +3626,18 @@ function playFromTray() {
   btn.click();
 }
 
-window.radium?.onTrayAction?.(({ action, value }) => {
+window.radium?.onTrayAction?.(async ({ action, value }) => {
   if (action === 'play') playFromTray();
   else if (action === 'tab') switchTab(value);
-  else if (action === 'network') setNetwork(value);
+  else if (action === 'network') {
+    // Switching network from the tray leaves the window where it is — the menu
+    // treats those rows as a selection and stays open. The exception is a
+    // switch setNetwork() refuses (mid-download, or with the game running):
+    // it says why in a toast, which is no use behind a hidden window, so that
+    // is the one case worth bringing the launcher forward for.
+    await setNetwork(value);
+    if (activeNetwork !== value) window.radium?.showLauncher();
+  }
 });
 
 function showSacModal() {
@@ -5805,7 +4105,7 @@ function showDropdown(menu) {
 // the exit, and the rest close instantly as they always did.
 
 /// How long a dialog's exit animation is given before it is hidden. Must match
-/// the exit durations in skins/04-modern.css and glassCss().
+/// the exit durations in skins/04-modern.css and skins/11-glass.css.
 const MODAL_EXIT_MS = 180;
 
 /// Per-dialog counter, bumped by every show and hide, so a close still waiting
@@ -7244,13 +5544,34 @@ async function init() {
   // If a download was interrupted last session, offer to resume it.
   await offerResumeIfAny();
 
-  // Check server on startup (show results in log), then silently every 60s
+  // Check server on startup (show results in log), then silently every 60s —
+  // but only while the window is on screen. Both of these paint the Home tab's
+  // quick-stats card and nothing else, so polling them behind a hidden window
+  // is two requests a minute for numbers nobody can see, for however long the
+  // launcher sits in the tray between play sessions. The notification poll
+  // below already works this way; these did not.
+  //
+  // A hidden window is skipped rather than having its timer cleared, so the
+  // tick that follows the window coming back is at most a minute away, and the
+  // `visibilitychange` handler refreshes it at once so the card is never stale
+  // on the frame it is shown.
   await checkServerStatus(false);
-  const serverPollInterval = setInterval(() => checkServerStatus(true), 60_000);
+  const serverPollInterval = setInterval(() => {
+    if (!document.hidden) checkServerStatus(true);
+  }, 60_000);
 
   // Check player count on startup (show results in log), then silently every 60s
   await updatePlayerCount(false);
-  const playerPollInterval = setInterval(() => updatePlayerCount(true), 60_000);
+  const playerPollInterval = setInterval(() => {
+    if (!document.hidden) updatePlayerCount(true);
+  }, 60_000);
+
+  // Back on screen: bring the card up to date now rather than on the next tick.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    checkServerStatus(true);
+    updatePlayerCount(true);
+  });
 
   // Clear the polls if the window is closed
   window.addEventListener('beforeunload', () => {
@@ -8144,10 +6465,14 @@ async function showPhotoDetails(photo, backToView) {
   // stack a listener per visit.
   const imgWrapEl = document.querySelector('.photo-detail-img-wrap');
   if (imgWrapEl) {
-    // The one image the user has deliberately opened goes straight to the
-    // origin: the thumbnail cache exists to stop a grid pulling megabytes it
-    // draws at 200 px, not to downscale a photo someone asked to look at.
-    imgWrapEl.onclick = () => showLightbox(photoSourceUrl(photo, 1920), {
+    // Through the thumbnail proxy like every other image, at a width that
+    // leaves the picture full-screen sharp (1920 CSS px, scaled by the
+    // display's pixel ratio and then capped at the proxy's own 2048). This
+    // used to go straight to the origin, which meant the one URL in the app
+    // that reached an arbitrary host was the one the user clicked — and it
+    // was the reason `img-src` had to allow the whole of `https:`. It also
+    // re-downloaded the photo on every open; now it is cached like the rest.
+    imgWrapEl.onclick = () => showLightbox(photoImageUrl(photo, 1920), {
       title: 'PHOTO',
       alt: photo.caption || 'Photo',
       // The already-loaded page copy, so a failed full-size fetch still shows
@@ -8458,7 +6783,9 @@ async function showPlayerDetails(person) {
     avatarEl.onerror = () => { avatarEl.src = PLACEHOLDER_AVATAR; avatarEl.classList.remove('image-loading-placeholder'); avatarEl.onerror = null; };
     avatarEl.style.cursor = 'pointer';
     avatarEl.onclick = () => {
-      showLightbox(personAvatarFullUrl(person), {
+      // Proxied for the same reason as the photo lightbox above. 512 is well
+      // over the box this is drawn in, so nothing visible is lost.
+      showLightbox(thumbSrc(personAvatarFullUrl(person), 512), {
         title: 'PROFILE IMAGE',
         alt: `${person.displayName || person.userName} profile image`,
         fallbackSrc: avatarEl.src
