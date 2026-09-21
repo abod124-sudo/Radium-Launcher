@@ -798,12 +798,60 @@ pub fn invalidate_cache() {
 /// with defaults if it doesn't exist and running the one-time migrations, and
 /// is served from [`CACHED`] after that.
 pub fn current(app_handle: &tauri::AppHandle) -> std::sync::Arc<Config> {
-    if let Some(cfg) = CACHED.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        return cfg.clone();
+    if let Some(cfg) = cached() {
+        return cfg;
     }
-    let cfg = std::sync::Arc::new(load_config(app_handle));
-    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
+    // One loader at a time. At startup the page fires a burst of commands at
+    // once, and each used to find the cache empty and run the whole load —
+    // migrations, the install repair and a save — side by side, the later save
+    // able to land over the earlier one's repair. Separate from WRITE_LOCK,
+    // which callers may already hold when they get here.
+    let _loading = LOAD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(cfg) = cached() {
+        return cfg;
+    }
+    let (cfg, readable) = load_config(app_handle);
+    let cfg = std::sync::Arc::new(cfg);
+    // A file that exists but couldn't be read is not cached, so the next
+    // command tries again rather than serving the stand-in defaults all session.
+    if readable {
+        *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
+    }
     cfg
+}
+
+fn cached() -> Option<std::sync::Arc<Config>> {
+    CACHED.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Serializes the first, uncached load. See [`current`].
+static LOAD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Read config.json, giving a briefly locked file a moment to come free.
+///
+/// Antivirus scanners open a file that was just written, and on Windows a read
+/// in that window fails with a sharing violation rather than waiting.
+fn read_config_text(path: &std::path::Path) -> std::io::Result<String> {
+    let mut attempt = 0;
+    loop {
+        match fs::read_to_string(path) {
+            Ok(text) => return Ok(text),
+            Err(e) if attempt >= 4 || e.kind() == std::io::ErrorKind::NotFound => return Err(e),
+            Err(_) => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
+}
+
+/// Parse config.json, accepting a UTF-8 byte-order mark.
+///
+/// Notepad's "UTF-8 with BOM", and PowerShell 5.1's `Out-File -Encoding utf8`,
+/// both write one, and serde_json rejects it — which read as a corrupt file and
+/// reset every setting to the defaults.
+fn parse_config(text: &str) -> serde_json::Result<Config> {
+    serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text))
 }
 
 /// An owned copy of the current config, for changing and then passing to
@@ -814,7 +862,10 @@ pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
 }
 
 /// The uncached read, including the one-time migrations and repairs.
-fn load_config(app_handle: &tauri::AppHandle) -> Config {
+///
+/// The flag is false when config.json exists but could not be read, in which
+/// case the defaults returned are a stand-in and must not be cached or saved.
+fn load_config(app_handle: &tauri::AppHandle) -> (Config, bool) {
     // Run data migration from legacy Electron folder if needed
     migrate_legacy_data(app_handle);
 
@@ -825,8 +876,8 @@ fn load_config(app_handle: &tauri::AppHandle) -> Config {
     let mut changed = false;
 
     let mut config = if config_path.exists() {
-        match fs::read_to_string(&config_path) {
-            Ok(contents) => match serde_json::from_str::<Config>(&contents) {
+        match read_config_text(&config_path) {
+            Ok(contents) => match parse_config(&contents) {
                 Ok(cfg) => cfg,
                 Err(_) => {
                     let backup_path = config_path.with_extension("json.bak");
@@ -836,8 +887,12 @@ fn load_config(app_handle: &tauri::AppHandle) -> Config {
                 }
             },
             Err(_) => {
-                changed = true;
-                Config::default()
+                // Still unreadable after the retries in `read_config_text`. Run
+                // on the defaults, but neither write them back nor let them be
+                // cached: that replaced every setting the user had with a fresh
+                // install's over what was usually a moment's lock. The next
+                // command reads the file again.
+                return (Config::default(), false);
             }
         }
     } else {
@@ -937,7 +992,7 @@ fn load_config(app_handle: &tauri::AppHandle) -> Config {
         let _ = save_config(app_handle, &config);
     }
 
-    config
+    (config, true)
 }
 
 /// Serializes and writes the config to config.json in the app data directory.
@@ -1758,6 +1813,19 @@ mod tests {
         assert!(!written.contains("customTheme"), "the stale object is not re-saved");
         assert!(!written.contains("bgDark"), "the palette is gone");
         assert!(written.contains("\"glass\""), "glass is stored in its own object");
+    }
+
+    /// A config saved by Notepad as "UTF-8 with BOM" (or by PowerShell 5.1's
+    /// `Out-File -Encoding utf8`) must load, not be treated as corrupt and
+    /// replaced with the defaults.
+    #[test]
+    fn a_config_with_a_byte_order_mark_still_loads() {
+        let cfg = parse_config("\u{feff}{\"theme\":\"win98\",\"minimizeOnLaunch\":true}")
+            .expect("a BOM is not corruption");
+        assert_eq!(cfg.theme, "win98");
+        assert!(cfg.minimize_on_launch);
+        assert!(parse_config("{\"theme\":\"win7\"}").is_ok(), "no BOM still loads");
+        assert!(parse_config("{ not json").is_err(), "real corruption is still caught");
     }
 
     #[test]

@@ -8,15 +8,32 @@ use std::time::Duration;
 // ---------------------------------------------------------------------------
 // Helper: unescape common HTML entities
 // ---------------------------------------------------------------------------
+///
+/// `&amp;` goes last. Decoded first, it turned the text `&lt;` — which a page
+/// spells `&amp;lt;` — into a `<`, decoding what the author wrote as well as
+/// the page's own escaping.
 pub(crate) fn unescape_html(s: &str) -> String {
-    s.replace("&amp;", "&")
-        .replace("&lt;", "<")
+    s.replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&#x27;", "'")
         .replace("&#39;", "'")
         .replace("&#x2F;", "/")
         .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+}
+
+#[cfg(test)]
+mod unescape_tests {
+    use super::unescape_html;
+
+    #[test]
+    fn escaped_entities_are_decoded_once() {
+        assert_eq!(unescape_html("Tom &amp; Jerry &lt;3"), "Tom & Jerry <3");
+        // The text "&lt;3", as a page has to write it.
+        assert_eq!(unescape_html("I typed &amp;lt;3"), "I typed &lt;3");
+        assert_eq!(unescape_html("&amp;amp;"), "&amp;");
+    }
 }
 
 // ---------------------------------------------------------------------------

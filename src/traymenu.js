@@ -240,7 +240,7 @@
 
   // Fetch the menu's face now rather than when the first menu is measured.
   // This page is normally built well before any right-click (see
-  // `prewarm_tray_menu`), so by the time a menu is drawn the font is already
+  // `warm_tray_menu`), so by the time a menu is drawn the font is already
   // in and `fontsSettled()` has nothing to wait for. traymenu.css declares one
   // webface over the whole weight range, so this is all of it.
   if (document.fonts) {

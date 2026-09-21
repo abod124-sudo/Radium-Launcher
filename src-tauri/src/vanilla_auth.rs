@@ -203,31 +203,53 @@ async fn send(cookie: &SessionCookie, post: Option<Value>, path: &str) -> Result
         .map_err(|e| ApiError::Other(if e.is_timeout() { "Vanilla timed out".into() } else { "Could not reach Vanilla".into() }))?;
 
     let status = resp.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+    if status == reqwest::StatusCode::UNAUTHORIZED {
         return Err(ApiError::Unauthorized);
     }
     if status.is_redirection() {
         return Err(ApiError::Other(format!("Vanilla redirected unexpectedly ({})", status.as_u16())));
     }
+
+    let body = resp.text().await.map_err(|_| ApiError::Other("Vanilla sent an unreadable reply".into()))?;
+    let value: Option<Value> = serde_json::from_str(&body).ok();
+    let api_error = value
+        .as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+
+    // A 403 is only a dead session when Vanilla says so. The same status comes
+    // back for a path its proxy doesn't forward (`{"error":"Forbidden path"}`)
+    // and for a Cloudflare challenge page, and reading either as "expired" used
+    // to delete the stored session over what was a passing refusal.
+    if status == reqwest::StatusCode::FORBIDDEN {
+        return Err(match api_error.as_deref() {
+            Some(err) if is_auth_error(err) => ApiError::Unauthorized,
+            _ => ApiError::Other("Vanilla refused the request (HTTP 403)".into()),
+        });
+    }
     if !status.is_success() {
         return Err(ApiError::Other(format!("Vanilla returned HTTP {}", status.as_u16())));
     }
 
-    let body = resp.text().await.map_err(|_| ApiError::Other("Vanilla sent an unreadable reply".into()))?;
     if body.trim().is_empty() {
         return Ok(Value::Null);
     }
-    let value: Value = serde_json::from_str(&body)
-        .map_err(|_| ApiError::Other("Vanilla sent an unexpected reply".into()))?;
+    let value = value.ok_or_else(|| ApiError::Other("Vanilla sent an unexpected reply".into()))?;
     // The proxy reports its own refusals as a 200 carrying an error object.
-    if let Some(err) = value.get("error").and_then(|e| e.as_str()) {
-        let lower = err.to_ascii_lowercase();
-        if lower.contains("unauthor") || lower.contains("not logged") || lower.contains("not authenticated") {
+    if let Some(err) = api_error.as_deref() {
+        if is_auth_error(err) {
             return Err(ApiError::Unauthorized);
         }
         return Err(ApiError::Other(format!("Vanilla API: {}", err.chars().take(80).collect::<String>())));
     }
     Ok(value)
+}
+
+/// Whether an error message from Vanilla means the session is no longer valid.
+fn is_auth_error(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("unauthor") || lower.contains("not logged") || lower.contains("not authenticated")
 }
 
 /// Run an authenticated GET, signing out locally if Vanilla rejects it.
@@ -775,6 +797,17 @@ mod tests {
         for bad in ["", "1/../../auth/logout", "1?x=y", "a b", "..", "1%2F2"] {
             assert!(check_photo_id(bad).is_err(), "{bad:?} should be rejected");
         }
+    }
+
+    #[test]
+    fn only_an_auth_message_means_the_session_is_gone() {
+        assert!(is_auth_error("Unauthorized"));
+        assert!(is_auth_error("Not logged in"));
+        assert!(is_auth_error("not authenticated"));
+        // What the proxy says for a path it doesn't forward, and it says it
+        // whether or not the session is fine.
+        assert!(!is_auth_error("Forbidden path"));
+        assert!(!is_auth_error("query_too_short"));
     }
 
     #[test]

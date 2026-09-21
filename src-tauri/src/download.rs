@@ -636,29 +636,53 @@ async fn download_client_impl(
     // Stalls are caught per read in the loop below instead. `https_only` also
     // covers redirects, which the `https://` check above cannot see — a CDN
     // bouncing to plain http would otherwise be followed.
+    //
+    // No transparent decompression either (the crate features switch it on for
+    // every client by default). Byte ranges count the bytes on the wire, so a
+    // resume offset taken from a decoded file would point into the middle of
+    // the encoded one — and a zip gains nothing from being gzipped again.
     let http = reqwest::Client::builder()
         .https_only(true)
         .connect_timeout(std::time::Duration::from_secs(15))
+        .no_gzip()
+        .no_brotli()
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut req = http.get(&download_url).header("User-Agent", BROWSER_UA);
-    if resume_from > 0 {
-        req = req.header(reqwest::header::RANGE, format!("bytes={}-", resume_from));
-        // If-Range: the server returns 206 (continue) only if the file still
-        // matches this ETag, otherwise a full 200 — so we never stitch together
-        // bytes from two different builds.
-        if let Some(m) = &existing_meta {
-            if !m.etag.is_empty() {
-                req = req.header(reqwest::header::IF_RANGE, m.etag.clone());
+    let send = |from: u64| {
+        let mut req = http.get(&download_url).header("User-Agent", BROWSER_UA);
+        if from > 0 {
+            req = req.header(reqwest::header::RANGE, format!("bytes={}-", from));
+            // If-Range: the server returns 206 (continue) only if the file still
+            // matches this ETag, otherwise a full 200 — so we never stitch
+            // together bytes from two different builds.
+            if let Some(m) = &existing_meta {
+                if !m.etag.is_empty() {
+                    req = req.header(reqwest::header::IF_RANGE, m.etag.clone());
+                }
             }
         }
-    }
+        async move {
+            tokio::time::timeout(RESPONSE_TIMEOUT, req.send())
+                .await
+                .map_err(|_| "The download server did not respond. Try again later.".to_string())?
+                .map_err(|e| format!("Download request failed: {}", e))
+        }
+    };
 
-    let response = tokio::time::timeout(RESPONSE_TIMEOUT, req.send())
-        .await
-        .map_err(|_| "The download server did not respond. Try again later.".to_string())?
-        .map_err(|e| format!("Download request failed: {}", e))?;
+    let mut response = send(resume_from).await?;
+
+    // 416: the partial file is already as long as the file — or longer, if the
+    // build was replaced by a smaller one. That happens when a pause lands
+    // between the last chunk and the end of the stream. Retrying the same range
+    // can only fail the same way, so the partial is dropped and the download
+    // starts over rather than leaving Resume broken for good.
+    if resume_from > 0 && response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+        let _ = fs::remove_file(&part_path);
+        let _ = fs::remove_file(&meta_path);
+        resume_from = 0;
+        response = send(0).await?;
+    }
 
     let status = response.status();
     if !status.is_success() {
@@ -706,7 +730,7 @@ async fn download_client_impl(
     // Stream the response body to disk — append when resuming, otherwise create.
     use futures_util::StreamExt;
     let mut stream = response.bytes_stream();
-    let mut file = if is_resume {
+    let file = if is_resume {
         fs::OpenOptions::new()
             .append(true)
             .open(&part_path)
@@ -715,6 +739,12 @@ async fn download_client_impl(
         fs::File::create(&part_path)
             .map_err(|e| format!("Failed to create partial file: {}", e))?
     };
+    // Chunks arrive a few kilobytes at a time, and each unbuffered write_all
+    // was its own system call on the async worker — thousands of them per
+    // gigabyte. Every early exit below drops this, which flushes it, and a
+    // resume measures the .part on disk rather than trusting `downloaded`, so a
+    // flush that fails on the way out costs nothing but a re-fetched tail.
+    let mut file = std::io::BufWriter::with_capacity(1024 * 1024, file);
 
     let mut last_data = std::time::Instant::now();
     loop {
@@ -814,6 +844,9 @@ async fn download_client_impl(
         }
     }
 
+    // Checked here, unlike the early exits: the file is about to be promoted
+    // and extracted, so the last megabyte has to be known to be on disk.
+    file.flush().map_err(|e| format!("Failed to write chunk: {}", e))?;
     drop(file);
 
     if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
@@ -1001,6 +1034,13 @@ fn extract_client_zip(
     fs::create_dir_all(client_dir)
         .map_err(|e| format!("Failed to create client dir: {}", e))?;
 
+    // Record what this archive is about to put in the folder before any of it
+    // lands, so a cancel partway through — and every later uninstall or
+    // reinstall — removes exactly these and nothing that was already there.
+    // See [`INSTALL_MANIFEST`].
+    write_install_manifest(Path::new(client_dir), &top_level_entries(&mut archive))
+        .map_err(|e| format!("Failed to record the install: {}", e))?;
+
     let mut written: u64 = 0;
     let mut last_emit = emit_now_baseline(EMIT_INTERVAL);
 
@@ -1016,6 +1056,9 @@ fn extract_client_zip(
             .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
 
         let out_path = match entry.enclosed_name() {
+            // The archive does not get to rewrite the launcher's own record of
+            // what it installed; that record decides what an uninstall deletes.
+            Some(p) if first_component(&p).is_some_and(|n| is_manifest_name(&n)) => continue,
             Some(p) => Path::new(client_dir).join(p),
             None => continue, // skip entries with unsafe paths
         };
@@ -1328,7 +1371,12 @@ pub async fn select_folder(network: Option<String>) -> Result<Option<String>, St
         Network::Radium => "Select Radium Client Install Folder",
         Network::Vanilla => "Select Vanilla Client Install Folder",
     };
-    let folder = rfd::FileDialog::new().set_title(title).pick_folder();
+    // The dialog blocks until the user answers, which can be minutes. On the
+    // blocking pool, so it doesn't hold an async worker other commands and the
+    // thumbnail pipeline are queued behind.
+    let folder = tokio::task::spawn_blocking(move || rfd::FileDialog::new().set_title(title).pick_folder())
+        .await
+        .map_err(|e| format!("Folder picker failed: {}", e))?;
 
     Ok(folder.map(|p| p.to_string_lossy().to_string()))
 }
@@ -1470,6 +1518,106 @@ pub fn is_overly_broad_dir(dir: &str) -> bool {
     false
 }
 
+/// The launcher's record of what an extraction put in the client folder, kept
+/// in that folder: one line per top-level file or folder the archive created.
+///
+/// Clearing an install used to mean guessing. It deleted a fixed list of
+/// Unity file names, and then any subfolder with a Rec Room executable
+/// anywhere up to four levels down — so an install folder pointed at, say,
+/// `D:\Games`, which is a couple of clicks in the folder picker, would have
+/// taken `D:\Games\SteamLibrary` with it on the first download or uninstall,
+/// because the real Rec Room sits in `steamapps\common` underneath. With this
+/// file an install removes exactly what it added. The old guesswork is kept,
+/// narrowed, only for installs made before the file existed.
+const INSTALL_MANIFEST: &str = ".radium-install";
+
+/// Whether `name` is the manifest itself. Case-blind, as Windows paths are:
+/// an archive entry spelled `.RADIUM-INSTALL` would land on the same file.
+fn is_manifest_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(INSTALL_MANIFEST)
+}
+
+/// The first component of an archive path, if it is a plain name.
+fn first_component(path: &Path) -> Option<String> {
+    match path.components().next()? {
+        std::path::Component::Normal(name) => Some(name.to_string_lossy().to_string()),
+        _ => None,
+    }
+}
+
+/// Every distinct top-level name the archive will create, in archive order.
+fn top_level_entries<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for i in 0..archive.len() {
+        let Ok(entry) = archive.by_index_raw(i) else { continue };
+        let Some(name) = entry.enclosed_name().as_deref().and_then(first_component) else { continue };
+        if !is_manifest_name(&name) && seen.insert(name.to_lowercase()) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// A manifest line that names a single entry directly inside the client
+/// folder: no separators, no drive, no `.` or `..`. Anything else is ignored
+/// on read, so a damaged or hand-edited manifest can never reach outside it.
+fn is_plain_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !is_manifest_name(name)
+        && !name.contains(['/', '\\', ':'])
+        && !name.chars().any(|c| c.is_control())
+}
+
+fn write_install_manifest(dir: &Path, entries: &[String]) -> std::io::Result<()> {
+    let mut text = String::new();
+    for name in entries.iter().filter(|n| is_plain_name(n)) {
+        text.push_str(name);
+        text.push('\n');
+    }
+    fs::write(dir.join(INSTALL_MANIFEST), text)
+}
+
+/// The recorded entries, or `None` for an install made before the manifest
+/// existed (or one whose manifest can't be read).
+fn read_install_manifest(dir: &Path) -> Option<Vec<String>> {
+    let text = fs::read_to_string(dir.join(INSTALL_MANIFEST)).ok()?;
+    Some(
+        text.lines()
+            .map(str::trim)
+            .filter(|n| is_plain_name(n))
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+/// Remove one entry inside the client folder, file or folder alike. A link is
+/// removed as a link: `remove_dir_all` on a junction would otherwise follow it
+/// out of the folder.
+fn remove_entry(path: &Path) {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => {
+            let _ = fs::remove_dir_all(path);
+        }
+        Ok(meta) if meta.is_dir() => {
+            let _ = fs::remove_dir(path);
+        }
+        Ok(_) => {
+            let _ = fs::remove_file(path);
+        }
+        Err(_) => {}
+    }
+}
+
+/// Whether a launch target or the game's data folder sits directly in `dir`.
+/// No recursion: this decides whether `dir` itself is a nested copy of the
+/// client, not whether a game is somewhere beneath it.
+fn dir_is_client_root(dir: &Path) -> bool {
+    SENTINEL_FILES.iter().any(|name| dir.join(name).exists())
+}
+
 /// Targeted cleanup function that deletes only Rec Room game client files and
 /// directories, ensuring unrelated user files (like parent project folders)
 /// are left completely untouched.
@@ -1484,6 +1632,16 @@ pub fn is_overly_broad_dir(dir: &str) -> bool {
 fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
     let path = Path::new(client_dir);
     if !path.exists() {
+        return Ok(true);
+    }
+
+    // An install this launcher recorded: remove exactly what it put there.
+    // See [`INSTALL_MANIFEST`].
+    if let Some(entries) = read_install_manifest(path) {
+        for name in &entries {
+            remove_entry(&path.join(name));
+        }
+        let _ = fs::remove_file(path.join(INSTALL_MANIFEST));
         return Ok(true);
     }
 
@@ -1526,19 +1684,150 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
     }
 
     // Some client builds extract into a subfolder rather than directly into the
-    // client dir. Remove any immediate subdirectory that is itself a game
-    // installation, so uninstall/reinstall doesn't leave a stale nested copy
-    // behind. Subfolders with no game files are left untouched.
+    // client dir. Remove an immediate subdirectory only when it is itself the
+    // root of a client — the game's files directly inside it. This used to
+    // remove any subfolder with a game *somewhere* beneath it, four levels
+    // deep, which is a Steam library holding the real Rec Room.
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries.flatten() {
             let sub = entry.path();
-            if sub.is_dir() && dir_contains_game_files(&sub, 0) {
+            let is_real_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_real_dir && dir_is_client_root(&sub) {
                 let _ = fs::remove_dir_all(&sub);
             }
         }
     }
 
     Ok(true)
+}
+
+#[cfg(test)]
+mod clear_tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("radium-clear-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    fn touch(path: &Path) {
+        fs::create_dir_all(path.parent().expect("parent")).expect("parent dir");
+        fs::write(path, b"stub").expect("file");
+    }
+
+    /// The case that used to delete a Steam library: the install folder was
+    /// pointed at a parent folder, and the real Rec Room sits several levels
+    /// down in it. Reinstalling or uninstalling must not touch that tree.
+    #[test]
+    fn a_game_nested_deep_in_a_sibling_folder_is_not_deleted() {
+        let dir = temp_dir("steam");
+        touch(&dir.join("RecRoom.exe"));
+        let steam_game = dir.join("SteamLibrary/steamapps/common/Rec Room/Recroom_Release.exe");
+        touch(&steam_game);
+        touch(&dir.join("Photos/holiday.jpg"));
+
+        assert!(safe_clear_client_dir(&dir.to_string_lossy()).expect("clear"));
+        assert!(!dir.join("RecRoom.exe").exists(), "the client itself goes");
+        assert!(steam_game.exists(), "a game four levels down in another folder stays");
+        assert!(dir.join("Photos/holiday.jpg").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A client that extracted into a subfolder of its own is still cleared.
+    #[test]
+    fn a_client_nested_one_level_down_is_still_cleared() {
+        let dir = temp_dir("nested");
+        touch(&dir.join("client-build/RecRoom.exe"));
+        touch(&dir.join("client-build/RecRoom_Data/level0"));
+
+        assert!(safe_clear_client_dir(&dir.to_string_lossy()).expect("clear"));
+        assert!(!dir.join("client-build").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// With a manifest, exactly the recorded entries go — including ones the
+    /// old name list never knew — and everything else stays.
+    #[test]
+    fn a_recorded_install_removes_exactly_what_it_added() {
+        let dir = temp_dir("manifest");
+        touch(&dir.join("Recroom_Release.exe"));
+        touch(&dir.join("Recroom_Release_Data/globalgamemanagers"));
+        touch(&dir.join("some_new_runtime.dll"));
+        touch(&dir.join("UnityPlayer.dll")); // not recorded: someone else's
+        touch(&dir.join("notes.txt"));
+        write_install_manifest(
+            &dir,
+            &["Recroom_Release.exe".into(), "Recroom_Release_Data".into(), "some_new_runtime.dll".into()],
+        )
+        .expect("manifest");
+
+        assert!(safe_clear_client_dir(&dir.to_string_lossy()).expect("clear"));
+        assert!(!dir.join("Recroom_Release.exe").exists());
+        assert!(!dir.join("Recroom_Release_Data").exists());
+        assert!(!dir.join("some_new_runtime.dll").exists());
+        assert!(dir.join("UnityPlayer.dll").exists(), "not in the manifest, not ours");
+        assert!(dir.join("notes.txt").exists());
+        assert!(!dir.join(INSTALL_MANIFEST).exists(), "the record goes with the install");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A damaged or hand-edited manifest can never name anything outside the
+    /// client folder.
+    #[test]
+    fn manifest_lines_cannot_reach_outside_the_folder() {
+        let root = temp_dir("escape");
+        let dir = root.join("client");
+        touch(&root.join("keep.txt"));
+        touch(&dir.join("RecRoom.exe"));
+        fs::write(
+            dir.join(INSTALL_MANIFEST),
+            "..\n../keep.txt\n..\\keep.txt\nC:\\Windows\n.\n\nRecRoom.exe\n",
+        )
+        .expect("manifest");
+
+        assert_eq!(read_install_manifest(&dir), Some(vec!["RecRoom.exe".to_string()]));
+        assert!(safe_clear_client_dir(&dir.to_string_lossy()).expect("clear"));
+        assert!(root.join("keep.txt").exists());
+        assert!(!dir.join("RecRoom.exe").exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The manifest is built from the archive itself: one entry per top-level
+    /// name, and never the manifest's own name, so a hostile archive can't
+    /// plant a record of its choosing.
+    #[test]
+    fn top_level_entries_come_from_the_archive() {
+        use std::io::Cursor;
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let opts = zip::write::SimpleFileOptions::default();
+            for name in [
+                "Recroom_Release.exe",
+                "Recroom_Release_Data/a.assets",
+                "Recroom_Release_Data/b.assets",
+                "recroom_release_data/c.assets",
+                ".radium-install",
+                ".RADIUM-INSTALL/x",
+                "../escape.txt",
+            ] {
+                zip.start_file(name, opts).expect("entry");
+                zip.write_all(b"x").expect("bytes");
+            }
+            zip.finish().expect("finish");
+        }
+        let mut archive = zip::ZipArchive::new(Cursor::new(buf.into_inner())).expect("archive");
+        assert_eq!(
+            top_level_entries(&mut archive),
+            vec!["Recroom_Release.exe".to_string(), "Recroom_Release_Data".to_string()]
+        );
+    }
 }
 
 #[cfg(test)]

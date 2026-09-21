@@ -637,20 +637,22 @@ async fn submit_bug_report(
     let client_version = if cfg.client_version.is_empty() { "unknown".to_string() } else { cfg.client_version.clone() };
     let client_status = client_status_label(is_installed, &cfg.client_build);
 
+    // Only the labels the form offers. Anything else used to be echoed as-is
+    // into the embed and into the message that pings the channel, where an
+    // `@here` or an overlong string (Discord rejects a field over 1024
+    // characters) would have ridden along.
     let category_name = match category.to_lowercase().as_str() {
         "general" => "General / Launcher Issue",
         "launch" => "Game Launch Failure / Crash",
         "theme" => "UI Layout / Custom Themes",
-        "other" => "Other / Unspecified",
-        _ => &category,
+        _ => "Other / Unspecified",
     };
 
     let severity_name = match severity.to_lowercase().as_str() {
         "critical" => "Critical - Launcher Crash/Freeze",
         "high" => "High - Cannot Launch/Play",
-        "medium" => "Medium - Functional Issue",
         "low" => "Low - Cosmetic/Typo",
-        _ => &severity,
+        _ => "Medium - Functional Issue",
     };
 
     let embed_color = match severity.to_lowercase().as_str() {

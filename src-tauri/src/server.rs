@@ -43,6 +43,19 @@ pub(crate) async fn http_get_json(url: &str) -> Result<Value, String> {
     response.json::<Value>().await.map_err(|e| e.to_string())
 }
 
+/// Most rows one page may ask for.
+///
+/// The frontend asks for 12 to 60, but nothing enforced it, and on Vanilla
+/// every row on a page is resolved through the site proxy in batches of 20 —
+/// so one oversized `take` fanned out into hundreds of concurrent requests to
+/// someone else's server.
+const MAX_TAKE: i64 = 100;
+
+/// The page size an `args` object asks for, held to 1..=[`MAX_TAKE`].
+fn page_size(args: &Value, default: i64) -> i64 {
+    args.get("take").and_then(|v| v.as_i64()).unwrap_or(default).clamp(1, MAX_TAKE)
+}
+
 /// Which network an incoming `args` object is asking about.
 ///
 /// Absent or unrecognised means Radium, so an older frontend (or a command
@@ -143,7 +156,7 @@ pub async fn get_player_count(network: Option<String>) -> Value {
 #[tauri::command]
 pub async fn fetch_rooms(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
-    let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(20);
+    let take = page_size(&args, 20);
     let sort_by = args.get("sortBy").and_then(|v| v.as_i64()).unwrap_or(0);
     let query = args
         .get("query")
@@ -191,7 +204,7 @@ pub async fn fetch_rooms(args: Value) -> Value {
 #[tauri::command]
 pub async fn fetch_people(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
-    let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(15);
+    let take = page_size(&args, 15);
     let query = args
         .get("query")
         .and_then(|v| v.as_str())
@@ -250,7 +263,7 @@ pub async fn fetch_user_photos(args: Value) -> Value {
         _ => return json!({ "success": false, "error": "userId is required" }),
     };
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
-    let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(40);
+    let take = page_size(&args, 40);
 
     if network_of(&args) == Network::Vanilla {
         return vanilla::fetch_user_photos(&user_id, skip, take).await;
@@ -280,7 +293,7 @@ pub async fn fetch_user_rooms(args: Value) -> Value {
         _ => return json!({ "success": false, "error": "userId is required" }),
     };
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
-    let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(20);
+    let take = page_size(&args, 20);
 
     if network_of(&args) == Network::Vanilla {
         return vanilla::fetch_user_rooms(&user_id, skip, take).await;
@@ -310,7 +323,7 @@ pub async fn fetch_user_feed(args: Value) -> Value {
         _ => return json!({ "success": false, "error": "userId is required" }),
     };
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
-    let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(40);
+    let take = page_size(&args, 40);
 
     if network_of(&args) == Network::Vanilla {
         // Vanilla publishes no activity feed. The UI hides the FEEDS tab, so
@@ -350,7 +363,7 @@ pub async fn prefetch_network_data(network: Option<String>) {
 #[tauri::command]
 pub async fn fetch_recent_photos(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
-    let take = args.get("take").and_then(|v| v.as_i64()).unwrap_or(100);
+    let take = page_size(&args, 100);
 
     if network_of(&args) == Network::Vanilla {
         // An explicit Refresh must go back to the network rather than be

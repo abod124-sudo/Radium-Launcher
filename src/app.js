@@ -1589,8 +1589,13 @@ const tintState = { h: 0, s: 0, v: 0, dirty: false };
 
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
 
+/// `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` as [r, g, b]; alpha is ignored.
+/// The short forms are legal tints (safeColor accepts them), and reading their
+/// first six characters as `rrggbb` put the picker on the wrong colour.
 function hexToRgb(hex) {
-  const n = parseInt(hex.slice(1, 7), 16);
+  let digits = String(hex).replace(/^#/, '');
+  if (digits.length <= 4) digits = [...digits.slice(0, 3)].map(c => c + c).join('');
+  const n = parseInt(digits.slice(0, 6), 16) || 0;
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
@@ -6874,8 +6879,15 @@ async function showPlayerDetails(person) {
     setProfileStat(subsEl, webDetails.subscribers);
     setProfileStat(visitsEl, webDetails.visits);
     if (bioEl) bioEl.textContent = webDetails.bio || 'This user has not setup a bio yet.';
-    if (webDetails.banner && bannerEl) {
-      bannerEl.style.backgroundImage = `url("${webDetails.banner}")`;
+    // Through the thumbnail cache like every other remote picture. Set as the
+    // bare scraped URL it could never load — the CSP's img-src doesn't allow
+    // remote hosts — and whatever the page's markup held went into the style
+    // unescaped. Only the proxied form is used: it is URL-encoded, so it holds
+    // no quote to end the url("...") early.
+    const banner = webDetails.banner ? thumbSrc(webDetails.banner, 1000) : '';
+    // Layered over the default, which then shows if the picture fails.
+    if (bannerEl && banner && banner.startsWith(THUMB_BASE)) {
+      bannerEl.style.backgroundImage = `url("${banner}"), ${defaultProfileBanner()}`;
     }
     
     // Live update status if scrape has it

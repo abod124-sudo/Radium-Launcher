@@ -425,7 +425,7 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
         if let Some((ext, mime)) = sniff_image(&original) {
             let bytes = original.to_vec();
             if let Some(d) = dir {
-                store(d.join(format!("{}.{}", base, ext)), bytes.clone());
+                store(d.join(format!("{}.{}", base, ext)), bytes.clone()).await;
             }
             return Ok((bytes, mime));
         }
@@ -445,7 +445,7 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
     };
 
     if let Some(d) = dir {
-        store(d.join(format!("{}.{}", base, ext)), encoded.clone());
+        store(d.join(format!("{}.{}", base, ext)), encoded.clone()).await;
     }
 
     let mime = CACHE_FORMATS
@@ -540,15 +540,16 @@ fn has_transparency(img: &DynamicImage) -> bool {
 /// Write via a temporary file and rename, so a half-written thumbnail is never
 /// visible to a concurrent reader or left behind by a crash mid-write.
 ///
-/// Store-and-prune are both filesystem work called from an async path, so they
-/// go to the blocking pool together and nothing waits on either — the bytes are
-/// already in hand to return, and a cache write that loses a race costs one
-/// refetch.
-fn store(path: PathBuf, bytes: Vec<u8>) {
-    tokio::task::spawn_blocking(move || {
-        write_atomic(&path, &bytes);
-        maybe_prune();
-    });
+/// The write is awaited, because the caller still holds this image's in-flight
+/// lock and everyone queued on it re-reads the cache the moment it is released.
+/// Fired off unawaited, the file was usually not there yet when they looked,
+/// so each of them downloaded and decoded the same image again — the very
+/// duplicate work the lock exists to prevent. A thumbnail is tens of
+/// kilobytes, so the wait is a millisecond. Pruning, which walks the whole
+/// directory, is still left to run on its own.
+async fn store(path: PathBuf, bytes: Vec<u8>) {
+    let _ = tokio::task::spawn_blocking(move || write_atomic(&path, &bytes)).await;
+    tokio::task::spawn_blocking(maybe_prune);
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) {
