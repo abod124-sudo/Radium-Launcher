@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use std::path::Path;
 use tokio::process::Command;
 
-use crate::config;
+use crate::config::{self, Network};
 use crate::download;
 
 /// Resolve the full path to `powershell.exe`.
@@ -91,11 +91,16 @@ fn elevated_script(powershell_path: &str, cmdlet: &str, dir: &str) -> String {
     )
 }
 
-/// Apply `cmdlet` (`Add-MpPreference` or `Remove-MpPreference`) to the active
-/// network's client folder, through one UAC prompt.
-async fn change_exclusion(app: &tauri::AppHandle, cmdlet: &str) -> Value {
+/// Apply `cmdlet` (`Add-MpPreference` or `Remove-MpPreference`) to
+/// `network`'s client folder, through one UAC prompt.
+///
+/// The network is the one the page names, as for every other install command,
+/// rather than the one last saved to config: the page records the result
+/// against the network it is showing, so the folder has to be that one's.
+async fn change_exclusion(app: &tauri::AppHandle, cmdlet: &str, network: Option<String>) -> Value {
     let cfg = config::current(app);
-    let client_dir = config::get_client_dir(app, &cfg);
+    let network = network.map_or_else(|| cfg.network(), |n| Network::parse(Some(&n)));
+    let client_dir = config::get_client_dir_for(app, &cfg, network);
 
     if !is_path_safe(&client_dir) {
         return json!({ "success": false, "error": "Invalid characters in client path." });
@@ -158,14 +163,14 @@ async fn change_exclusion(app: &tauri::AppHandle, cmdlet: &str) -> Value {
 /// The command is executed through an elevated (`-Verb RunAs`) PowerShell
 /// process so that the user sees a single UAC prompt.
 #[tauri::command]
-pub async fn add_defender_exclusion(app: tauri::AppHandle) -> Value {
-    change_exclusion(&app, "Add-MpPreference").await
+pub async fn add_defender_exclusion(app: tauri::AppHandle, network: Option<String>) -> Value {
+    change_exclusion(&app, "Add-MpPreference", network).await
 }
 
 /// Remove the Rec Room client directory from the Windows Defender exclusion list.
 #[tauri::command]
-pub async fn remove_defender_exclusion(app: tauri::AppHandle) -> Value {
-    change_exclusion(&app, "Remove-MpPreference").await
+pub async fn remove_defender_exclusion(app: tauri::AppHandle, network: Option<String>) -> Value {
+    change_exclusion(&app, "Remove-MpPreference", network).await
 }
 
 #[cfg(test)]

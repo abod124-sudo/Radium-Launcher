@@ -106,6 +106,27 @@ function configInstallDir(network = activeNetwork) {
   return (network === 'vanilla' ? config.vanilla?.installDir : config.installDir) || '';
 }
 
+/// Whether `network`'s client folder has been excluded from Windows Defender
+/// (or, with a third-party antivirus, the warning acknowledged for it).
+///
+/// Per network, like the folder it describes: Radium's is the flat
+/// `config.defenderExcluded`, Vanilla's `config.vanilla.defenderExcluded`, and
+/// each network's uninstall clears its own. A single flat flag meant excluding
+/// Radium's folder also skipped the check for Vanilla's, which never was.
+function avExcluded(network = activeNetwork) {
+  if (!config) return false;
+  return (network === 'vanilla' ? config.vanilla?.defenderExcluded : config.defenderExcluded) === true;
+}
+
+function setAvExcluded(value, network = activeNetwork) {
+  if (!config) return;
+  if (network === 'vanilla') {
+    config.vanilla = { ...(config.vanilla || {}), defenderExcluded: value };
+  } else {
+    config.defenderExcluded = value;
+  }
+}
+
 /// Placeholder for the log/modal text before checkInstall() has resolved the
 /// real path. Per-network, since the two default to different folders.
 function defaultInstallDirHint(network = activeNetwork) {
@@ -207,8 +228,8 @@ function withoutBackdrop(cfg) {
     // route to the right API without the call sites having to care.
     pingServer:     (url) => invoke('ping_server', { url }),
     getPlayerCount: ()    => invoke('get_player_count', { network: activeNetwork }),
-    addDefenderExclusion:    () => invoke('add_defender_exclusion'),
-    removeDefenderExclusion: () => invoke('remove_defender_exclusion'),
+    addDefenderExclusion:    () => invoke('add_defender_exclusion', { network: activeNetwork }),
+    removeDefenderExclusion: () => invoke('remove_defender_exclusion', { network: activeNetwork }),
     detectAntivirus:         () => invoke('detect_antivirus'),
 
     // Install
@@ -1167,12 +1188,6 @@ async function loadConfig() {
   updateGlassControls(glassOn);
 
   applyTheme(activeTheme);
-
-  // Defender Exclusion State
-  const btnExcludeAv = $('btnExcludeAv');
-  if (btnExcludeAv) {
-    setExcludeAvLabel(config.defenderExcluded);
-  }
 
   // Network last, so the brand and capability gating are applied against a
   // fully-loaded config.
@@ -2996,7 +3011,7 @@ async function executeExcludeAv() {
   toast('Please approve the Administrator prompt...', 'info');
   const result = await window.radium?.addDefenderExclusion();
   if (result && result.success) {
-    config.defenderExcluded = true;
+    setAvExcluded(true);
     await window.radium?.saveConfig(config);
     setExcludeAvLabel(true);
     toast('Defender exclusion added!', 'ok');
@@ -3112,7 +3127,7 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
   const btn = $('btnExcludeAv');
   if (!btn) return;
 
-  const isCurrentlyExcluded = config.defenderExcluded === true;
+  const isCurrentlyExcluded = avExcluded();
 
   if (isCurrentlyExcluded) {
     // The "excluded" flag covers two different situations:
@@ -3130,7 +3145,7 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
     const hasThirdParty = avs.some(av => !av.isDefender);
 
     if (hasThirdParty) {
-      config.defenderExcluded = false;
+      setAvExcluded(false);
       await window.radium?.saveConfig(config);
       setExcludeAvLabel(false);
       toast('AV acknowledgement cleared.', 'ok');
@@ -3142,7 +3157,7 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
     toast('Please approve the Administrator prompt...', 'info');
     const result = await window.radium?.removeDefenderExclusion();
     if (result && result.success) {
-      config.defenderExcluded = false;
+      setAvExcluded(false);
       await window.radium?.saveConfig(config);
       setExcludeAvLabel(false);
       toast('Defender exclusion removed!', 'ok');
@@ -3471,7 +3486,7 @@ async function checkAvAndLaunch() {
   }
 
   // Windows Defender path — this one CAN be auto-excluded.
-  if (config.defenderExcluded === true) {
+  if (avExcluded()) {
     await proceedAfterAvCheck();
     return;
   }
@@ -3877,6 +3892,8 @@ function applyNetworkUI(name) {
     opt.classList.toggle('active', selected);
   });
 
+  // The exclusion is per network, as the folder it names is.
+  setExcludeAvLabel(avExcluded());
   updateDownloadCta();
   syncTray();
 }
@@ -5589,7 +5606,22 @@ async function init() {
   // awaited by nothing: on Vanilla these are megabytes, and the point is that
   // they arrive while the user is still on Home rather than on the click that
   // opens the tab.
-  window.radium?.prefetchNetworkData();
+  //
+  // Not while the launcher has started hidden in the tray, which with "start
+  // with Windows" on is every sign-in: on Vanilla that was a 5 MB download
+  // parsed into ~50 MB of player records for a window nobody had opened, which
+  // the backend then dropped again after fifteen idle minutes. The first time
+  // the window is shown does it instead.
+  if (document.hidden) {
+    const prefetchWhenShown = () => {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', prefetchWhenShown);
+      window.radium?.prefetchNetworkData();
+    };
+    document.addEventListener('visibilitychange', prefetchWhenShown);
+  } else {
+    window.radium?.prefetchNetworkData();
+  }
 
   // Disable default context menu
   document.addEventListener('contextmenu', e => e.preventDefault());

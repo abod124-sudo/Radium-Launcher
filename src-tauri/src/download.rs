@@ -100,6 +100,10 @@ fn zip_stem(network: Network) -> &'static str {
 /// Atomic flag used to signal cancellation of an in-progress download.
 static DOWNLOAD_CANCELLED: AtomicBool = AtomicBool::new(false);
 
+/// The error a cancelled download or extraction ends with. The frontend
+/// matches it exactly, to tell a cancel apart from a failure.
+const CANCELLED: &str = "Cancelled";
+
 /// Atomic flag used to pause an in-progress download. Unlike cancellation, a
 /// pause leaves the partial file (and its resume metadata) on disk so the
 /// download can be continued later — either by clicking Resume, or by reopening
@@ -176,6 +180,17 @@ fn parse_content_range_total(headers: &reqwest::header::HeaderMap) -> Option<u64
     v.rsplit('/').next()?.trim().parse::<u64>().ok()
 }
 
+/// The first byte a `Content-Range: bytes start-end/total` header says the
+/// body begins at.
+fn parse_content_range_start(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    let v = headers
+        .get(reqwest::header::CONTENT_RANGE)?
+        .to_str()
+        .ok()?;
+    let range = v.trim().strip_prefix("bytes")?.trim_start();
+    range.split('-').next()?.trim().parse::<u64>().ok()
+}
+
 /// Resolve a possibly-relative link from the download page into an absolute URL.
 ///
 /// The launcher executes what it downloads, so a plaintext `http://` link from
@@ -220,14 +235,23 @@ async fn fetch_remote_etag(url: &str) -> Option<String> {
 }
 
 /// Fetch the raw HTML of the downloads page.
+///
+/// The status is checked first: an error page or a Cloudflare challenge has no
+/// Windows card in it, and was reported as "could not determine the latest
+/// client version" — true, but no help working out that the site was down.
 async fn fetch_download_page_html() -> Result<String, String> {
-    crate::server::http()
+    let response = crate::server::http()
         .get(DOWNLOAD_PAGE)
         .timeout(std::time::Duration::from_secs(20))
         .header("User-Agent", BROWSER_UA)
         .send()
         .await
-        .map_err(|e| format!("Failed to load download page: {}", e))?
+        .map_err(|e| format!("Failed to load download page: {}", e))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("The download page answered HTTP {}.", status.as_u16()));
+    }
+    response
         .text()
         .await
         .map_err(|e| format!("Failed to read download page: {}", e))
@@ -677,7 +701,16 @@ async fn download_client_impl(
     // between the last chunk and the end of the stream. Retrying the same range
     // can only fail the same way, so the partial is dropped and the download
     // starts over rather than leaving Resume broken for good.
-    if resume_from > 0 && response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+    //
+    // A 206 for some other range than the one asked for is treated the same
+    // way. Appending it would splice the wrong bytes into the middle of the
+    // zip, which only a pinned hash would catch, and only once the whole
+    // download is done; without one it is extracted over the old install.
+    let wrong_range = response.status() == reqwest::StatusCode::PARTIAL_CONTENT
+        && parse_content_range_start(response.headers()) != Some(resume_from);
+    if resume_from > 0
+        && (response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE || wrong_range)
+    {
         let _ = fs::remove_file(&part_path);
         let _ = fs::remove_file(&meta_path);
         resume_from = 0;
@@ -763,7 +796,7 @@ async fn download_client_impl(
             drop(file);
             let _ = fs::remove_file(&part_path);
             let _ = fs::remove_file(&meta_path);
-            return Err("Cancelled".into());
+            return Err(CANCELLED.into());
         }
 
         // Pause stops the loop but keeps the .part file + metadata so it can be
@@ -852,7 +885,7 @@ async fn download_client_impl(
     if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
         let _ = fs::remove_file(&part_path);
         let _ = fs::remove_file(&meta_path);
-        return Err("Cancelled".into());
+        return Err(CANCELLED.into());
     }
 
     // A stream that ends early without erroring (a proxy closing the connection,
@@ -911,20 +944,31 @@ async fn download_client_impl(
     // thumbnail pipeline sharing that runtime. `spawn_blocking` puts it on the
     // blocking pool where it belongs; the app handle is cloned in so progress
     // events still reach the frontend from there.
-    let was_cancelled = {
+    let extracted = {
         let app = app.clone();
         let client_dir = client_dir.clone();
         let client_zip = client_zip.clone();
-        tokio::task::spawn_blocking(move || extract_client_zip(&app, &client_zip, &client_dir))
-            .await
-            .map_err(|e| format!("Extraction task failed: {}", e))??
+        tokio::task::spawn_blocking(move || {
+            extract_client_zip(&client_zip, &client_dir, &mut |progress| {
+                let _ = app.emit("download-progress", progress);
+            })
+        })
+        .await
+        .map_err(|e| format!("Extraction task failed: {}", e))?
     };
 
-    if was_cancelled {
-        // Remove the half-extracted client so it isn't detected as installed.
-        let client_dir = client_dir.clone();
-        let _ = tokio::task::spawn_blocking(move || safe_clear_client_dir(&client_dir)).await;
-        return Err("Cancelled".into());
+    // Whatever happened, the zip has done its job or can't: a fresh download
+    // removes any leftover one before it starts, so keeping a multi-gigabyte
+    // file around after a failure only costs the user the disk space.
+    let _ = fs::remove_file(&client_zip);
+
+    if let Err(e) = extracted {
+        // One that stopped partway has removed the old install and cleared
+        // what landed of the new one (see `extract_client_zip`), while the
+        // config still names the old exe; one that stopped earlier left that
+        // install alone. `forget_missing_install` tells the two apart.
+        forget_missing_install(&app, network);
+        return Err(e);
     }
 
     // Find RecRoom_ScreenMode.bat in the extracted files.
@@ -978,18 +1022,39 @@ const MAX_EXTRACTED_BYTES: u64 = 32 * 1024 * 1024 * 1024;
 /// Most entries the archive may hold.
 const MAX_ENTRIES: usize = 200_000;
 
+/// Clear the recorded install for `network` if its executable is gone.
+///
+/// Used after an extraction that failed or was cancelled. One that stopped
+/// before touching the old install leaves its exe in place, and the record
+/// stands; one that stopped partway has removed it, and a record naming a
+/// missing exe would otherwise carry the old build id and version into the
+/// next install check.
+fn forget_missing_install(app: &tauri::AppHandle, network: Network) {
+    let _lock = config::write_lock();
+    let mut cfg = config::ensure_config(app);
+    let exe = cfg.game_exe_for(network);
+    if exe.is_empty() || Path::new(exe).exists() {
+        return;
+    }
+    cfg.clear_client_install(network);
+    let _ = config::save_config(app, &cfg);
+}
+
 /// Extract the downloaded zip into `client_dir`, emitting progress as it goes.
 ///
-/// Returns `Ok(true)` if cancellation was observed partway through, so the
-/// caller can clear the partial install. Runs on the blocking pool — see the
-/// call site.
+/// Fails with [`CANCELLED`] when a cancel is seen, and with a message for
+/// anything else. Nothing is touched until the archive has been checked, and
+/// the old install is left alone if a cancel arrives before then. Past that
+/// point the old install is gone, so a failure or cancel also removes what
+/// this run had written: a half-extracted client is not one anybody can play,
+/// and left in place it would be found and reported as installed. Runs on the
+/// blocking pool — see the call site. `progress` is handed each
+/// `download-progress` payload.
 fn extract_client_zip(
-    app: &tauri::AppHandle,
     client_zip: &Path,
     client_dir: &str,
-) -> Result<bool, String> {
-    const EMIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
-
+    progress: &mut dyn FnMut(Value),
+) -> Result<(), String> {
     // Open and parse the archive BEFORE touching the existing install. Clearing
     // first meant a corrupt or truncated download wiped a working client and
     // then failed, leaving the user with nothing to launch and nothing to
@@ -1021,6 +1086,13 @@ fn extract_client_zip(
         ));
     }
 
+    // Last moment a cancel can leave the old install as it was. One that came
+    // in while the download was being verified would otherwise be noticed only
+    // at the first entry below — after that install had been deleted.
+    if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
+        return Err(CANCELLED.into());
+    }
+
     // The archive is readable and within budget, so the old install can go.
     //
     // A `false` here — the folder exists but holds nothing recognisable, e.g.
@@ -1041,6 +1113,26 @@ fn extract_client_zip(
     write_install_manifest(Path::new(client_dir), &top_level_entries(&mut archive))
         .map_err(|e| format!("Failed to record the install: {}", e))?;
 
+    // From here on the old install is gone. If this run stops partway, what it
+    // wrote goes too — the manifest above names exactly that — rather than
+    // staying behind as a client the launcher would find and report installed.
+    let result = write_entries(&mut archive, client_dir, progress);
+    if result.is_err() {
+        let _ = safe_clear_client_dir(client_dir);
+    }
+    result
+}
+
+/// Write every entry of `archive` into `client_dir`, emitting progress. Stops
+/// with [`CANCELLED`] when a cancel is seen. See [`extract_client_zip`].
+fn write_entries<R: Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    client_dir: &str,
+    progress: &mut dyn FnMut(Value),
+) -> Result<(), String> {
+    const EMIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
+    let entry_count = archive.len();
     let mut written: u64 = 0;
     let mut last_emit = emit_now_baseline(EMIT_INTERVAL);
 
@@ -1048,7 +1140,7 @@ fn extract_client_zip(
         // Honor cancellation during extraction too — previously Cancel only
         // worked during the download phase.
         if DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
-            return Ok(true);
+            return Err(CANCELLED.into());
         }
 
         let mut entry = archive
@@ -1105,7 +1197,7 @@ fn extract_client_zip(
                 .next()
                 .unwrap_or("")
                 .to_string();
-            let _ = app.emit("download-progress", json!({
+            progress(json!({
                 "phase": "extract",
                 "pct": pct,
                 "status": format!("Extracting: {} ({}/{})", entry_name, i + 1, entry_count),
@@ -1116,11 +1208,7 @@ fn extract_client_zip(
         }
     }
 
-    // Cleanup zip file.
-    drop(archive);
-    let _ = fs::remove_file(client_zip);
-
-    Ok(false)
+    Ok(())
 }
 
 /// Round a byte count for an error message the user will read.
@@ -1906,6 +1994,106 @@ mod extraction_budget_tests {
         assert_eq!(human_bytes(MAX_EXTRACTED_BYTES), "32.0 GB");
         assert_eq!(human_bytes(512 * 1024 * 1024), "512 MB");
         assert_eq!(human_bytes(3 * 1024 * 1024 * 1024), "3.0 GB");
+    }
+}
+
+#[cfg(test)]
+mod extraction_tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("radium-extract-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    /// A zip of `entries`, stored rather than deflated so a test can find an
+    /// entry's bytes in the file and damage them.
+    fn build_zip(path: &Path, entries: &[(&str, &[u8])]) {
+        let mut zip = zip::ZipWriter::new(fs::File::create(path).expect("zip file"));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, data) in entries {
+            zip.start_file(*name, options).expect("start entry");
+            zip.write_all(data).expect("write entry");
+        }
+        zip.finish().expect("finish zip");
+    }
+
+    #[test]
+    fn a_good_archive_is_extracted_and_recorded() {
+        let root = temp_dir("good");
+        let client = root.join("client");
+        let zip_path = root.join("client.zip");
+        build_zip(&zip_path, &[
+            ("Recroom_Release.exe", b"exe"),
+            ("Recroom_Release_Data/level0", b"data"),
+        ]);
+
+        let mut events = 0;
+        extract_client_zip(&zip_path, &client.to_string_lossy(), &mut |_| events += 1)
+            .expect("extracts");
+
+        assert_eq!(fs::read(client.join("Recroom_Release_Data/level0")).expect("entry"), b"data");
+        assert_eq!(
+            read_install_manifest(&client).expect("manifest"),
+            vec!["Recroom_Release.exe".to_string(), "Recroom_Release_Data".to_string()]
+        );
+        assert!(events > 0, "the last entry always reports progress");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The old install is gone by the time entries are written, so a run that
+    /// fails partway must not leave half a client for the install check to
+    /// find and report as installed. Only what the run wrote goes.
+    #[test]
+    fn a_failure_partway_removes_what_it_wrote_and_nothing_else() {
+        let root = temp_dir("corrupt");
+        let client = root.join("client");
+        fs::create_dir_all(&client).expect("client dir");
+        fs::write(client.join("notes.txt"), b"mine").expect("unrelated file");
+
+        let zip_path = root.join("client.zip");
+        build_zip(&zip_path, &[
+            ("Recroom_Release.exe", b"exe"),
+            ("Recroom_Release_Data/level0", b"SECOND-ENTRY-PAYLOAD"),
+        ]);
+        // Damage the second entry's bytes, so its checksum fails after the
+        // first entry has already been written.
+        let mut bytes = fs::read(&zip_path).expect("zip bytes");
+        let at = bytes
+            .windows(b"SECOND-ENTRY-PAYLOAD".len())
+            .position(|w| w == b"SECOND-ENTRY-PAYLOAD")
+            .expect("payload in the stored zip");
+        bytes[at] ^= 0xFF;
+        fs::write(&zip_path, &bytes).expect("rewrite zip");
+
+        let result = extract_client_zip(&zip_path, &client.to_string_lossy(), &mut |_| {});
+
+        assert!(result.is_err(), "a damaged entry fails the extraction");
+        assert!(!client.join("Recroom_Release.exe").exists(), "the half-written client goes");
+        assert!(!client.join("Recroom_Release_Data").exists());
+        assert!(!client.join(INSTALL_MANIFEST).exists());
+        assert!(client.join("notes.txt").exists(), "what was already there stays");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_start_of_a_content_range_is_read() {
+        let headers = |value: &str| {
+            let mut h = reqwest::header::HeaderMap::new();
+            h.insert(reqwest::header::CONTENT_RANGE, value.parse().expect("header"));
+            h
+        };
+        assert_eq!(parse_content_range_start(&headers("bytes 1024-2047/4096")), Some(1024));
+        assert_eq!(parse_content_range_start(&headers("bytes 0-99/100")), Some(0));
+        assert_eq!(parse_content_range_total(&headers("bytes 0-99/100")), Some(100));
+        // An unsatisfied-range answer names no start.
+        assert_eq!(parse_content_range_start(&headers("bytes */4096")), None);
+        assert_eq!(parse_content_range_start(&reqwest::header::HeaderMap::new()), None);
     }
 }
 

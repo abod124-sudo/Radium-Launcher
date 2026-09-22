@@ -49,6 +49,28 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
         }
     };
 
+    // A refusal came back as JSON too — `{"message": "API rate limit
+    // exceeded ..."}` — with no `tag_name`, which compared as "no newer
+    // version" and told the user they were up to date. Only a 404 means that:
+    // the repository has no published release yet.
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return json!({
+            "hasUpdate": false,
+            "currentVersion": app.package_info().version.to_string(),
+        });
+    }
+    if !status.is_success() {
+        let reason = if status == reqwest::StatusCode::FORBIDDEN
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        {
+            "GitHub is limiting requests right now; try again later".to_string()
+        } else {
+            format!("GitHub answered HTTP {}", status.as_u16())
+        };
+        return json!({ "hasUpdate": false, "error": reason });
+    }
+
     let release: serde_json::Value = match response.json().await {
         Ok(v) => v,
         Err(e) => {

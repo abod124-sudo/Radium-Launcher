@@ -1067,11 +1067,6 @@ pub fn client_dir_for(config: &Config, network: Network, app_data_dir: &std::pat
         .to_string()
 }
 
-/// Backwards-compatible wrapper: the client directory for the active network.
-pub fn get_client_dir(app_handle: &tauri::AppHandle, config: &Config) -> String {
-    get_client_dir_for(app_handle, config, config.network())
-}
-
 #[cfg(test)]
 // These tests start from `Config::default()` and then set the one or two fields
 // the case is actually about. Clippy would rather see a struct-update

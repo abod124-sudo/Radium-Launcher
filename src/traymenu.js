@@ -182,13 +182,24 @@
 
   /// Blank the menu, let that frame reach the screen, then hide the window,
   /// so the next time it is shown Windows doesn't flash this menu first.
+  ///
+  /// The timer is a backstop for the frames. `requestAnimationFrame` does not
+  /// always run in this window (see `show`), and if it didn't here, a blanked
+  /// but still-shown window would sit on top of everything by the taskbar,
+  /// invisible and catching clicks. Whichever comes first hides it; neither
+  /// does if the menu has been opened again in the meantime.
   function close() {
     if (!open) return;
     open = false;
     menu.classList.remove('in');
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    let done = false;
+    const hide = () => {
+      if (done || open) return;
+      done = true;
       invoke('tray_menu_hide').catch(() => {});
-    }));
+    };
+    requestAnimationFrame(() => requestAnimationFrame(hide));
+    setTimeout(hide, 150);
   }
 
   menu.addEventListener('click', (e) => {

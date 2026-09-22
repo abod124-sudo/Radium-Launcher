@@ -431,11 +431,15 @@ fn online_label(v: Option<bool>) -> &'static str {
 }
 
 /// Bug-report label for the installed client's build health. Mirrors
-/// `check_install`'s rule: a client whose recorded build id differs from the
-/// one this launcher requires is outdated and must be re-downloaded.
-fn client_status_label(is_installed: bool, client_build: &str) -> &'static str {
+/// `check_install`'s rule: a Radium client whose recorded build id differs
+/// from the one this launcher requires is outdated and must be re-downloaded.
+/// Vanilla installs come from a user-supplied zip with no build to track, so
+/// they are never called outdated.
+fn client_status_label(network: config::Network, is_installed: bool, client_build: &str) -> &'static str {
     if !is_installed {
         "Not installed"
+    } else if network == config::Network::Vanilla {
+        "Installed (no build tracking)"
     } else if client_build != download::REQUIRED_CLIENT_BUILD {
         "OUTDATED — re-download required"
     } else {
@@ -552,13 +556,17 @@ mod bug_report_tests {
 
     #[test]
     fn client_status_reflects_build_health() {
-        assert_eq!(client_status_label(false, ""), "Not installed");
-        assert_eq!(client_status_label(false, download::REQUIRED_CLIENT_BUILD), "Not installed");
+        use config::Network::{Radium, Vanilla};
+        assert_eq!(client_status_label(Radium, false, ""), "Not installed");
+        assert_eq!(client_status_label(Radium, false, download::REQUIRED_CLIENT_BUILD), "Not installed");
         // Installed but with a stale/blank build id → flagged outdated.
-        assert_eq!(client_status_label(true, ""), "OUTDATED — re-download required");
-        assert_eq!(client_status_label(true, "recroom-baby-2015"), "OUTDATED — re-download required");
+        assert_eq!(client_status_label(Radium, true, ""), "OUTDATED — re-download required");
+        assert_eq!(client_status_label(Radium, true, "recroom-baby-2015"), "OUTDATED — re-download required");
         // Installed with the required build id → healthy.
-        assert_eq!(client_status_label(true, download::REQUIRED_CLIENT_BUILD), "Up to date");
+        assert_eq!(client_status_label(Radium, true, download::REQUIRED_CLIENT_BUILD), "Up to date");
+        // Vanilla has no build to compare, as in `check_install`.
+        assert_eq!(client_status_label(Vanilla, true, ""), "Installed (no build tracking)");
+        assert_eq!(client_status_label(Vanilla, false, ""), "Not installed");
     }
 }
 
@@ -632,10 +640,25 @@ async fn submit_bug_report(
     let cdn_online = diagnostics.get("cdnOnline").and_then(|v| v.as_bool());
 
     // Client build/version are read straight from config (authoritative) rather
-    // than trusted from the frontend.
-    let client_build = if cfg.client_build.is_empty() { "unrecorded".to_string() } else { cfg.client_build.clone() };
-    let client_version = if cfg.client_version.is_empty() { "unknown".to_string() } else { cfg.client_version.clone() };
-    let client_status = client_status_label(is_installed, &cfg.client_build);
+    // than trusted from the frontend — and for the network the report was
+    // filed from. Radium's flat fields used to be read whatever it was, so a
+    // Vanilla report described Radium's client, and called a Vanilla install
+    // with no Radium build "OUTDATED".
+    let network = cfg.network();
+    let client_build = match cfg.client_build_for(network) {
+        "" => "unrecorded".to_string(),
+        b => b.to_string(),
+    };
+    let client_version = match cfg.client_version_for(network) {
+        "" => "unknown".to_string(),
+        v => v.to_string(),
+    };
+    let client_status = client_status_label(network, is_installed, cfg.client_build_for(network));
+    let install_dir = cfg.install_dir_for(network);
+    let av_excluded = match network {
+        config::Network::Radium => cfg.defender_excluded,
+        config::Network::Vanilla => cfg.vanilla.defender_excluded,
+    };
 
     // Only the labels the form offers. Anything else used to be echoed as-is
     // into the embed and into the message that pings the channel, where an
@@ -696,7 +719,8 @@ async fn submit_bug_report(
                     {
                         "name": "Game Status",
                         "value": format!(
-                            "Installed: {}\nRunning: {}\nDownload: {}\nPlay Mode: {}\nErrors logged: {}",
+                            "Network: {}\nInstalled: {}\nRunning: {}\nDownload: {}\nPlay Mode: {}\nErrors logged: {}",
+                            network.as_str(),
                             if is_installed { "Yes" } else { "No" },
                             if is_game_running { "Yes" } else { "No" },
                             download_state,
@@ -728,7 +752,7 @@ async fn submit_bug_report(
                     },
                     {
                         "name": "AV Exclusion Status",
-                        "value": if cfg.defender_excluded { "Excluded" } else { "Not Excluded" },
+                        "value": if av_excluded { "Excluded" } else { "Not Excluded" },
                         "inline": true
                     },
                     {
@@ -739,7 +763,7 @@ Close on Launch: {}
 Install Location: {}",
                             cfg.minimize_on_launch,
                             cfg.close_on_launch,
-                            if cfg.install_dir.is_empty() { "Default" } else { "Custom" }
+                            if install_dir.is_empty() { "Default" } else { "Custom" }
                         ),
                         "inline": false
                     }
@@ -772,6 +796,7 @@ Install Location: {}",
     let log_header = format!(
         "===== RADIUM LAUNCHER — BUG REPORT DIAGNOSTICS =====\n\
          Launcher : v{}\n\
+         Network  : {}\n\
          OS       : {} ({})\n\
          Category : {}\n\
          Severity : {}\n\
@@ -783,13 +808,14 @@ Install Location: {}",
          Theme    : {} (baseline {})\n\
          ====================================================\n\n",
         launcher_version,
+        network.as_str(),
         os_name, os_arch,
         category_name, severity_name,
         client_version, client_build, download::REQUIRED_CLIENT_BUILD, client_status,
         is_installed, is_game_running, download_state, cfg.play_mode,
         error_count,
         online_label(api_online), online_label(cdn_online),
-        if cfg.install_dir.is_empty() { "Default".to_string() } else { cfg.install_dir.clone() },
+        if install_dir.is_empty() { "Default" } else { install_dir },
         cfg.theme, cfg.baseline_theme,
     );
 
