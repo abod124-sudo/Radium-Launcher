@@ -34,7 +34,7 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::server::{http, read_capped, USER_AGENT};
+use crate::server::{http, read_capped, read_text_capped, USER_AGENT};
 
 /// Image, player-count and bulk-dump host. Those paths are served to any client.
 const API_BASE: &str = "https://api.vanillarec.net";
@@ -81,7 +81,8 @@ async fn api_get_json(path: &str) -> Result<Value, String> {
         return Err(format!("HTTP error: {}", status));
     }
 
-    let body = response.text().await.map_err(|e| e.to_string())?;
+    // Capped: see `server::MAX_API_BYTES`.
+    let body = read_text_capped(response).await?;
     let value: Value = serde_json::from_str(&body).map_err(|_| {
         format!(
             "Unexpected response from Vanilla: {}",
@@ -230,12 +231,15 @@ pub async fn get_player_count() -> Value {
         return json!({ "success": false, "error": format!("HTTP error: {}", status) });
     }
 
-    match resp.text().await {
+    match read_text_capped(resp).await {
         Ok(body) => match body.trim().parse::<i64>() {
             Ok(count) => json!({ "success": true, "count": count }),
             Err(_) => json!({
                 "success": false,
-                "error": format!("Unexpected player-count response: {}", body.trim())
+                "error": format!(
+                    "Unexpected player-count response: {}",
+                    body.trim().chars().take(120).collect::<String>()
+                )
             }),
         },
         Err(e) => json!({ "success": false, "error": e.to_string() }),

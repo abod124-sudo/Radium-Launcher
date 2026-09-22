@@ -82,7 +82,8 @@ async fn http_get_text(url: &str) -> Result<String, String> {
         return Err(format!("HTTP error: {}", status));
     }
 
-    response.text().await.map_err(|e| e.to_string())
+    // Capped: see `server::MAX_API_BYTES`.
+    crate::server::read_text_capped(response).await
 }
 
 // ---------------------------------------------------------------------------

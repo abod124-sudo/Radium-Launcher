@@ -125,6 +125,29 @@ const FLAG_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis
 /// resumed), rather than left holding the download guard forever.
 const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Largest client zip this will write to disk.
+///
+/// The extraction is capped (see [`MAX_EXTRACTED_BYTES`]) but the download in
+/// front of it was not: a server that sends no length, or a wrong one, and
+/// then simply keeps sending — a Vanilla URL is whatever the user typed —
+/// filled the disk before anything stopped it. The real client is a few
+/// gigabytes, and a zip is never larger than what it expands to.
+const MAX_DOWNLOAD_BYTES: u64 = MAX_EXTRACTED_BYTES;
+
+/// Whether a resumed download is still the same file as the partial one.
+///
+/// Without an ETag to send as `If-Range`, the server answers a range request
+/// for whatever file is at the URL now, and a rebuilt client there would be
+/// spliced onto the old one's first half. Its size is the one fingerprint left
+/// to compare: a different total is a different file. A total either side
+/// doesn't know says nothing either way.
+fn same_file_total(recorded: u64, now: Option<u64>) -> bool {
+    match now {
+        Some(now) if recorded > 0 => now == recorded,
+        _ => true,
+    }
+}
+
 /// An `Instant` far enough back that the first progress event is sent at once.
 ///
 /// `Instant::now() - interval` panics if the clock is younger than `interval`,
@@ -251,8 +274,7 @@ async fn fetch_download_page_html() -> Result<String, String> {
     if !status.is_success() {
         return Err(format!("The download page answered HTTP {}.", status.as_u16()));
     }
-    response
-        .text()
+    crate::server::read_text_capped(response)
         .await
         .map_err(|e| format!("Failed to read download page: {}", e))
 }
@@ -703,10 +725,17 @@ async fn download_client_impl(
     // way. Appending it would splice the wrong bytes into the middle of the
     // zip, which only a pinned hash would catch, and only once the whole
     // download is done; without one it is extracted over the old install.
-    let wrong_range = response.status() == reqwest::StatusCode::PARTIAL_CONTENT
-        && parse_content_range_start(response.headers()) != Some(resume_from);
+    //
+    // And so is a 206 for a file of a different size: see `same_file_total`.
+    let partial = response.status() == reqwest::StatusCode::PARTIAL_CONTENT;
+    let wrong_range = partial && parse_content_range_start(response.headers()) != Some(resume_from);
+    let changed_file = partial
+        && !same_file_total(
+            existing_meta.as_ref().map(|m| m.total).unwrap_or(0),
+            parse_content_range_total(response.headers()),
+        );
     if resume_from > 0
-        && (response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE || wrong_range)
+        && (response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE || wrong_range || changed_file)
     {
         let _ = fs::remove_file(&part_path);
         let _ = fs::remove_file(&meta_path);
@@ -739,6 +768,18 @@ async fn download_client_impl(
     } else {
         response.content_length().unwrap_or(0)
     };
+
+    // Refused before a byte is written when the server says so up front; the
+    // loop below holds a server that doesn't to the same line.
+    if total > MAX_DOWNLOAD_BYTES {
+        let _ = fs::remove_file(&part_path);
+        let _ = fs::remove_file(&meta_path);
+        return Err(format!(
+            "Refusing to download: the file is {}, over the {} limit.",
+            human_bytes(total),
+            human_bytes(MAX_DOWNLOAD_BYTES)
+        ));
+    }
 
     // Persist resume metadata up front, so even a hard close on the very next
     // chunk leaves enough behind to continue from.
@@ -843,6 +884,15 @@ async fn download_client_impl(
         }
 
         downloaded += chunk.len() as u64;
+        if downloaded > MAX_DOWNLOAD_BYTES {
+            drop(file);
+            let _ = fs::remove_file(&part_path);
+            let _ = fs::remove_file(&meta_path);
+            return Err(format!(
+                "Stopped the download: the server sent more than {}, which no client is.",
+                human_bytes(MAX_DOWNLOAD_BYTES)
+            ));
+        }
 
         if last_emit.elapsed() >= EMIT_INTERVAL {
             last_emit = std::time::Instant::now();
@@ -1779,6 +1829,18 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
         return Ok(false);
     }
 
+    // Some client builds extract into a subfolder rather than directly into
+    // the client dir, and that subfolder goes too — but only the one holding
+    // the client this launcher would launch. Every subfolder that merely had
+    // the game's files directly inside used to go, which in a shared folder is
+    // somebody else's install: another launcher's copy of the game, or a
+    // second revival client. Worked out before anything is deleted, since
+    // removing the files at the top would point the search at one of those.
+    let nested_client = crate::game::find_game_exe(client_dir)
+        .map(std::path::PathBuf::from)
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .filter(|sub| sub.parent() == Some(path));
+
     let game_files = [
         "Recroom_Release.exe",
         "Recroom_Release_Data",
@@ -1811,19 +1873,13 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
         }
     }
 
-    // Some client builds extract into a subfolder rather than directly into the
-    // client dir. Remove an immediate subdirectory only when it is itself the
-    // root of a client — the game's files directly inside it. This used to
-    // remove any subfolder with a game *somewhere* beneath it, four levels
-    // deep, which is a Steam library holding the real Rec Room.
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let sub = entry.path();
-            let is_real_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            if is_real_dir && dir_is_client_root(&sub) {
-                let _ = fs::remove_dir_all(&sub);
-            }
-        }
+    // See `nested_client` above. Still only a folder that is itself the root
+    // of a client: this once removed any subfolder with a game *somewhere*
+    // beneath it, four levels deep, which is a Steam library holding the real
+    // Rec Room. `find_game_exe` never steps through a link, so this is a real
+    // folder inside the client dir.
+    if let Some(sub) = nested_client.filter(|sub| dir_is_client_root(sub)) {
+        let _ = fs::remove_dir_all(&sub);
     }
     let _ = fs::remove_file(path.join(INCOMPLETE_MARKER));
 
@@ -1876,6 +1932,33 @@ mod clear_tests {
         assert!(!dir.join("client-build").exists());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Only the subfolder holding the client this launcher launches goes. A
+    /// second client beside it — another launcher's copy, the other network's
+    /// folder in a shared parent — is not this install's to delete.
+    #[test]
+    fn a_second_client_beside_this_one_is_not_deleted() {
+        let dir = temp_dir("sibling");
+        touch(&dir.join("RecRoom.exe"));
+        touch(&dir.join("RecRoom_Data/level0"));
+        touch(&dir.join("client-vanilla/RecRoom.exe"));
+
+        assert!(safe_clear_client_dir(&dir.to_string_lossy()).expect("clear"));
+        assert!(!dir.join("RecRoom.exe").exists(), "this client goes");
+        assert!(!dir.join("RecRoom_Data").exists());
+        assert!(dir.join("client-vanilla/RecRoom.exe").exists(), "the one beside it stays");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_resume_is_only_trusted_for_a_file_of_the_same_size() {
+        assert!(same_file_total(4096, Some(4096)));
+        assert!(!same_file_total(4096, Some(8192)), "a rebuilt file at the same URL");
+        // Nothing to compare against on one side or the other.
+        assert!(same_file_total(0, Some(8192)));
+        assert!(same_file_total(4096, None));
     }
 
     /// With a manifest, exactly the recorded entries go — including ones the

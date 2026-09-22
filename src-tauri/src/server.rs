@@ -48,6 +48,21 @@ pub(crate) async fn read_capped(response: reqwest::Response, max: u64) -> Result
     Ok(out)
 }
 
+/// Largest API reply (JSON, or a scraped HTML page) buffered in one go.
+///
+/// Every page, profile and list the launcher asks for is kilobytes; the
+/// biggest is a prolific Vanilla photographer's whole photo list, a few
+/// megabytes. The shared client decompresses gzip and brotli, where a few
+/// kilobytes on the wire can inflate to gigabytes, so `text()` and `json()`
+/// were one hostile or broken reply away from holding all of it.
+pub(crate) const MAX_API_BYTES: u64 = 32 * 1024 * 1024;
+
+/// A response body as text, capped at [`MAX_API_BYTES`].
+pub(crate) async fn read_text_capped(response: reqwest::Response) -> Result<String, String> {
+    let bytes = read_capped(response, MAX_API_BYTES).await?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// Shared GET helper with User-Agent header and 10s timeout.
 pub(crate) async fn http_get_json(url: &str) -> Result<Value, String> {
     let response = http()
@@ -63,7 +78,8 @@ pub(crate) async fn http_get_json(url: &str) -> Result<Value, String> {
         return Err(format!("HTTP error: {}", status));
     }
 
-    response.json::<Value>().await.map_err(|e| e.to_string())
+    let body = read_capped(response, MAX_API_BYTES).await?;
+    serde_json::from_slice(&body).map_err(|e| e.to_string())
 }
 
 /// Most rows one page may ask for.
@@ -163,7 +179,8 @@ pub async fn get_player_count(network: Option<String>) -> Value {
             if !status.is_success() {
                 return json!({ "success": false, "error": format!("HTTP error: {}", status) });
             }
-            match resp.json::<Value>().await {
+            let body = read_capped(resp, MAX_API_BYTES).await;
+            match body.and_then(|b| serde_json::from_slice::<Value>(&b).map_err(|e| e.to_string())) {
                 Ok(data) => {
                     let count = data.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
                     json!({ "success": true, "count": count })

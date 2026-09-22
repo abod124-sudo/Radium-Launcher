@@ -30,12 +30,13 @@ An **unofficial** launcher for Rec Room revival servers.
 - **Client management** — Downloads and extracts the game client in-app with live speed
   and ETA, resumes interrupted downloads, detects outdated installs, and launches the
   game.
-- **16 themes** — Rec Room, Steam 2003 Green, Windows 98 / XP / 7 Aero, Mac OS X Aqua,
-  Modern Dark and more — or build your own, including a **Liquid Glass** effect.
+- **15 skins** — Steam 2003 Green, Windows 95 / 98 / XP / Vista / 7, Mac OS Classic and
+  Aqua, Modern Dark and more — plus a **Liquid Glass** effect with your own tint or
+  background picture.
 - **Diagnostics** — Server status on startup, a built-in bug reporter that bundles logs
   and system info, and third-party antivirus detection.
-- **Stays current** — Checks GitHub for launcher updates on startup, and saves every
-  setting the moment you change it.
+- **Stays current** — Checks GitHub for launcher updates on startup and while it sits in
+  the tray, and saves every setting the moment you change it.
 
 ---
 

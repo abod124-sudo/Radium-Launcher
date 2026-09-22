@@ -71,7 +71,11 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
         return json!({ "hasUpdate": false, "error": reason });
     }
 
-    let release: serde_json::Value = match response.json().await {
+    // Capped like every other API reply; see `server::MAX_API_BYTES`.
+    let release: serde_json::Value = match crate::server::read_capped(response, crate::server::MAX_API_BYTES)
+        .await
+        .and_then(|body| serde_json::from_slice(&body).map_err(|e| e.to_string()))
+    {
         Ok(v) => v,
         Err(e) => {
             return json!({

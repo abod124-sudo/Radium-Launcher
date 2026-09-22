@@ -705,6 +705,10 @@ async fn send_bug_report(
         _ => "idle",
     };
     let error_count = diagnostics.get("errorCount").and_then(|v| v.as_u64()).unwrap_or(0);
+    // The two modes there are. config.json is hand-editable, and a long value
+    // here would push the embed field past Discord's 1024 characters, which
+    // refuses the whole report.
+    let play_mode = if cfg.play_mode == "vr" { "vr" } else { "screen" };
 
     // Server reachability comes from the frontend's last poll; a tri-state so a
     // report made before the first poll doesn't misreport servers as OFFLINE.
@@ -796,7 +800,7 @@ async fn send_bug_report(
                             if is_installed { "Yes" } else { "No" },
                             if is_game_running { "Yes" } else { "No" },
                             download_state,
-                            cfg.play_mode,
+                            play_mode,
                             error_count
                         ),
                         "inline": false
@@ -884,7 +888,7 @@ Install Location: {}",
         os_name, os_arch,
         category_name, severity_name,
         client_version, client_build, download::REQUIRED_CLIENT_BUILD, client_status,
-        is_installed, is_game_running, download_state, cfg.play_mode,
+        is_installed, is_game_running, download_state, play_mode,
         error_count,
         online_label(api_online), online_label(cdn_online),
         if install_dir.is_empty() { "Default" } else { install_dir },

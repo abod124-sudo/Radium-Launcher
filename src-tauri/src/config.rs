@@ -753,8 +753,8 @@ pub fn drop_relative_install_dirs(config: &mut Config) -> bool {
     changed
 }
 
-/// Enforces that the two networks never resolve to the same client folder.
-/// Returns true if `config` was changed.
+/// Enforces that the two networks never resolve to the same client folder,
+/// or to one inside the other. Returns true if `config` was changed.
 ///
 /// They install different games from different sources, so a shared folder
 /// means each network's download overwrites the other's install and each then
@@ -762,13 +762,23 @@ pub fn drop_relative_install_dirs(config: &mut Config) -> bool {
 /// cleared, which returns that network to its own default folder; Radium is
 /// cleared first because its flat `installDir` is the field the old settings
 /// autosave overwrote.
+///
+/// A folder inside the other's is the same collision a level down: the
+/// install check searches four levels deep, so Radium pointed at the app data
+/// folder found `client-vanilla` in it, reported Vanilla's client as its own
+/// and would have launched it.
 pub fn dedupe_install_dirs(app_handle: &tauri::AppHandle, config: &mut Config) -> bool {
     dedupe_install_dirs_at(config, &app_data_dir(app_handle))
 }
 
+/// Whether two install folders are the same folder or one holds the other.
+pub fn install_dirs_overlap(a: &str, b: &str) -> bool {
+    is_inside(a, b) || is_inside(b, a)
+}
+
 pub fn dedupe_install_dirs_at(config: &mut Config, app_data_dir: &std::path::Path) -> bool {
     let collides = |config: &Config| {
-        same_dir(
+        install_dirs_overlap(
             &client_dir_for(config, Network::Radium, app_data_dir),
             &client_dir_for(config, Network::Vanilla, app_data_dir),
         )
@@ -1545,6 +1555,41 @@ mod tests {
             client_dir_for(&cfg, Network::Radium, &data),
             client_dir_for(&cfg, Network::Vanilla, &data)
         );
+    }
+
+    /// One network's folder inside the other's is the same collision a level
+    /// down: the install check searches beneath the folder it is given.
+    #[test]
+    fn a_folder_inside_the_other_networks_is_split_apart() {
+        let data = PathBuf::from("C:/data");
+
+        // Radium pointed at the folder holding Vanilla's default.
+        let mut cfg = Config::default();
+        cfg.install_dir = "C:\\Data\\".to_string();
+        assert!(dedupe_install_dirs_at(&mut cfg, &data));
+        assert_eq!(cfg.install_dir, "");
+
+        // Vanilla pointed inside Radium's default.
+        let mut cfg = Config::default();
+        cfg.vanilla.install_dir = "C:/data/client/vanilla".to_string();
+        assert!(dedupe_install_dirs_at(&mut cfg, &data));
+        assert_eq!(cfg.vanilla.install_dir, "");
+
+        // Two custom folders, one inside the other.
+        let mut cfg = Config::default();
+        cfg.install_dir = "D:/Games/Radium/Vanilla".into();
+        cfg.vanilla.install_dir = "D:/Games/Radium".into();
+        assert!(dedupe_install_dirs_at(&mut cfg, &data));
+        assert!(!install_dirs_overlap(
+            &client_dir_for(&cfg, Network::Radium, &data),
+            &client_dir_for(&cfg, Network::Vanilla, &data)
+        ));
+
+        // Neighbours that share a prefix are not nested.
+        let mut cfg = Config::default();
+        cfg.install_dir = "D:/Games/Radium".into();
+        cfg.vanilla.install_dir = "D:/Games/Radium-Vanilla".into();
+        assert!(!dedupe_install_dirs_at(&mut cfg, &data));
     }
 
     #[test]

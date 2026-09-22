@@ -187,6 +187,14 @@ function normDir(path) {
   return String(path || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 }
 
+/// Whether two install folders are one folder or one holds the other. Mirrors
+/// `install_dirs_overlap` in config.rs, which resets a folder that does.
+function installDirsOverlap(a, b) {
+  const x = normDir(a), y = normDir(b);
+  if (!x || !y) return false;
+  return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`);
+}
+
 /// The other network's currently resolved folder, as Settings is showing it.
 function otherNetworkInstallDir(network) {
   const other = network === 'vanilla' ? 'radium' : 'vanilla';
@@ -2184,6 +2192,26 @@ async function autoSaveSettings() {
 /// One log line per session about a set-aside folder, not one per autosave.
 let orphanedDirReported = false;
 
+/// checkInstall() re-runs on every settings autosave, and its verdict almost
+/// never changes between two of them, so each toggle clicked logged the same
+/// "Game client found" line again. The log is what a bug report carries —
+/// 2,000 lines of it — and a session of settings changes pushed everything
+/// else out. Logged when the verdict changes instead: `kind` names which
+/// verdict ('client', or 'outdated' beside it), so the two lines an outdated
+/// client gets don't take turns being "new".
+const lastInstallLog = new Map();
+function logInstallState(kind, msg, level) {
+  if (lastInstallLog.get(kind) === msg) return;
+  lastInstallLog.set(kind, msg);
+  addLog(msg, level);
+}
+
+/// The outdated-client dialog, once per client rather than once per
+/// checkInstall(): it used to come back on every settings autosave for as long
+/// as the client stayed outdated. Keyed by network and build, so switching
+/// network, or a new install that is still outdated, asks again.
+let outdatedPromptKey = '';
+
 async function checkInstall() {
   let result = null;
   try {
@@ -2229,7 +2257,7 @@ async function checkInstall() {
     setClientUpdateButton(clientUpdateInfo?.hasUpdate ? 'update' : 'check', clientUpdateInfo);
     const verLabel = result?.clientVersion ? `v${result.clientVersion}` : 'unknown version';
     const buildLabel = result?.clientBuild || 'unrecorded build';
-    addLog(`Game client found (${verLabel}, build ${buildLabel}): ${result.exePath || 'client dir'}`, 'ok');
+    logInstallState('client', `Game client found (${verLabel}, build ${buildLabel}): ${result.exePath || 'client dir'}`, 'ok');
 
     // Check if the game is already running on startup. Only log the transition:
     // checkInstall() re-runs on every settings autosave, so logging every time
@@ -2242,9 +2270,14 @@ async function checkInstall() {
 
     // An outdated client (left over from a previous launcher version) must be
     // re-downloaded to match the new Radium build.
+    if (!result?.clientOutdated) lastInstallLog.delete('outdated');
     if (result?.clientOutdated && !result?.isRunning) {
-      addLog(`Installed client is outdated — build '${result?.clientBuild || 'unrecorded'}' ≠ required '${result?.requiredBuild || 'unknown'}'. Update required.`, 'warn');
-      showModal($('clientUpdateModal'));
+      logInstallState('outdated', `Installed client is outdated — build '${result?.clientBuild || 'unrecorded'}' ≠ required '${result?.requiredBuild || 'unknown'}'. Update required.`, 'warn');
+      const promptKey = `${activeNetwork}|${result?.clientBuild || ''}|${result?.exePath || ''}`;
+      if (promptKey !== outdatedPromptKey) {
+        outdatedPromptKey = promptKey;
+        showModal($('clientUpdateModal'));
+      }
     } else if (!result?.isRunning && !clientUpdateAutoChecked) {
       // Live version check against recroom.baby (Steam-style update prompt).
       // Only auto-run this once per session — the manual button handles re-checks.
@@ -2274,12 +2307,12 @@ async function checkInstall() {
     // than offering a Download that can only fail.
     if (!clientDownloadAvailable()) {
       if (qi) qi.textContent = 'NOT RELEASED';
-      addLog(`${networkInfo().label} has not published a client yet.`, 'info');
+      logInstallState('client', `${networkInfo().label} has not published a client yet.`, 'info');
     } else if (result?.incomplete) {
       // The launcher closed (or the PC went off) partway through unpacking.
-      addLog('The last install stopped before it finished — download the client again.', 'warn');
+      logInstallState('client', 'The last install stopped before it finished — download the client again.', 'warn');
     } else {
-      addLog('Game client not found — download required.', 'info');
+      logInstallState('client', `${networkInfo().label} client not found — download required.`, 'info');
     }
   }
 
@@ -3002,16 +3035,19 @@ document.querySelectorAll('[data-change-folder]').forEach(btn => {
       addLog(`${label} install directory selection cancelled.`, 'info');
       return;
     }
-    // The backend refuses to let both networks resolve to one folder — they
-    // install different games from different sources, so a shared folder means
-    // each download overwrites the other's client. It silently clears the
-    // colliding entry on the next config read, so catch it here instead and
-    // leave the user's existing setting alone.
+    // The backend refuses to let both networks resolve to one folder, or to
+    // one inside the other — they install different games from different
+    // sources, so a shared folder means each download overwrites the other's
+    // client, and the install check (which searches beneath the folder) finds
+    // the other network's game in a folder that holds it. It silently clears
+    // the colliding entry on the next config read, so catch it here instead
+    // and leave the user's existing setting alone.
     const other = otherNetworkInstallDir(network);
-    if (other && normDir(other) === normDir(newDir)) {
+    if (other && installDirsOverlap(other, newDir)) {
       const otherLabel = networkInfo(network === 'vanilla' ? 'radium' : 'vanilla').label;
-      toast(`That folder is already ${otherLabel}'s install location. Pick a different one.`, 'error', 4000);
-      addLog(`Rejected ${label} install directory: ${newDir} is already ${otherLabel}'s.`, 'warn');
+      const why = normDir(other) === normDir(newDir) ? 'is already' : 'overlaps';
+      toast(`That folder ${why} ${otherLabel}'s install location. Pick a different one.`, 'error', 4000);
+      addLog(`Rejected ${label} install directory: ${newDir} ${why} ${otherLabel}'s (${other}).`, 'warn');
       return;
     }
 
@@ -3874,7 +3910,24 @@ $('updateNowBtn')?.addEventListener('click', async () => {
     toast(`Update failed: ${err}`, 'error', 5000);
   }
 });
+/// The launcher lives in the tray between play sessions, often for days, so
+/// one check at startup — which, started with Windows, is usually before the
+/// network is up — could leave it never hearing about a release. It checks
+/// again every so often, and soon after a check that couldn't reach GitHub.
+const LAUNCHER_UPDATE_RECHECK_MS = 12 * 60 * 60 * 1000;
+const LAUNCHER_UPDATE_RETRY_MS = 15 * 60 * 1000;
+let launcherUpdateTimer = null;
+/// The release already offered this session. A later automatic check that
+/// finds the same one leaves the user's "Later" alone.
+let offeredLauncherVersion = null;
+
+function scheduleLauncherUpdateCheck(ms) {
+  clearTimeout(launcherUpdateTimer);
+  launcherUpdateTimer = setTimeout(checkForLauncherUpdate, ms);
+}
+
 async function checkForLauncherUpdate() {
+  scheduleLauncherUpdateCheck(LAUNCHER_UPDATE_RECHECK_MS);
   // Only check if autoUpdate is enabled in settings
   if (config.autoUpdate === false) return;
   addLog('Checking for launcher updates...', 'info');
@@ -3883,9 +3936,12 @@ async function checkForLauncherUpdate() {
     if (!info) return;
     if (info.error) {
       addLog(`Update check failed: ${info.error}`, 'info');
+      scheduleLauncherUpdateCheck(LAUNCHER_UPDATE_RETRY_MS);
       return;
     }
     if (info.hasUpdate) {
+      if (offeredLauncherVersion === info.latestVersion) return;
+      offeredLauncherVersion = info.latestVersion;
       addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok');
       toast('Update available!', 'ok', 5000);
       showUpdateModal(info);
@@ -3893,7 +3949,8 @@ async function checkForLauncherUpdate() {
       addLog(`Launcher is up to date (v${info.currentVersion}).`, 'info');
     }
   } catch (e) {
-    addLog(`Update check error: ${e.message}`, 'info');
+    addLog(`Update check error: ${e?.message || e}`, 'info');
+    scheduleLauncherUpdateCheck(LAUNCHER_UPDATE_RETRY_MS);
   }
 }
 
@@ -3933,6 +3990,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
         resultEl.textContent = '✓ Update available!';
         resultEl.className = 'test-result ok';
       }
+      offeredLauncherVersion = info.latestVersion;
       addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok');
       toast('Update available!', 'ok', 5000);
       showUpdateModal(info);
@@ -4111,6 +4169,8 @@ async function setNetwork(name) {
   // Cached client-update state belongs to the old network's client.
   clientUpdateInfo = null;
   clientUpdateAutoChecked = false;
+  // And the install verdicts logged for it: the new network's are news.
+  lastInstallLog.clear();
 
   // These caches are keyed by username / photo id alone, which is only unique
   // *within* a network — the same name is a different person on each. Without
@@ -4402,6 +4462,7 @@ function renderVanillaAccount() {
     const shown = vanillaPlayer.displayName && vanillaPlayer.displayName !== handle
       ? `${vanillaPlayer.displayName} (@${handle})` : `@${handle}`;
     btn.setAttribute('aria-label', `Signed in to Vanilla as ${shown}`);
+    avatar.dataset.fallback = PLACEHOLDER_AVATAR;
     avatar.src = vanillaPlayer.AvatarUrl
       ? thumbSrc(vanillaPlayer.AvatarUrl, avatarWidth(28))
       : defaultAvatarUrl(28);
@@ -4445,9 +4506,48 @@ async function refreshVanillaExtras() {
   loadVanillaNotifications();
 }
 
+/// A saved session Vanilla couldn't be asked about yet, retried until it
+/// answers either way.
+///
+/// Started with Windows, the launcher is usually up before the network is,
+/// so the startup check failed, the account button said LOG IN, and nothing
+/// asked again that session: no notifications and no pop-ups until the
+/// launcher was restarted, although the session was fine all along.
+let authRetryTimer = null;
+let authRetryDelay = 0;
+const AUTH_RETRY_MAX_MS = 5 * 60 * 1000;
+
+async function recheckVanillaAuth() {
+  clearTimeout(authRetryTimer);
+  authRetryTimer = null;
+  try {
+    applyVanillaAuth(await window.radium.vanillaAuthStatus());
+  } catch (e) {
+    scheduleAuthRetry();
+  }
+}
+
+function scheduleAuthRetry() {
+  clearTimeout(authRetryTimer);
+  authRetryDelay = Math.min(authRetryDelay ? authRetryDelay * 2 : 15000, AUTH_RETRY_MAX_MS);
+  authRetryTimer = setTimeout(recheckVanillaAuth, authRetryDelay);
+}
+
+// Back online: ask now rather than at the end of the current wait.
+window.addEventListener('online', () => {
+  if (authRetryTimer) recheckVanillaAuth();
+});
+
 function applyVanillaAuth(state) {
   const was = vanillaPlayer;
   vanillaPlayer = state && state.authenticated && state.player ? state.player : null;
+  if (!vanillaPlayer && state?.hasSession) {
+    scheduleAuthRetry();
+  } else {
+    clearTimeout(authRetryTimer);
+    authRetryTimer = null;
+    authRetryDelay = 0;
+  }
   renderVanillaAccount();
 
   // Cheer and subscribe buttons on whatever is open reflect the new account.
@@ -4664,6 +4764,9 @@ function notifAvatar(n, size) {
   img.className = 'notif-avatar';
   img.alt = '';
   img.loading = 'lazy';
+  // A picture that fails to load gets the placeholder, as every other avatar
+  // does, rather than the webview's broken-image mark.
+  img.dataset.fallback = PLACEHOLDER_AVATAR;
   img.src = n.senderAvatar ? thumbSrc(n.senderAvatar, avatarWidth(size)) : PLACEHOLDER_AVATAR;
   return img;
 }
@@ -6200,11 +6303,18 @@ function switchTab(tabName) {
   }
 }
 
+/// Bumped by every profile lookup by name, so of two clicked in quick
+/// succession the one clicked last is the one shown — not whichever lookup
+/// happened to come back last.
+let creatorLookupSeq = 0;
+
 async function showCreatorProfile(username) {
   if (!username) return;
+  const seq = ++creatorLookupSeq;
   let person = null;
   try {
     const res = await window.radium?.fetchPeople({ query: username });
+    if (seq !== creatorLookupSeq) return;
     if (res && res.success && res.data && res.data.Results) {
       // A row can come back without a username; that one just isn't a match.
       person = res.data.Results.find(p => String(p.userName || '').toLowerCase() === username.toLowerCase());
@@ -6215,6 +6325,7 @@ async function showCreatorProfile(username) {
   } catch (err) {
     console.error("Error fetching creator profile:", err);
   }
+  if (seq !== creatorLookupSeq) return;
   if (!person) {
     person = {
       id: null,
@@ -6827,6 +6938,9 @@ async function showRoomDetails(room) {
   const creatorAvatarEl = $('roomsDetailCreatorAvatar');
   if (creatorAvatarEl) {
     creatorAvatarEl.classList.add('image-loading-placeholder');
+    // Re-armed on every visit, as on the photo screen: the shared handler
+    // uses the fallback up the first time a picture fails.
+    creatorAvatarEl.dataset.fallback = PLACEHOLDER_AVATAR;
     creatorAvatarEl.src = defaultAvatarUrl(32);
   }
   
@@ -6883,6 +6997,7 @@ async function showRoomDetails(room) {
     if (descEl && webDetails.description) descEl.textContent = webDetails.description;
     if (webDetails.creatorAvatar && creatorAvatarEl) {
       creatorAvatarEl.classList.add('image-loading-placeholder');
+      creatorAvatarEl.dataset.fallback = PLACEHOLDER_AVATAR;
       creatorAvatarEl.src = thumbSrc(webDetails.creatorAvatar, avatarWidth(32));
     } else if (creatorAvatarEl) {
       creatorAvatarEl.classList.remove('image-loading-placeholder');

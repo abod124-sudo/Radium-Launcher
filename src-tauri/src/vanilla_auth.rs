@@ -108,32 +108,70 @@ fn current(app: &AppHandle) -> Option<Arc<SessionCookie>> {
     st.cookie.clone()
 }
 
+// The file is written and deleted under the state lock, so a sign-in and a
+// sign-out landing together can't leave the file saying one thing and memory
+// the other.
+
 fn set_session(app: &AppHandle, cookie: Zeroizing<String>, player: Value) {
+    let Ok(mut st) = state().lock() else { return };
     if let Some(p) = session_path(app) {
         // Losing persistence only means signing in again next launch, so a
         // failed write is not worth failing the sign-in over.
         let _ = store::save(&p, cookie.as_bytes());
     }
-    if let Ok(mut st) = state().lock() {
-        st.loaded = true;
-        st.cookie = Some(Arc::new(SessionCookie(cookie)));
-        st.player = Some(player);
-    }
+    st.loaded = true;
+    st.cookie = Some(Arc::new(SessionCookie(cookie)));
+    st.player = Some(player);
 }
 
-fn clear_session(app: &AppHandle) {
+fn forget(app: &AppHandle, st: &mut State) {
     if let Some(p) = session_path(app) {
         store::delete(&p);
     }
+    st.loaded = true;
+    st.cookie = None;
+    st.player = None;
+}
+
+fn clear_session(app: &AppHandle) {
     if let Ok(mut st) = state().lock() {
-        st.loaded = true;
-        st.cookie = None;
-        st.player = None;
+        forget(app, &mut st);
     }
+}
+
+/// Whether `cookie` is still the session in use.
+fn is_current(st: &State, cookie: &Arc<SessionCookie>) -> bool {
+    st.cookie.as_ref().is_some_and(|c| Arc::ptr_eq(c, cookie))
+}
+
+/// Forget `cookie`, but only while it is still the session in use; returns
+/// whether it was.
+///
+/// A request sent with the old session can come back 401 after a new sign-in
+/// has replaced it — the 60-second notification poll, say, in flight while the
+/// player signs in again. Clearing unconditionally then signed them straight
+/// out of the session they had just made.
+fn clear_session_if_current(app: &AppHandle, cookie: &Arc<SessionCookie>) -> bool {
+    let Ok(mut st) = state().lock() else { return false };
+    if !is_current(&st, cookie) {
+        return false;
+    }
+    forget(app, &mut st);
+    true
 }
 
 fn cached_player() -> Option<Value> {
     state().lock().ok().and_then(|st| st.player.clone())
+}
+
+/// The signed-in state as this process knows it right now, for an answer
+/// that turned out to be about a session since replaced.
+fn current_summary() -> Value {
+    let st = state().lock().ok();
+    match st.as_ref().and_then(|st| st.cookie.as_ref().and(st.player.clone())) {
+        Some(player) => json!({ "authenticated": true, "player": player }),
+        None => json!({ "authenticated": false }),
+    }
 }
 
 fn notify(app: &AppHandle, payload: Value) {
@@ -210,7 +248,9 @@ async fn send(cookie: &SessionCookie, post: Option<Value>, path: &str) -> Result
         return Err(ApiError::Other(format!("Vanilla redirected unexpectedly ({})", status.as_u16())));
     }
 
-    let body = resp.text().await.map_err(|_| ApiError::Other("Vanilla sent an unreadable reply".into()))?;
+    let body = crate::server::read_text_capped(resp)
+        .await
+        .map_err(|_| ApiError::Other("Vanilla sent an unreadable reply".into()))?;
     let value: Option<Value> = serde_json::from_str(&body).ok();
     let api_error = value
         .as_ref()
@@ -266,8 +306,9 @@ async fn authed(app: &AppHandle, post: Option<Value>, path: &str) -> Result<Valu
     let cookie = current(app).ok_or_else(|| "Not signed in to Vanilla".to_string())?;
     match send(&cookie, post, path).await {
         Err(ApiError::Unauthorized) => {
-            clear_session(app);
-            notify(app, json!({ "authenticated": false, "reason": "expired" }));
+            if clear_session_if_current(app, &cookie) {
+                notify(app, json!({ "authenticated": false, "reason": "expired" }));
+            }
             Err("Your Vanilla session has expired. Please sign in again.".into())
         }
         other => other.map_err(Into::into),
@@ -441,14 +482,25 @@ pub async fn vanilla_auth_status(app: AppHandle) -> Value {
     };
     match check_session(&cookie).await {
         Ok(Some(player)) => {
-            if let Ok(mut st) = state().lock() {
-                st.player = Some(player.clone());
+            let current = state().lock().ok().map(|mut st| {
+                let current = is_current(&st, &cookie);
+                if current {
+                    st.player = Some(player.clone());
+                }
+                current
+            });
+            match current {
+                Some(true) => json!({ "authenticated": true, "player": player }),
+                // Signed out, or into another account, while this was asked.
+                _ => current_summary(),
             }
-            json!({ "authenticated": true, "player": player })
         }
         Ok(None) => {
-            clear_session(&app);
-            json!({ "authenticated": false, "reason": "expired" })
+            if clear_session_if_current(&app, &cookie) {
+                json!({ "authenticated": false, "reason": "expired" })
+            } else {
+                current_summary()
+            }
         }
         Err(e) => match cached_player() {
             Some(player) => json!({ "authenticated": true, "player": player, "offline": true }),
@@ -769,6 +821,17 @@ mod tests {
     fn debug_never_prints_the_cookie() {
         let c = SessionCookie(Zeroizing::new("sid=supersecret".into()));
         assert!(!format!("{:?}", c).contains("supersecret"));
+    }
+
+    #[test]
+    fn only_the_session_in_use_counts_as_current() {
+        let old = Arc::new(SessionCookie(Zeroizing::new("sid=old".into())));
+        let new = Arc::new(SessionCookie(Zeroizing::new("sid=new".into())));
+        let st = State { loaded: true, cookie: Some(new.clone()), player: None };
+        assert!(is_current(&st, &new));
+        // A 401 for the session a new sign-in replaced must not clear that one.
+        assert!(!is_current(&st, &old));
+        assert!(!is_current(&State::default(), &old));
     }
 
     #[test]
