@@ -275,12 +275,22 @@ async fn authed(app: &AppHandle, post: Option<Value>, path: &str) -> Result<Valu
 }
 
 /// `auth/session` → the account summary, or `None` if not signed in.
+///
+/// Only Vanilla saying so — a 401, or `authenticated: false` — means signed
+/// out. Any other reply (an empty body, a shape it has never sent) is an
+/// error, as a network failure is: `None` here deletes the stored session, and
+/// one odd answer from a proxy is no reason to sign the player out.
 async fn check_session(cookie: &SessionCookie) -> Result<Option<Value>, ApiError> {
     match send(cookie, None, "/api/website/auth/session").await {
-        Ok(v) if v.get("authenticated").and_then(Value::as_bool) == Some(true) => {
-            Ok(v.get("player").map(vanilla::account_summary))
-        }
-        Ok(_) | Err(ApiError::Unauthorized) => Ok(None),
+        Ok(v) => match v.get("authenticated").and_then(Value::as_bool) {
+            Some(true) => match v.get("player") {
+                Some(player) => Ok(Some(vanilla::account_summary(player))),
+                None => Err(ApiError::Other("Vanilla sent an unexpected reply".into())),
+            },
+            Some(false) => Ok(None),
+            None => Err(ApiError::Other("Vanilla sent an unexpected reply".into())),
+        },
+        Err(ApiError::Unauthorized) => Ok(None),
         Err(e) => Err(e),
     }
 }

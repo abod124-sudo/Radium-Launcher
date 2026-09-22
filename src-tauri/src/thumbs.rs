@@ -41,7 +41,7 @@ use image::imageops::FilterType;
 use image::{DynamicImage, ImageFormat};
 use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
-use crate::server::{http, USER_AGENT};
+use crate::server::{http, read_capped, USER_AGENT};
 
 /// Hosts this may fetch from. Everything else is refused. See the module docs.
 ///
@@ -203,26 +203,66 @@ fn source_url(url: &str) -> Result<reqwest::Url, String> {
 /// elsewhere — over https only, like the request itself (see [`source_url`]).
 fn fetch_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .https_only(true)
-            .gzip(true)
-            .brotli(true)
-            .redirect(reqwest::redirect::Policy::custom(|attempt| {
-                if attempt.previous().len() >= 5 || !is_public_destination(attempt.url()) {
-                    attempt.stop()
-                } else {
-                    attempt.follow()
-                }
-            }))
-            .build()
-            .unwrap_or_else(|_| http().clone())
-    })
+    CLIENT.get_or_init(|| build_fetch_client(false))
+}
+
+/// [`fetch_client`], for an address the user typed: it also refuses to dial a
+/// name that resolves to the local network. See [`PublicOnlyResolver`].
+fn backdrop_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| build_fetch_client(true))
+}
+
+fn build_fetch_client(public_dns_only: bool) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder()
+        .https_only(true)
+        .gzip(true)
+        .brotli(true)
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 || !is_public_destination(attempt.url()) {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }));
+    if public_dns_only {
+        builder = builder.dns_resolver(Arc::new(PublicOnlyResolver));
+    }
+    builder.build().unwrap_or_else(|_| http().clone())
+}
+
+/// Resolves names the usual way, then keeps only public addresses.
+///
+/// [`is_public_destination`] can only judge what the URL says. A name is
+/// whatever DNS answers for it, and a typed backdrop address — or a redirect
+/// from one — can name a host that resolves to the local network: a router's
+/// admin page, a NAS, a `.local` device. Checked here, at connect time, every
+/// address actually dialled is a public one.
+///
+/// Only for the backdrop field. Thumbnails come from a fixed list of public
+/// hosts, and with a proxy on the local network (a school's, an office's)
+/// this is also what the proxy's own address is looked up through — which it
+/// would refuse, and with it every picture in the launcher.
+struct PublicOnlyResolver;
+
+impl reqwest::dns::Resolve for PublicOnlyResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        Box::pin(async move {
+            let found = tokio::net::lookup_host((host.as_str(), 0)).await?;
+            let public: Vec<std::net::SocketAddr> = found.filter(|a| is_public_ip(a.ip())).collect();
+            if public.is_empty() {
+                return Err(format!("{} is not on the public internet", host).into());
+            }
+            Ok(Box::new(public.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
 }
 
 /// Whether `url` points somewhere on the public internet, as far as the URL
 /// itself can say: not loopback, a private or link-local range, or a
-/// `.localhost` name.
+/// `.localhost` name. What a name resolves to is checked when it is dialled,
+/// by [`PublicOnlyResolver`].
 fn is_public_destination(url: &reqwest::Url) -> bool {
     if url.scheme() != "https" && url.scheme() != "http" {
         return false;
@@ -232,24 +272,41 @@ fn is_public_destination(url: &reqwest::Url) -> bool {
     };
     let host = host.trim_start_matches('[').trim_end_matches(']');
     match host.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(ip)) => {
+        Ok(ip) => is_public_ip(ip),
+        Err(_) => {
+            let name = host.trim_end_matches('.').to_ascii_lowercase();
+            name != "localhost" && !name.ends_with(".localhost")
+        }
+    }
+}
+
+/// Whether an address is on the public internet: not this machine, not the
+/// local network, and not a range that is reserved, shared or multicast.
+fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => {
+            let [a, b, ..] = ip.octets();
             !(ip.is_loopback()
                 || ip.is_private()
                 || ip.is_link_local()
                 || ip.is_unspecified()
-                || ip.is_broadcast())
+                || ip.is_broadcast()
+                || ip.is_multicast()
+                || a == 0 // "this network"
+                || a >= 240 // reserved
+                || (a == 100 && (64..128).contains(&b)) // carrier-grade NAT
+                || (a == 198 && (b == 18 || b == 19))) // benchmarking
         }
-        Ok(std::net::IpAddr::V6(ip)) => {
+        std::net::IpAddr::V6(ip) => {
             let first = ip.segments()[0];
             !(ip.is_loopback()
                 || ip.is_unspecified()
+                || ip.is_multicast()
                 || (first & 0xfe00) == 0xfc00 // unique local
                 || (first & 0xffc0) == 0xfe80 // link-local
-                || ip.to_ipv4_mapped().is_some())
-        }
-        Err(_) => {
-            let name = host.trim_end_matches('.').to_ascii_lowercase();
-            name != "localhost" && !name.ends_with(".localhost")
+                // An IPv4 address carried in IPv6 (mapped, or the old
+                // compatible form) reaches whatever that IPv4 address is.
+                || ip.to_ipv4().is_some())
         }
     }
 }
@@ -490,9 +547,9 @@ const MAX_BACKDROP_BYTES: u64 = 20 * 1024 * 1024;
 /// way it stores a picked file: downscaled into a `data:` URI.
 ///
 /// Unlike [`thumbnail`], any host will do, since the user typed it — but only
-/// over https, only on the public internet (redirects included, through
-/// [`fetch_client`]), only up to [`MAX_BACKDROP_BYTES`], and only if what
-/// comes back is actually a picture.
+/// over https, only on the public internet (redirects and what the name
+/// resolves to included, through [`backdrop_client`]), only up to
+/// [`MAX_BACKDROP_BYTES`], and only if what comes back is actually a picture.
 pub async fn backdrop_source(url: &str) -> Result<Vec<u8>, String> {
     let parsed = reqwest::Url::parse(url.trim()).map_err(|_| "That isn't a web address.".to_string())?;
     if parsed.scheme() != "https" {
@@ -502,7 +559,7 @@ pub async fn backdrop_source(url: &str) -> Result<Vec<u8>, String> {
         return Err("That address isn't on the internet.".into());
     }
 
-    let response = fetch_client()
+    let response = backdrop_client()
         .get(parsed.as_str())
         .timeout(FETCH_TIMEOUT)
         .header("User-Agent", USER_AGENT)
@@ -522,28 +579,6 @@ pub async fn backdrop_source(url: &str) -> Result<Vec<u8>, String> {
         return Err("That address isn't a PNG, JPEG, GIF or WebP picture.".into());
     }
     Ok(bytes)
-}
-
-/// Read a response body, refusing to buffer more than `max` bytes.
-///
-/// `Response::bytes()` reads to the end however long that is; a server can
-/// under-declare `Content-Length` or omit it entirely, so the cap has to apply
-/// to bytes as they arrive rather than to the header.
-async fn read_capped(response: reqwest::Response, max: u64) -> Result<Vec<u8>, String> {
-    use futures_util::StreamExt;
-
-    let mut out: Vec<u8> = Vec::with_capacity(
-        response.content_length().unwrap_or(0).min(max) as usize,
-    );
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        if out.len() as u64 + chunk.len() as u64 > max {
-            return Err("Image too large.".to_string());
-        }
-        out.extend_from_slice(&chunk);
-    }
-    Ok(out)
 }
 
 /// Decode, shrink to `width`, and re-encode. Returns the bytes and the file
@@ -780,10 +815,30 @@ mod tests {
             "http://[fd00::1]/",
             "http://[fe80::1]/",
             "http://[::ffff:127.0.0.1]/",
+            "http://[::7f00:1]/",
+            "http://100.64.0.1/",
+            "http://198.18.0.1/",
+            "http://224.0.0.1/",
+            "http://255.255.255.255/",
+            "http://0.1.2.3/",
+            "http://[ff02::1]/",
             "file:///C:/Windows/win.ini",
         ] {
             assert!(!public(local), "{local} should be refused");
         }
+    }
+
+    /// A name is judged by what it resolves to, not by how it is spelled: a
+    /// typed backdrop address naming a host on the local network is refused
+    /// even though nothing in the URL says so.
+    #[tokio::test]
+    async fn a_name_that_resolves_to_this_machine_is_not_dialled() {
+        use reqwest::dns::Resolve;
+        let name: reqwest::dns::Name = "localhost".parse().expect("a name");
+        assert!(PublicOnlyResolver.resolve(name).await.is_err());
+
+        assert!(is_public_ip("2606:4700::1111".parse().unwrap()), "public IPv6 stays reachable");
+        assert!(is_public_ip("104.16.0.1".parse().unwrap()), "public IPv4 stays reachable");
     }
 
     /// The whole point, measured against a real room image.

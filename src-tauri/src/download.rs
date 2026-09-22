@@ -582,7 +582,7 @@ async fn download_client_impl(
     let _guard = DownloadGuard;
 
     // Block if the game is already running.
-    if game::check_game_running() {
+    if game::game_running(&app) {
         return Err("Cannot download or install while the game is running.".into());
     }
 
@@ -968,8 +968,16 @@ async fn download_client_impl(
         return Err(e);
     }
 
-    // Find RecRoom_ScreenMode.bat in the extracted files.
-    let bat_path = game::find_game_exe(&client_dir).unwrap_or_default();
+    // Find the game's launch target in the extracted files.
+    let Some(bat_path) = game::find_game_exe(&client_dir) else {
+        // The old install was cleared to make room for this one, so the path
+        // the config still names is gone. Recording it anyway, as this used
+        // to, claimed a build for an install with nothing in it to run.
+        forget_missing_install(&app, network);
+        return Err("The download finished, but there was no game in it to launch. \
+                    Nothing was recorded as installed."
+            .into());
+    };
 
     // Save the bat path and the installed client build id to config. Given a
     // few tries: the files are in place either way, but an install the config
@@ -981,17 +989,12 @@ async fn download_client_impl(
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
         recorded = config::update(&app, |cfg| {
-            let exe = if bat_path.is_empty() {
-                cfg.game_exe_for(network).to_string()
-            } else {
-                bat_path.clone()
-            };
             // Always assign together so the fields never desync: if the
             // version couldn't be scraped this time, clear it rather than
             // leaving a stale value paired with the new build's ETag.
             cfg.set_client_install(
                 network,
-                exe,
+                bat_path.clone(),
                 REQUIRED_CLIENT_BUILD.to_string(),
                 resolved_version.clone(),
                 etag.clone(),
@@ -1315,7 +1318,7 @@ async fn uninstall_client_impl(
     app: tauri::AppHandle,
     network: Network,
 ) -> Result<Value, String> {
-    if game::check_game_running() {
+    if game::game_running(&app) {
         return Err("Cannot uninstall while the game is running.".into());
     }
     // A running download or extraction is writing into the folder this would
@@ -1403,7 +1406,7 @@ pub async fn check_install(
     // whatever exe it happens to contain. See [`INCOMPLETE_MARKER`].
     let incomplete = install_incomplete(&client_dir);
     let installed = !incomplete && !exe_path.is_empty() && Path::new(&exe_path).exists();
-    let is_running = game::check_game_running();
+    let is_running = game::game_running(&app);
 
     // A client installed under a different build id (or with no recorded build,
     // e.g. installed by an older launcher) is outdated and needs re-downloading.

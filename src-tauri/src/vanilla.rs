@@ -34,7 +34,7 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::server::{http, USER_AGENT};
+use crate::server::{http, read_capped, USER_AGENT};
 
 /// Image, player-count and bulk-dump host. Those paths are served to any client.
 const API_BASE: &str = "https://api.vanillarec.net";
@@ -269,6 +269,12 @@ const BULK_TTL: Duration = Duration::from_secs(10 * 60);
 /// Timeout for a bulk download. Generous because these are megabytes, not the
 /// kilobytes the other calls move.
 const BULK_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Largest a bulk dump may be once decompressed. The player dump, the bigger
+/// of the two, was 51.6 MB when measured; this leaves it room to grow tenfold
+/// while still bounding what a broken or hostile answer can make the launcher
+/// hold — a few megabytes of brotli can inflate to gigabytes.
+const BULK_MAX_BYTES: u64 = 512 * 1024 * 1024;
 
 /// How long to leave a failed background refresh alone before trying again.
 const BULK_RETRY_DELAY: Duration = Duration::from_secs(60);
@@ -730,7 +736,7 @@ where
         return Err(format!("HTTP error: {}", status));
     }
 
-    let body = response.bytes().await.map_err(|e| e.to_string())?;
+    let body = read_capped(response, BULK_MAX_BYTES).await?;
     tokio::task::spawn_blocking(move || parse(&body))
         .await
         .map_err(|e| e.to_string())?

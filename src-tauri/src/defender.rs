@@ -234,6 +234,11 @@ pub struct AntivirusProduct {
     pub is_defender: bool,
 }
 
+/// Longest [`detect_antivirus`] waits for Windows to list its antivirus
+/// products. A healthy machine answers in well under a second.
+#[cfg(target_os = "windows")]
+const DETECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// Query the system's antivirus products.
 /// Classifies products as Microsoft Defender or third-party.
 #[tauri::command]
@@ -269,12 +274,21 @@ pub async fn detect_antivirus() -> Vec<AntivirusProduct> {
             $result | Write-Output
         "#;
 
-        match Command::new(&powershell_path)
-            .args(["-NoProfile", "-Command", ps_command])
+        // Bounded: PLAY waits on this before anything else, and a Security
+        // Center query that never answers (a broken WMI repository does that)
+        // left the button dead until the launcher was restarted. The process
+        // is killed when the wait gives up, and the answer falls back to the
+        // same "Windows Defender" as a query that failed outright.
+        let run = Command::new(&powershell_path)
+            .args(["-NoProfile", "-NonInteractive", "-Command", ps_command])
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output()
-            .await
-        {
+            .kill_on_drop(true)
+            .output();
+        let output = match tokio::time::timeout(DETECT_TIMEOUT, run).await {
+            Ok(result) => result,
+            Err(_) => Err(std::io::Error::from(std::io::ErrorKind::TimedOut)),
+        };
+        match output {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let mut products = Vec::new();

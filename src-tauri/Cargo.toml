@@ -27,10 +27,10 @@ futures-util = "0.3"
 # the game client zip and its own installer. See download.rs / updater.rs.
 sha2 = "0.10"
 rfd = "0.15"
-# Decode/resize/re-encode only. Default features pull in every format there is;
-# the images this touches are the PNGs and JPEGs the two networks serve.
 # Wipes the Vanilla session cookie from memory when it is dropped.
 zeroize = "1"
+# Decode/resize/re-encode only. Default features pull in every format there is;
+# the images this touches are the PNGs and JPEGs the two networks serve.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
 [target.'cfg(windows)'.dependencies]

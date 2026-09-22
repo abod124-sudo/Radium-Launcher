@@ -358,6 +358,7 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             if bad_dir(&cfg.install_dir) || bad_dir(&cfg.vanilla.install_dir) {
                 return false;
             }
+            config::drop_relative_install_dirs(&mut cfg);
 
             // The glass tint and backdrop become CSS in a generated
             // stylesheet, so anything that isn't one is repaired on the way in
@@ -563,6 +564,17 @@ mod bug_report_tests {
     }
 
     #[test]
+    fn a_long_log_keeps_its_newest_whole_lines() {
+        assert_eq!(log_tail("short", 100), "short");
+        let log = "old line one\nold line two\nnewest line\n";
+        // Cut inside "old line two": that partial line goes too.
+        assert_eq!(log_tail(log, 20), "newest line\n");
+        // A cut that would split a multi-byte character moves past it.
+        let tail = log_tail("ééééé\nlast", 6);
+        assert_eq!(tail, "last");
+    }
+
+    #[test]
     fn online_label_is_tri_state() {
         assert_eq!(online_label(Some(true)), "ONLINE");
         assert_eq!(online_label(Some(false)), "OFFLINE");
@@ -595,22 +607,7 @@ async fn submit_bug_report(
     severity: String,
     diagnostics: serde_json::Value,
 ) -> Result<String, String> {
-    // 1. Cooldown Safeguard (60 seconds)
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let last_time = LAST_SUBMISSION_TIME.load(Ordering::SeqCst);
-    if now < last_time + 60 {
-        let remaining = (last_time + 60) - now;
-        return Err(format!(
-            "Please wait {} seconds before submitting another bug report.",
-            remaining
-        ));
-    }
-
-    // 2. Length Validation
+    // 1. Length Validation
     let trimmed = description.trim();
     let len = trimmed.chars().count();
     if len < 10 {
@@ -619,6 +616,62 @@ async fn submit_bug_report(
     if len > 1500 {
         return Err("Description is too long. Maximum 1500 characters allowed.".into());
     }
+
+    // 2. Cooldown Safeguard (60 seconds). The slot is claimed before the send
+    // rather than stamped after it: two clicks landing together each read the
+    // old time, both passed, and both reports went out. A send that fails
+    // gives the slot back.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let last_time = LAST_SUBMISSION_TIME.load(Ordering::SeqCst);
+    if now < last_time + 60 {
+        let remaining = (last_time + 60) - now;
+        return Err(format!(
+            "Please wait {} seconds before submitting another bug report.",
+            remaining
+        ));
+    }
+    if LAST_SUBMISSION_TIME
+        .compare_exchange(last_time, now, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("Another bug report is being sent. Please wait a minute.".into());
+    }
+    let result = send_bug_report(app, trimmed, logs, &category, &severity, &diagnostics).await;
+    if result.is_err() {
+        let _ = LAST_SUBMISSION_TIME.compare_exchange(now, last_time, Ordering::SeqCst, Ordering::SeqCst);
+    }
+    result
+}
+
+/// The most of the runtime log a report attaches: the newest part, which is
+/// the part that explains the problem. The launcher keeps 2,000 lines, but a
+/// line can quote a whole server reply.
+const MAX_REPORT_LOG_BYTES: usize = 2 * 1024 * 1024;
+
+/// The last `max` bytes of `text`, cut at a line start.
+fn log_tail(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut start = text.len() - max;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    let tail = &text[start..];
+    tail.find('\n').map(|i| &tail[i + 1..]).unwrap_or(tail)
+}
+
+async fn send_bug_report(
+    app: tauri::AppHandle,
+    trimmed: &str,
+    logs: String,
+    category: &str,
+    severity: &str,
+    diagnostics: &serde_json::Value,
+) -> Result<String, String> {
 
     // 3. Discord Ping Sanitization
     let sanitized_desc = trimmed
@@ -638,16 +691,19 @@ async fn submit_bug_report(
     let os_name = std::env::consts::OS;
     let os_arch = std::env::consts::ARCH;
 
-    let launcher_version = diagnostics.get("launcherVersion").and_then(|v| v.as_str()).unwrap_or("unknown");
+    // This build's own version, not the page's word for it.
+    let launcher_version = format!("v{}", app.package_info().version);
     let is_installed = diagnostics.get("isInstalled").and_then(|v| v.as_bool()).unwrap_or(false);
     let is_game_running = diagnostics.get("isGameRunning").and_then(|v| v.as_bool()).unwrap_or(false);
     let is_downloading = diagnostics.get("isDownloading").and_then(|v| v.as_bool()).unwrap_or(false);
     // Phase of the download, so a paused or cancelling launcher isn't reported
-    // as simply "not downloading". Older frontends omit it; fall back to the bool.
-    let download_state = diagnostics
-        .get("downloadState")
-        .and_then(|v| v.as_str())
-        .unwrap_or(if is_downloading { "downloading" } else { "idle" });
+    // as simply "not downloading". Older frontends omit it; fall back to the
+    // bool. Only the four phases there are: this lands in the embed as-is.
+    let download_state = match diagnostics.get("downloadState").and_then(|v| v.as_str()) {
+        Some(state @ ("idle" | "downloading" | "paused" | "cancelling")) => state,
+        _ if is_downloading => "downloading",
+        _ => "idle",
+    };
     let error_count = diagnostics.get("errorCount").and_then(|v| v.as_u64()).unwrap_or(0);
 
     // Server reachability comes from the frontend's last poll; a tri-state so a
@@ -811,7 +867,7 @@ Install Location: {}",
     // [INFO]/[WARN]/[ERROR] severity tags from the launcher's log formatter.
     let log_header = format!(
         "===== RADIUM LAUNCHER — BUG REPORT DIAGNOSTICS =====\n\
-         Launcher : v{}\n\
+         Launcher : {}\n\
          Network  : {}\n\
          OS       : {} ({})\n\
          Category : {}\n\
@@ -839,7 +895,7 @@ Install Location: {}",
     let log_body = redact(if logs.is_empty() {
         format!("{}(no runtime log lines captured this session)\n", log_header)
     } else {
-        format!("{}{}", log_header, logs)
+        format!("{}{}", log_header, log_tail(&logs, MAX_REPORT_LOG_BYTES))
     });
     let logs_part = reqwest::multipart::Part::text(log_body)
         .file_name("logs.txt")
@@ -857,9 +913,6 @@ Install Location: {}",
     if !response.status().is_success() {
         return Err(format!("Discord webhook failed with status: {}", response.status()));
     }
-
-    // Update cooldown timestamp only on successful send
-    LAST_SUBMISSION_TIME.store(now, Ordering::SeqCst);
 
     Ok("Bug report successfully submitted. Thank you!".to_string())
 }

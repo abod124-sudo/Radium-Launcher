@@ -82,7 +82,8 @@ fn find_launch_target(dir: &Path, depth: u32) -> Option<String> {
     None
 }
 
-/// Returns true if any process with one of the given image names is running.
+/// Call `visit` with the id of every running process whose image name is one
+/// of `images`, until it returns true. Returns whether one did.
 ///
 /// Walks the kernel's process snapshot directly rather than shelling out to
 /// `tasklist`. The old implementation cost ~76ms per call — essentially all of
@@ -93,7 +94,7 @@ fn find_launch_target(dir: &Path, depth: u32) -> Option<String> {
 /// use it. It also stops the launcher from creating a hidden console process
 /// twice a second, which is exactly the pattern antivirus heuristics flag.
 #[cfg(target_os = "windows")]
-fn any_process_running(images: &[&str]) -> bool {
+fn find_process(images: &[&str], mut visit: impl FnMut(u32) -> bool) -> bool {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
@@ -116,7 +117,7 @@ fn any_process_running(images: &[&str]) -> bool {
         let mut found = false;
         if Process32FirstW(snapshot, &mut entry) != 0 {
             loop {
-                if image_name_matches(&entry.szExeFile, images) {
+                if image_name_matches(&entry.szExeFile, images) && visit(entry.th32ProcessID) {
                     found = true;
                     break;
                 }
@@ -129,6 +130,71 @@ fn any_process_running(images: &[&str]) -> bool {
         let _ = CloseHandle(snapshot);
         found
     }
+}
+
+/// Returns true if any process with one of the given image names is running.
+#[cfg(target_os = "windows")]
+fn any_process_running(images: &[&str]) -> bool {
+    find_process(images, |_| true)
+}
+
+/// Whether any process with one of the given image names is running *from
+/// inside* one of `dirs`.
+///
+/// The name alone is not enough: official Rec Room's own client is
+/// `RecRoom.exe` too. Matched by name only, playing it made the launcher
+/// report its game as running — blocking downloads, uninstalls and network
+/// switches, and turning PLAY into a Stop Game that closed the other game.
+#[cfg(target_os = "windows")]
+fn client_running(images: &[&str], dirs: &[String]) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    find_process(images, |pid| {
+        // SAFETY: a null handle is checked for, and a real one is closed
+        // straight after the query.
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return false;
+            }
+            let inside = process_image_path(handle).is_some_and(|exe| in_client_dirs(&exe, dirs));
+            let _ = CloseHandle(handle);
+            inside
+        }
+    })
+}
+
+/// The full path of the executable behind a process handle, which must carry
+/// `PROCESS_QUERY_LIMITED_INFORMATION`.
+///
+/// # Safety
+/// `handle` must be a live process handle.
+#[cfg(target_os = "windows")]
+unsafe fn process_image_path(handle: windows_sys::Win32::Foundation::HANDLE) -> Option<String> {
+    use windows_sys::Win32::System::Threading::{QueryFullProcessImageNameW, PROCESS_NAME_WIN32};
+    // The longest path Windows has.
+    let mut buf = vec![0u16; 32_768];
+    let mut len = buf.len() as u32;
+    if QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) == 0 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buf[..(len as usize).min(buf.len())]))
+}
+
+/// Whether an executable's path lies in one of the launcher's client folders.
+fn in_client_dirs(exe: &str, dirs: &[String]) -> bool {
+    dirs.iter().any(|dir| config::path_is_inside_dir(exe, dir))
+}
+
+/// Both networks' client folders: the only places a game this launcher
+/// installed, and so may watch or stop, can be running from.
+fn client_dirs(app: &tauri::AppHandle) -> Vec<String> {
+    let cfg = config::current(app);
+    [config::Network::Radium, config::Network::Vanilla]
+        .into_iter()
+        .map(|network| config::get_client_dir_for(app, &cfg, network))
+        .collect()
 }
 
 /// Whether a `PROCESSENTRY32W` image name matches any of `images`.
@@ -170,65 +236,51 @@ fn any_process_running(_images: &[&str]) -> bool {
     false
 }
 
-/// Terminate every running process with one of the given image names.
+#[cfg(not(target_os = "windows"))]
+fn client_running(_images: &[&str], _dirs: &[String]) -> bool {
+    false
+}
+
+/// Terminate every running process with one of the given image names that
+/// runs from inside one of `dirs` — see [`client_running`] for why the folder
+/// matters. Returns the number that were asked to stop.
 ///
-/// Returns the number that were asked to stop.
-///
-/// Walks the same snapshot as [`any_process_running`] instead of spawning
+/// Walks the same snapshot as [`client_running`] instead of spawning
 /// `taskkill.exe` once per name. `taskkill` was resolved by bare name, so it
 /// came out of whatever the process search order turned up first, and three
 /// spawns cost ~75 ms each of pure process-creation overhead to do what two
 /// handle calls do. This also stops Stop Game from creating hidden console
 /// processes, which is the pattern antivirus heuristics flag.
 #[cfg(target_os = "windows")]
-fn terminate_processes(images: &[&str]) -> u32 {
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
+fn terminate_client_processes(images: &[&str], dirs: &[String]) -> u32 {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
     };
-    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
 
-    // SAFETY: the snapshot handle is checked against INVALID_HANDLE_VALUE and
-    // closed on every exit path; `entry` is zeroed with `dwSize` set before the
-    // first call, as Process32FirstW requires. Each process handle that
-    // OpenProcess returns is closed straight after the terminate attempt, and a
-    // null handle (access denied, or the process exited between the snapshot
-    // and here) is skipped rather than used.
-    unsafe {
-        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if snapshot == INVALID_HANDLE_VALUE {
-            return 0;
-        }
-
-        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
-        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-
-        let mut killed = 0;
-        if Process32FirstW(snapshot, &mut entry) != 0 {
-            loop {
-                if image_name_matches(&entry.szExeFile, images) {
-                    let handle = OpenProcess(PROCESS_TERMINATE, 0, entry.th32ProcessID);
-                    if !handle.is_null() {
-                        if TerminateProcess(handle, 1) != 0 {
-                            killed += 1;
-                        }
-                        let _ = CloseHandle(handle);
-                    }
+    let mut killed = 0;
+    find_process(images, |pid| {
+        // SAFETY: a null handle (access denied, or the process exited between
+        // the snapshot and here) is skipped; a real one is closed straight
+        // after. One handle both reads the path and terminates, so the process
+        // checked is the process stopped even if its id is reused meanwhile.
+        unsafe {
+            let handle = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if !handle.is_null() {
+                let ours = process_image_path(handle).is_some_and(|exe| in_client_dirs(&exe, dirs));
+                if ours && TerminateProcess(handle, 1) != 0 {
+                    killed += 1;
                 }
-                if Process32NextW(snapshot, &mut entry) == 0 {
-                    break;
-                }
+                let _ = CloseHandle(handle);
             }
         }
-
-        let _ = CloseHandle(snapshot);
-        killed
-    }
+        false
+    });
+    killed
 }
 
 #[cfg(not(target_os = "windows"))]
-fn terminate_processes(_images: &[&str]) -> u32 {
+fn terminate_client_processes(_images: &[&str], _dirs: &[String]) -> u32 {
     0
 }
 
@@ -269,10 +321,15 @@ fn reg_dword(hive: windows_sys::Win32::System::Registry::HKEY, path: &str, value
 
 // ─── Tauri Commands ───────────────────────────────────────────────────────────
 
-/// Checks whether any recognised game executable is currently running.
+/// Whether a game this launcher installed — either network's — is running.
+pub fn game_running(app: &tauri::AppHandle) -> bool {
+    client_running(&GAME_EXES, &client_dirs(app))
+}
+
+/// Checks whether a game this launcher installed is currently running.
 #[tauri::command(async)]
-pub fn check_game_running() -> bool {
-    any_process_running(&GAME_EXES)
+pub fn check_game_running(app: tauri::AppHandle) -> bool {
+    game_running(&app)
 }
 
 /// Checks whether `steam.exe` is currently running.
@@ -343,7 +400,7 @@ fn launch_game_impl(
     config: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     // 1. Check if already running
-    if check_game_running() {
+    if game_running(&app) {
         return Err("Game already running.".into());
     }
 
@@ -477,21 +534,24 @@ fn launch_game_impl(
     Ok(json!({ "success": true, "pid": pid_value }))
 }
 
-/// Forcibly kills every recognised game process via `taskkill`.
+/// Forcibly stops the game this launcher started: every recognised game
+/// process running from one of its client folders.
 ///
 /// Covers both the current client (`Recroom_Release.exe`) and the legacy one
-/// (`RecRoom.exe`); see [`GAME_EXES`].
+/// (`RecRoom.exe`); see [`GAME_EXES`]. A Rec Room running from anywhere else —
+/// official Rec Room through Steam — is not the launcher's to close.
 #[tauri::command(async)]
-pub fn kill_game() -> bool {
-    // Off Windows `terminate_processes` finds nothing and `check_game_running`
-    // already reports false, so nothing can ask for this in the first place.
+pub fn kill_game(app: tauri::AppHandle) -> bool {
+    // Off Windows nothing is found and `game_running` already reports false,
+    // so nothing can ask for this in the first place.
     #[cfg(target_os = "windows")]
     {
-        terminate_processes(&GAME_EXES);
+        terminate_client_processes(&GAME_EXES, &client_dirs(&app));
         true
     }
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = app;
         false
     }
 }
@@ -574,7 +634,7 @@ pub fn start_game_monitor(app: tauri::AppHandle) {
                 break;
             }
 
-            let running = check_game_running();
+            let running = game_running(&app);
             if running {
                 GAME_SEEN_SINCE_LAUNCH.store(true, Ordering::SeqCst);
             }
@@ -638,7 +698,22 @@ mod game_monitor_tests {
 
 #[cfg(all(test, target_os = "windows"))]
 mod process_snapshot_tests {
-    use super::{any_process_running, image_name_matches};
+    use super::{any_process_running, client_running, image_name_matches};
+
+    /// A process counts as the launcher's game only when it runs from one of
+    /// the client folders. Official Rec Room is `RecRoom.exe` too, and matching
+    /// by name alone made Stop Game close it.
+    #[test]
+    fn a_process_counts_only_when_it_runs_from_a_client_folder() {
+        let exe = std::env::current_exe().expect("current exe");
+        let name = exe.file_name().expect("name").to_string_lossy().to_string();
+        let own_dir = exe.parent().expect("dir").to_string_lossy().to_string();
+        let elsewhere = std::env::temp_dir().join("radium-no-such-client").to_string_lossy().to_string();
+
+        assert!(client_running(&[&name], &[elsewhere.clone(), own_dir]), "found in its own folder");
+        assert!(!client_running(&[&name], &[elsewhere]), "running, but not from a client folder");
+        assert!(!client_running(&[&name], &[]), "no client folders, nothing is ours");
+    }
 
     /// The snapshot walk must find a process that is definitely running: this
     /// test binary. Guards against the whole enumeration silently returning

@@ -43,6 +43,11 @@ fn resolve_url(url: &str, base: &str) -> String {
     if url.starts_with("http://") || url.starts_with("https://") {
         return url.to_string();
     }
+    // Protocol-relative (`//img.radie.app/x`): another host, not a path on
+    // this one — glued onto the base it became `https://www.radie.app//img...`.
+    if let Some(rest) = url.strip_prefix("//") {
+        return format!("https://{}", rest);
+    }
     let base = base.trim_end_matches('/');
     if url.starts_with('/') {
         format!("{}{}", base, url)

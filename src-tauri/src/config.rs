@@ -430,7 +430,17 @@ pub fn get_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
     app_data_dir.join("config.json")
 }
 
+/// Move `src` to `dst`, merging into a `dst` folder that already exists.
+///
+/// A link inside the tree — a symlink, or a junction, which is what Windows
+/// tools make — is moved as the link. Followed, it copied the contents of
+/// whatever folder it pointed at, anywhere on the disk, and then deleted the
+/// originals there. One that can't be moved as it is (another volume) is left
+/// in place, and the folder around it with it.
 fn move_dir_recursive(src: std::path::PathBuf, dst: std::path::PathBuf) -> std::io::Result<()> {
+    if fs::symlink_metadata(&src)?.file_type().is_symlink() {
+        return fs::rename(&src, &dst);
+    }
     if src.is_dir() {
         std::fs::create_dir_all(&dst)?;
         for entry in std::fs::read_dir(src.clone())? {
@@ -721,6 +731,28 @@ fn set_aside_path(dir: &std::path::Path) -> Option<PathBuf> {
     None
 }
 
+/// Put an install dir that isn't a full path back to its network's default.
+/// Returns true if `config` changed.
+///
+/// A relative path resolves against the working directory, which changes with
+/// how the launcher was started — System32 for the startup entry — so the
+/// client would be looked for, downloaded to and deleted from somewhere
+/// different each time. The folder picker never produces one; a hand-edited
+/// config.json can.
+pub fn drop_relative_install_dirs(config: &mut Config) -> bool {
+    let relative = |dir: &str| !dir.is_empty() && !std::path::Path::new(dir).is_absolute();
+    let mut changed = false;
+    if relative(&config.install_dir) {
+        config.install_dir = String::new();
+        changed = true;
+    }
+    if relative(&config.vanilla.install_dir) {
+        config.vanilla.install_dir = String::new();
+        changed = true;
+    }
+    changed
+}
+
 /// Enforces that the two networks never resolve to the same client folder.
 /// Returns true if `config` was changed.
 ///
@@ -846,21 +878,43 @@ fn cached() -> Option<std::sync::Arc<Config>> {
 /// Serializes the first, uncached load. See [`current`].
 static LOAD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Read config.json, giving a briefly locked file a moment to come free.
+/// Read config.json's bytes, giving a briefly locked file a moment to come
+/// free.
 ///
 /// Antivirus scanners open a file that was just written, and on Windows a read
 /// in that window fails with a sharing violation rather than waiting.
-fn read_config_text(path: &std::path::Path) -> std::io::Result<String> {
+///
+/// Bytes rather than a `String`: `read_to_string` fails on anything that is
+/// not UTF-8 with the same kind of error a lock gives, so a file saved as
+/// UTF-16 — Notepad's "Unicode", or PowerShell 5.1's `>` — was retried, called
+/// unreadable, and then refused every settings change for good. What the bytes
+/// say is [`decode_config_text`]'s business.
+fn read_config_bytes(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
     let mut attempt = 0;
     loop {
-        match fs::read_to_string(path) {
-            Ok(text) => return Ok(text),
+        match fs::read(path) {
+            Ok(bytes) => return Ok(bytes),
             Err(e) if attempt >= 4 || e.kind() == std::io::ErrorKind::NotFound => return Err(e),
             Err(_) => {
                 attempt += 1;
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }
+    }
+}
+
+/// config.json's text, in whichever encoding a text editor left it: UTF-8 with
+/// or without a byte-order mark, or UTF-16 with one. `None` for bytes that are
+/// none of those, which the loader treats like any other corrupt file.
+fn decode_config_text(bytes: &[u8]) -> Option<String> {
+    let utf16 = |body: &[u8], from: fn([u8; 2]) -> u16| {
+        let units: Vec<u16> = body.as_chunks::<2>().0.iter().map(|p| from(*p)).collect();
+        String::from_utf16(&units).ok()
+    };
+    match bytes {
+        [0xFF, 0xFE, body @ ..] => utf16(body, u16::from_le_bytes),
+        [0xFE, 0xFF, body @ ..] => utf16(body, u16::from_be_bytes),
+        _ => std::str::from_utf8(bytes).ok().map(str::to_string),
     }
 }
 
@@ -914,10 +968,10 @@ fn load_config(app_handle: &tauri::AppHandle) -> (Config, bool) {
     let mut changed = false;
 
     let mut config = if config_path.exists() {
-        match read_config_text(&config_path) {
-            Ok(contents) => match parse_config(&contents) {
-                Ok(cfg) => cfg,
-                Err(_) => {
+        match read_config_bytes(&config_path) {
+            Ok(bytes) => match decode_config_text(&bytes).and_then(|text| parse_config(&text).ok()) {
+                Some(cfg) => cfg,
+                None => {
                     let backup_path = config_path.with_extension("json.bak");
                     let _ = fs::copy(&config_path, &backup_path);
                     changed = true;
@@ -992,6 +1046,9 @@ fn load_config(app_handle: &tauri::AppHandle) -> (Config, bool) {
     if config.glass.sanitize() {
         changed = true;
     }
+    if drop_relative_install_dirs(&mut config) {
+        changed = true;
+    }
 
     // Undo a Radium client that the pre-fix settings autosave dropped into the
     // Vanilla folder, then guarantee the two networks resolve to separate
@@ -1038,8 +1095,8 @@ pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(),
         serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
 
     let temp_path = config_path.with_extension("json.tmp");
-    fs::write(&temp_path, json).map_err(|e| e.to_string())?;
-    fs::rename(&temp_path, &config_path).map_err(|e| {
+    write_synced(&temp_path, json.as_bytes()).map_err(|e| e.to_string())?;
+    replace_file(&temp_path, &config_path).map_err(|e| {
         let _ = fs::remove_file(&temp_path);
         e.to_string()
     })?;
@@ -1049,6 +1106,38 @@ pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(),
     *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(std::sync::Arc::new(config.clone()));
 
     Ok(())
+}
+
+/// Write `bytes` to `path` and flush them to the disk before returning.
+///
+/// The rename that follows is what makes a save atomic, but only for the
+/// names: without the flush, a power cut shortly after can leave config.json
+/// renamed into place with nothing written in it yet, which loads as a corrupt
+/// file and puts every setting back to its default.
+fn write_synced(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = fs::File::create(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+/// Move `from` over `to`, giving a locked target a moment to come free.
+///
+/// The same antivirus scan that [`read_config_bytes`] waits out holds the file
+/// just written, and replacing it then fails with a sharing violation — which
+/// reported "Save failed" for a settings change nothing was wrong with.
+fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) if attempt >= 4 || e.kind() == std::io::ErrorKind::NotFound => return Err(e),
+            Err(_) => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
 }
 
 /// Returns the game client directory for `network`.
@@ -1848,6 +1937,87 @@ mod tests {
         assert!(cfg.minimize_on_launch);
         assert!(parse_config("{\"theme\":\"win7\"}").is_ok(), "no BOM still loads");
         assert!(parse_config("{ not json").is_err(), "real corruption is still caught");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_install_dir_that_is_not_a_full_path_goes_back_to_the_default() {
+        let mut cfg = Config::default();
+        cfg.install_dir = "client".into();
+        cfg.vanilla.install_dir = r"D:\Games\Vanilla".into();
+        assert!(drop_relative_install_dirs(&mut cfg));
+        assert_eq!(cfg.install_dir, "", "relative: reset");
+        assert_eq!(cfg.vanilla.install_dir, r"D:\Games\Vanilla", "absolute: kept");
+
+        for full in [r"C:\x", "D:/Games", r"\\server\share\client"] {
+            cfg.install_dir = full.into();
+            assert!(!drop_relative_install_dirs(&mut cfg), "{full} is a full path");
+        }
+        for partial in [r"\client", "C:client", r"..\client"] {
+            cfg.install_dir = partial.into();
+            assert!(drop_relative_install_dirs(&mut cfg), "{partial} depends on where the launcher started");
+        }
+    }
+
+    /// A config.json saved as UTF-16 — Notepad's "Unicode", PowerShell 5.1's
+    /// `>` — used to fail the read itself, which counted as "locked", so every
+    /// settings change was refused for good. It loads now.
+    #[test]
+    fn a_config_saved_as_utf16_still_loads() {
+        let json = "{\"theme\":\"win95\"}";
+        let le: Vec<u8> = [0xFF, 0xFE].into_iter().chain(json.encode_utf16().flat_map(u16::to_le_bytes)).collect();
+        let be: Vec<u8> = [0xFE, 0xFF].into_iter().chain(json.encode_utf16().flat_map(u16::to_be_bytes)).collect();
+        for bytes in [le, be] {
+            let text = decode_config_text(&bytes).expect("UTF-16 with a BOM decodes");
+            assert_eq!(parse_config(&text).expect("and parses").theme, "win95");
+        }
+        let bom8 = decode_config_text(b"\xEF\xBB\xBF{\"theme\":\"win7\"}").expect("UTF-8 with a BOM");
+        assert_eq!(parse_config(&bom8).expect("parses").theme, "win7");
+
+        // Bytes that are no text at all are corrupt, not unreadable: the
+        // loader keeps a backup and starts over rather than refusing forever.
+        assert!(decode_config_text(&[0xC3, 0x28, 0xA0]).is_none());
+        assert!(decode_config_text(&[0xFF, 0xFE, 0x00, 0xD8]).is_none(), "a lone surrogate");
+    }
+
+    /// A junction inside a folder being moved is moved as the junction. It
+    /// used to be followed, which copied out — and then deleted — whatever
+    /// folder it pointed at, wherever that was.
+    #[cfg(windows)]
+    #[test]
+    fn moving_a_folder_does_not_follow_a_junction_out_of_it() {
+        let root = temp_app_data("junction");
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).expect("outside dir");
+        fs::write(outside.join("precious.txt"), b"keep").expect("outside file");
+        let src = root.join("src");
+        fs::create_dir_all(&src).expect("src");
+        fs::write(src.join("RecRoom.exe"), b"stub").expect("client file");
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(src.join("link"))
+            .arg(&outside)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !made {
+            eprintln!("skipped: couldn't create a junction here");
+            let _ = fs::remove_dir_all(&root);
+            return;
+        }
+
+        let dst = root.join("dst");
+        fs::create_dir_all(&dst).expect("dst exists, so the move merges");
+        move_dir_recursive(src.clone(), dst.clone()).expect("move");
+
+        assert!(outside.join("precious.txt").exists(), "the junction's target is untouched");
+        assert!(dst.join("RecRoom.exe").exists());
+        assert!(
+            fs::symlink_metadata(dst.join("link")).expect("link moved").file_type().is_symlink(),
+            "moved as a link, not copied as a folder"
+        );
+        let _ = fs::remove_dir(dst.join("link"));
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

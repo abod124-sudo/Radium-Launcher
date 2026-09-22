@@ -127,6 +127,11 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
         .unwrap_or("")
         .to_string();
 
+    // What `download_update` will accept: this installer, checked against this
+    // digest — not whatever the page hands back.
+    *OFFERED.lock().unwrap_or_else(|e| e.into_inner()) = (has_update && !download_url.is_empty())
+        .then(|| Offer { url: download_url.clone(), digest: download_digest.clone() });
+
     json!({
         "hasUpdate": has_update,
         "currentVersion": current_version,
@@ -169,6 +174,27 @@ fn is_official_release_asset(url: &str) -> bool {
         && segments[3] == "download"
         && segments[4..].iter().all(|s| !s.is_empty())
 }
+
+/// The installer the last update check offered, and the digest GitHub
+/// published for it.
+struct Offer {
+    url: String,
+    digest: String,
+}
+
+/// Set by [`check_for_update`], required by [`download_update`].
+///
+/// The page used to name both the URL and the digest to check it against. The
+/// URL was held to this repository's releases, but any of them would do — an
+/// old one included — and the digest was whatever the page sent, or nothing,
+/// which skipped the check. Now only the installer the backend itself was just
+/// told is the latest can be downloaded, and it is checked against the digest
+/// that came with it.
+static OFFERED: std::sync::Mutex<Option<Offer>> = std::sync::Mutex::new(None);
+
+/// Largest installer this will download. The real one is around ten
+/// megabytes; the body is held in memory while it is checked.
+const MAX_INSTALLER_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Filename prefix for the downloaded launcher installer. Each run appends a
 /// unique suffix (see [`download_update`]), so old ones accumulate in temp.
@@ -220,12 +246,19 @@ pub async fn download_update(
     app: tauri::AppHandle,
     url: String,
     place_on_desktop: bool,
-    digest: Option<String>,
 ) -> Result<serde_json::Value, String> {
     // Security check: restrict downloads to trusted official release URLs
     if !is_official_release_asset(&url) {
         return Err("Untrusted update download URL.".into());
     }
+    // And to the one the last check offered. See [`OFFERED`].
+    let digest = {
+        let offered = OFFERED.lock().unwrap_or_else(|e| e.into_inner());
+        match offered.as_ref() {
+            Some(offer) if offer.url == url => offer.digest.clone(),
+            _ => return Err("That isn't the update the launcher last found. Check for updates again.".into()),
+        }
+    };
 
     // Unique per run. A fixed name here is a file another process running as
     // this user can replace in the window between writing the installer and
@@ -269,9 +302,11 @@ pub async fn download_update(
     if !response.status().is_success() {
         return Err(format!("Update download failed: HTTP {}", response.status()));
     }
+    if response.content_length().is_some_and(|len| len > MAX_INSTALLER_BYTES) {
+        return Err("The update is far larger than an installer should be. Nothing was installed.".into());
+    }
 
-    let bytes = response
-        .bytes()
+    let bytes = crate::server::read_capped(response, MAX_INSTALLER_BYTES)
         .await
         .map_err(|e| format!("Failed to read update bytes: {}", e))?;
 
@@ -281,19 +316,29 @@ pub async fn download_update(
     // run. When it is absent — an older API response, a release published
     // before digests existed — this falls through, because failing closed would
     // break updating entirely on a signal we don't control.
-    if let Some(expected) = digest.as_deref().filter(|d| !d.trim().is_empty()) {
+    if !digest.trim().is_empty() {
         let actual = crate::download::sha256_of(&bytes);
-        if !crate::download::digest_matches(&actual, expected) {
+        if !crate::download::digest_matches(&actual, &digest) {
             return Err(format!(
                 "The downloaded update does not match the digest GitHub published \
                  for it (expected {}, got {}). Nothing was installed.",
-                expected, actual
+                digest, actual
             ));
         }
     }
 
-    std::fs::write(&installer_path, &bytes)
-        .map_err(|e| format!("Failed to write installer to disk: {}", e))?;
+    // A new file only. The name is unpredictable, but if something did put a
+    // file there first, that file is not the one that was just checked.
+    {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&installer_path)
+            .map_err(|e| format!("Failed to write installer to disk: {}", e))?;
+        file.write_all(&bytes)
+            .map_err(|e| format!("Failed to write installer to disk: {}", e))?;
+    }
 
     #[cfg(target_os = "windows")]
     use std::os::windows::process::CommandExt;

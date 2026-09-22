@@ -270,12 +270,11 @@ function withoutBackdrop(cfg) {
     checkRequiredSteamApp: () => invoke('check_required_steam_app'),
     checkSmartAppControl: () => invoke('check_smart_app_control'),
 
-    // Auto-update
+    // Auto-update. Only the installer the last check offered is accepted, and
+    // the backend checks it against the digest GitHub published with it.
     checkForUpdate:  ()                            => invoke('check_for_update'),
-    // `digest` is the `sha256:<hex>` GitHub publishes for the release asset.
-    // The backend refuses to run an installer whose bytes don't match it.
-    downloadUpdate:  (downloadUrl, placeOnDesktop, digest) =>
-      invoke('download_update', { url: downloadUrl, placeOnDesktop: !!placeOnDesktop, digest: digest || null }),
+    downloadUpdate:  (downloadUrl, placeOnDesktop) =>
+      invoke('download_update', { url: downloadUrl, placeOnDesktop: !!placeOnDesktop }),
 
     // Data Fetching
     fetchRooms:           (args) => invoke('fetch_rooms', { args: { ...args, network: activeNetwork } }),
@@ -2068,7 +2067,13 @@ $('theme-bgImage')?.addEventListener('change', (e) => {
   const value = field.value.trim();
   if (!value || field.dataset.savedPicture) return;
   if (paintableBackdrop(value)) {
-    // A data: URI pasted in whole. Rare, but it is exactly what gets stored.
+    // A data: URI pasted in whole. Rare, but it is exactly what gets stored —
+    // so it is held to the same ceiling a picked file is shrunk to fit, or a
+    // pasted wallpaper would ride along in config.json at full size.
+    if (value.length > BG_IMAGE_MAX_STORED_BYTES) {
+      toast('That picture is too large to paste. Use Browse to pick the file instead.', 'error', 5000);
+      return;
+    }
     setBgImageUI(value);
     setGlassBackdrop(value);
     return;
@@ -3848,11 +3853,15 @@ $('updateNowBtn')?.addEventListener('click', async () => {
   addLog(`Downloading update ${updateInfo.latestVersion}...`, 'info');
 
   // Desktop shortcut placement is always on now — the opt-out checkbox was removed.
-  const result = await window.radium?.downloadUpdate(
-    updateInfo.downloadUrl,
-    true,
-    updateInfo.downloadDigest
-  );
+  // Every failure comes back as a rejection (a bad digest, a network error), so
+  // it is caught here: left to reject, the button stayed on "Downloading..."
+  // for good.
+  let result;
+  try {
+    result = await window.radium?.downloadUpdate(updateInfo.downloadUrl, true);
+  } catch (e) {
+    result = { success: false, error: String(e) };
+  }
   if (result?.success) {
     if (status) status.textContent = 'Update downloaded! Launching installer...';
     addLog('Launcher update started — restarting.', 'ok');
@@ -6197,7 +6206,8 @@ async function showCreatorProfile(username) {
   try {
     const res = await window.radium?.fetchPeople({ query: username });
     if (res && res.success && res.data && res.data.Results) {
-      person = res.data.Results.find(p => p.userName.toLowerCase() === username.toLowerCase());
+      // A row can come back without a username; that one just isn't a match.
+      person = res.data.Results.find(p => String(p.userName || '').toLowerCase() === username.toLowerCase());
       if (!person && res.data.Results.length > 0) {
         person = res.data.Results[0];
       }
@@ -6379,12 +6389,20 @@ function setupPlayerRoomsObserver() {
   playerRoomsObserver.observe(sentinel);
 }
 
+/// Bumped by every fresh room-photo load. A room opened while the previous
+/// one's scan was still paging through the feed used to find the scan's
+/// "loading" flag up and give up, so it showed no photos of its own — and the
+/// old scan then wrote the previous room's photos into its grid.
+let roomPhotosSeq = 0;
+
 async function loadRoomPhotos(roomId, append = false) {
   const photosGrid = $('roomsDetailPhotosGrid');
   const photosEmpty = $('roomsDetailPhotosEmpty');
   if (!photosGrid) return;
-  if (roomPhotosLoading) return;
-  
+  // Only a scroll-triggered page waits its turn; a new room starts over.
+  if (append && roomPhotosLoading) return;
+  const seq = append ? roomPhotosSeq : ++roomPhotosSeq;
+
   // Reset pages searched so infinite scroll can continue
   roomPhotosTotalPagesSearched = 0;
 
@@ -6414,6 +6432,8 @@ async function loadRoomPhotos(roomId, append = false) {
     pagesSearched++;
     roomPhotosTotalPagesSearched++;
     const res = await window.radium?.fetchRecentPhotos({ skip: roomPhotosFeedSkip, take: roomPhotosFeedTake });
+    // Another room took over the grid while this page was on its way.
+    if (seq !== roomPhotosSeq) return;
     if (res && res.success && res.data && res.data.Results) {
       const results = res.data.Results || [];
       resultsLength = results.length;
@@ -6506,6 +6526,9 @@ async function loadPlayerPhotos(userId, append = false) {
   playerPhotosLoading = true;
   
   const res = await window.radium?.fetchUserPhotos({ userId, skip: playerPhotosSkip, take: playerPhotosTake });
+  // A different profile was opened while these were on their way; they are
+  // not its photos. Its own load owns the grid and the loading flag.
+  if (currentPlayerId !== userId) return;
   const loadingEl = $('playerPhotosLoading');
   if (loadingEl) loadingEl.remove();
   playerPhotosLoading = false;
@@ -6979,6 +7002,11 @@ async function showPlayerDetails(person) {
   const peoplePhotosEmpty = $('peopleDetailPhotosEmpty');
   if (peoplePhotosGrid) peoplePhotosGrid.innerHTML = '';
   if (peoplePhotosEmpty) peoplePhotosEmpty.style.display = 'none';
+  // The previous profile's lists stop being this view's now, not after the
+  // lookup below: one of them landing meanwhile would fill this cleared grid.
+  currentPlayerId = null;
+  currentPlayerFeedsId = null;
+  currentPlayerRoomsUserId = null;
 
   list.classList.add('hidden');
   detail.classList.remove('hidden');
@@ -7137,6 +7165,8 @@ async function loadPlayerFeeds(userId, append = false) {
   playerFeedsLoading = true;
   
   const res = await window.radium?.fetchUserFeed({ userId, skip: playerFeedsSkip, take: playerFeedsTake });
+  // Another profile took over meanwhile; see loadPlayerPhotos().
+  if (currentPlayerFeedsId !== userId) return;
   const loadingEl = $('playerFeedsLoading');
   if (loadingEl) loadingEl.remove();
   playerFeedsLoading = false;
@@ -7199,6 +7229,8 @@ async function loadPlayerRooms(userId, append = false) {
   playerRoomsLoading = true;
   
   const res = await window.radium?.fetchUserRooms({ userId, skip: playerRoomsSkip, take: playerRoomsTake });
+  // Another profile took over meanwhile; see loadPlayerPhotos().
+  if (currentPlayerRoomsUserId !== userId) return;
   const loadingEl = $('playerRoomsLoading');
   if (loadingEl) loadingEl.remove();
   playerRoomsLoading = false;

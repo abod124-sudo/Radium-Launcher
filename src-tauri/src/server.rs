@@ -25,6 +25,29 @@ pub(crate) fn http() -> &'static Client {
     })
 }
 
+/// Read a response body, refusing to buffer more than `max` bytes.
+///
+/// `Response::bytes()` reads to the end however long that is; a server can
+/// under-declare `Content-Length` or omit it entirely — and a compressed body
+/// can inflate to many times what it declared — so the cap has to apply to
+/// bytes as they arrive rather than to the header.
+pub(crate) async fn read_capped(response: reqwest::Response, max: u64) -> Result<Vec<u8>, String> {
+    use futures_util::StreamExt;
+
+    let mut out: Vec<u8> = Vec::with_capacity(
+        response.content_length().unwrap_or(0).min(max) as usize,
+    );
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        if out.len() as u64 + chunk.len() as u64 > max {
+            return Err("The response was too large.".to_string());
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
 /// Shared GET helper with User-Agent header and 10s timeout.
 pub(crate) async fn http_get_json(url: &str) -> Result<Value, String> {
     let response = http()
