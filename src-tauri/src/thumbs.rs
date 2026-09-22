@@ -172,6 +172,27 @@ fn host_allowed(url: &reqwest::Url) -> bool {
         .unwrap_or(false)
 }
 
+/// The URL to fetch for a thumbnail request: `url` parsed, on an allowed host,
+/// and on https.
+///
+/// A plain `http://` URL is upgraded rather than fetched in the clear. Every
+/// allowed host serves https, and an `http://` link still turns up — a scraped
+/// Radium page can spell one — which anyone on the network path could then
+/// answer with bytes of their choosing for the decoder, or for the webview
+/// when a small original is passed through as it is.
+fn source_url(url: &str) -> Result<reqwest::Url, String> {
+    let mut parsed = reqwest::Url::parse(url).map_err(|_| "Not a URL.".to_string())?;
+    if !host_allowed(&parsed) {
+        return Err("Image host not allowed.".to_string());
+    }
+    if parsed.scheme() == "http" {
+        parsed
+            .set_scheme("https")
+            .map_err(|_| "Not a URL.".to_string())?;
+    }
+    Ok(parsed)
+}
+
 /// The client originals are fetched with.
 ///
 /// Its own rather than the shared one, for the redirect policy: [`host_allowed`]
@@ -179,11 +200,12 @@ fn host_allowed(url: &reqwest::Url) -> bool {
 /// any redirect anywhere. A redirect from one of the allowed hosts could then
 /// have aimed this at loopback or the local network. Redirects to public hosts
 /// are still followed, since an image CDN may legitimately bounce to storage
-/// elsewhere.
+/// elsewhere — over https only, like the request itself (see [`source_url`]).
 fn fetch_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
+            .https_only(true)
             .gzip(true)
             .brotli(true)
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
@@ -360,12 +382,8 @@ fn is_fresh(path: &Path) -> bool {
 pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str), String> {
     let width = width.clamp(16, MAX_WIDTH);
 
-    let parsed = reqwest::Url::parse(url).map_err(|_| "Not a URL.".to_string())?;
-    if !host_allowed(&parsed) {
-        return Err("Image host not allowed.".to_string());
-    }
-
-    let base = cache_name(url, width);
+    let parsed = source_url(url)?;
+    let base = cache_name(parsed.as_str(), width);
     let dir = cache_dir();
 
     if let Some(d) = dir {
@@ -454,6 +472,56 @@ pub async fn thumbnail(url: &str, width: u32) -> Result<(Vec<u8>, &'static str),
         .map(|(_, mime)| *mime)
         .unwrap_or("application/octet-stream");
     Ok((encoded, mime))
+}
+
+/// Largest picture the glass backdrop field will fetch. The same ceiling the
+/// page puts on a picked file (`BG_IMAGE_MAX_INPUT_BYTES` in app.js), which it
+/// then downscales either way.
+const MAX_BACKDROP_BYTES: u64 = 20 * 1024 * 1024;
+
+/// The picture at an address typed into the Liquid Glass backdrop field, as
+/// its original bytes.
+///
+/// The page can't show it straight from that address: the CSP's `img-src`
+/// allows no remote host at all — what keeps any markup that gets into the
+/// page from loading, or reporting to, anything it likes — so a typed
+/// backdrop was refused by the webview and the window painted nothing where
+/// it should have been. It is fetched here instead, and the page stores it the
+/// way it stores a picked file: downscaled into a `data:` URI.
+///
+/// Unlike [`thumbnail`], any host will do, since the user typed it — but only
+/// over https, only on the public internet (redirects included, through
+/// [`fetch_client`]), only up to [`MAX_BACKDROP_BYTES`], and only if what
+/// comes back is actually a picture.
+pub async fn backdrop_source(url: &str) -> Result<Vec<u8>, String> {
+    let parsed = reqwest::Url::parse(url.trim()).map_err(|_| "That isn't a web address.".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("Use an address that starts with https://".into());
+    }
+    if !is_public_destination(&parsed) {
+        return Err("That address isn't on the internet.".into());
+    }
+
+    let response = fetch_client()
+        .get(parsed.as_str())
+        .timeout(FETCH_TIMEOUT)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await
+        .map_err(|_| "Couldn't download the picture from that address.".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("That address answered HTTP {}.", response.status().as_u16()));
+    }
+    if response.content_length().is_some_and(|len| len > MAX_BACKDROP_BYTES) {
+        return Err("That picture is over 20 MB.".into());
+    }
+    let bytes = read_capped(response, MAX_BACKDROP_BYTES)
+        .await
+        .map_err(|_| "Couldn't download the picture from that address (it may be over 20 MB).".to_string())?;
+    if sniff_image(&bytes).is_none() {
+        return Err("That address isn't a PNG, JPEG, GIF or WebP picture.".into());
+    }
+    Ok(bytes)
 }
 
 /// Read a response body, refusing to buffer more than `max` bytes.
@@ -641,6 +709,53 @@ mod tests {
         assert!(!allowed("http://127.0.0.1:8080/admin"));
         assert!(!allowed("http://localhost/x.png"));
         assert!(!allowed("file:///C:/Windows/win.ini"));
+    }
+
+    /// A real picture comes back as its original bytes.
+    #[tokio::test]
+    #[ignore = "hits api.vanillarec.net"]
+    async fn a_backdrop_address_comes_back_as_the_picture() {
+        let bytes = backdrop_source("https://api.vanillarec.net/images/vnlaroom_13")
+            .await
+            .expect("a room image should download");
+        assert!(sniff_image(&bytes).is_some());
+        println!("backdrop: {} bytes, {:?}", bytes.len(), sniff_image(&bytes));
+    }
+
+    /// Each of these is refused before any request is made.
+    #[tokio::test]
+    async fn a_backdrop_address_must_be_public_and_https() {
+        for bad in [
+            "http://example.com/wallpaper.jpg",
+            "https://127.0.0.1/wallpaper.jpg",
+            "https://localhost/wallpaper.png",
+            "https://192.168.1.10/wallpaper.jpg",
+            "https://[::1]/wallpaper.jpg",
+            "file:///C:/Windows/Web/Wallpaper/img0.jpg",
+            "not a url",
+        ] {
+            assert!(backdrop_source(bad).await.is_err(), "{bad:?} should be refused");
+        }
+    }
+
+    #[test]
+    fn a_plaintext_image_url_is_fetched_over_https() {
+        assert_eq!(
+            source_url("http://www.radie.app/_astro/avatar.png").unwrap().as_str(),
+            "https://www.radie.app/_astro/avatar.png"
+        );
+        assert_eq!(
+            source_url("http://api.vanillarec.net:80/images/x?1").unwrap().as_str(),
+            "https://api.vanillarec.net/images/x?1"
+        );
+        // Already https: left exactly as it was, cachebuster and all.
+        assert_eq!(
+            source_url("https://api.vanillarec.net/images/2_webso?1785023462696").unwrap().as_str(),
+            "https://api.vanillarec.net/images/2_webso?1785023462696"
+        );
+        // The host check still comes first.
+        assert!(source_url("http://evil.test/x.png").is_err());
+        assert!(source_url("not a url").is_err());
     }
 
     #[test]

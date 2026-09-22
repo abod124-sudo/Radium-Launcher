@@ -223,6 +223,9 @@ function withoutBackdrop(cfg) {
     getConfig:  ()    => invoke('cmd_get_config'),
     saveConfig: (cfg) => invoke('cmd_save_config', { config: withoutBackdrop(cfg) }),
     setGlassBackdrop: (value) => invoke('cmd_set_glass_backdrop', { value: String(value || '') }),
+    // The picture at a typed address, as an ArrayBuffer. The CSP lets the
+    // page load no remote image itself; see setGlassBackdropFromUrl().
+    fetchGlassBackdrop: (url) => invoke('cmd_fetch_glass_backdrop', { url: String(url || '') }),
 
     // Server. Every command below takes the active network so the backend can
     // route to the right API without the call sites having to care.
@@ -988,26 +991,21 @@ function personAvatarFullUrl(person) {
 // DOM shortcuts
 const $ = id => document.getElementById(id);
 
-// Background Image Helper (prevent base64 string from freezing text inputs)
+/// What the backdrop field shows while the backdrop is a stored picture — a
+/// picked file or a downloaded address. The data: URI itself would be up to
+/// 1.4 MB of text in an input, which freezes it.
+const SAVED_BACKDROP_LABEL = '(Saved picture)';
+
 function setBgImageUI(val) {
   const el = $('theme-bgImage');
   if (!el) return;
   if (val && val.startsWith('data:image/')) {
-    el.dataset.localBase64 = val;
-    el.value = '(Local File Selected)';
+    el.dataset.savedPicture = '1';
+    el.value = SAVED_BACKDROP_LABEL;
   } else {
-    delete el.dataset.localBase64;
+    delete el.dataset.savedPicture;
     el.value = val || '';
   }
-}
-
-function getBgImageUI() {
-  const el = $('theme-bgImage');
-  if (!el) return '';
-  if (el.value === '(Local File Selected)' && el.dataset.localBase64) {
-    return el.dataset.localBase64;
-  }
-  return el.value;
 }
 
 // Formatting utility helpers
@@ -1189,6 +1187,15 @@ async function loadConfig() {
 
   applyTheme(activeTheme);
 
+  // A backdrop saved as an address, from before addresses were downloaded:
+  // the page could never load it (see paintableBackdrop). Fetched once now and
+  // stored as a picture; if that fails it stays as it is, to try again on the
+  // next start, and glass keeps its tint meanwhile.
+  const savedBackdrop = String(config.glass.bgImage || '').trim();
+  if (savedBackdrop.startsWith('https://')) {
+    setGlassBackdropFromUrl(savedBackdrop, { quiet: true });
+  }
+
   // Network last, so the brand and capability gating are applied against a
   // fully-loaded config.
   applyNetworkUI(config.network === 'vanilla' ? 'vanilla' : 'radium');
@@ -1317,7 +1324,13 @@ const GLASS_LAYOUT_THEME = 'moderndark';
 /// three values to replay before the first paint.
 function applyGlassVars(tint, bgImage, fullEffects = false) {
   const safeGlassBg = safeColor(tint, DEFAULT_GLASS_TINT);
-  const safeBgImage = safeBackdrop(bgImage);
+  // Only a stored picture is painted. An https:// address is one the CSP
+  // refuses to load (img-src names no remote host), and `glass-has-image`
+  // over a picture that never arrives left nothing but a faint scrim over a
+  // transparent window — the desktop showing through the launcher. An address
+  // is downloaded into a data: URI instead (setGlassBackdropFromUrl); until
+  // that lands, glass keeps its tint field.
+  const safeBgImage = paintableBackdrop(bgImage);
 
   const style = document.body.style;
   style.setProperty('--lg-tint', safeGlassBg);
@@ -1366,6 +1379,13 @@ function safeBackdrop(value) {
   // data URI a `;` is what ends the declaration.
   if (!isData && url.includes(';')) return '';
   return url;
+}
+
+/// A backdrop the page can actually draw: a safe `data:` picture, or ''.
+/// Mirrored in boot.js.
+function paintableBackdrop(value) {
+  const url = safeBackdrop(value);
+  return url.startsWith('data:image/') ? url : '';
 }
 
 /// Apply a skin, plus Liquid Glass over it when that is switched on.
@@ -1480,6 +1500,11 @@ const TRAY_HINT_KEY = 'radium-tray-hint-shown';
 let trayHintShown = false;
 window.radium?.onLauncherHidden?.(() => {
   if (trayHintShown) return;
+  // Not when the window stepped aside for a game starting ("Hide launcher
+  // when game starts"): a topmost card over a game going full screen can
+  // knock it out of full screen, which is why notification pop-ups wait for
+  // the game too. The hint keeps for the next time the window is closed.
+  if (isGameRunning || isGameLaunching) return;
   try {
     if (localStorage.getItem(TRAY_HINT_KEY)) { trayHintShown = true; return; }
     localStorage.setItem(TRAY_HINT_KEY, '1');
@@ -1874,18 +1899,23 @@ $('btnResetGlassTint')?.addEventListener('click', () => {
 /// Set the glass backdrop, redraw, and persist.
 ///
 /// Saved through its own command, never with the rest of the config (see
-/// saveConfig in the shim). `persistDelay` lets the URL field wait for typing
-/// to stop instead of writing config.json on every keystroke.
+/// saveConfig in the shim). `persistDelay` lets the field wait for typing to
+/// stop instead of writing config.json on every keystroke.
 let _backdropSaveTimer = null;
+/// Bumped by every backdrop change, so an address that finishes downloading
+/// after something newer was chosen is dropped instead of saved over it.
+let backdropFetchSeq = 0;
 function setGlassBackdrop(value, persistDelay = 0) {
   config.glass = { ...(config.glass || {}), bgImage: value };
+  // A save of a newer choice wins over an address still downloading.
+  backdropFetchSeq++;
 
   // Live preview is the two CSS variables and nothing else: the sheet is a
   // file now, and the class list hasn't changed, so there is nothing for
   // applyTheme() to redo. The full pass — which writes the boot cache, and the
-  // backdrop with it — waits for typing to stop alongside the save. The URL
-  // field calls this on every `input`, and a picked image is a data: URI of up
-  // to 1.4 MB, so doing either of those per keystroke was the whole cost.
+  // backdrop with it — waits alongside the save: a picked image is a data:
+  // URI of up to 1.4 MB, so doing either of those per keystroke was the whole
+  // cost when the field saved as you typed.
   const glass = config.glass;
   if (glass.enabled === true) {
     applyGlassVars(glass.tint, glass.bgImage, glass.fullEffects !== false);
@@ -1996,11 +2026,58 @@ async function prepareBackgroundImage(file) {
   }
 }
 
-$('theme-bgImage')?.addEventListener('input', (e) => {
-  if (e.target.value !== '(Local File Selected)') {
-    delete e.target.dataset.localBase64;
+/// Download the picture at `url` and store it the way a picked file is stored.
+///
+/// The address itself can't be the backdrop: the CSP lets the page load no
+/// remote image, so the backend fetches it (`cmd_fetch_glass_backdrop`, HTTPS
+/// and public hosts only) and it is downscaled into a data: URI here. Returns
+/// whether it was applied. `quiet` skips the toasts, for the one-time upgrade
+/// of an address saved before this existed.
+async function setGlassBackdropFromUrl(url, { quiet = false } = {}) {
+  const seq = ++backdropFetchSeq;
+  if (!quiet) toast('Downloading the picture...', 'info', 2500);
+  try {
+    const bytes = await window.radium.fetchGlassBackdrop(url);
+    const data = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes);
+    const encoded = await prepareBackgroundImage(new Blob([data]));
+    if (seq !== backdropFetchSeq) return false;
+    setBgImageUI(encoded);
+    setGlassBackdrop(encoded);
+    addLog(`Glass backdrop downloaded from ${url} (${formatBytes(encoded.length)} stored).`, 'ok');
+    return true;
+  } catch (err) {
+    if (seq !== backdropFetchSeq) return false;
+    const msg = err?.message || String(err);
+    addLog(`Glass backdrop from ${url} not used: ${msg}`, 'warn');
+    if (!quiet) toast(msg, 'error', 5000);
+    return false;
   }
-  setGlassBackdrop(getBgImageUI(), 600);
+}
+
+$('theme-bgImage')?.addEventListener('input', (e) => {
+  const field = e.target;
+  if (field.value !== SAVED_BACKDROP_LABEL) delete field.dataset.savedPicture;
+  // Emptied: back to the tint straight away. An address waits until it is
+  // committed (Enter, or leaving the field), so a half-typed one isn't
+  // downloaded — see `change`.
+  if (!field.value.trim()) setGlassBackdrop('', 600);
+});
+
+$('theme-bgImage')?.addEventListener('change', (e) => {
+  const field = e.target;
+  const value = field.value.trim();
+  if (!value || field.dataset.savedPicture) return;
+  if (paintableBackdrop(value)) {
+    // A data: URI pasted in whole. Rare, but it is exactly what gets stored.
+    setBgImageUI(value);
+    setGlassBackdrop(value);
+    return;
+  }
+  if (!value.startsWith('https://') || !safeBackdrop(value)) {
+    toast('Enter the address of a picture, starting with https://', 'error', 4000);
+    return;
+  }
+  setGlassBackdropFromUrl(value);
 });
 
 $('btnBrowseBgFile')?.addEventListener('click', () => {
@@ -2193,6 +2270,9 @@ async function checkInstall() {
     if (!clientDownloadAvailable()) {
       if (qi) qi.textContent = 'NOT RELEASED';
       addLog(`${networkInfo().label} has not published a client yet.`, 'info');
+    } else if (result?.incomplete) {
+      // The launcher closed (or the PC went off) partway through unpacking.
+      addLog('The last install stopped before it finished — download the client again.', 'warn');
     } else {
       addLog('Game client not found — download required.', 'info');
     }
@@ -2534,6 +2614,10 @@ async function runClientDownload({ resuming = false } = {}) {
     }
     // Restore the correct panel (e.g. back to the launch panel if still installed).
     await checkInstall();
+    // A stall or a dropped connection keeps what arrived, and the error says
+    // "Resume to continue" — so show the Resume button it means rather than
+    // leaving only a DOWNLOAD that reads as starting over.
+    if (err !== 'Cancelled') await offerResumeIfAny({ quiet: true });
   }
 }
 
@@ -2552,7 +2636,8 @@ $('btnDownload')?.addEventListener('click', () => {
 // On startup, offer to continue a download that was interrupted last session
 // (paused, or the launcher was closed mid-download). The partial file + resume
 // metadata persist on disk, so the backend can pick up exactly where it left off.
-async function offerResumeIfAny() {
+/// `quiet` leaves out the toast, for a failure that has just shown its own.
+async function offerResumeIfAny({ quiet = false } = {}) {
   if (isDownloading || isPaused || isInstalled) return;
   let info = null;
   try {
@@ -2572,7 +2657,7 @@ async function offerResumeIfAny() {
 
   const pctTxt = info.total > 0 ? ` (${Math.floor((info.downloaded / info.total) * 100)}%)` : '';
   addLog(`Found an interrupted download${pctTxt}. Click Resume to continue.`, 'info');
-  toast('Resume your interrupted download', 'info', 4500);
+  if (!quiet) toast('Resume your interrupted download', 'info', 4500);
 }
 
 // ─── Outdated-client (post-launcher-update) prompt ──────────────────────────
@@ -3401,13 +3486,14 @@ async function doLaunch() {
     const pidPart = (result.pid !== null && result.pid !== undefined) ? ` (PID ${result.pid})` : '';
     addLog(`Game running${pidPart} — mode: ${playMode}`, 'ok');
     toast(`${networkInfo().label} launched in ${playMode.toUpperCase()} mode!`, 'ok');
+    // launch_game has already hidden the window (tray mode) or quit; this
+    // only logs it. It also used to close the window again a second later,
+    // which in tray mode was a second hide, and a second "launcher hidden"
+    // for the page to react to.
     if (config.closeOnLaunch === true) {
       addLog(config.runInBackground !== false
-        ? 'Launcher set to step aside on game start. Hiding to the tray...'
+        ? 'Launcher set to step aside on game start. Hidden to the tray.'
         : 'Launcher configured to exit on game start. Exiting...', 'info');
-      setTimeout(() => {
-        window.radium?.close();
-      }, 1000);
     }
   }
 }
@@ -6125,7 +6211,9 @@ async function showCreatorProfile(username) {
       userName: username,
       displayName: username,
       profileImage: 'DefaultProfileImage',
-      isOnline: false,
+      // Unknown, not offline: the lookup failed, and on a network with no
+      // presence at all (Vanilla) "OFFLINE" would be a claim nobody made.
+      isOnline: null,
       bio: ''
     };
   }

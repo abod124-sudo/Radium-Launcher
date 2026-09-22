@@ -35,8 +35,11 @@ try {
     if (/^#[0-9a-fA-F]{3,8}$/.test(String(glass.tint || ''))) {
       document.body.style.setProperty('--lg-tint', glass.tint);
     }
+    // A stored picture only: the CSP lets the page load no remote image, so an
+    // address would paint nothing and leave the window see-through. Mirrors
+    // paintableBackdrop() in app.js.
     var bg = String(glass.bgImage || '');
-    var shapeOk = bg.indexOf('https://') === 0 || bg.indexOf('data:image/') === 0;
+    var shapeOk = bg.indexOf('data:image/') === 0;
     if (shapeOk && !/['"(){}\\]|[\x00-\x1f\x7f]/.test(bg)) {
       document.body.style.setProperty('--lg-backdrop', 'url("' + bg + '")');
       document.body.classList.add('glass-has-image');

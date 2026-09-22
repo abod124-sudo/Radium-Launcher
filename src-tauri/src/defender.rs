@@ -244,7 +244,10 @@ pub async fn detect_antivirus() -> Vec<AntivirusProduct> {
         // Emit one "displayName|productState" line per registered AV. productState
         // is a hex bitmask whose middle byte encodes real-time-protection status
         // ("00" = off); the Rust side uses it to drop disabled/stale entries.
+        // UTF-8 out, so a product name outside ASCII isn't mangled by the
+        // console's legacy code page on its way to `from_utf8_lossy` below.
         let ps_command = r#"
+            [Console]::OutputEncoding = [Text.Encoding]::UTF8
             $result = @()
             try {
                 $avs = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue

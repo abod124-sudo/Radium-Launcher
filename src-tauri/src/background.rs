@@ -512,7 +512,9 @@ pub fn apply_startup_default(app: &AppHandle) {
         return;
     }
     let _lock = crate::config::write_lock();
-    let mut cfg = crate::config::ensure_config(app);
+    // Unreadable right now: the default is applied on a later start instead,
+    // rather than recorded over settings this can't see.
+    let Ok(mut cfg) = crate::config::ensure_config(app) else { return };
     if !cfg.autostart_initialized {
         let _ = set_autostart(true);
         cfg.autostart_initialized = true;

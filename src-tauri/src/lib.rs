@@ -75,6 +75,7 @@ pub fn run() {
             cmd_get_config,
             cmd_save_config,
             cmd_set_glass_backdrop,
+            cmd_fetch_glass_backdrop,
             // Server / Data
             server::ping_server,
             server::get_player_count,
@@ -382,7 +383,12 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             // which reported a freshly-downloaded client as "outdated" on the
             // very next check, causing an endless re-download loop.
             let _lock = config::write_lock();
-            let current = config::current(&app);
+            // Refused while config.json can't be read: `current` would be the
+            // stand-in defaults, and preserving *their* backend fields would
+            // blank the client build and version the file really holds.
+            let Ok(current) = config::current_checked(&app) else {
+                return false;
+            };
             cfg.preserve_backend_managed_fields(&current);
 
             // Last line of defence for the per-network install dirs: whatever
@@ -407,12 +413,22 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
 /// backdrop that is safe to put in the stylesheet.
 #[tauri::command(async)]
 fn cmd_set_glass_backdrop(app: tauri::AppHandle, value: String) -> Result<String, String> {
-    let _lock = config::write_lock();
-    let mut cfg = config::ensure_config(&app);
-    cfg.glass.bg_image = value;
-    cfg.glass.sanitize();
-    config::save_config(&app, &cfg)?;
-    Ok(cfg.glass.bg_image)
+    config::update(&app, |cfg| {
+        cfg.glass.bg_image = value;
+        cfg.glass.sanitize();
+        cfg.glass.bg_image.clone()
+    })
+}
+
+/// Download a picture for the glass backdrop from an address the user typed.
+///
+/// Handed back as raw bytes (an `ArrayBuffer` on the page), which the page
+/// downscales and saves through [`cmd_set_glass_backdrop`] like a picked file.
+/// See `thumbs::backdrop_source` for why the page can't load the address
+/// itself.
+#[tauri::command]
+async fn cmd_fetch_glass_backdrop(url: String) -> Result<tauri::ipc::Response, String> {
+    thumbs::backdrop_source(&url).await.map(tauri::ipc::Response::new)
 }
 
 use std::sync::atomic::{AtomicU64, Ordering};

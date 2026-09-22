@@ -519,10 +519,7 @@ pub async fn check_client_update(app: tauri::AppHandle, network: Option<String>)
         // which the settings UI can have saved a change the user just made.
         // Saving the stale copy over it reverted that change silently. Only
         // this one flag belongs to this function.
-        let _lock = config::write_lock();
-        let mut updated_cfg = config::ensure_config(&app);
-        updated_cfg.client_version_sync_prompted = true;
-        let _ = config::save_config(&app, &updated_cfg);
+        let _ = config::update(&app, |cfg| cfg.client_version_sync_prompted = true);
         true
     } else {
         false
@@ -974,26 +971,38 @@ async fn download_client_impl(
     // Find RecRoom_ScreenMode.bat in the extracted files.
     let bat_path = game::find_game_exe(&client_dir).unwrap_or_default();
 
-    // Save the bat path and the installed client build id to config.
-    {
-        let _lock = config::write_lock();
-        let mut cfg = config::ensure_config(&app);
-        let exe = if bat_path.is_empty() {
-            cfg.game_exe_for(network).to_string()
-        } else {
-            bat_path.clone()
-        };
-        // Always assign together so the fields never desync: if the version
-        // couldn't be scraped this time, clear it rather than leaving a
-        // stale value paired with the newly-downloaded build's ETag.
-        cfg.set_client_install(
-            network,
-            exe,
-            REQUIRED_CLIENT_BUILD.to_string(),
-            resolved_version,
-            resolved_etag.unwrap_or_default(),
-        );
-        let _ = config::save_config(&app, &cfg);
+    // Save the bat path and the installed client build id to config. Given a
+    // few tries: the files are in place either way, but an install the config
+    // has no record of reads as outdated on the very next check.
+    let etag = resolved_etag.unwrap_or_default();
+    let mut recorded = Ok(());
+    for attempt in 0..3 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        recorded = config::update(&app, |cfg| {
+            let exe = if bat_path.is_empty() {
+                cfg.game_exe_for(network).to_string()
+            } else {
+                bat_path.clone()
+            };
+            // Always assign together so the fields never desync: if the
+            // version couldn't be scraped this time, clear it rather than
+            // leaving a stale value paired with the new build's ETag.
+            cfg.set_client_install(
+                network,
+                exe,
+                REQUIRED_CLIENT_BUILD.to_string(),
+                resolved_version.clone(),
+                etag.clone(),
+            );
+        });
+        if recorded.is_ok() {
+            break;
+        }
+    }
+    if let Err(e) = recorded {
+        return Err(format!("The client was installed, but the launcher couldn't record it. {}", e));
     }
 
     let _ = app.emit("download-progress", json!({
@@ -1031,7 +1040,7 @@ const MAX_ENTRIES: usize = 200_000;
 /// next install check.
 fn forget_missing_install(app: &tauri::AppHandle, network: Network) {
     let _lock = config::write_lock();
-    let mut cfg = config::ensure_config(app);
+    let Ok(mut cfg) = config::ensure_config(app) else { return };
     let exe = cfg.game_exe_for(network);
     if exe.is_empty() || Path::new(exe).exists() {
         return;
@@ -1112,11 +1121,18 @@ fn extract_client_zip(
     // See [`INSTALL_MANIFEST`].
     write_install_manifest(Path::new(client_dir), &top_level_entries(&mut archive))
         .map_err(|e| format!("Failed to record the install: {}", e))?;
+    // And that it is not finished yet, for as long as it isn't. See
+    // [`INCOMPLETE_MARKER`].
+    fs::write(Path::new(client_dir).join(INCOMPLETE_MARKER), b"")
+        .map_err(|e| format!("Failed to record the install: {}", e))?;
 
     // From here on the old install is gone. If this run stops partway, what it
     // wrote goes too — the manifest above names exactly that — rather than
     // staying behind as a client the launcher would find and report installed.
-    let result = write_entries(&mut archive, client_dir, progress);
+    let result = write_entries(&mut archive, client_dir, progress).and_then(|()| {
+        fs::remove_file(Path::new(client_dir).join(INCOMPLETE_MARKER))
+            .map_err(|e| format!("Failed to finish the install: {}", e))
+    });
     if result.is_err() {
         let _ = safe_clear_client_dir(client_dir);
     }
@@ -1150,7 +1166,7 @@ fn write_entries<R: Read + std::io::Seek>(
         let out_path = match entry.enclosed_name() {
             // The archive does not get to rewrite the launcher's own record of
             // what it installed; that record decides what an uninstall deletes.
-            Some(p) if first_component(&p).is_some_and(|n| is_manifest_name(&n)) => continue,
+            Some(p) if first_component(&p).is_some_and(|n| is_reserved_name(&n)) => continue,
             Some(p) => Path::new(client_dir).join(p),
             None => continue, // skip entries with unsafe paths
         };
@@ -1335,14 +1351,13 @@ async fn uninstall_client_impl(
     }
 
     // Clear relevant config fields.
-    let _lock = config::write_lock();
-    let mut cfg = config::ensure_config(&app);
-    cfg.clear_client_install(network);
-    match network {
-        Network::Radium => cfg.defender_excluded = false,
-        Network::Vanilla => cfg.vanilla.defender_excluded = false,
-    }
-    config::save_config(&app, &cfg)?;
+    config::update(&app, |cfg| {
+        cfg.clear_client_install(network);
+        match network {
+            Network::Radium => cfg.defender_excluded = false,
+            Network::Vanilla => cfg.vanilla.defender_excluded = false,
+        }
+    })?;
 
     Ok(json!({ "success": true }))
 }
@@ -1384,7 +1399,10 @@ pub async fn check_install(
             .unwrap_or_default();
     }
 
-    let installed = !exe_path.is_empty() && Path::new(&exe_path).exists();
+    // A folder an extraction never finished writing holds half a client,
+    // whatever exe it happens to contain. See [`INCOMPLETE_MARKER`].
+    let incomplete = install_incomplete(&client_dir);
+    let installed = !incomplete && !exe_path.is_empty() && Path::new(&exe_path).exists();
     let is_running = game::check_game_running();
 
     // A client installed under a different build id (or with no recorded build,
@@ -1407,6 +1425,8 @@ pub async fn check_install(
         // another network's client. Reported so the UI can tell the user where
         // those files went instead of silently leaving them on disk.
         "orphanedClientDir": cfg.orphaned_client_dir,
+        // An install that was interrupted and needs downloading again.
+        "incomplete": incomplete,
         // Surfaced so the frontend can log the concrete build mismatch behind an
         // "outdated" verdict instead of an opaque message.
         "clientBuild": cfg.client_build_for(network),
@@ -1619,10 +1639,26 @@ pub fn is_overly_broad_dir(dir: &str) -> bool {
 /// narrowed, only for installs made before the file existed.
 const INSTALL_MANIFEST: &str = ".radium-install";
 
-/// Whether `name` is the manifest itself. Case-blind, as Windows paths are:
-/// an archive entry spelled `.RADIUM-INSTALL` would land on the same file.
-fn is_manifest_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case(INSTALL_MANIFEST)
+/// Present in the client folder while an extraction is writing it.
+///
+/// The extraction clears up after itself when it fails, but not when the
+/// launcher is closed or loses power partway: the old install is gone by then,
+/// the folder holds half of the new one, and the config still names the old
+/// exe — often at the very path the new one is half written to. Without this
+/// the next start found that exe and reported a broken client as installed.
+const INCOMPLETE_MARKER: &str = ".radium-install-incomplete";
+
+/// Whether `name` is one of the launcher's own files in the client folder.
+/// Case-blind, as Windows paths are: an archive entry spelled
+/// `.RADIUM-INSTALL` would land on the same file.
+fn is_reserved_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(INSTALL_MANIFEST) || name.eq_ignore_ascii_case(INCOMPLETE_MARKER)
+}
+
+/// Whether an extraction into `client_dir` started and never finished. See
+/// [`INCOMPLETE_MARKER`].
+pub fn install_incomplete(client_dir: &str) -> bool {
+    !client_dir.is_empty() && Path::new(client_dir).join(INCOMPLETE_MARKER).exists()
 }
 
 /// The first component of an archive path, if it is a plain name.
@@ -1640,7 +1676,7 @@ fn top_level_entries<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>) 
     for i in 0..archive.len() {
         let Ok(entry) = archive.by_index_raw(i) else { continue };
         let Some(name) = entry.enclosed_name().as_deref().and_then(first_component) else { continue };
-        if !is_manifest_name(&name) && seen.insert(name.to_lowercase()) {
+        if !is_reserved_name(&name) && seen.insert(name.to_lowercase()) {
             out.push(name);
         }
     }
@@ -1654,7 +1690,7 @@ fn is_plain_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
-        && !is_manifest_name(name)
+        && !is_reserved_name(name)
         && !name.contains(['/', '\\', ':'])
         && !name.chars().any(|c| c.is_control())
 }
@@ -1729,6 +1765,7 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
         for name in &entries {
             remove_entry(&path.join(name));
         }
+        let _ = fs::remove_file(path.join(INCOMPLETE_MARKER));
         let _ = fs::remove_file(path.join(INSTALL_MANIFEST));
         return Ok(true);
     }
@@ -1785,6 +1822,7 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
             }
         }
     }
+    let _ = fs::remove_file(path.join(INCOMPLETE_MARKER));
 
     Ok(true)
 }
@@ -2076,9 +2114,46 @@ mod extraction_tests {
         assert!(!client.join("Recroom_Release.exe").exists(), "the half-written client goes");
         assert!(!client.join("Recroom_Release_Data").exists());
         assert!(!client.join(INSTALL_MANIFEST).exists());
+        assert!(!install_incomplete(&client.to_string_lossy()), "and so does its marker");
         assert!(client.join("notes.txt").exists(), "what was already there stays");
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    /// An extraction cut off by the launcher closing never gets to clean up,
+    /// so the folder says it is unfinished until something finishes or clears
+    /// it — and the exe sitting in it is not taken for an install meanwhile.
+    #[test]
+    fn an_interrupted_extraction_is_marked_until_it_is_cleared() {
+        let root = temp_dir("interrupted");
+        let client = root.join("client");
+        let zip_path = root.join("client.zip");
+        build_zip(&zip_path, &[("Recroom_Release.exe", b"exe")]);
+
+        // A finished one leaves no marker.
+        extract_client_zip(&zip_path, &client.to_string_lossy(), &mut |_| {}).expect("extracts");
+        assert!(!install_incomplete(&client.to_string_lossy()));
+
+        // What a cut-off run leaves behind: the manifest, the marker and part
+        // of the client.
+        fs::write(client.join(INCOMPLETE_MARKER), b"").expect("marker");
+        assert!(install_incomplete(&client.to_string_lossy()));
+
+        // The next install (or an uninstall) clears it with everything else.
+        assert!(safe_clear_client_dir(&client.to_string_lossy()).expect("clear"));
+        assert!(!install_incomplete(&client.to_string_lossy()));
+        assert!(!client.join("Recroom_Release.exe").exists());
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// An archive can't plant the marker (or the manifest) itself.
+    #[test]
+    fn the_launchers_own_files_are_not_taken_from_the_archive() {
+        assert!(is_reserved_name(".radium-install"));
+        assert!(is_reserved_name(".RADIUM-INSTALL-INCOMPLETE"));
+        assert!(!is_reserved_name("Recroom_Release.exe"));
+        assert!(!is_plain_name(INCOMPLETE_MARKER), "never listed in a manifest either");
     }
 
     #[test]

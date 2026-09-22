@@ -701,11 +701,20 @@ impl<T: Fetched + Send + Sync + 'static> BulkCache<T> {
 static ROOMS_CACHE: BulkCache<RoomsSnapshot> = BulkCache::new();
 static PLAYERS_CACHE: BulkCache<PlayersSnapshot> = BulkCache::new();
 
-/// Download a `/ws` bulk endpoint and parse it into `T`.
+/// Download a `/ws` bulk endpoint, then parse it with `parse` on the blocking
+/// pool.
 ///
 /// Read as bytes and parsed with `from_slice` rather than `Response::json`, so
-/// the body is never materialized as a `String` on top of everything else.
-async fn ws_get<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String> {
+/// the body is never materialized as a `String` on top of everything else. The
+/// parse is off the async runtime because of its size: the player dump is
+/// 51 MB of JSON, and turning it into rows held a tokio worker for as long as
+/// that took — the same workers the thumbnail pipeline and every other command
+/// are waiting on.
+async fn ws_get<T, F>(path: &'static str, parse: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&[u8]) -> Result<T, serde_json::Error> + Send + 'static,
+{
     let url = format!("{}{}", API_BASE, path);
 
     let response = http()
@@ -722,26 +731,37 @@ async fn ws_get<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String>
     }
 
     let body = response.bytes().await.map_err(|e| e.to_string())?;
-    serde_json::from_slice::<T>(&body)
+    tokio::task::spawn_blocking(move || parse(&body))
+        .await
+        .map_err(|e| e.to_string())?
         .map_err(|e| format!("Unexpected response from {}: {}", path, e))
 }
 
-/// Download and parse the room dump.
-async fn download_rooms() -> Result<Arc<RoomsSnapshot>, String> {
-    let raw: Vec<RawRoomRecord> = ws_get("/ws/getrooms").await?;
-    Ok(Arc::new(RoomsSnapshot {
-        rooms: raw.into_iter().filter_map(RoomRow::from_raw).collect(),
-        fetched: Instant::now(),
-    }))
+/// Parse the room dump into cached rows.
+fn parse_rooms(body: &[u8]) -> Result<Vec<RoomRow>, serde_json::Error> {
+    let raw: Vec<RawRoomRecord> = serde_json::from_slice(body)?;
+    Ok(raw.into_iter().filter_map(RoomRow::from_raw).collect())
 }
 
-/// Download and parse the player dump.
-async fn download_players() -> Result<Arc<PlayersSnapshot>, String> {
-    let raw: Vec<RawPlayer> = ws_get("/ws/getplayers").await?;
+/// Parse the player dump into cached rows, sorted by id.
+fn parse_players(body: &[u8]) -> Result<Vec<PlayerRow>, serde_json::Error> {
+    let raw: Vec<RawPlayer> = serde_json::from_slice(body)?;
     let mut players: Vec<PlayerRow> = raw.into_iter().filter_map(PlayerRow::from_raw).collect();
     // The dump arrives in no useful order. Sorting once here is what lets
     // every later page be a slice.
     players.sort_by_key(|p| p.id);
+    Ok(players)
+}
+
+/// Download and parse the room dump.
+async fn download_rooms() -> Result<Arc<RoomsSnapshot>, String> {
+    let rooms = ws_get("/ws/getrooms", parse_rooms).await?;
+    Ok(Arc::new(RoomsSnapshot { rooms, fetched: Instant::now() }))
+}
+
+/// Download and parse the player dump.
+async fn download_players() -> Result<Arc<PlayersSnapshot>, String> {
+    let players = ws_get("/ws/getplayers", parse_players).await?;
     Ok(Arc::new(PlayersSnapshot { players, fetched: Instant::now() }))
 }
 
@@ -1207,30 +1227,6 @@ pub async fn fetch_filters() -> Value {
         // PopularFilters and the rail renders it after "All Rooms".
         "data": { "PinnedFilters": [], "PopularFilters": tags }
     })
-}
-
-/// Resolve one room's creator and render it.
-async fn one_room_json(room: &RoomRow) -> Value {
-    let ids: BTreeSet<i64> = [room.creator_id].into_iter().filter(|id| *id != 0).collect();
-    let creators = resolve_creators(&ids).await;
-    room_row_json(room, Some(&creators))
-}
-
-/// Room detail by numeric id.
-pub async fn fetch_room_details(room_id: &str) -> Value {
-    let snap = match rooms_snapshot().await {
-        Ok(s) => s,
-        Err(e) => return json!({ "success": false, "error": e }),
-    };
-
-    let Ok(id) = room_id.trim().parse::<i64>() else {
-        return json!({ "success": false, "error": "Invalid room id." });
-    };
-
-    match snap.rooms.iter().find(|r| r.id == id) {
-        Some(room) => json!({ "success": true, "data": one_room_json(room).await }),
-        None => json!({ "success": false, "error": "Room not found." }),
-    }
 }
 
 /// Find a room by name, preferring an exact case-insensitive match over the
@@ -1991,6 +1987,27 @@ mod tests {
         // The card iterates this directly, so it must always be an array.
         let out = normalize_photo(&json!({ "photoId": "a" }));
         assert!(out["TaggedPlayers"].as_array().unwrap().is_empty());
+    }
+
+    /// The dumps are parsed on the blocking pool now; what comes out has to be
+    /// what the tabs page through: rows without an id skipped, players by id.
+    #[test]
+    fn bulk_dumps_parse_into_sorted_rows() {
+        let players = br#"[{"Id":30,"Username":"c"},{"Username":"no id"},{"Id":2,"Username":"a","Level":7},{"Id":11}]"#;
+        let rows = parse_players(players).expect("parses");
+        assert_eq!(rows.iter().map(|p| p.id).collect::<Vec<_>>(), vec![2, 11, 30]);
+        assert_eq!(rows[0].level, Some(7));
+
+        let rooms = serde_json::to_vec(&json!([
+            raw_room(5, "Five", 1, 0, 0, ""),
+            { "CheerCount": 9 },
+            raw_room(1, "One", 2, 0, 0, ""),
+        ]))
+        .unwrap();
+        let rows = parse_rooms(&rooms).expect("parses");
+        assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![5, 1], "dump order is kept");
+
+        assert!(parse_players(b"<html>blocked</html>").is_err());
     }
 
     #[test]

@@ -358,6 +358,12 @@ fn launch_game_impl(
     let cfg = config::current(&app);
     let client_dir = config::get_client_dir_for(&app, &cfg, network);
 
+    // Half a client, from an install that was cut off: whatever exe is in
+    // there is not one to run. See `download::INCOMPLETE_MARKER`.
+    if crate::download::install_incomplete(&client_dir) {
+        return Err("The last install of the client didn't finish. Download it again from Home.".into());
+    }
+
     // Prefer the saved exe path; otherwise search the client dir for a known exe.
     let mut exe_path = match network {
         // The frontend passes Radium's exe path as a flat config field.

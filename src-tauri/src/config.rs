@@ -566,6 +566,20 @@ fn is_inside(path: &str, dir: &str) -> bool {
     path == dir || path.starts_with(&format!("{}/", dir))
 }
 
+/// Whether an install dir names the Electron launcher's client folder
+/// (`%APPDATA%\radium-launcher\client`) or somewhere inside it — this
+/// machine's, given as `legacy_dir`, or the same folder under another profile,
+/// as a config.json copied between machines carries.
+fn points_at_legacy_client(install_dir: &str, legacy_dir: &str) -> bool {
+    if install_dir.is_empty() {
+        return false;
+    }
+    let dir = norm_dir(install_dir);
+    is_inside(install_dir, legacy_dir)
+        || dir.ends_with("/radium-launcher/client")
+        || dir.contains("/radium-launcher/client/")
+}
+
 /// Whether `path` resolves to a location inside `dir`.
 ///
 /// Prefers a canonicalized comparison so slash style, drive-letter casing and
@@ -784,22 +798,22 @@ pub fn write_lock() -> std::sync::MutexGuard<'static, ()> {
     WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Drop the memoized config, so the next read comes from disk.
-///
-/// Only needed by tests and by a future "reload settings" path — `save_config`
-/// keeps the cache current on its own.
-pub fn invalidate_cache() {
-    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = None;
-}
-
 /// The current config, shared rather than copied. For reading.
 ///
 /// Reads config.json from the app data directory the first time, creating it
 /// with defaults if it doesn't exist and running the one-time migrations, and
-/// is served from [`CACHED`] after that.
+/// is served from [`CACHED`] after that. While config.json exists but can't be
+/// read, this is a fresh install's defaults: fine to look at, never to save —
+/// code that changes the config goes through [`ensure_config`] or [`update`],
+/// which refuse in that state.
 pub fn current(app_handle: &tauri::AppHandle) -> std::sync::Arc<Config> {
+    current_checked(app_handle).unwrap_or_else(|_| std::sync::Arc::new(Config::default()))
+}
+
+/// [`current`], or an error while config.json exists but can't be read.
+pub fn current_checked(app_handle: &tauri::AppHandle) -> Result<std::sync::Arc<Config>, String> {
     if let Some(cfg) = cached() {
-        return cfg;
+        return Ok(cfg);
     }
     // One loader at a time. At startup the page fires a burst of commands at
     // once, and each used to find the cache empty and run the whole load —
@@ -808,17 +822,22 @@ pub fn current(app_handle: &tauri::AppHandle) -> std::sync::Arc<Config> {
     // which callers may already hold when they get here.
     let _loading = LOAD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(cfg) = cached() {
-        return cfg;
+        return Ok(cfg);
     }
     let (cfg, readable) = load_config(app_handle);
-    let cfg = std::sync::Arc::new(cfg);
     // A file that exists but couldn't be read is not cached, so the next
     // command tries again rather than serving the stand-in defaults all session.
-    if readable {
-        *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
+    if !readable {
+        return Err(UNREADABLE.into());
     }
-    cfg
+    let cfg = std::sync::Arc::new(cfg);
+    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(cfg.clone());
+    Ok(cfg)
 }
+
+/// Why a change to the config was refused. See [`current_checked`].
+const UNREADABLE: &str = "The settings file couldn't be read just now (another program may have it \
+     open), so nothing was changed. Try again in a moment.";
 
 fn cached() -> Option<std::sync::Arc<Config>> {
     CACHED.read().unwrap_or_else(|e| e.into_inner()).clone()
@@ -857,8 +876,27 @@ fn parse_config(text: &str) -> serde_json::Result<Config> {
 /// An owned copy of the current config, for changing and then passing to
 /// [`save_config`]. Take [`write_lock`] first. Code that only reads should use
 /// [`current`], which doesn't copy.
-pub fn ensure_config(app_handle: &tauri::AppHandle) -> Config {
-    (*current(app_handle)).clone()
+///
+/// An error while config.json exists but can't be read (an antivirus scan
+/// holding it, say). The stand-in defaults [`current`] serves then must not be
+/// changed and saved: every setting the user had would be replaced with a
+/// fresh install's. The load itself already refused to do that; each writer
+/// that took a copy of those defaults, changed one field and saved them did it
+/// anyway.
+pub fn ensure_config(app_handle: &tauri::AppHandle) -> Result<Config, String> {
+    current_checked(app_handle).map(|cfg| (*cfg).clone())
+}
+
+/// Change the config and save it, as one step under [`write_lock`].
+///
+/// Refuses, changing nothing, while config.json can't be read — see
+/// [`ensure_config`].
+pub fn update<R>(app_handle: &tauri::AppHandle, change: impl FnOnce(&mut Config) -> R) -> Result<R, String> {
+    let _lock = write_lock();
+    let mut cfg = ensure_config(app_handle)?;
+    let out = change(&mut cfg);
+    save_config(app_handle, &cfg)?;
+    Ok(out)
 }
 
 /// The uncached read, including the one-time migrations and repairs.
@@ -933,30 +971,19 @@ fn load_config(app_handle: &tauri::AppHandle) -> (Config, bool) {
         changed = true;
     }
 
-    // Detect if client is/was installed in the old directory "%APPDATA%\radium-launcher\client"
-    // or if the settings path points to it, and trigger a reset.
+    // An install dir carried over from the Electron launcher that still names
+    // its old client folder goes back to the default one, which is where
+    // `migrate_legacy_data` moved that client.
+    //
+    // Only then. This also used to fire whenever the old folder still held a
+    // client — which it does for good when the migration found a client at
+    // the new default too and left both alone — and so cleared a custom
+    // install folder the user had picked since, on every single start.
     if let Ok(data_dir) = app_handle.path().data_dir() {
         let legacy_client_dir = data_dir.join("radium-launcher").join("client");
-        let legacy_client_dir_str = legacy_client_dir.to_string_lossy().to_string();
-        
-        let normalized_install = config.install_dir.replace('\\', "/");
-        let normalized_legacy = legacy_client_dir_str.replace('\\', "/");
-
-        let settings_points_to_old = !config.install_dir.is_empty() && (
-            normalized_install.eq_ignore_ascii_case(&normalized_legacy) ||
-            normalized_install.contains("radium-launcher/client")
-        );
-
-        let legacy_client_installed = legacy_client_dir.exists() && (
-            legacy_client_dir.join("RecRoom.exe").exists() ||
-            legacy_client_dir.join("RecRoom_ScreenMode.bat").exists()
-        );
-
-        if settings_points_to_old || legacy_client_installed {
-            if !config.install_dir.is_empty() {
-                changed = true;
-            }
+        if points_at_legacy_client(&config.install_dir, &legacy_client_dir.to_string_lossy()) {
             config.install_dir = String::new();
+            changed = true;
         }
     }
 
@@ -1846,5 +1873,31 @@ mod tests {
 
         assert_eq!(cfg.theme, "win98");
         assert_eq!(cfg.vanilla.install_dir, "C:/v");
+    }
+
+    /// Only an install dir naming the Electron launcher's old client folder is
+    /// reset. A folder picked since is the user's, whatever the old folder
+    /// still holds.
+    #[test]
+    fn only_the_electron_client_folder_counts_as_legacy() {
+        let legacy = r"C:\Users\Jane\AppData\Roaming\radium-launcher\client";
+        for old in [
+            legacy,
+            r"c:/users/jane/appdata/roaming/RADIUM-LAUNCHER/client/",
+            r"C:\Users\Jane\AppData\Roaming\radium-launcher\client\nested",
+            // The same folder in a config.json brought over from another PC.
+            r"C:\Users\Someone Else\AppData\Roaming\radium-launcher\client",
+        ] {
+            assert!(points_at_legacy_client(old, legacy), "{old:?} is the old folder");
+        }
+        for mine in [
+            "",
+            r"D:\Games\Radium",
+            r"C:\Users\Jane\AppData\Roaming\com.radium.launcher\client",
+            r"C:\Users\Jane\AppData\Roaming\radium-launcher\client-backup",
+            r"C:\Users\Jane\AppData\Roaming\radium-launcher",
+        ] {
+            assert!(!points_at_legacy_client(mine, legacy), "{mine:?} is not the old folder");
+        }
     }
 }
