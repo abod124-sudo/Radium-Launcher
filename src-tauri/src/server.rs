@@ -103,6 +103,20 @@ fn network_of(args: &Value) -> Network {
     Network::parse(args.get("network").and_then(|v| v.as_str()))
 }
 
+/// The reply for anything asked of Stella's API.
+///
+/// Stella publishes none that the launcher knows of — no rooms, people, photos
+/// or player count — and the UI hides everything that would ask. Without this
+/// guard those calls fell through to Radium's branch, as every network but
+/// Vanilla did, and would have shown Radium's rooms under Stella's name.
+pub(crate) fn no_public_api() -> Value {
+    json!({
+        "success": false,
+        "unsupported": true,
+        "error": "Stella does not publish this."
+    })
+}
+
 /// Ping a server and return its online status, latency, and HTTP status code.
 #[tauri::command]
 pub async fn ping_server(url: String) -> Value {
@@ -113,13 +127,40 @@ pub async fn ping_server(url: String) -> Value {
     let host = parsed.host_str().unwrap_or("");
     let is_cdn = host == "cdn.recroomarchive.org";
     let is_vanilla = host == "api.vanillarec.net" || host == "vanillarec.net";
+    let is_stella = host == "api.stellaonline.org";
     if host != "api.radie.app"
         && host != "www.radie.app"
         && host != "launcher.radie.app"
         && !is_cdn
         && !is_vanilla
+        && !is_stella
     {
         return json!({ "online": false, "latency": -1, "error": "Untrusted URL." });
+    }
+
+    // Stella has no health route, and its downloads are all it serves. A HEAD
+    // on the patch answers 405 from Stella's own server (it allows GET only)
+    // without sending the file, which is proof enough that it is up. Only that
+    // (or a plain success) counts: a Cloudflare 5xx means Stella is down, and a
+    // Cloudflare 403 block page says nothing about Stella at all. This is the
+    // host the game's NameServer lives on (the patch points ns.rec.net here).
+    if is_stella {
+        let start = Instant::now();
+        return match http()
+            .head(crate::stella::PATCH_URL)
+            .header("User-Agent", crate::stella::USER_AGENT)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+        {
+            Ok(resp) => json!({
+                "online": resp.status().is_success()
+                    || resp.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED,
+                "latency": start.elapsed().as_millis() as i64,
+                "status": resp.status().as_u16(),
+            }),
+            Err(_) => json!({ "online": false, "latency": -1 }),
+        };
     }
 
     // The radie.app API exposes a `/health` endpoint; the recroomarchive CDN does
@@ -161,8 +202,10 @@ pub async fn ping_server(url: String) -> Value {
 /// Get the current online player count from the Radium API.
 #[tauri::command]
 pub async fn get_player_count(network: Option<String>) -> Value {
-    if Network::parse(network.as_deref()) == Network::Vanilla {
-        return vanilla::get_player_count().await;
+    match Network::parse(network.as_deref()) {
+        Network::Vanilla => return vanilla::get_player_count().await,
+        Network::Stella => return no_public_api(),
+        Network::Radium => {}
     }
 
     let url = "https://api.radie.app/api/players/v1/online";
@@ -209,11 +252,13 @@ pub async fn fetch_rooms(args: Value) -> Value {
         .unwrap_or("")
         .to_string();
 
-    if network_of(&args) == Network::Vanilla {
+    match network_of(&args) {
         // Vanilla has no server-side search, tag, sort or skip parameter. Its
         // whole public room set is cached in the module instead, so all four
         // are applied there over every room rather than over one API page.
-        return vanilla::fetch_rooms(skip, take, &query, &tag, sort_by).await;
+        Network::Vanilla => return vanilla::fetch_rooms(skip, take, &query, &tag, sort_by).await,
+        Network::Stella => return no_public_api(),
+        Network::Radium => {}
     }
 
     let mut url = match reqwest::Url::parse("https://launcher.radie.app/api/rooms/v1/") {
@@ -251,8 +296,10 @@ pub async fn fetch_people(args: Value) -> Value {
         .unwrap_or("")
         .to_string();
 
-    if network_of(&args) == Network::Vanilla {
-        return vanilla::fetch_people(skip, take, &query).await;
+    match network_of(&args) {
+        Network::Vanilla => return vanilla::fetch_people(skip, take, &query).await,
+        Network::Stella => return no_public_api(),
+        Network::Radium => {}
     }
 
     let mut url = match reqwest::Url::parse("https://launcher.radie.app/api/user/v1") {
@@ -278,10 +325,12 @@ pub async fn fetch_people(args: Value) -> Value {
 /// Fetch available room filters (tags / categories).
 #[tauri::command]
 pub async fn fetch_filters(network: Option<String>) -> Value {
-    if Network::parse(network.as_deref()) == Network::Vanilla {
+    match Network::parse(network.as_deref()) {
         // Vanilla publishes no filter endpoint, so the tag list is tallied from
         // the cached room set. See vanilla::fetch_filters.
-        return vanilla::fetch_filters().await;
+        Network::Vanilla => return vanilla::fetch_filters().await,
+        Network::Stella => return no_public_api(),
+        Network::Radium => {}
     }
 
     let url = "https://api.radie.app/api/rooms/v1/filters";
@@ -305,8 +354,10 @@ pub async fn fetch_user_photos(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = page_size(&args, 40);
 
-    if network_of(&args) == Network::Vanilla {
-        return vanilla::fetch_user_photos(&user_id, skip, take).await;
+    match network_of(&args) {
+        Network::Vanilla => return vanilla::fetch_user_photos(&user_id, skip, take).await,
+        Network::Stella => return no_public_api(),
+        Network::Radium => {}
     }
 
     let url = format!(
@@ -335,8 +386,10 @@ pub async fn fetch_user_rooms(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = page_size(&args, 20);
 
-    if network_of(&args) == Network::Vanilla {
-        return vanilla::fetch_user_rooms(&user_id, skip, take).await;
+    match network_of(&args) {
+        Network::Vanilla => return vanilla::fetch_user_rooms(&user_id, skip, take).await,
+        Network::Stella => return no_public_api(),
+        Network::Radium => {}
     }
 
     let url = format!(
@@ -365,13 +418,17 @@ pub async fn fetch_user_feed(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = page_size(&args, 40);
 
-    if network_of(&args) == Network::Vanilla {
+    match network_of(&args) {
         // Vanilla publishes no activity feed. The UI hides the FEEDS tab, so
         // this is only reachable defensively.
-        return json!({
-            "success": true,
-            "data": { "Results": [], "TotalResults": 0 }
-        });
+        Network::Vanilla => {
+            return json!({
+                "success": true,
+                "data": { "Results": [], "TotalResults": 0 }
+            })
+        }
+        Network::Stella => return no_public_api(),
+        Network::Radium => {}
     }
 
     let url = format!(
@@ -405,13 +462,17 @@ pub async fn fetch_recent_photos(args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = page_size(&args, 100);
 
-    if network_of(&args) == Network::Vanilla {
-        // An explicit Refresh must go back to the network rather than be
-        // served the list the tab is already showing.
-        if args.get("refresh").and_then(|v| v.as_bool()).unwrap_or(false) {
-            vanilla::invalidate_feed().await;
+    match network_of(&args) {
+        Network::Vanilla => {
+            // An explicit Refresh must go back to the network rather than be
+            // served the list the tab is already showing.
+            if args.get("refresh").and_then(|v| v.as_bool()).unwrap_or(false) {
+                vanilla::invalidate_feed().await;
+            }
+            return vanilla::fetch_recent_photos(skip, take).await;
         }
-        return vanilla::fetch_recent_photos(skip, take).await;
+        Network::Stella => return no_public_api(),
+        Network::Radium => {}
     }
 
     let url = format!(

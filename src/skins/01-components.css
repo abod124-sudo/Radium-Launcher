@@ -321,6 +321,9 @@ body:not(.glass-enabled) {
      has its own outline and must not be cut). The PNG itself is untouched:
      Liquid Glass uses the same file. */
   & img[src$="vanilla-logo.png"] { border-radius: 22% !important; }
+  /* Stella's icon carries its own rounded corners in its transparency, so it
+     is never cropped, whatever a skin's --logo-radius says. */
+  & img[src$="stella-logo.png"] { border-radius: 0 !important; }
 
   & .network-option-name {
     font-family: var(--font-ui);

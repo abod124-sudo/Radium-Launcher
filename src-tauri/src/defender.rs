@@ -61,11 +61,11 @@ fn ps_quote(s: &str) -> String {
     out
 }
 
-/// The script the non-elevated PowerShell runs to apply `cmdlet` to `dir` in an
-/// elevated one.
+/// The script the non-elevated PowerShell runs to apply `cmdlet` to `dirs` in
+/// an elevated one, all in one call so there is one UAC prompt.
 ///
-/// The folder never appears in either script as text. The elevated script is
-/// handed over as `-EncodedCommand`, and inside it the path is decoded from
+/// No folder ever appears in either script as text. The elevated script is
+/// handed over as `-EncodedCommand`, and inside it each path is decoded from
 /// base64 at run time, so no character a folder name can hold — quotes of any
 /// kind, `$`, backticks — is ever parsed as PowerShell.
 ///
@@ -73,12 +73,18 @@ fn ps_quote(s: &str) -> String {
 /// UAC prompt a failure. Without them Start-Process's error ended only that
 /// statement, `$p` stayed null, and `exit $null` exited 0 — so declining the
 /// prompt reported the exclusion as added and the launcher saved it as done.
-fn elevated_script(powershell_path: &str, cmdlet: &str, dir: &str) -> String {
-    let inner = format!(
-        "{} -ExclusionPath ([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{}')))",
-        cmdlet,
-        utf16_base64(dir)
-    );
+fn elevated_script(powershell_path: &str, cmdlet: &str, dirs: &[&str]) -> String {
+    let paths = dirs
+        .iter()
+        .map(|dir| {
+            format!(
+                "[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{}'))",
+                utf16_base64(dir)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let inner = format!("{} -ExclusionPath @({})", cmdlet, paths);
     format!(
         "$ErrorActionPreference = 'Stop'; \
          try {{ \
@@ -91,8 +97,22 @@ fn elevated_script(powershell_path: &str, cmdlet: &str, dir: &str) -> String {
     )
 }
 
+/// Every folder `network`'s exclusion covers: its client folder, and for
+/// Stella also the folder its patch DLL is kept in, which is outside the
+/// client folder (see `stella::patch_path`) and is injected into the game — a
+/// quarantined patch is as broken as a quarantined client.
+fn exclusion_dirs(app: &tauri::AppHandle, cfg: &config::Config, network: Network) -> Vec<String> {
+    let mut dirs = vec![config::get_client_dir_for(app, cfg, network)];
+    if network == Network::Stella {
+        if let Some(patch_dir) = crate::stella::patch_path(app).parent() {
+            dirs.push(patch_dir.to_string_lossy().to_string());
+        }
+    }
+    dirs
+}
+
 /// Apply `cmdlet` (`Add-MpPreference` or `Remove-MpPreference`) to
-/// `network`'s client folder, through one UAC prompt.
+/// `network`'s folders, through one UAC prompt.
 ///
 /// The network is the one the page names, as for every other install command,
 /// rather than the one last saved to config: the page records the result
@@ -100,28 +120,29 @@ fn elevated_script(powershell_path: &str, cmdlet: &str, dir: &str) -> String {
 async fn change_exclusion(app: &tauri::AppHandle, cmdlet: &str, network: Option<String>) -> Value {
     let cfg = config::current(app);
     let network = network.map_or_else(|| cfg.network(), |n| Network::parse(Some(&n)));
-    let client_dir = config::get_client_dir_for(app, &cfg, network);
+    let dirs = exclusion_dirs(app, &cfg, network);
 
-    if !is_path_safe(&client_dir) {
+    if !dirs.iter().all(|d| is_path_safe(d)) {
         return json!({ "success": false, "error": "Invalid characters in client path." });
     }
 
     // Refuse to hand Defender a directory broad enough that excluding it would
     // disable real-time protection for most of the disk. The install folder is
     // user-chosen through a folder picker, so "C:\\" is two clicks away.
-    if download::is_overly_broad_dir(&client_dir) {
+    if let Some(broad) = dirs.iter().find(|d| download::is_overly_broad_dir(d)) {
         return json!({
             "success": false,
             "error": format!(
                 "Refusing to change antivirus settings for '{}': that folder is too broad. \
                  Point the client install folder at a dedicated directory first.",
-                client_dir
+                broad
             )
         });
     }
 
     let powershell_path = get_powershell_path();
-    let script = elevated_script(&powershell_path, cmdlet, &client_dir);
+    let dir_refs: Vec<&str> = dirs.iter().map(String::as_str).collect();
+    let script = elevated_script(&powershell_path, cmdlet, &dir_refs);
 
     let mut command = Command::new(&powershell_path);
     command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
@@ -188,10 +209,43 @@ mod tests {
     #[test]
     fn the_folder_never_appears_in_the_script_as_text() {
         let dir = "C:\\Users\\O\u{2019}Brien\\$(calc)'; Remove-Item C:\\ -Recurse #\\client";
-        let script = elevated_script("C:\\ps.exe", "Add-MpPreference", dir);
+        let script = elevated_script("C:\\ps.exe", "Add-MpPreference", &[dir, "C:\\data\\stella"]);
         assert!(!script.contains("Brien"));
         assert!(!script.contains("calc"));
         assert!(!script.contains("Remove-Item"));
+        assert!(!script.contains("stella"));
+    }
+
+    /// Stella's exclusion covers two folders in one elevated call: both are
+    /// handed to one `-ExclusionPath` array, so there is still one UAC prompt.
+    #[cfg(windows)]
+    #[test]
+    fn several_folders_go_to_one_exclusion_call() {
+        let dirs = ["C:\\data\\client-stella", "C:\\data\\it's stella"];
+        let script = elevated_script("C:\\ps.exe", "Add-MpPreference", &dirs);
+        // Pull the elevated command back out and decode it, as PowerShell would.
+        let encoded = script.split("-EncodedCommand ").nth(1).unwrap().split('\'').next().unwrap();
+        let script = format!(
+            "[Console]::OutputEncoding = [Text.Encoding]::UTF8; \
+             [Console]::Out.Write([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{}')))",
+            encoded
+        );
+        let out = std::process::Command::new(get_powershell_path())
+            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &utf16_base64(&script)])
+            .output()
+            .expect("powershell runs");
+        let inner = String::from_utf8_lossy(&out.stdout).to_string();
+        assert!(inner.starts_with("Add-MpPreference -ExclusionPath @("));
+        assert_eq!(inner.matches("FromBase64String").count(), 2);
+
+        // And each path decodes to exactly what went in.
+        let decode_all = inner.replace("Add-MpPreference -ExclusionPath ", "[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::Out.Write((");
+        let decode_all = format!("{}) -join '|')", decode_all);
+        let out = std::process::Command::new(get_powershell_path())
+            .args(["-NoProfile", "-NonInteractive", "-EncodedCommand", &utf16_base64(&decode_all)])
+            .output()
+            .expect("powershell runs");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), dirs.join("|"));
     }
 
     /// The real round trip: PowerShell decodes the path to exactly the string
@@ -218,7 +272,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_failed_elevation_is_not_reported_as_success() {
-        let script = elevated_script("C:\\radium-no-such-dir\\missing.exe", "Add-MpPreference", "C:\\x");
+        let script = elevated_script("C:\\radium-no-such-dir\\missing.exe", "Add-MpPreference", &["C:\\x"]);
         let status = std::process::Command::new(get_powershell_path())
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
             .status()

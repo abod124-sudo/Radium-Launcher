@@ -85,6 +85,13 @@
             </span>
             <span class="network-option-check" aria-hidden="true">&#10003;</span>
           </button>
+          <button class="nav-btn network-option" role="option" data-network="stella" aria-selected="false">
+            <img class="network-option-icon" src="assets/stella-logo.png" alt="" />
+            <span class="network-option-text">
+              <span class="network-option-name">STELLA</span>
+            </span>
+            <span class="network-option-check" aria-hidden="true">&#10003;</span>
+          </button>
         </div>
         <div class="sidebar-logo-fallback" id="logoFallback" style="display:none">
           <div class="fallback-icon">R</div>
@@ -96,10 +103,12 @@
         <button class="nav-btn active" data-tab="home" id="nav-home">
           HOME
         </button>
-        <button class="nav-btn" data-tab="rooms" id="nav-rooms">
+        <!-- Hidden on a network with no rooms/people API (Stella), via
+             body.network-no-social in the stylesheet. -->
+        <button class="nav-btn network-social-only" data-tab="rooms" id="nav-rooms">
           ROOMS
         </button>
-        <button class="nav-btn" data-tab="people" id="nav-people">
+        <button class="nav-btn network-social-only" data-tab="people" id="nav-people">
           PEOPLE
         </button>
         <!-- Vanilla only: it publishes a network-wide photo feed. Hidden on
@@ -164,6 +173,20 @@
           <div class="home-hero-art" aria-hidden="true"></div>
           <div class="home-hero-mark" role="img" aria-label="Radium"></div>
           <div class="home-hero-bar installed-only">
+            <!-- Stella's patch update, drawn like Steam's game UPDATE button so
+                 it reads as "this game has an update", never as a launcher
+                 update. Takes PLAY's place while body.stella-update-needed. -->
+            <div class="steam-update" id="stellaUpdate">
+              <button class="btn-steam-update" id="btnStellaUpdate">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+                <span>UPDATE</span>
+              </button>
+              <div class="steam-update-status" aria-live="polite">
+                <span class="steam-update-title" id="stellaUpdateTitle">UPDATE QUEUED</span>
+                <span class="steam-update-sub" id="stellaUpdatePct">0% Complete</span>
+                <div class="steam-update-bar"><div class="steam-update-fill" id="stellaUpdateFill"></div></div>
+              </div>
+            </div>
             <button class="btn-play" id="btnPlay">
               <span class="play-triangle" id="playIcon">▶</span>
               <span class="play-text" id="playText">PLAY</span>
@@ -635,6 +658,13 @@
               <button class="btn-open-folder" data-change-folder="vanilla">Change</button>
               <button class="btn-open-folder" data-reset-folder="vanilla">Reset</button>
               <button class="btn-open-folder" data-open-folder="vanilla">Open</button>
+            </div>
+            <div class="sg-row">
+              <label>Stella Client</label>
+              <span class="cfg-path-display" id="cfgInstallDirStella">%APPDATA%\com.radium.launcher\client-stella</span>
+              <button class="btn-open-folder" data-change-folder="stella">Change</button>
+              <button class="btn-open-folder" data-reset-folder="stella">Reset</button>
+              <button class="btn-open-folder" data-open-folder="stella">Open</button>
             </div>
           </div>
 
@@ -1160,10 +1190,10 @@
           Third-party Antivirus active: <span id="detectedAvNames" style="color: var(--primary); text-decoration: underline;">[Antivirus Name]</span>
         </p>
         <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
-          Automatic exclusions are only supported for Windows Defender. For third-party antivirus software, you must manually exclude the Radium client folder to prevent it from blocking or deleting custom patches.
+          Automatic exclusions are only supported for Windows Defender. For third-party antivirus software, you must manually exclude <span id="tpFolderIntro">the client folder</span> to prevent it from blocking or deleting custom patches.
         </p>
         <div style="margin-top: 10px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.1); padding: 8px; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <code id="tpClientFolderPath" style="font-size: 11px; word-break: break-all; color: var(--accent); max-width: 80%; font-family: monospace;">[Client Folder Path]</code>
+          <code id="tpClientFolderPath" style="font-size: 11px; word-break: break-all; white-space: pre-line; color: var(--accent); max-width: 80%; font-family: monospace;">[Client Folder Path]</code>
           <button class="modal-btn" id="btnCopyTpPath" style="padding: 4px 8px; font-size: 11px; min-width: 50px;">Copy</button>
         </div>
         <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--text); cursor: pointer;">

@@ -55,5 +55,8 @@ try {
   document.body.classList.add('animations-enabled');
   // Network brand, applied before paint for the same reason as the skin.
   var savedNetwork = localStorage.getItem('radium-network');
-  document.body.classList.add(savedNetwork === 'vanilla' ? 'network-vanilla' : 'network-radium');
+  var network = (savedNetwork === 'vanilla' || savedNetwork === 'stella') ? savedNetwork : 'radium';
+  document.body.classList.add('network-' + network);
+  // Mirrors NETWORKS[*].hasSocial in app.js.
+  if (network === 'stella') document.body.classList.add('network-no-social');
 } catch (e) {}

@@ -289,7 +289,14 @@ body:not(.glass-enabled) {
 
   /* ── Hero ─────────────────────────────────────────────────────────── */
   & .home-hero {
-    background: var(--surface-sunken);
+    /* Black, the scrim's own colour, where the art fades out: the art is
+       masked out from 46% down, so this is what shows between the art and the
+       scrim, and a light skin's surface there read as a pale, see-through band
+       between two dark layers. Only from there down, though: the rounded
+       corners' soft edge shows a sliver of this layer, and black at the top
+       corners drew a dark fringe round the art. Keep 40% below the mask's
+       46% start in .home-hero-art. */
+    background: linear-gradient(180deg, var(--surface-sunken) 40%, #000 46%);
     border: var(--hero-border);
     border-radius: var(--hero-radius);
     box-shadow: var(--hero-shadow);
@@ -374,7 +381,10 @@ body:not(.glass-enabled) {
 
   & .status-dot { border-radius: var(--dot-radius); }
   & .status-dot.online { background-color: var(--ok); }
-  & .status-dot.offline { background-color: var(--line-strong); }
+  /* The skin's error colour, as on an OFFLINE status card. Grey is kept for
+     "unknown", so the two never look alike. */
+  & .status-dot.offline { background-color: var(--err); }
+  & .profile-status-badge:has(.status-dot.offline) { color: var(--err); }
   & .test-result { font-family: var(--font-ui); }
   & .test-result.ok { color: var(--ok); }
   & .test-result.error { color: var(--err); }

@@ -35,10 +35,24 @@ const LAUNCH_TARGETS: [&str; 3] = [
 /// shallowest directory containing any target wins, and within it the
 /// most-preferred name.
 pub fn find_game_exe(dir: &str) -> Option<String> {
-    find_launch_target(Path::new(dir), 0)
+    find_launch_target(Path::new(dir), &LAUNCH_TARGETS, 0)
 }
 
-fn find_launch_target(dir: &Path, depth: u32) -> Option<String> {
+/// What Stella launches. Its client carries both exes, but
+/// `Recroom_Release.exe` there is the EasyAntiCheat bootstrapper, which starts
+/// the game under anti-cheat where the patch can't be loaded. `RecRoom.exe` is
+/// the game itself.
+const STELLA_LAUNCH_TARGETS: [&str; 1] = ["RecRoom.exe"];
+
+/// [`find_game_exe`] for `network`'s client.
+pub fn find_game_exe_for(network: config::Network, dir: &str) -> Option<String> {
+    match network {
+        config::Network::Stella => find_launch_target(Path::new(dir), &STELLA_LAUNCH_TARGETS, 0),
+        _ => find_game_exe(dir),
+    }
+}
+
+fn find_launch_target(dir: &Path, targets: &[&str], depth: u32) -> Option<String> {
     if depth > 4 {
         return None;
     }
@@ -46,7 +60,7 @@ fn find_launch_target(dir: &Path, depth: u32) -> Option<String> {
 
     // Index this level in one pass, then decide — a second read_dir per name
     // would put the per-name cost straight back.
-    let mut found: [Option<std::path::PathBuf>; LAUNCH_TARGETS.len()] = Default::default();
+    let mut found: Vec<Option<std::path::PathBuf>> = vec![None; targets.len()];
     let mut subdirs: Vec<std::path::PathBuf> = Vec::new();
 
     for entry in entries.flatten() {
@@ -62,7 +76,7 @@ fn find_launch_target(dir: &Path, depth: u32) -> Option<String> {
         }
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        for (i, target) in LAUNCH_TARGETS.iter().enumerate() {
+        for (i, target) in targets.iter().enumerate() {
             if found[i].is_none() && name.eq_ignore_ascii_case(target) {
                 found[i] = Some(entry.path());
             }
@@ -74,7 +88,7 @@ fn find_launch_target(dir: &Path, depth: u32) -> Option<String> {
     }
 
     for subdir in subdirs {
-        if let Some(hit) = find_launch_target(&subdir, depth + 1) {
+        if let Some(hit) = find_launch_target(&subdir, targets, depth + 1) {
             return Some(hit);
         }
     }
@@ -187,11 +201,11 @@ fn in_client_dirs(exe: &str, dirs: &[String]) -> bool {
     dirs.iter().any(|dir| config::path_is_inside_dir(exe, dir))
 }
 
-/// Both networks' client folders: the only places a game this launcher
+/// Every network's client folder: the only places a game this launcher
 /// installed, and so may watch or stop, can be running from.
 fn client_dirs(app: &tauri::AppHandle) -> Vec<String> {
     let cfg = config::current(app);
-    [config::Network::Radium, config::Network::Vanilla]
+    config::Network::ALL
         .into_iter()
         .map(|network| config::get_client_dir_for(app, &cfg, network))
         .collect()
@@ -429,10 +443,17 @@ fn launch_game_impl(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        // Vanilla's install state lives in its own config sub-object, so read it
-        // from disk rather than from the frontend's flat (Radium) field.
+        // Vanilla's and Stella's install state live in their own config
+        // sub-objects, so read them from disk rather than from the frontend's
+        // flat (Radium) field.
         config::Network::Vanilla => cfg.vanilla.game_exe_path.clone(),
+        config::Network::Stella => cfg.stella.game_exe_path.clone(),
     };
+    // Stella only ever launches the game itself; see `STELLA_LAUNCH_TARGETS`.
+    let wrong_stella_exe = network == config::Network::Stella
+        && !Path::new(&exe_path)
+            .file_name()
+            .is_some_and(|f| f.eq_ignore_ascii_case(STELLA_LAUNCH_TARGETS[0]));
     // The exe path arrives from the frontend for Radium, so it is confirmed to
     // live inside the resolved client directory before anything is spawned —
     // the same containment check `check_install` applies. Without it, anything
@@ -440,10 +461,11 @@ fn launch_game_impl(
     // photo views, say) could name any executable on disk and have the
     // launcher run it.
     if exe_path.is_empty()
+        || wrong_stella_exe
         || !Path::new(&exe_path).exists()
         || !config::path_is_inside_dir(&exe_path, &client_dir)
     {
-        exe_path = find_game_exe(&client_dir).unwrap_or_default();
+        exe_path = find_game_exe_for(network, &client_dir).unwrap_or_default();
     }
     if exe_path.is_empty() {
         return Err(format!(
@@ -466,28 +488,40 @@ fn launch_game_impl(
     #[cfg(target_os = "windows")]
     use std::os::windows::process::CommandExt;
 
+    let mode_arg = if play_mode == "vr" { "+mode:vr" } else { "+mode:screen" };
     let is_bat = file_lower.ends_with(".bat");
-    let child = if is_bat {
+    // Stella starts the game and loads its patch into it, which takes a moment
+    // longer than a plain spawn and fails the launch if the patch can't go in.
+    let stella_pid = if network == config::Network::Stella {
+        Some(crate::stella::launch(&app, exe, &work_dir, &[mode_arg])?)
+    } else {
+        None
+    };
+    let child = if let Some(pid) = stella_pid {
+        pid
+    } else if is_bat {
         spawn_bat(&exe_path, &work_dir)
             .map_err(|e| format!("Failed to launch batch file: {}", e))?
+            .id()
     } else {
         let mut cmd = Command::new(exe);
         // Legacy RecRoom.exe accepts a +mode argument; the new Recroom_Release.exe
         // is launched plain.
         if file_lower == "recroom.exe" {
-            cmd.arg(if play_mode == "vr" { "+mode:vr" } else { "+mode:screen" });
+            cmd.arg(mode_arg);
         }
         cmd.current_dir(&work_dir);
         #[cfg(target_os = "windows")]
         cmd.creation_flags(0x00000008); // DETACHED_PROCESS
         cmd.spawn()
             .map_err(|e| format!("Failed to launch game executable: {}", e))?
+            .id()
     };
 
     // A .bat launch goes through `cmd /c start`, so `child` is the transient
     // cmd.exe wrapper (which exits immediately), not the game — its PID is
     // meaningless. Only report a PID for a direct executable launch.
-    let pid_value = if is_bat { Value::Null } else { Value::from(child.id()) };
+    let pid_value = if is_bat && stella_pid.is_none() { Value::Null } else { Value::from(child) };
 
     // 7. Enter the post-launch "grace" state and mark the game as running.
     //

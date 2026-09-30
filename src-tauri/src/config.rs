@@ -112,12 +112,14 @@ impl GlassSettings {
 /// Which revival network the launcher is currently pointed at.
 ///
 /// The launcher speaks to one network at a time. Radium is the historical
-/// default and owns the flat `Config` fields; Vanilla's install state lives in
-/// [`VanillaState`] so existing configs keep working with no migration.
+/// default and owns the flat `Config` fields; Vanilla's and Stella's install
+/// state live in [`VanillaState`] and [`StellaState`] so existing configs keep
+/// working with no migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Network {
     Radium,
     Vanilla,
+    Stella,
 }
 
 impl Network {
@@ -127,6 +129,7 @@ impl Network {
     pub fn parse(name: Option<&str>) -> Self {
         match name.unwrap_or("") {
             "vanilla" => Network::Vanilla,
+            "stella" => Network::Stella,
             _ => Network::Radium,
         }
     }
@@ -135,8 +138,13 @@ impl Network {
         match self {
             Network::Radium => "radium",
             Network::Vanilla => "vanilla",
+            Network::Stella => "stella",
         }
     }
+
+    /// Every network, Radium first. The order matters where one has to give
+    /// way to another — see [`dedupe_install_dirs_at`].
+    pub const ALL: [Network; 3] = [Network::Radium, Network::Vanilla, Network::Stella];
 }
 
 /// Vanilla-specific install state.
@@ -159,6 +167,29 @@ pub struct VanillaState {
     pub client_etag: String,
     pub client_build: String,
     pub defender_excluded: bool,
+}
+
+/// Stella-specific install state.
+///
+/// Stella ships a stock 2024 client plus a small patch DLL that the launcher
+/// injects at launch to point the game at Stella's servers (see
+/// `crate::stella`). The patch is tracked on its own: it changes far more
+/// often than the multi-gigabyte client, and which patch file is trusted is
+/// decided by its hash, never by where it was downloaded from.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct StellaState {
+    pub install_dir: String,
+    pub game_exe_path: String,
+    pub client_version: String,
+    pub client_etag: String,
+    pub client_build: String,
+    pub defender_excluded: bool,
+    /// Lowercase hex SHA-256 of the patch DLL the user has accepted: a pinned
+    /// build, or one they installed by pressing UPDATE. Launch injects the
+    /// patch on disk only if it still hashes to this.
+    pub patch_sha256: String,
 }
 
 /// Application configuration for the Radium Launcher.
@@ -225,6 +256,8 @@ pub struct Config {
     pub orphaned_client_dir: String,
     /// Install state for the Vanilla network. The flat fields above stay Radium's.
     pub vanilla: VanillaState,
+    /// Install state for the Stella network.
+    pub stella: StellaState,
 }
 
 impl Config {
@@ -257,6 +290,13 @@ impl Config {
         self.vanilla.client_version = current.vanilla.client_version.clone();
         self.vanilla.client_etag = current.vanilla.client_etag.clone();
         self.vanilla.game_exe_path = current.vanilla.game_exe_path.clone();
+        // Stella's likewise. The accepted patch hash is written only by the
+        // install and UPDATE commands.
+        self.stella.client_build = current.stella.client_build.clone();
+        self.stella.client_version = current.stella.client_version.clone();
+        self.stella.client_etag = current.stella.client_etag.clone();
+        self.stella.game_exe_path = current.stella.game_exe_path.clone();
+        self.stella.patch_sha256 = current.stella.patch_sha256.clone();
         // The glass backdrop has its own command (`cmd_set_glass_backdrop`).
         // It can be a 1.4 MB data URI, so the frontend leaves it out of every
         // whole-config save rather than shipping it over IPC on each autosave;
@@ -274,6 +314,33 @@ impl Config {
         match network {
             Network::Radium => &self.install_dir,
             Network::Vanilla => &self.vanilla.install_dir,
+            Network::Stella => &self.stella.install_dir,
+        }
+    }
+
+    /// Mutable install-dir override for `network`.
+    pub fn install_dir_mut(&mut self, network: Network) -> &mut String {
+        match network {
+            Network::Radium => &mut self.install_dir,
+            Network::Vanilla => &mut self.vanilla.install_dir,
+            Network::Stella => &mut self.stella.install_dir,
+        }
+    }
+
+    /// Whether `network`'s client folder was excluded from Windows Defender.
+    pub fn defender_excluded_for(&self, network: Network) -> bool {
+        match network {
+            Network::Radium => self.defender_excluded,
+            Network::Vanilla => self.vanilla.defender_excluded,
+            Network::Stella => self.stella.defender_excluded,
+        }
+    }
+
+    pub fn set_defender_excluded(&mut self, network: Network, value: bool) {
+        match network {
+            Network::Radium => self.defender_excluded = value,
+            Network::Vanilla => self.vanilla.defender_excluded = value,
+            Network::Stella => self.stella.defender_excluded = value,
         }
     }
 
@@ -282,6 +349,7 @@ impl Config {
         match network {
             Network::Radium => &self.game_exe_path,
             Network::Vanilla => &self.vanilla.game_exe_path,
+            Network::Stella => &self.stella.game_exe_path,
         }
     }
 
@@ -290,6 +358,7 @@ impl Config {
         match network {
             Network::Radium => &self.client_build,
             Network::Vanilla => &self.vanilla.client_build,
+            Network::Stella => &self.stella.client_build,
         }
     }
 
@@ -298,6 +367,7 @@ impl Config {
         match network {
             Network::Radium => &self.client_version,
             Network::Vanilla => &self.vanilla.client_version,
+            Network::Stella => &self.stella.client_version,
         }
     }
 
@@ -306,6 +376,7 @@ impl Config {
         match network {
             Network::Radium => &self.client_etag,
             Network::Vanilla => &self.vanilla.client_etag,
+            Network::Stella => &self.stella.client_etag,
         }
     }
 
@@ -332,6 +403,12 @@ impl Config {
                 self.vanilla.client_version = version;
                 self.vanilla.client_etag = etag;
             }
+            Network::Stella => {
+                self.stella.game_exe_path = exe_path;
+                self.stella.client_build = build;
+                self.stella.client_version = version;
+                self.stella.client_etag = etag;
+            }
         }
     }
 
@@ -349,6 +426,13 @@ impl Config {
                 self.vanilla.client_build = String::new();
                 self.vanilla.client_version = String::new();
                 self.vanilla.client_etag = String::new();
+            }
+            Network::Stella => {
+                self.stella.game_exe_path = String::new();
+                self.stella.client_build = String::new();
+                self.stella.client_version = String::new();
+                self.stella.client_etag = String::new();
+                self.stella.patch_sha256 = String::new();
             }
         }
     }
@@ -385,6 +469,7 @@ impl Default for Config {
             network: "radium".to_string(),
             orphaned_client_dir: String::new(),
             vanilla: VanillaState::default(),
+            stella: StellaState::default(),
         }
     }
 }
@@ -742,26 +827,26 @@ fn set_aside_path(dir: &std::path::Path) -> Option<PathBuf> {
 pub fn drop_relative_install_dirs(config: &mut Config) -> bool {
     let relative = |dir: &str| !dir.is_empty() && !std::path::Path::new(dir).is_absolute();
     let mut changed = false;
-    if relative(&config.install_dir) {
-        config.install_dir = String::new();
-        changed = true;
-    }
-    if relative(&config.vanilla.install_dir) {
-        config.vanilla.install_dir = String::new();
-        changed = true;
+    for network in Network::ALL {
+        let dir = config.install_dir_mut(network);
+        if relative(dir) {
+            dir.clear();
+            changed = true;
+        }
     }
     changed
 }
 
-/// Enforces that the two networks never resolve to the same client folder,
-/// or to one inside the other. Returns true if `config` was changed.
+/// Enforces that no two networks resolve to the same client folder, or to one
+/// inside another. Returns true if `config` was changed.
 ///
 /// They install different games from different sources, so a shared folder
 /// means each network's download overwrites the other's install and each then
 /// reports the other's client as its own. An explicit dir that collides is
-/// cleared, which returns that network to its own default folder; Radium is
-/// cleared first because its flat `installDir` is the field the old settings
-/// autosave overwrote.
+/// cleared, which returns that network to its own default folder. Of a
+/// colliding pair, the earlier one in [`Network::ALL`] is cleared first: Radium
+/// before the others, because its flat `installDir` is the field the old
+/// settings autosave overwrote.
 ///
 /// A folder inside the other's is the same collision a level down: the
 /// install check searches four levels deep, so Radium pointed at the app data
@@ -777,32 +862,32 @@ pub fn install_dirs_overlap(a: &str, b: &str) -> bool {
 }
 
 pub fn dedupe_install_dirs_at(config: &mut Config, app_data_dir: &std::path::Path) -> bool {
-    let collides = |config: &Config| {
-        install_dirs_overlap(
-            &client_dir_for(config, Network::Radium, app_data_dir),
-            &client_dir_for(config, Network::Vanilla, app_data_dir),
-        )
+    let first_collision = |config: &Config| {
+        let dirs = Network::ALL.map(|n| client_dir_for(config, n, app_data_dir));
+        (0..dirs.len())
+            .flat_map(|i| (i + 1..dirs.len()).map(move |j| (i, j)))
+            .find(|&(i, j)| install_dirs_overlap(&dirs[i], &dirs[j]))
+            .map(|(i, j)| (Network::ALL[i], Network::ALL[j]))
     };
 
-    if !collides(config) {
-        return false;
+    let mut changed = false;
+    // Each pass clears one override, so this settles within one pass per
+    // network. Clearing one can still leave a collision (the other side may
+    // in turn point at the cleared network's default folder), hence the loop.
+    for _ in 0..Network::ALL.len() {
+        let Some((a, b)) = first_collision(config) else { break };
+        let Some(network) = [a, b]
+            .into_iter()
+            .find(|&n| !config.install_dir_for(n).is_empty())
+        else {
+            // Both are already on their defaults, which are different folders
+            // by construction, so there is nothing left to clear.
+            break;
+        };
+        config.install_dir_mut(network).clear();
+        changed = true;
     }
-    if !config.install_dir.is_empty() {
-        config.install_dir = String::new();
-        // Clearing Radium's can still leave a collision if Vanilla was in turn
-        // pointed at Radium's default folder.
-        if collides(config) {
-            config.vanilla.install_dir = String::new();
-        }
-        return true;
-    }
-    if !config.vanilla.install_dir.is_empty() {
-        config.vanilla.install_dir = String::new();
-        return true;
-    }
-    // Both are already on their defaults, which are different folders by
-    // construction, so there is nothing left to clear.
-    false
+    changed
 }
 
 /// The config as last read or written, so a command doesn't pay for a disk read
@@ -1170,6 +1255,7 @@ pub fn default_client_folder(network: Network) -> &'static str {
     match network {
         Network::Radium => "client",
         Network::Vanilla => "client-vanilla",
+        Network::Stella => "client-stella",
     }
 }
 
@@ -1555,6 +1641,63 @@ mod tests {
             client_dir_for(&cfg, Network::Radium, &data),
             client_dir_for(&cfg, Network::Vanilla, &data)
         );
+    }
+
+    /// Stella is held to the same rule against both of the others.
+    #[test]
+    fn stella_never_shares_a_folder_with_another_network() {
+        let data = PathBuf::from("C:/data");
+        let all_apart = |cfg: &Config| {
+            let dirs = Network::ALL.map(|n| client_dir_for(cfg, n, &data));
+            !install_dirs_overlap(&dirs[0], &dirs[1])
+                && !install_dirs_overlap(&dirs[0], &dirs[2])
+                && !install_dirs_overlap(&dirs[1], &dirs[2])
+        };
+
+        let cfg = Config::default();
+        assert!(all_apart(&cfg));
+        assert_eq!(client_dir_for(&cfg, Network::Stella, &data), data.join("client-stella").to_string_lossy());
+
+        // Stella pointed at Vanilla's default folder.
+        let mut cfg = Config::default();
+        cfg.stella.install_dir = "C:/data/client-vanilla".into();
+        assert!(dedupe_install_dirs_at(&mut cfg, &data));
+        assert_eq!(cfg.stella.install_dir, "");
+
+        // All three pointed at one folder: two must give way, Radium first.
+        let mut cfg = Config::default();
+        cfg.install_dir = "D:/Games".into();
+        cfg.vanilla.install_dir = "D:/Games".into();
+        cfg.stella.install_dir = "D:/Games".into();
+        assert!(dedupe_install_dirs_at(&mut cfg, &data));
+        assert!(all_apart(&cfg));
+        assert_eq!(cfg.install_dir, "");
+        assert_eq!(cfg.vanilla.install_dir, "");
+        assert_eq!(cfg.stella.install_dir, "D:/Games");
+
+        // A relative Stella folder is dropped like the others.
+        let mut cfg = Config::default();
+        cfg.stella.install_dir = "games\\stella".into();
+        assert!(drop_relative_install_dirs(&mut cfg));
+        assert_eq!(cfg.stella.install_dir, "");
+    }
+
+    /// Stella's accepted patch is written by backend commands only, so a stale
+    /// settings save must not revert it — that would refuse the next launch.
+    #[test]
+    fn a_stale_save_keeps_the_accepted_stella_patch() {
+        let mut on_disk = Config::default();
+        on_disk.stella.patch_sha256 = "abc".into();
+        on_disk.stella.game_exe_path = "C:/data/client-stella/RecRoom.exe".into();
+        let mut incoming = Config::default();
+        incoming.preserve_backend_managed_fields(&on_disk);
+        assert_eq!(incoming.stella.patch_sha256, "abc");
+        assert_eq!(incoming.stella.game_exe_path, "C:/data/client-stella/RecRoom.exe");
+
+        incoming.clear_client_install(Network::Stella);
+        assert_eq!(incoming.stella.patch_sha256, "");
+        assert_eq!(Network::parse(Some("stella")), Network::Stella);
+        assert_eq!(Network::Stella.as_str(), "stella");
     }
 
     /// One network's folder inside the other's is the same collision a level

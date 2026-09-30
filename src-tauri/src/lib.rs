@@ -7,6 +7,7 @@ pub mod frost;
 pub mod game;
 pub mod scraper;
 pub mod server;
+pub mod stella;
 pub mod thumbs;
 pub mod updater;
 pub mod vanilla;
@@ -138,6 +139,9 @@ pub fn run() {
             game::check_steam,
             game::check_required_steam_app,
             game::check_smart_app_control,
+            // Stella's patch
+            stella::stella_patch_status,
+            stella::stella_update_patch,
             // Defender
             defender::add_defender_exclusion,
             defender::remove_defender_exclusion,
@@ -354,8 +358,8 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
                     || dir.contains('>')
                     || dir.contains('|')
             };
-            // Both networks' install dirs are user-settable, so both get checked.
-            if bad_dir(&cfg.install_dir) || bad_dir(&cfg.vanilla.install_dir) {
+            // Every network's install dir is user-settable, so all get checked.
+            if config::Network::ALL.into_iter().any(|n| bad_dir(cfg.install_dir_for(n))) {
                 return false;
             }
             config::drop_relative_install_dirs(&mut cfg);
@@ -450,12 +454,12 @@ fn online_label(v: Option<bool>) -> &'static str {
 /// Bug-report label for the installed client's build health. Mirrors
 /// `check_install`'s rule: a Radium client whose recorded build id differs
 /// from the one this launcher requires is outdated and must be re-downloaded.
-/// Vanilla installs come from a user-supplied zip with no build to track, so
-/// they are never called outdated.
+/// Vanilla installs come from a user-supplied zip, and Stella's feed has no
+/// version, so neither has a build to track and neither is called outdated.
 fn client_status_label(network: config::Network, is_installed: bool, client_build: &str) -> &'static str {
     if !is_installed {
         "Not installed"
-    } else if network == config::Network::Vanilla {
+    } else if network != config::Network::Radium {
         "Installed (no build tracking)"
     } else if client_build != download::REQUIRED_CLIENT_BUILD {
         "OUTDATED — re-download required"
@@ -731,10 +735,7 @@ async fn send_bug_report(
     };
     let client_status = client_status_label(network, is_installed, cfg.client_build_for(network));
     let install_dir = cfg.install_dir_for(network);
-    let av_excluded = match network {
-        config::Network::Radium => cfg.defender_excluded,
-        config::Network::Vanilla => cfg.vanilla.defender_excluded,
-    };
+    let av_excluded = cfg.defender_excluded_for(network);
 
     // Only the labels the form offers. Anything else used to be echoed as-is
     // into the embed and into the message that pings the channel, where an

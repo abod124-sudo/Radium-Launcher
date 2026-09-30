@@ -88,8 +88,40 @@ const NETWORKS = {
     hasPhotoFeed: true,
     // Vanilla has not shipped a client; the URL comes from Settings.
     needsConfiguredDownloadUrl: true
+  },
+  stella: {
+    label: 'STELLA',
+    logo: 'assets/stella-logo.png',
+    site: 'https://discord.com/invite/stella-rr',
+    downloadPage: 'https://discord.com/invite/stella-rr',
+    imageBase: '',
+    // Stella publishes no rooms, people, photos or player count the launcher
+    // can read, so ROOMS and PEOPLE are hidden rather than shown empty.
+    hasSocial: false,
+    hasFilters: false,
+    hasSort: false,
+    hasFeed: false,
+    hasPresence: false,
+    hasPhotoFeed: false,
+    needsConfiguredDownloadUrl: false,
+    // The client is patched at launch; the patch has its own UPDATE button.
+    hasPatch: true
   }
 };
+
+/// Where `network`'s own settings live in config: Radium's are the flat fields,
+/// every other network's are nested under its name (`config.vanilla`,
+/// `config.stella`).
+function networkState(network) {
+  return network === 'radium' ? config : (config?.[network] || {});
+}
+
+/// Write `fields` into `network`'s own part of config.
+function setNetworkState(network, fields) {
+  if (!config) return;
+  if (network === 'radium') Object.assign(config, fields);
+  else config[network] = { ...(config[network] || {}), ...fields };
+}
 
 function networkInfo(name = activeNetwork) {
   return NETWORKS[name] || NETWORKS.radium;
@@ -103,7 +135,7 @@ function networkInfo(name = activeNetwork) {
 /// made Vanilla report that Radium's client was a Vanilla install.
 function configInstallDir(network = activeNetwork) {
   if (!config) return '';
-  return (network === 'vanilla' ? config.vanilla?.installDir : config.installDir) || '';
+  return networkState(network).installDir || '';
 }
 
 /// Whether `network`'s client folder has been excluded from Windows Defender
@@ -115,39 +147,28 @@ function configInstallDir(network = activeNetwork) {
 /// Radium's folder also skipped the check for Vanilla's, which never was.
 function avExcluded(network = activeNetwork) {
   if (!config) return false;
-  return (network === 'vanilla' ? config.vanilla?.defenderExcluded : config.defenderExcluded) === true;
+  return networkState(network).defenderExcluded === true;
 }
 
 function setAvExcluded(value, network = activeNetwork) {
-  if (!config) return;
-  if (network === 'vanilla') {
-    config.vanilla = { ...(config.vanilla || {}), defenderExcluded: value };
-  } else {
-    config.defenderExcluded = value;
-  }
+  setNetworkState(network, { defenderExcluded: value });
 }
 
 /// Placeholder for the log/modal text before checkInstall() has resolved the
-/// real path. Per-network, since the two default to different folders.
+/// real path. Per-network, since each defaults to its own folder.
 function defaultInstallDirHint(network = activeNetwork) {
-  return network === 'vanilla'
-    ? '%APPDATA%\\com.radium.launcher\\client-vanilla'
-    : '%APPDATA%\\com.radium.launcher\\client';
+  const folder = network === 'radium' ? 'client' : `client-${network}`;
+  return `%APPDATA%\\com.radium.launcher\\${folder}`;
 }
 
 function setConfigInstallDir(dir, network = activeNetwork) {
-  if (!config) return;
-  if (network === 'vanilla') {
-    config.vanilla = { ...(config.vanilla || {}), installDir: dir };
-  } else {
-    config.installDir = dir;
-  }
+  setNetworkState(network, { installDir: dir });
 }
 
-/// The Settings path span for a network. Both rows exist at once, so every
-/// read and write of a displayed path has to name which network it means.
+/// The Settings path span for a network. Every network's row exists at once,
+/// so each read and write of a displayed path has to name which one it means.
 function installDirSpan(network = activeNetwork) {
-  return $(network === 'vanilla' ? 'cfgInstallDirVanilla' : 'cfgInstallDirRadium');
+  return $(`cfgInstallDir${network.charAt(0).toUpperCase()}${network.slice(1)}`);
 }
 
 /// Best known install path for `network`: what Settings is showing (the
@@ -195,10 +216,15 @@ function installDirsOverlap(a, b) {
   return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`);
 }
 
-/// The other network's currently resolved folder, as Settings is showing it.
-function otherNetworkInstallDir(network) {
-  const other = network === 'vanilla' ? 'radium' : 'vanilla';
-  return installDirSpan(other)?.textContent.trim() || configInstallDir(other) || '';
+/// The first other network whose folder, as Settings is showing it, is `dir`
+/// or holds it or sits inside it: `{ network, dir }`, or null.
+function overlappingInstallDir(network, dir) {
+  for (const other of Object.keys(NETWORKS)) {
+    if (other === network) continue;
+    const otherDir = installDirSpan(other)?.textContent.trim() || configInstallDir(other) || '';
+    if (otherDir && installDirsOverlap(otherDir, dir)) return { network: other, dir: otherDir };
+  }
+  return null;
 }
 
 /// `cfg` without `glass.bgImage`. See saveConfig in the shim below.
@@ -261,6 +287,14 @@ function withoutBackdrop(cfg) {
     onDownloadProgress: async (cb) => {
       if (unlistenMap['download-progress']) unlistenMap['download-progress']();
       unlistenMap['download-progress'] = await listen('download-progress', (event) => cb(event.payload));
+    },
+
+    // Stella's patch: whether it needs an UPDATE, and running one.
+    stellaPatchStatus: () => invoke('stella_patch_status'),
+    stellaUpdatePatch: () => invoke('stella_update_patch'),
+    onStellaPatchProgress: async (cb) => {
+      if (unlistenMap['stella-patch-progress']) unlistenMap['stella-patch-progress']();
+      unlistenMap['stella-patch-progress'] = await listen('stella-patch-progress', (event) => cb(event.payload));
     },
 
     // Game
@@ -370,6 +404,12 @@ let isDownloading         = false;
 let isCancelling          = false;
 let isPaused              = false;
 let isInstalled           = false;
+// Stella's patch: the last stella_patch_status result (null until one has run
+// since the client was found), and whether an UPDATE is running.
+let stellaPatch           = null;
+let stellaPatchUpdating   = false;
+// Where Stella keeps its patch (from checkInstall); outside the client folder.
+let stellaPatchDir        = '';
 let playMode              = 'screen';
 let launchAfterExclusion  = false;
 let sacWarnedThisSession  = false;
@@ -1205,7 +1245,7 @@ async function loadConfig() {
 
   // Network last, so the brand and capability gating are applied against a
   // fully-loaded config.
-  applyNetworkUI(config.network === 'vanilla' ? 'vanilla' : 'radium');
+  applyNetworkUI(NETWORKS[config.network] ? config.network : 'radium');
 
   // Both install rows, not just the active network's — after applyNetworkUI so
   // the ACTIVE tag lands on the row the loaded config actually selected.
@@ -2220,6 +2260,7 @@ async function checkInstall() {
     console.error('checkInstall error:', e);
   }
   isInstalled = result?.installed ?? false;
+  if (result?.patchDir) stellaPatchDir = result.patchDir;
   const qscC = $('qsc-client');
   // Only the active network's row: `result` describes the network checkInstall
   // was called for. The other row is filled by refreshInstallDirRows().
@@ -2278,6 +2319,10 @@ async function checkInstall() {
         outdatedPromptKey = promptKey;
         showModal($('clientUpdateModal'));
       }
+    } else if (activeNetwork === 'stella') {
+      // Stella's client has no version feed; what updates is its patch, which
+      // has its own Steam-style UPDATE button. Throttled inside.
+      refreshStellaPatch();
     } else if (!result?.isRunning && !clientUpdateAutoChecked) {
       // Live version check against recroom.baby (Steam-style update prompt).
       // Only auto-run this once per session — the manual button handles re-checks.
@@ -2316,6 +2361,8 @@ async function checkInstall() {
     }
   }
 
+  if (!isInstalled) stellaPatch = null;
+  applyStellaPatchUI();
   updateDownloadCta();
 }
 
@@ -2594,9 +2641,12 @@ async function runClientDownload({ resuming = false } = {}) {
     addLog('Resuming download...', 'info');
     toast('Resuming download...', 'info', 2500);
   } else {
-    addLog(activeNetwork === 'radium'
-      ? 'Starting download from recroom.baby (downloads page)...'
-      : 'Starting download from the configured Vanilla client URL...', 'info');
+    addLog({
+      radium: 'Starting download from recroom.baby (downloads page)...',
+      vanilla: 'Starting download from the configured Vanilla client URL...',
+      // Sent without a length, so the bar can't show a percentage.
+      stella: "Starting download from Stella (about 4.7 GB; Stella's server doesn't send the size)...",
+    }[activeNetwork] || 'Starting download...', 'info');
     toast('Download started!', 'info', 2500);
   }
 
@@ -2619,6 +2669,13 @@ async function runClientDownload({ resuming = false } = {}) {
     addLog(`Download & extraction complete in ${elapsed}s.`, 'ok');
     addLog(`Exe: ${result.exePath || 'Found in client dir'}`, 'ok');
     toast(`${networkInfo().label} client installed!`, 'ok', 4000);
+    // Stella: the install also fetched the patch, installing it if it was a
+    // checked build. Either way the next checkInstall() asks afresh, so a
+    // patch still to accept shows up as UPDATE straight away.
+    if (activeNetwork === 'stella') {
+      stellaPatch = null;
+      if (result.patchInstalled) addLog("Stella's patch installed (a checked build).", 'ok');
+    }
     // The download stamped a new client build id / version / ETag directly into
     // config.json. Re-sync our in-memory copy from disk so the next settings
     // autosave (which writes the whole config back) doesn't revert those to the
@@ -2778,6 +2835,10 @@ $('btnClientUpdateAction')?.addEventListener('click', () => {
     return;
   }
   if (btn?.dataset.mode === 'checking') return;
+  if (activeNetwork === 'stella') {
+    refreshStellaPatch({ manual: true });
+    return;
+  }
   setClientUpdateButton('checking');
   toast('Checking for client updates...', 'info', 2000);
   checkForClientUpdate(true);
@@ -2844,6 +2905,139 @@ async function checkForClientUpdate(manual = false) {
     setClientUpdateButton('check');
   }
 }
+
+// ─── Stella patch UPDATE (Steam-style) ─────────────────────────────────────
+// Stella's client is patched at launch by a small DLL that changes far more
+// often than the client. A new build of it is offered the way Steam offers a
+// game update: a blue UPDATE button in PLAY's place with an "UPDATE QUEUED /
+// 0% Complete" readout, rather than the launcher-update dialog, so it is never
+// mistaken for an update to the launcher. Pressing it is what accepts that
+// build; the backend then injects only a patch matching what was accepted.
+
+/// How often an installed Stella client is re-checked for a new patch while
+/// the launcher stays open.
+const STELLA_PATCH_RECHECK_MS = 3 * 60 * 60 * 1000;
+let stellaPatchCheckedAt = 0;
+let stellaPatchCheckSeq = 0;
+
+function stellaUpdateNeeded() {
+  return activeNetwork === 'stella' && isInstalled
+    && (stellaPatchUpdating || stellaPatch?.updateAvailable === true);
+}
+
+function setStellaUpdateProgress(title, pct) {
+  const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+  const t = $('stellaUpdateTitle'); if (t) t.textContent = title;
+  const p = $('stellaUpdatePct'); if (p) p.textContent = `${clamped}% Complete`;
+  const f = $('stellaUpdateFill'); if (f) f.style.width = `${clamped}%`;
+}
+
+/// Swap PLAY for UPDATE (or back) to match the last patch check.
+function applyStellaPatchUI() {
+  const needed = stellaUpdateNeeded();
+  document.body.classList.toggle('stella-update-needed', needed);
+  document.body.classList.toggle('stella-updating', needed && stellaPatchUpdating);
+  const btn = $('btnStellaUpdate');
+  if (btn) btn.disabled = stellaPatchUpdating;
+  if (!stellaPatchUpdating) {
+    // Steam says QUEUED for an update waiting on you and REQUIRED when the
+    // game can't run without it; a missing patch is the second.
+    setStellaUpdateProgress(stellaPatch?.installed ? 'UPDATE QUEUED' : 'UPDATE REQUIRED', 0);
+  }
+}
+
+/// Ask whether Stella's patch needs installing or has a new build. Automatic
+/// checks are throttled; a manual one (Check for Updates) always runs.
+async function refreshStellaPatch({ manual = false } = {}) {
+  if (activeNetwork !== 'stella' || !isInstalled || stellaPatchUpdating) return;
+  if (!manual && stellaPatch && Date.now() - stellaPatchCheckedAt < STELLA_PATCH_RECHECK_MS) {
+    applyStellaPatchUI();
+    return;
+  }
+  const seq = ++stellaPatchCheckSeq;
+  if (manual) setClientUpdateButton('checking');
+  let status = null;
+  try {
+    status = await window.radium?.stellaPatchStatus();
+  } catch (e) {
+    status = { success: false, error: String(e) };
+  }
+  // A switch away, or a newer check, while this one was in flight.
+  if (seq !== stellaPatchCheckSeq || activeNetwork !== 'stella') return;
+  stellaPatchCheckedAt = Date.now();
+  stellaPatch = status;
+  if (isInstalled) setClientUpdateButton('check');
+  applyStellaPatchUI();
+
+  if (!status?.success) {
+    const reason = status?.error || 'Unknown error';
+    addLog(`Couldn't check for a Stella update: ${reason}`, 'warn');
+    if (manual) toast(`Update check failed: ${reason}`, 'error', 4000);
+  } else if (status.updateAvailable) {
+    addLog(status.installed
+      ? `Stella has an update (patch ${status.latestSha256.slice(0, 12)}…). Press UPDATE on Home to install it.`
+      : 'Stella needs its patch before it can be played. Press UPDATE on Home to install it.', 'warn');
+    if (manual) toast('Stella has an update.', 'ok', 3000);
+  } else if (manual) {
+    addLog('Stella is up to date.', 'ok');
+    toast('Stella is up to date.', 'ok', 3000);
+  }
+}
+
+async function runStellaPatchUpdate() {
+  if (stellaPatchUpdating || activeNetwork !== 'stella') return;
+  if (isGameRunning || isGameLaunching) {
+    toast('Close the game before updating.', 'warn', 4000);
+    return;
+  }
+  stellaPatchUpdating = true;
+  applyStellaPatchUI();
+  setStellaUpdateProgress('UPDATING', 0);
+  addLog('Updating Stella...', 'info');
+
+  let result = null;
+  try {
+    result = await window.radium?.stellaUpdatePatch();
+  } catch (e) {
+    result = { success: false, error: String(e) };
+  }
+  stellaPatchUpdating = false;
+
+  if (result?.success) {
+    stellaPatch = {
+      ...(stellaPatch || {}),
+      success: true,
+      installed: true,
+      updateAvailable: false,
+      installedSha256: result.sha256,
+      latestSha256: result.sha256,
+    };
+    stellaPatchCheckedAt = Date.now();
+    // The backend recorded the accepted build in config.json; keep the next
+    // settings autosave from carrying a stale copy (it preserves the field
+    // anyway, but the in-memory config should say what is on disk).
+    config = (await window.radium?.getConfig()) || config;
+    addLog(`Stella updated (patch ${String(result.sha256).slice(0, 12)}…${result.pinned ? ', a checked build' : ''}).`, 'ok');
+    toast('Stella is up to date.', 'ok', 3000);
+  } else {
+    const err = result?.error || 'Unknown error';
+    addLog(`Stella update failed: ${err}`, 'error');
+    toast(`Update failed: ${err}`, 'error', 5000);
+  }
+  applyStellaPatchUI();
+}
+
+$('btnStellaUpdate')?.addEventListener('click', () => runStellaPatchUpdate());
+
+window.radium?.onStellaPatchProgress((p) => {
+  if (!stellaPatchUpdating || !p) return;
+  if (p.phase === 'download') setStellaUpdateProgress('UPDATING', p.pct || 0);
+  else if (p.phase === 'install') setStellaUpdateProgress('INSTALLING', p.pct || 99);
+  else if (p.phase === 'done') setStellaUpdateProgress('INSTALLING', 100);
+});
+
+// A launcher left open for days still finds a new patch.
+setInterval(() => { refreshStellaPatch(); }, STELLA_PATCH_RECHECK_MS);
 
 $('btnCancelDl')?.addEventListener('click', () => {
   const wasPaused = isPaused;
@@ -3042,12 +3236,12 @@ document.querySelectorAll('[data-change-folder]').forEach(btn => {
     // the other network's game in a folder that holds it. It silently clears
     // the colliding entry on the next config read, so catch it here instead
     // and leave the user's existing setting alone.
-    const other = otherNetworkInstallDir(network);
-    if (other && installDirsOverlap(other, newDir)) {
-      const otherLabel = networkInfo(network === 'vanilla' ? 'radium' : 'vanilla').label;
-      const why = normDir(other) === normDir(newDir) ? 'is already' : 'overlaps';
+    const clash = overlappingInstallDir(network, newDir);
+    if (clash) {
+      const otherLabel = networkInfo(clash.network).label;
+      const why = normDir(clash.dir) === normDir(newDir) ? 'is already' : 'overlaps';
       toast(`That folder ${why} ${otherLabel}'s install location. Pick a different one.`, 'error', 4000);
-      addLog(`Rejected ${label} install directory: ${newDir} ${why} ${otherLabel}'s (${other}).`, 'warn');
+      addLog(`Rejected ${label} install directory: ${newDir} ${why} ${otherLabel}'s (${clash.dir}).`, 'warn');
       return;
     }
 
@@ -3163,6 +3357,15 @@ $('btnExcludeAvConfirm')?.addEventListener('click', () => {
   executeExcludeAv();
 });
 
+/// Every folder an antivirus has to leave alone for the active network: the
+/// client folder, plus Stella's patch folder (the same pair the Defender
+/// exclusion covers; see `exclusion_dirs` in defender.rs).
+function avExclusionFolders() {
+  const folders = [shownInstallDir()];
+  if (activeNetwork === 'stella' && stellaPatchDir) folders.push(stellaPatchDir);
+  return folders.filter(Boolean);
+}
+
 // Third-Party AV Warning Modal Actions
 function showThirdPartyAvModal(thirdPartyAvs) {
   const m = $('thirdPartyAvModal');
@@ -3174,9 +3377,17 @@ function showThirdPartyAvModal(thirdPartyAvs) {
     avNames.textContent = [...new Set(thirdPartyAvs.map(av => av.name))].join(', ');
   }
 
+  const folders = avExclusionFolders();
   const clientPathCode = $('tpClientFolderPath');
   if (clientPathCode) {
-    clientPathCode.textContent = shownInstallDir();
+    clientPathCode.textContent = folders.join('\n');
+  }
+  const intro = $('tpFolderIntro');
+  if (intro) {
+    const label = networkInfo().label;
+    intro.textContent = folders.length > 1
+      ? `both ${label} folders below (the game, and the patch it needs)`
+      : `the ${label} client folder`;
   }
 
   // The primary button doubles as "continue to launch" (from the Play flow) and
@@ -3202,11 +3413,11 @@ $('thirdPartyAvModalClose')?.addEventListener('click', hideThirdPartyAvModal);
 $('btnThirdPartyAvCancel')?.addEventListener('click', hideThirdPartyAvModal);
 
 $('btnCopyTpPath')?.addEventListener('click', async () => {
-  const clientPath = shownInstallDir();
-  if (clientPath) {
+  const folders = avExclusionFolders();
+  if (folders.length) {
     try {
-      await navigator.clipboard.writeText(clientPath);
-      toast('Client folder path copied!', 'ok');
+      await navigator.clipboard.writeText(folders.join('\n'));
+      toast(folders.length > 1 ? 'Folder paths copied!' : 'Client folder path copied!', 'ok');
     } catch (e) {
       toast('Failed to copy path.', 'error');
     }
@@ -3338,7 +3549,7 @@ async function checkServerStatus(silent = false) {
   const isRadium = activeNetwork === 'radium';
   const apiUrl = isRadium
     ? (config.apiUrl || 'https://api.radie.app/')
-    : 'https://api.vanillarec.net';
+    : { vanilla: 'https://api.vanillarec.net', stella: 'https://api.stellaonline.org' }[activeNetwork];
   const cdnUrl = 'https://cdn.recroomarchive.org';
 
   // Immediately show CHECKING... in quick stats while pings are in-flight
@@ -3394,7 +3605,12 @@ async function updatePlayerCount(silent = false) {
 
   try {
     const result = await window.radium?.getPlayerCount();
-    if (result && result.success) {
+    if (result?.unsupported) {
+      // Stella publishes no player count: say so, rather than OFFLINE.
+      qsPlayers.textContent = 'N/A';
+      qscPlayers?.classList.remove('online', 'offline');
+      if (!silent) addLog(`${networkInfo().label} doesn't publish a player count.`, 'info');
+    } else if (result && result.success) {
       qsPlayers.textContent = result.count;
       if (qscPlayers) {
         qscPlayers.classList.add('online');
@@ -3459,7 +3675,9 @@ $('steamModal')?.addEventListener('click', (e) => {
 // Final gate before launching: make sure the required Rec Room Steam app
 // (steam://install/92) is installed. If it already is, this is invisible.
 async function executeLaunch() {
-  if (config.disableWarnings !== true) {
+  // Codename Gordon is what the older clients lean on for Steam; Stella's
+  // 2024 client doesn't need it.
+  if (config.disableWarnings !== true && activeNetwork !== 'stella') {
     let installed = true;
     try {
       installed = await window.radium?.checkRequiredSteamApp();
@@ -3675,6 +3893,7 @@ $('btnPlay')?.addEventListener('click', async () => {
     return;
   }
   if (isGameLaunching || !isInstalled) return;
+  if (stellaUpdateNeeded()) return;
   isGameLaunching = true;
 
   // Full pre-launch safety chain: AV exclusion → Smart App Control → Steam →
@@ -3758,7 +3977,8 @@ function playFromTray() {
   const btn = $('btnPlay');
   // Anything but a plain launch needs the window: the stop confirmation, a
   // missing install, a download in the way.
-  if (isGameRunning || !isInstalled || isDownloading || isPaused || !btn || btn.disabled) {
+  if (isGameRunning || !isInstalled || isDownloading || isPaused || !btn || btn.disabled
+      || stellaUpdateNeeded()) {
     window.radium?.showLauncher();
     switchTab('home');
     if (isGameRunning) btn?.click();
@@ -4024,8 +4244,12 @@ function applyNetworkUI(name) {
   activeNetwork = NETWORKS[name] ? name : 'radium';
   const info = networkInfo();
 
-  document.body.classList.toggle('network-vanilla', activeNetwork === 'vanilla');
-  document.body.classList.toggle('network-radium', activeNetwork === 'radium');
+  for (const name of Object.keys(NETWORKS)) {
+    document.body.classList.toggle(`network-${name}`, activeNetwork === name);
+  }
+  document.body.classList.toggle('network-no-social', info.hasSocial === false);
+  // The UPDATE button is Stella's; another network never inherits it.
+  applyStellaPatchUI();
   // Mirrored so the pre-paint bootstrap in index.html can brand the window
   // before CSS loads on the next launch.
   try { localStorage.setItem('radium-network', activeNetwork); } catch (e) {}
@@ -4185,7 +4409,10 @@ async function setNetwork(name) {
 
   // Only refetch a list the user is actually looking at.
   const openTab = document.querySelector('.tab-panel.active')?.id;
-  if (openTab === 'tab-rooms') {
+  if ((openTab === 'tab-rooms' || openTab === 'tab-people') && networkInfo().hasSocial === false) {
+    // Their nav buttons just disappeared (Stella); don't strand the user there.
+    switchTab('home');
+  } else if (openTab === 'tab-rooms') {
     loadFilters();
     loadRooms();
   } else if (openTab === 'tab-people') {

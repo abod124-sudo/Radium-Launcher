@@ -64,23 +64,31 @@
     return el;
   }
 
+  const NETWORK_ROWS = [
+    ['radium', 'Radium', 'logo.png'],
+    ['vanilla', 'Vanilla', 'assets/vanilla-logo.png'],
+    ['stella', 'Stella', 'assets/stella-logo.png'],
+  ];
+
   function build({ network, gameRunning }) {
-    const vanilla = network === 'vanilla';
+    const active = NETWORK_ROWS.find(([id]) => id === network) || NETWORK_ROWS[0];
+    const vanilla = active[0] === 'vanilla';
+    // Stella has no Rooms or People pages, as in the sidebar.
+    const social = active[0] !== 'stella';
     const rows = [
       gameRunning
         ? item('play', 'Stop Game', { glyph: 'stop', cls: 'play' })
-        : item('play', `Play ${vanilla ? 'Vanilla' : 'Radium'}`, { glyph: 'play', cls: 'play' }),
+        : item('play', `Play ${active[1]}`, { glyph: 'play', cls: 'play' }),
       sep(),
       item('tab:home', 'Home'),
-      item('tab:rooms', 'Rooms'),
-      item('tab:people', 'People'),
+      ...(social ? [item('tab:rooms', 'Rooms'), item('tab:people', 'People')] : []),
       // The Feed page exists on Vanilla only, as in the sidebar.
       ...(vanilla ? [item('tab:feed', 'Feed')] : []),
       item('tab:settings', 'Settings'),
       sep(),
       header('Network'),
-      item('network:radium', 'Radium', { icon: 'logo.png', cls: vanilla ? '' : 'selected' }),
-      item('network:vanilla', 'Vanilla', { icon: 'assets/vanilla-logo.png', cls: vanilla ? 'selected' : '' }),
+      ...NETWORK_ROWS.map(([id, label, icon]) =>
+        item(`network:${id}`, label, { icon, cls: id === active[0] ? 'selected' : '' })),
       sep(),
       item('open', 'Open Radium Launcher'),
       item('quit', 'Quit'),

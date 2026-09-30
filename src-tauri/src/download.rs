@@ -88,12 +88,22 @@ pub fn digest_matches(actual: &str, expected: &str) -> bool {
 
 /// Basename of the download artifacts for `network`.
 ///
-/// The two networks keep separate zips and separate resume state, so a paused
+/// The networks keep separate zips and separate resume state, so a paused
 /// Radium download is not clobbered by starting a Vanilla one (and vice versa).
 fn zip_stem(network: Network) -> &'static str {
     match network {
         Network::Radium => "client.zip",
         Network::Vanilla => "client-vanilla.zip",
+        Network::Stella => "client-stella.zip",
+    }
+}
+
+/// The User-Agent `network`'s client download is fetched with. Stella's
+/// Cloudflare turns away anything but its own launcher's.
+fn download_user_agent(network: Network) -> &'static str {
+    match network {
+        Network::Stella => crate::stella::USER_AGENT,
+        Network::Radium | Network::Vanilla => BROWSER_UA,
     }
 }
 
@@ -408,6 +418,10 @@ async fn resolve_download_info(
     app: &tauri::AppHandle,
     network: Network,
 ) -> Result<(String, String), String> {
+    if network == Network::Stella {
+        // A fixed "latest" URL with no version published beside it.
+        return Ok((String::new(), crate::stella::CLIENT_URL.to_string()));
+    }
     if network == Network::Vanilla {
         // Vanilla has no published build yet — vanillarec.net lists every
         // platform as "coming soon" with dead download buttons — so the URL is
@@ -484,8 +498,10 @@ pub async fn check_client_update(app: tauri::AppHandle, network: Option<String>)
 
     // Update checking is driven by scraping the recroom.baby download page,
     // which describes Radium's client only. Vanilla installs come from a
-    // user-supplied URL with no version feed to compare against.
-    if network == Network::Vanilla {
+    // user-supplied URL with no version feed to compare against, and Stella's
+    // client URL answers with neither a version nor an ETag. (Stella's patch,
+    // which changes far more often, has its own check: `stella_patch_status`.)
+    if network != Network::Radium {
         return json!({ "success": true, "hasUpdate": false, "versionKnown": false });
     }
 
@@ -693,7 +709,7 @@ async fn download_client_impl(
         .map_err(|e| e.to_string())?;
 
     let send = |from: u64| {
-        let mut req = http.get(&download_url).header("User-Agent", BROWSER_UA);
+        let mut req = http.get(&download_url).header("User-Agent", download_user_agent(network));
         if from > 0 {
             req = req.header(reqwest::header::RANGE, format!("bytes={}-", from));
             // If-Range: the server returns 206 (continue) only if the file still
@@ -1019,7 +1035,7 @@ async fn download_client_impl(
     }
 
     // Find the game's launch target in the extracted files.
-    let Some(bat_path) = game::find_game_exe(&client_dir) else {
+    let Some(bat_path) = game::find_game_exe_for(network, &client_dir) else {
         // The old install was cleared to make room for this one, so the path
         // the config still names is gone. Recording it anyway, as this used
         // to, claimed a build for an install with nothing in it to run.
@@ -1058,6 +1074,20 @@ async fn download_client_impl(
         return Err(format!("The client was installed, but the launcher couldn't record it. {}", e));
     }
 
+    // Stella's client can't reach Stella without its patch. A pinned build
+    // goes in now; anything else, or a fetch that failed, is left for the
+    // UPDATE button, which the frontend shows once it has checked.
+    let patch_installed = if network == Network::Stella {
+        let _ = app.emit("download-progress", json!({
+            "phase": "extract",
+            "pct": 100,
+            "status": "Getting Stella's patch..."
+        }));
+        crate::stella::adopt_pinned_patch(&app).await.unwrap_or(false)
+    } else {
+        false
+    };
+
     let _ = app.emit("download-progress", json!({
         "phase": "done",
         "pct": 100
@@ -1065,7 +1095,8 @@ async fn download_client_impl(
 
     Ok(json!({
         "success": true,
-        "exePath": bat_path
+        "exePath": bat_path,
+        "patchInstalled": patch_installed
     }))
 }
 
@@ -1406,11 +1437,11 @@ async fn uninstall_client_impl(
     // Clear relevant config fields.
     config::update(&app, |cfg| {
         cfg.clear_client_install(network);
-        match network {
-            Network::Radium => cfg.defender_excluded = false,
-            Network::Vanilla => cfg.vanilla.defender_excluded = false,
-        }
+        cfg.set_defender_excluded(network, false);
     })?;
+    if network == Network::Stella {
+        crate::stella::remove_patch(&app);
+    }
 
     Ok(json!({ "success": true }))
 }
@@ -1446,7 +1477,7 @@ pub async fn check_install(
     // I/O beyond two `exists()` calls and stays here.
     if exe_path.is_empty() {
         let dir = client_dir.clone();
-        exe_path = tokio::task::spawn_blocking(move || game::find_game_exe(&dir))
+        exe_path = tokio::task::spawn_blocking(move || game::find_game_exe_for(network, &dir))
             .await
             .map_err(|e| format!("Install scan failed: {}", e))?
             .unwrap_or_default();
@@ -1483,7 +1514,14 @@ pub async fn check_install(
         // Surfaced so the frontend can log the concrete build mismatch behind an
         // "outdated" verdict instead of an opaque message.
         "clientBuild": cfg.client_build_for(network),
-        "requiredBuild": REQUIRED_CLIENT_BUILD
+        "requiredBuild": REQUIRED_CLIENT_BUILD,
+        // Stella's patch lives outside the client folder, so an antivirus has
+        // to be told about both. See `defender::exclusion_dirs`.
+        "patchDir": (network == Network::Stella).then(|| {
+            crate::stella::patch_path(&app)
+                .parent()
+                .map(|d| d.to_string_lossy().to_string())
+        }).flatten()
     }))
 }
 
@@ -1531,6 +1569,7 @@ pub async fn select_folder(network: Option<String>) -> Result<Option<String>, St
     let title = match Network::parse(network.as_deref()) {
         Network::Radium => "Select Radium Client Install Folder",
         Network::Vanilla => "Select Vanilla Client Install Folder",
+        Network::Stella => "Select Stella Client Install Folder",
     };
     // The dialog blocks until the user answers, which can be minutes. On the
     // blocking pool, so it doesn't hold an async worker other commands and the

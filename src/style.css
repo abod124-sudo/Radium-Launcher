@@ -599,7 +599,7 @@ a:hover, .text-link:hover {
    255px down to the 22–38px it is shown at turned its brushwork to noise.
    Matched by file so it follows the logo wherever it is swapped in — the
    switcher button's src changes with the network. */
-img[src$="vanilla-logo.png"] { image-rendering: auto !important; }
+img:is([src$="vanilla-logo.png"], [src$="stella-logo.png"]) { image-rendering: auto !important; }
 /* The brand row is icon + wordmark + caret inside a fixed-width sidebar, so
    a wide face can make the row outgrow the button and push the caret past
    its edge — which is what the modern skins' wider face does here.
@@ -1321,6 +1321,10 @@ body.theme-moderndark .btn-download-big {
 .home-hero {
   position: relative;
   height: 232px;
+  /* What the art fades into (see the mask on .home-hero-art): black from
+     where the fade starts, and nothing above it, so the soft edge of the
+     rounded top corners shows no dark fringe. */
+  background: linear-gradient(180deg, transparent 40%, #000 46%);
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
   overflow: hidden;
@@ -1349,7 +1353,10 @@ body.theme-moderndark .btn-download-big {
 
      Masking the layer means there is simply no artwork painted in the lower
      part of the banner, at any opacity, in any corner. What shows there is the
-     hero's own panel colour, which is a UI colour and matches every skin. */
+     hero's own background, black like the scrim from the fade down, so the art
+     fades straight into it. (It was the skin's surface colour, which on the
+     light skins left a pale, see-through-looking band between the art and the
+     scrim.) The 46% here and the hero background's 40% go together. */
   -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,0) 84%);
   mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,0) 84%);
 }
@@ -1374,6 +1381,75 @@ body.network-vanilla .home-hero-mark {
   background-color: #3a2418;
   -webkit-mask-image: url('assets/vanilla-mark.svg');
   mask-image: url('assets/vanilla-mark.svg');
+}
+
+/* Stella brand. Its logo is a full-colour app icon rather than a one-colour
+   mark, so it is painted as itself instead of through a mask, on a dark field
+   in its own maroon (#300C08) that the salmon icon stands out from. */
+body.network-stella .home-hero-art {
+  background: radial-gradient(ellipse at 50% 30%, #5a1a13 0%, #300c08 55%, #1a0604 100%);
+}
+body.network-stella .home-hero-mark {
+  width: 104px; max-width: 30%; height: 104px;
+  background: url('assets/stella-logo.png') center / contain no-repeat;
+  -webkit-mask: none;
+  mask: none;
+}
+
+/* A network with no rooms or people API (Stella) has no ROOMS or PEOPLE. */
+body.network-no-social .network-social-only { display: none !important; }
+
+/* ── Steam-style game UPDATE ──────────────────────────────────────────
+   Stella's patch update takes PLAY's place, drawn like Steam's library
+   UPDATE button and its "UPDATE QUEUED / 0% Complete" readout, so it reads
+   as the game having an update rather than the launcher. Deliberately the
+   same in every skin, like the hero art it sits on. */
+.steam-update { display: none; }
+body.stella-update-needed .steam-update {
+  display: flex; align-items: center; gap: 16px; flex-shrink: 0;
+}
+body.stella-update-needed .home-hero-bar :is(.btn-play, .hero-mode) { display: none !important; }
+
+.home-hero-bar .btn-steam-update {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  min-width: 148px; height: 44px; padding: 0 22px; flex-shrink: 0;
+  border: none; border-radius: 2px; box-shadow: none; outline-offset: 2px;
+  background: linear-gradient(90deg, #47bfff 0%, #2f8ef4 45%, #1a6fe8 100%);
+  color: #ffffff;
+  font-family: "Motiva Sans", var(--font-ui), sans-serif;
+  font-size: 15px; font-weight: 500; letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.home-hero-bar .btn-steam-update:hover { filter: brightness(1.12); }
+.home-hero-bar .btn-steam-update:is(:active, .is-pressed) { filter: brightness(0.92); }
+.home-hero-bar .btn-steam-update:disabled { cursor: default; filter: saturate(0.6) brightness(0.9); }
+.btn-steam-update svg { width: 20px; height: 20px; fill: currentColor; flex-shrink: 0; }
+/* Spins while the update runs, as Steam's does. */
+body.stella-updating .btn-steam-update svg { animation: steamUpdateSpin 1.1s linear infinite; }
+@keyframes steamUpdateSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  body.stella-updating .btn-steam-update svg { animation: none; }
+}
+
+.steam-update-status {
+  display: flex; flex-direction: column; gap: 2px; min-width: 150px;
+  font-family: "Motiva Sans", var(--font-ui), sans-serif;
+}
+.steam-update-title {
+  font-size: 12px; font-weight: 500; letter-spacing: 0.5px;
+  text-transform: uppercase; color: #dcdedf;
+}
+.steam-update-sub { font-size: 12px; color: #8b929a; }
+.steam-update-bar {
+  margin-top: 4px; height: 4px; width: 170px;
+  background: #2a2e36; border-radius: 1px; overflow: hidden;
+}
+.steam-update-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #47bfff, #1a9fff);
+  transition: width 0.2s linear;
 }
 
 /* Capabilities Vanilla's API doesn't have. Hidden rather than shown-empty, so
@@ -2274,9 +2350,12 @@ body.theme-moderndark .modal-close-btn {
   background-color: var(--status-online);
 }
 
+/* Red, like an OFFLINE status card, so it can't be mistaken for "unknown"
+   (the plain grey dot a network without presence gets). */
 .status-dot.offline {
-  background-color: var(--text-muted);
+  background-color: #ff4444;
 }
+.profile-status-badge:has(.status-dot.offline) { color: #ff6666; }
 
 .native-pagination {
   padding-top: 6px;
@@ -3857,6 +3936,8 @@ body.animations-enabled.theme-moderndark .room-card:hover {
 }
 body.animations-enabled .network-menu:not([hidden]) .network-option:nth-of-type(1) { animation-delay: 0.04s; }
 body.animations-enabled .network-menu:not([hidden]) .network-option:nth-of-type(2) { animation-delay: 0.09s; }
+/* One per network: an option without a delay runs first, out of order. */
+body.animations-enabled .network-menu:not([hidden]) .network-option:nth-of-type(3) { animation-delay: 0.14s; }
 
 /* The exit, mirroring the drop. The options do not stagger back out — see the
    note on the manage menu's exit for why a close should not be made to wait. */
