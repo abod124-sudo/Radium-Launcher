@@ -1170,6 +1170,25 @@ body:is(.theme-winxp, .theme-royalenoir):not(.glass-enabled) :is(.card-cheer, .c
   0%   { transform: translateX(-110%); }
   100% { transform: translateX(300%); }
 }
+/* The block-drawn skins: a Windows-style marquee rather than the slide above.
+   Slid, the blocks smeared at speed, came in cut in half at both ends, and
+   ran over the bar's frame, since the track clips at its frame rather than
+   inside it. Here the fill stays the size of the track and the marquee is its
+   background: an 8-block tile stepped across one block (10px) at a time, so
+   it is clipped to the inside of the track, and its blocks land where a
+   determinate bar's do. applyIndeterminateBar() in app.js adds .segmented and
+   supplies the track's width in whole blocks. */
+.dlp-bar-wrap > .dlp-bar-fill.indeterminate.segmented {
+  --marquee: 80px;
+  width: 100% !important;
+  background-size: var(--marquee) 100%;
+  background-repeat: no-repeat;
+  animation: dlp-marquee calc(var(--bar-steps, 80) * 35ms) steps(var(--bar-steps, 80)) infinite;
+}
+@keyframes dlp-marquee {
+  from { background-position: calc(-1 * var(--marquee)) 0; }
+  to   { background-position: var(--bar-track, 720px) 0; }
+}
 
 /* Phase stepper: Download → Extract → Done */
 .dlp-steps { display: flex; gap: 6px; margin-bottom: 10px; }
@@ -1827,6 +1846,7 @@ body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item
 body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item:nth-of-type(3) { animation-delay: 0.09s; }
 body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item:nth-of-type(4) { animation-delay: 0.12s; }
 body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item:nth-of-type(5) { animation-delay: 0.15s; }
+body.animations-enabled.theme-moderndark .manage-menu:not([hidden]) .manage-item:nth-of-type(6) { animation-delay: 0.18s; }
 @keyframes manageItemIn {
   from { opacity: 0; transform: translateX(6px); }
   to   { opacity: 1; transform: none; }
@@ -2915,24 +2935,7 @@ body.theme-moderndark #photoDetailCreatorAvatar {
   height: 100%;
   object-fit: cover;
   pointer-events: none;
-  /* No `will-change: transform` here. It promoted every photo in the feed to
-     its own compositor layer permanently — dozens of full-size textures held
-     for an effect that only one image at a time can be running. MDN calls this
-     out directly: will-change is a last resort, not something to apply to a
-     large number of elements. The compositor already promotes an element for
-     the duration of a transform transition without being told to. */
-}
-
-/* Gated like every other transition in this stylesheet: the base skins snap,
-   and only the modern themes with animations switched on get the movement.
-   The feed image was the one hover effect that animated unconditionally, so
-   turning animations off did not turn it off. */
-body.animations-enabled .feed-post-image {
-  transition: transform 0.2s ease;
-}
-
-body.animations-enabled .feed-post-image-wrap:hover .feed-post-image {
-  transform: scale(1.02);
+  /* No hover zoom: the photo holds still under the pointer. */
 }
 
 .feed-post-footer {

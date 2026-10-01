@@ -334,6 +334,19 @@ body.theme-macosclassic {
   & .toast { padding: 8px 12px; }
   & .dlp-step-idx { border-radius: 0; }
   & .dlp-dot { border-radius: 0; }
+
+  /* A download of unknown size (Stella's server sends none) is the barber
+     pole Mac OS draws for one: lavender stripes running along the whole bar,
+     rather than the shared fill sliding over the bar's frame. The stripes
+     move with Aqua's keyframes, which shift the second layer one tile. */
+  & .dlp-bar-wrap > .dlp-bar-fill.indeterminate {
+    width: 100% !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.12) 100%),
+      linear-gradient(45deg, #6666cc 25%, #ccccff 25%, #ccccff 50%, #6666cc 50%, #6666cc 75%, #ccccff 75%);
+    background-size: 100% 100%, 16px 16px;
+    animation: sk-aqua-stripes 0.8s linear infinite;
+  }
 }
 
 /* ── Mac OS X Aqua ────────────────────────────────────────────────────── */
@@ -645,6 +658,11 @@ body.theme-macosaqua {
   & .native-search-bar .cfg-input { border-radius: 999px; padding: 4px 12px; }
   & .modal-btn.modal-btn-primary { animation: sk-aqua-throb 1.6s ease-in-out infinite; }
   & .dlp-bar-fill { animation: sk-aqua-stripes 0.8s linear infinite; }
+  /* Unknown size: the stripes run along the whole bar, as Aqua's
+     indeterminate bar does. Without this the shared rule made it a third of
+     a bar, and this skin's stripe animation (which outranks the shared slide)
+     left that third standing still at the left. */
+  & .dlp-bar-wrap > .dlp-bar-fill.indeterminate { width: 100% !important; }
   & .home-hero-bar :is(.btn-play, .btn-download-big) { font-weight: 700; }
   & .toast::before { display: none; }
   & .toast { padding: 9px 14px; }

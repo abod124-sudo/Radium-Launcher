@@ -21,6 +21,12 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ["stream", "json", "multipart", "gzip", "brotli"] }
 tokio = { version = "1", features = ["full"] }
 zip = "2"
+# The per-file checksums "Verify game files" compares against (verify.rs):
+# the same CRC-32 a zip records for each file. Already built for `zip`.
+crc32fast = "1.5"
+# Inflating a damaged file straight off a download stream, for a repair from a
+# server that only sends whole files (verify.rs). Already built for `zip`.
+flate2 = "1"
 regex = "1"
 futures-util = "0.3"
 # Integrity checks on the two things this launcher downloads and then executes:

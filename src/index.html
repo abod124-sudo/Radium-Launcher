@@ -234,6 +234,13 @@
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
             <span>Open Folder</span>
           </button>
+          <!-- Steam's "Verify integrity of game files". Wears btn-reinstall for
+               the same reason every row wears a btn-* class: each skin paints
+               it the way it paints the rows around it. -->
+          <button class="btn-reinstall manage-item" role="menuitem" id="btnVerifyFiles">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zM2 16h8v-2H2v2zm19.5-4.5L23 13l-6.99 7-4.51-4.5L13 14l3.01 3 5.49-5.5z"/></svg>
+            <span>Verify Files</span>
+          </button>
           <button class="btn-reinstall manage-item" role="menuitem" id="btnReinstall">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
             <span>Reinstall</span>
@@ -1050,6 +1057,25 @@
   </div>
 
   <!-- Reinstall Confirmation Modal -->
+  <!-- Verify Files' questions: a repair that has to download the whole client,
+       and an install with no file list to check against. Worded by app.js. -->
+  <div class="modal-overlay" id="verifyModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title" id="verifyModalTitle">VERIFY FILES</span>
+        <button class="modal-close-btn" id="verifyModalClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="verifyModalLead" style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;"></p>
+        <p id="verifyModalText" style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="verifyModalCancel">Cancel</button>
+        <button class="modal-btn modal-btn-primary" id="verifyModalConfirm">OK</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="reinstallModal" style="display:none">
     <div class="modal-box">
       <div class="modal-titlebar">

@@ -70,6 +70,8 @@
     ['stella', 'Stella', 'assets/stella-logo.png'],
   ];
 
+  /// The menu's rows, each keyed (`data-key`) so a redraw can tell which rows
+  /// are the same row with new contents and which have come or gone.
   function build({ network, gameRunning }) {
     const active = NETWORK_ROWS.find(([id]) => id === network) || NETWORK_ROWS[0];
     const vanilla = active[0] === 'vanilla';
@@ -93,7 +95,127 @@
       item('open', 'Open Radium Launcher'),
       item('quit', 'Quit'),
     ];
-    menu.replaceChildren(...rows);
+    // Separators and headers are counted among their own kind, not by
+    // position, which shifts with every row a network adds or drops.
+    const seen = {};
+    for (const row of rows) {
+      const n = (seen[row.className] = (seen[row.className] ?? -1) + 1);
+      row.dataset.key = row.dataset.id || `${row.className}:${n}`;
+    }
+    return rows;
+  }
+
+  /// A row's box and opacity as drawn right now, in keyframe form — halfway
+  /// through an animation if it is in one.
+  function frame(el) {
+    const cs = getComputedStyle(el);
+    return {
+      height: `${el.getBoundingClientRect().height}px`,
+      paddingTop: cs.paddingTop,
+      paddingBottom: cs.paddingBottom,
+      marginTop: cs.marginTop,
+      marginBottom: cs.marginBottom,
+      opacity: cs.opacity,
+    };
+  }
+
+  /// Bring an open menu's rows to `rows`, keeping every row that is still
+  /// there as the same element — so the one under the cursor keeps its hover,
+  /// and its icon isn't reloaded — and inserting the new ones in place.
+  ///
+  /// Returns the rows whose size has to change, each with where it starts
+  /// from: a new row from nothing, a row that is going from its full size,
+  /// and a row caught mid-animation by a second network pick from wherever
+  /// it had got to, so the menu carries on from there rather than jumping.
+  /// Rows that are going stay in, marked `.leaving`, until the caller's
+  /// `settle()`.
+  function reconcile(rows) {
+    const live = new Map([...menu.querySelectorAll('.moving')].map((el) => [el, frame(el)]));
+    for (const el of menu.children) {
+      for (const a of el.getAnimations()) a.cancel();
+      el.classList.remove('moving');
+    }
+    const keys = new Set(rows.map((row) => row.dataset.key));
+    const old = new Map([...menu.children].map((el) => [el.dataset.key, el]));
+    const moves = [];
+    let prev = null;
+    for (const row of rows) {
+      let el = old.get(row.dataset.key);
+      if (el) {
+        // Also takes `.leaving` off a row the new menu has back.
+        if (el.className !== row.className) el.className = row.className;
+        if (el.innerHTML !== row.innerHTML) el.replaceChildren(...row.childNodes);
+        if (live.has(el)) moves.push({ el, from: live.get(el), to: 'open' });
+      } else {
+        el = row;
+        moves.push({ el, from: null, to: 'open' });
+        if (prev) prev.after(el);
+        else menu.prepend(el);
+      }
+      prev = el;
+    }
+    for (const [key, el] of old) {
+      if (keys.has(key)) continue;
+      el.classList.add('leaving');
+      moves.push({ el, from: live.get(el) || null, to: 'shut' });
+    }
+    return moves;
+  }
+
+  /// End a redraw: drop the rows that went, and let the rest be laid out as
+  /// themselves again.
+  function settle() {
+    for (const el of menu.querySelectorAll('.leaving')) el.remove();
+    for (const el of menu.children) {
+      for (const a of el.getAnimations()) a.cancel();
+      el.classList.remove('moving');
+    }
+  }
+
+  const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+
+  /// Grow the new rows out of nothing and fold the departing ones away, so
+  /// the menu's height glides to its new size and the rows below slide with
+  /// it. Returned paused: the caller starts them once the window is big
+  /// enough to hold the menu at its larger size.
+  function animate(moves) {
+    const gap = parseFloat(getComputedStyle(menu).rowGap) || 0;
+    // A row folded to nothing still has the menu's gap beside it; the
+    // negative margin takes that up too, so removing it at the end is not a
+    // 1px jump.
+    const shut = { height: '0px', paddingTop: '0px', paddingBottom: '0px', marginTop: `${-gap}px`, marginBottom: '0px', opacity: '0' };
+    const size = [];
+    const fade = [];
+    for (const { el, from, to } of moves) {
+      // Measured at rest: nothing is animating it at this point.
+      const full = { ...frame(el), opacity: '1' };
+      const start = from || (to === 'open' ? shut : full);
+      const end = to === 'open' ? full : shut;
+      const box = (f) => ({ height: f.height, paddingTop: f.paddingTop, paddingBottom: f.paddingBottom,
+                            marginTop: f.marginTop, marginBottom: f.marginBottom });
+      el.classList.add('moving');
+      // Coming in, the row opens and its text fades up once there is room for
+      // it. Going out, the text fades first and the row folds a beat later:
+      // folded while still visible, neighbouring rows' labels squash into
+      // one another.
+      const opening = to === 'open';
+      size.push(el.animate([box(start), box(end)], opening
+        ? { duration: 260, easing: EASE }
+        : { duration: 220, delay: from ? 0 : 40, easing: EASE, fill: 'both' }));
+      fade.push(el.animate([{ opacity: start.opacity }, { opacity: end.opacity }], opening
+        ? { duration: 180, delay: from ? 0 : 90, easing: 'ease-out', fill: 'backwards' }
+        : { duration: 90, easing: 'ease-out', fill: 'forwards' }));
+    }
+    const all = [...size, ...fade];
+    for (const a of all) a.pause();
+    return {
+      play: () => all.forEach((a) => a.play()),
+      finished: Promise.all(size.map((a) => a.finished)),
+    };
+  }
+
+  function motion() {
+    return document.body.classList.contains('motion') && !matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
   let open = false;
@@ -132,37 +254,72 @@
   /// Hand the backend the menu's size so it can place the window, and return
   /// the frost it captured (Liquid Glass only — see frost.rs).
   ///
-  /// `tray_menu_show` places the window by the stored cursor anchor, so
-  /// calling it again while the menu is up simply resizes it in place. That is
-  /// what an in-menu network switch needs: Vanilla's menu carries a Feed row
-  /// that Radium's does not, 28px the window has to grow by.
-  async function place() {
+  /// The window is sized by `roomFor`, not by the menu on show, so switching
+  /// network never has to resize it. `tray_menu_show` places the window by
+  /// the stored cursor anchor, so calling it again while the menu is up
+  /// resizes it in place — which now only a skin change does (`resize`).
+  async function place(state, { resize = false } = {}) {
     await fontsSettled();
-    const rect = menu.getBoundingClientRect();
+    const { width, height } = roomFor(state);
+    if (resize && placedSize?.width === width && placedSize?.height === height) return null;
     const frost = document.body.classList.contains('glass');
-    return invoke('tray_menu_show', {
-      width: Math.ceil(rect.width),
-      height: Math.ceil(rect.height),
-      frost,
-    });
+    const placed = await invoke('tray_menu_show', { width, height, frost });
+    placedSize = { width, height };
+    document.body.classList.toggle('above', placed?.above !== false);
+    return placed?.frost;
   }
+
+  /// The window's size as last placed, in CSS pixels.
+  let placedSize = null;
+
+  const probe = menu.cloneNode(false);
+  probe.removeAttribute('id');
+  probe.removeAttribute('role');
+  probe.removeAttribute('aria-label');
+  probe.setAttribute('aria-hidden', 'true');
+  probe.classList.add('probe');
+  document.body.appendChild(probe);
+
+  /// Room for the menu whichever network is picked: the largest of the
+  /// networks' menus, measured in `probe` under the current skin. Vanilla's
+  /// has a Feed row that Radium's doesn't, and Stella's has no Rooms or
+  /// People, so the menu's height changes as you switch, but the window
+  /// doesn't have to. Resizing it with the menu flickered: Windows moves and
+  /// sizes the window a frame before the webview draws to the new size.
+  function roomFor(state) {
+    let width = 0;
+    let height = 0;
+    for (const [network] of NETWORK_ROWS) {
+      probe.replaceChildren(...build({ ...state, network }));
+      const rect = probe.getBoundingClientRect();
+      width = Math.max(width, Math.ceil(rect.width));
+      height = Math.max(height, Math.ceil(rect.height));
+    }
+    probe.replaceChildren();
+    return { width, height };
+  }
+
+  /// Bumped by every redraw, so an animation that a newer one has overtaken
+  /// leaves the rows to it.
+  let generation = 0;
 
   async function show(state) {
     if (!state) return;
+    generation++;
     applyStyle(state.style);
-    build(state);
+    menu.replaceChildren(...build(state));
     menu.classList.remove('in');
     open = true;
     document.documentElement.style.removeProperty('--tm-backdrop');
     try {
-      const url = await place();
+      const url = await place(state);
       // The menu fades in once it has its frost.
       //
       // Deliberately not deferred to a `requestAnimationFrame` first. Waiting
       // a frame here looks like the careful thing to do — start the animation
       // once the window is really on screen — but rAF does not reliably fire
       // in a window that has only just been shown, and nothing is what this
-      // class guards: `#menu` is `opacity: 0` until it arrives, so a callback
+      // class guards: `.menu` is `opacity: 0` until it arrives, so a callback
       // that never runs is a menu that never appears. The cold-renderer
       // problem it was meant to cover is handled where it belongs, by giving
       // the webview a frame at startup (`warm_tray_menu` in background.rs).
@@ -177,14 +334,34 @@
   /// is what picking a network row does. No entrance animation and no new
   /// frost: the menu is already on screen and stays put, only its contents and
   /// its height change.
+  ///
+  /// When rows come or go (Stella has no Rooms or People), the height change
+  /// is animated, entirely inside the window: it already has room for every
+  /// network's menu (`roomFor`), and the menu is pinned to its edge by the
+  /// cursor, so the rest of it is just clear.
   async function update(state) {
     if (!state || !open) return;
+    const gen = ++generation;
     applyStyle(state.style);
-    build(state);
+    const moves = reconcile(build(state));
+    // Started from their first frame now, before anything awaits, so the
+    // rows' new layout is never drawn ahead of the animation.
+    const run = moves.length && motion() ? animate(moves) : null;
+    if (!run) settle();
     try {
-      await place();
+      // A skin change can make every menu bigger or smaller; a network switch
+      // doesn't change the room needed, and makes no call.
+      await place(state, { resize: true });
+      if (!run || gen !== generation) return;
+      run.play();
+      // A backstop for the frames, as in `close`: finished rows must not be
+      // left in the menu if this window stops ticking animations.
+      await Promise.race([run.finished, new Promise((done) => setTimeout(done, 600))]);
+      if (gen !== generation) return;
+      settle();
     } catch (e) {
       /* The menu is still up and still correct; only its size may lag. */
+      if (gen === generation) settle();
     }
   }
 
@@ -243,7 +420,7 @@
     }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
-    const items = [...menu.querySelectorAll('.item')];
+    const items = [...menu.querySelectorAll('.item:not(.leaving)')];
     if (!items.length) return;
     const at = items.indexOf(document.activeElement);
     const step = e.key === 'ArrowDown' ? 1 : -1;
@@ -252,6 +429,13 @@
   });
 
   document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // The window is taller than a shorter network's menu (see `roomFor`), and
+  // that clear strip is still this window. A click there is a click outside
+  // the menu, so it closes it, as a click anywhere else would.
+  document.addEventListener('mousedown', (e) => {
+    if (!e.target.closest?.('.menu')) close();
+  });
 
   listen('tray-menu-open', (event) => show(event.payload));
   listen('tray-menu-update', (event) => update(event.payload));

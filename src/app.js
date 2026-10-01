@@ -279,6 +279,11 @@ function withoutBackdrop(cfg) {
     pauseDownload:   () => invoke('pause_download'),
     resumableDownloadInfo: () => invoke('resumable_download_info', { network: activeNetwork }),
     uninstallClient: () => invoke('uninstall_client', { network: activeNetwork }),
+    // Verify Files: check every installed file, then repair the ones that
+    // failed — single files where the server allows, else from a full
+    // download when `full` (see verify.rs).
+    verifyClient: () => invoke('verify_client', { network: activeNetwork }),
+    repairClient: (full = false) => invoke('repair_client', { network: activeNetwork, full }),
     // These three take an explicit network: Settings lists both networks'
     // install folders at once, so it has to address the inactive one too.
     openClientFolder: (network = activeNetwork) => invoke('open_client_folder', { network }),
@@ -403,7 +408,20 @@ let isDownloading         = false;
 // in progress.", so the button stays disabled through this window.
 let isCancelling          = false;
 let isPaused              = false;
+// 'verify' or 'repair' while Verify Files is using the download panel (and
+// `isDownloading`, so everything a download blocks, it blocks too). 'repair'
+// covers both a repair that fetches single files and one that has to download
+// the whole client. See runVerifyFiles().
+let clientTask            = null;
+// Whether the running download can be paused and resumed; see updateDlProgress().
+// False until the backend has the server's answer, so Pause never shows for a
+// moment on a download that turns out not to be able to pause (Stella's).
+let dlResumable           = false;
 let isInstalled           = false;
+// The client is there but missing files, its executable among them (deleted,
+// or quarantined by an antivirus). The hero offers REPAIR, which runs Verify
+// Files, instead of a fresh download. See check_install's `needsRepair`.
+let needsRepair           = false;
 // Stella's patch: the last stella_patch_status result (null until one has run
 // since the client was found), and whether an UPDATE is running.
 let stellaPatch           = null;
@@ -2260,6 +2278,7 @@ async function checkInstall() {
     console.error('checkInstall error:', e);
   }
   isInstalled = result?.installed ?? false;
+  needsRepair = !isInstalled && !!result?.needsRepair;
   if (result?.patchDir) stellaPatchDir = result.patchDir;
   const qscC = $('qsc-client');
   // Only the active network's row: `result` describes the network checkInstall
@@ -2350,7 +2369,10 @@ async function checkInstall() {
     // A network that has not shipped a client yet is a different state from
     // "you haven't installed it": there is nothing to install. Say so rather
     // than offering a Download that can only fail.
-    if (!clientDownloadAvailable()) {
+    if (needsRepair) {
+      if (qi) qi.textContent = 'NEEDS REPAIR';
+      logInstallState('client', `${networkInfo().label} is installed but missing files, including the game itself. Press REPAIR to check every file and get the missing ones back.`, 'warn');
+    } else if (!clientDownloadAvailable()) {
       if (qi) qi.textContent = 'NOT RELEASED';
       logInstallState('client', `${networkInfo().label} has not published a client yet.`, 'info');
     } else if (result?.incomplete) {
@@ -2384,6 +2406,14 @@ function clientDownloadAvailable() {
 function updateDownloadCta() {
   const btn = $('btnDownload');
   const note = $('heroDownloadNote');
+  if (needsRepair) {
+    if (btn) btn.textContent = '\u2b07 REPAIR';
+    if (note) {
+      note.style.display = 'block';
+      note.textContent = 'Some game files are missing. Repair checks every file and gets back the ones that are gone.';
+    }
+    return;
+  }
   const available = clientDownloadAvailable();
   const info = networkInfo();
 
@@ -2411,6 +2441,16 @@ function setDlStep(active) {
   });
 }
 
+/// Relabel the three steps of the progress panel. Verify Files borrows it,
+/// so its steps read Verify / Repair / Done; a download puts them back.
+function setDlStepLabels(first = 'Download', second = 'Extract', third = 'Done') {
+  const labels = { download: first, extract: second, done: third };
+  document.querySelectorAll('#dlSteps .dlp-step').forEach((el) => {
+    const idx = el.querySelector('.dlp-step-idx');
+    el.replaceChildren(...(idx ? [idx] : []), document.createTextNode(labels[el.dataset.step] || ''));
+  });
+}
+
 // In-app client download downloader state
 // Sync the Download / Pause button labels to the current state.
 function updateDlButtons() {
@@ -2419,8 +2459,11 @@ function updateDlButtons() {
   if (dlBtn) {
     dlBtn.disabled = isDownloading || isPaused || isCancelling;
     dlBtn.textContent = isCancelling  ? '⬇ CANCELLING...'
+                      : clientTask === 'verify' ? '✓ VERIFYING...'
+                      : clientTask === 'repair' ? '⬇ REPAIRING...'
                       : isDownloading ? '⬇ DOWNLOADING...'
                       : isPaused      ? '⬇ PAUSED'
+                      : needsRepair   ? '⬇ REPAIR'
                       :                 '⬇ DOWNLOAD';
   }
   if (pauseBtn) pauseBtn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
@@ -2430,13 +2473,15 @@ function updateDlButtons() {
 // so continuing a paused/interrupted download doesn't visibly flash to zero.
 function setDownloadUI(downloading, opts = {}) {
   isDownloading = downloading;
-  if (downloading) { isPaused = false; isCancelling = false; extractEta = null; }
+  if (downloading) { isPaused = false; isCancelling = false; extractEta = null; dlResumable = false; }
   const block = $('dlProgressBlock');
   const pauseBtn = $('btnPauseDl');
   if (downloading) {
     if (block) block.style.display = 'block';
-    if (pauseBtn) pauseBtn.style.display = '';
+    // Shown once the server is known to let it continue; see updateDlProgress().
+    if (pauseBtn) pauseBtn.style.display = 'none';
     setStatLabels('Speed', 'Transferred', 'ETA');
+    if (!clientTask) setDlStepLabels();
     setDlStep('download');
     if (!opts.resuming) {
       const fill = $('dlBarFill'); if (fill) { fill.classList.remove('indeterminate'); applyBarFill(fill, 0); }
@@ -2499,12 +2544,40 @@ function applyBarFill(fill, pct) {
   fill.style.width = `${blocks * SEGMENT_PX}px`;
 }
 
+/// The bar for a download of unknown size (Stella's server sends none). On
+/// the block-drawn skins it is a marquee: a run of whole blocks stepping
+/// across the track one block at a time, as Windows draws one (see
+/// `.dlp-bar-fill.indeterminate.segmented` in style.css). The steps have to
+/// land on the block grid, so the track's width in whole blocks is handed to
+/// the CSS here — and again on resize, since it is in pixels.
+function applyIndeterminateBar(fill) {
+  const SEGMENT_PX = 10;   // as in applyBarFill
+  const wrap = fill?.parentElement;
+  if (!wrap) return;
+  const segmented = getComputedStyle(fill).backgroundImage.includes('repeating-linear-gradient');
+  fill.classList.toggle('segmented', segmented);
+  if (!segmented) return;
+  const ws = getComputedStyle(wrap);
+  const track = wrap.clientWidth - parseFloat(ws.paddingLeft || 0) - parseFloat(ws.paddingRight || 0);
+  if (!(track > 0)) return;
+  const blocks = Math.ceil(track / SEGMENT_PX);
+  // Set only on a change: a new duration would restart the marquee, and
+  // this runs on every progress event.
+  const trackPx = `${blocks * SEGMENT_PX}px`;
+  if (fill.style.getPropertyValue('--bar-track') !== trackPx) {
+    fill.style.setProperty('--bar-track', trackPx);
+    fill.style.setProperty('--bar-steps', String(blocks + 8));   // 8: the marquee's own length
+  }
+}
+
 // A snapped width is in pixels, so it goes stale when the window resizes or a
 // theme swaps the bar between segmented and solid. Re-apply on both.
 if (typeof ResizeObserver !== 'undefined') {
   const ro = new ResizeObserver(() => {
     const fill = $('dlBarFill');
-    if (fill && !fill.classList.contains('indeterminate') && fill.dataset.pct != null) {
+    if (fill && fill.classList.contains('indeterminate')) {
+      applyIndeterminateBar(fill);
+    } else if (fill && fill.dataset.pct != null) {
       applyBarFill(fill, Number(fill.dataset.pct));
     }
   });
@@ -2550,7 +2623,23 @@ function extractEtaText(done, totalEntries) {
   return formatEta(remaining / (processed / elapsed));
 }
 
-function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0, eta = -1, status, entry = '', done = 0, totalEntries = 0 }) {
+function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0, eta = -1, status, entry = '', done = 0, totalEntries = 0, resumable, restarted, pauseRefused }) {
+  // Whether this download can be paused and picked up later: the server has
+  // to answer byte ranges, and Stella's doesn't. Told once, at the start.
+  if (phase === 'download' && typeof resumable === 'boolean') {
+    dlResumable = resumable;
+    // A pause the backend let go of: put the button back as it was.
+    if (pauseRefused) {
+      const b = $('btnPauseDl'); if (b) b.textContent = '⏸ Pause';
+      toast("This download can't be paused. It's still going.", 'info', 4000);
+    }
+    if (restarted) {
+      addLog(`${networkInfo().label}'s server can't continue a download, so it started again from the beginning.`, 'warn');
+      toast("This server can't resume downloads, so it started over.", 'warn', 5000);
+    } else if (!resumable) {
+      addLog(`${networkInfo().label}'s server can't continue a paused download, so this one can't be paused.`, 'info');
+    }
+  }
   // Paused: freeze the panel at the current progress with a Resume button.
   if (phase === 'paused') {
     setPausedUI({ downloaded, total });
@@ -2581,6 +2670,7 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
       // "download complete".
       fill.classList.add('indeterminate');
       fill.style.width = '';
+      applyIndeterminateBar(fill);
     }
   }
   if (pctEl)   pctEl.textContent = pct >= 0 ? `${pct}%` : '—';
@@ -2596,6 +2686,20 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
       || (status ? status.replace(/^Extracting:\s*/, '') : 'Preparing…');
     if (etaEl)   etaEl.textContent   = extractEtaText(done, totalEntries);
     // Pause applies only during the download phase.
+    const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = 'none';
+    return;
+  }
+
+  if (phase === 'verify' || phase === 'repair') {
+    // The first two steps are relabelled for these (see setDlStepLabels):
+    // Verify, then Repair — or Download, then Repair, for a repair that
+    // downloads the whole client.
+    setDlStep(phase === 'verify' ? 'download' : 'extract');
+    if (phase_el) phase_el.textContent = phase === 'verify' ? 'Verifying files...' : 'Repairing files...';
+    setStatLabels('Files', 'Current File', 'ETA');
+    if (speedEl) speedEl.textContent = totalEntries > 0 ? `${done} / ${totalEntries}` : '—';
+    if (sizeEl)  sizeEl.textContent  = entry || '—';
+    if (etaEl)   etaEl.textContent   = eta >= 0 ? formatEta(eta) : 'Estimating…';
     const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = 'none';
     return;
   }
@@ -2616,7 +2720,9 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
   extractEta = null;
   if (phase_el) phase_el.textContent = 'Downloading...';
   setStatLabels('Speed', 'Transferred', 'ETA');
-  const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = '';
+  // A repair's download can't be paused: what it downloads is never kept.
+  // Nor can one from a server that can't continue it.
+  const pauseBtn = $('btnPauseDl'); if (pauseBtn) pauseBtn.style.display = clientTask || !dlResumable ? 'none' : '';
   if (speedEl)  speedEl.textContent  = speed > 0 ? `${formatBytes(speed)}/s` : '—';
   if (sizeEl)   sizeEl.textContent   = total > 0
     ? `${formatBytes(downloaded)} / ${formatBytes(total)}`
@@ -2717,6 +2823,11 @@ async function runClientDownload({ resuming = false } = {}) {
 }
 
 $('btnDownload')?.addEventListener('click', () => {
+  // A damaged install is repaired, not downloaded again from scratch.
+  if (needsRepair) {
+    runVerifyFiles();
+    return;
+  }
   // Nothing to install on this network yet — send the user to the source
   // instead of starting a download that would immediately fail.
   if (!clientDownloadAvailable()) {
@@ -3057,8 +3168,9 @@ $('btnCancelDl')?.addEventListener('click', () => {
   } else {
     setDownloadUI(false);
   }
-  addLog('Download cancelled.', 'info');
-  toast('Download cancelled.', 'info');
+  const what = clientTask === 'verify' ? 'File check' : clientTask === 'repair' ? 'Repair' : 'Download';
+  addLog(`${what} cancelled.`, 'info');
+  toast(`${what} cancelled.`, 'info');
   // A cancelled *active* download's checkInstall() runs when its promise
   // rejects; a cancelled *paused* download has no pending promise, so restore
   // the view here.
@@ -3067,6 +3179,9 @@ $('btnCancelDl')?.addEventListener('click', () => {
 
 // Pause / Resume toggle.
 $('btnPauseDl')?.addEventListener('click', () => {
+  // Hidden for a download that can't be continued, and a press that lands
+  // anyway does nothing: the backend lets it go and the download carries on.
+  if (!isPaused && !dlResumable) return;
   if (isPaused) {
     // Resume — re-invoke the download, which continues from the .part file
     // (whether it was paused this session or left over from a previous run).
@@ -3120,6 +3235,197 @@ $('reinstallConfirmBtn')?.addEventListener('click', () => {
   addLog('Reinstall initiated.', 'info');
   toast('Starting reinstall...', 'info');
   $('btnDownload')?.click();
+});
+
+// ─── Verify Files ────────────────────────────────────────────────────────────
+// Steam's "Verify integrity of game files". Every installed file is read back
+// and checked against the size and CRC-32 its zip recorded at install, and
+// the ones that fail are fetched again (verify.rs). It borrows the download
+// panel and `isDownloading`, so everything a download blocks, it blocks too.
+
+const verifyModal = $('verifyModal');
+let verifyModalAnswer = null;
+
+/// Ask a Verify Files question. Resolves true for the confirm button and
+/// false for anything else that closes the dialog.
+function askVerify({ title, lead, text, confirm = 'OK', cancel = 'Cancel' }) {
+  $('verifyModalTitle').textContent = title;
+  $('verifyModalLead').textContent = lead;
+  $('verifyModalText').textContent = text;
+  $('verifyModalConfirm').textContent = confirm;
+  $('verifyModalCancel').textContent = cancel;
+  verifyModalAnswer?.(false);
+  showModal(verifyModal);
+  return new Promise((resolve) => { verifyModalAnswer = resolve; });
+}
+function answerVerify(yes) {
+  const answer = verifyModalAnswer;
+  verifyModalAnswer = null;
+  hideModal(verifyModal);
+  answer?.(yes);
+}
+$('verifyModalConfirm')?.addEventListener('click', () => answerVerify(true));
+$('verifyModalCancel')?.addEventListener('click', () => answerVerify(false));
+$('verifyModalClose')?.addEventListener('click', () => answerVerify(false));
+verifyModal?.addEventListener('click', (e) => { if (e.target === verifyModal) answerVerify(false); });
+
+/// Put the download panel up for a check or a repair, its steps named `steps`.
+function beginClientTask(kind, steps) {
+  clientTask = kind;
+  const ds = $('downloadSection'); if (ds) ds.style.display = 'flex';
+  document.body.classList.remove('client-installed');
+  // The gear that opens it lives in the installed-only bar, which is going.
+  closeManageMenu();
+  setDlStepLabels(...steps);
+  setDownloadUI(true);
+  const phaseEl = $('dlPhaseLabel');
+  if (phaseEl) phaseEl.textContent = kind === 'verify' ? 'Verifying files...' : 'Repairing files...';
+  setStatLabels('Files', 'Current File', 'ETA');
+  for (const id of ['dlSpeedLabel', 'dlSizeLabel', 'dlEtaLabel']) { const el = $(id); if (el) el.textContent = '—'; }
+}
+
+/// Take the panel down again, and show the client as it now is.
+async function endClientTask() {
+  clientTask = null;
+  isCancelling = false;
+  setDownloadUI(false);
+  setDlStepLabels();
+  await checkInstall();
+}
+
+const VERIFY_PROBLEMS = { missing: 'missing', size: 'wrong size', content: 'changed', unreadable: "can't be read" };
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+async function runVerifyFiles() {
+  if (isDownloading || isPaused || isCancelling) {
+    toast('Finish or cancel the current download first.', 'warn', 4000);
+    return;
+  }
+  if (isGameRunning || isGameLaunching) {
+    toast('Close the game before verifying its files.', 'warn', 4000);
+    return;
+  }
+  const label = networkInfo().label;
+  beginClientTask('verify', ['Verify', 'Repair', 'Done']);
+  addLog(`Verifying ${label} game files...`, 'info');
+  const started = Date.now();
+  let result;
+  try {
+    result = await window.radium?.verifyClient();
+  } catch (e) {
+    result = { status: 'error', error: String(e) };
+  }
+  const secs = ((Date.now() - started) / 1000).toFixed(1);
+
+  if (result?.status === 'ok') {
+    addLog(`All ${result.checked} files validated in ${secs}s.`, 'ok');
+    toast(`All ${result.checked} files successfully validated.`, 'ok', 5000);
+    await endClientTask();
+    return;
+  }
+  if (result?.status === 'cancelled') {
+    addLog(`File check stopped after ${secs}s.`, 'info');
+    await endClientTask();
+    return;
+  }
+  if (result?.status === 'no-manifest') {
+    await endClientTask();
+    addLog(`This ${label} install has no file list to verify against; it predates Verify Files.`, 'warn');
+    const reinstall = await askVerify({
+      title: 'VERIFY FILES',
+      lead: `This ${label} install has no file list to check against.`,
+      text: "The launcher records every file's checksum when it installs a client, and this one was "
+          + 'installed before it did. Reinstall once (the client is downloaded again) and Verify Files '
+          + 'works from then on.',
+      confirm: 'Reinstall',
+      cancel: 'Not now',
+    });
+    // The question above was the confirmation, so straight to the reinstall.
+    if (reinstall) $('reinstallConfirmBtn')?.click();
+    return;
+  }
+  if (result?.status !== 'damaged') {
+    const err = result?.error || 'Unknown error';
+    addLog(`File check failed: ${err}`, 'error');
+    toast(`File check failed: ${err}`, 'error', 5000);
+    await endClientTask();
+    return;
+  }
+
+  const damaged = result.damaged || [];
+  addLog(`${damaged.length} of ${result.checked} files failed to validate (${formatBytes(result.damagedBytes || 0)}):`, 'warn');
+  for (const f of damaged.slice(0, 20)) addLog(`  ${f.path}: ${VERIFY_PROBLEMS[f.problem] || f.problem}`, 'warn');
+  if (damaged.length > 20) addLog(`  ...and ${damaged.length - 20} more.`, 'warn');
+  toast(`${plural(damaged.length, 'file')} failed to validate and will be reacquired.`, 'warn', 5000);
+  await runRepair(damaged.length);
+}
+
+/// Fetch again the files the check just failed. Single files where the
+/// server allows it; otherwise, once asked, the whole client, taking only
+/// those files from it.
+async function runRepair(count) {
+  const label = networkInfo().label;
+  clientTask = 'repair';
+  updateDlButtons();
+  setDlStep('extract');
+  const phaseEl = $('dlPhaseLabel'); if (phaseEl) phaseEl.textContent = 'Repairing files...';
+  let r;
+  try {
+    r = await window.radium?.repairClient(false);
+  } catch (e) {
+    r = { success: false, error: String(e) };
+  }
+
+  if (r?.needsFullDownload) {
+    await endClientTask();
+    const size = r.total ? formatBytes(r.total) : (activeNetwork === 'stella' ? 'about 4.7 GB' : 'the whole client');
+    // Either way the repair reads the client only as far as the last damaged
+    // file. With the files' places in the zip recorded at install, how far
+    // that is is known up front; without, it is found on the way.
+    const text = r.needed
+      ? `${label}'s server can't send single files, so the repair reads the client from the start and stops `
+        + `once it has the damaged ones: about ${formatBytes(r.needed)} of ${size}. Only those files are replaced.`
+      : `${label}'s server can't send single files, so the repair reads the client from the start and stops `
+        + `once it has the damaged ones. This install doesn't record where they are in the ${size} download, `
+        + "so how much that is shows as it goes, and it's all of it only if one is near the end. "
+        + 'Only those files are replaced.';
+    const go = await askVerify({
+      title: 'REPAIR FILES',
+      lead: `${plural(count, 'file')} failed to validate.`,
+      text,
+      confirm: r.needed ? `Download ${formatBytes(r.needed)} and repair` : 'Repair',
+    });
+    if (!go) {
+      addLog('Repair skipped. Run Verify Files again to repair.', 'info');
+      return;
+    }
+    beginClientTask('repair', ['Download', 'Repair', 'Done']);
+    addLog(r.needed
+      ? `Reading the first ${formatBytes(r.needed)} of the ${label} client to repair ${plural(count, 'file')}...`
+      : `Reading the ${label} client from the start, as far as needed, to repair ${plural(count, 'file')}...`, 'info');
+    try {
+      r = await window.radium?.repairClient(true);
+    } catch (e) {
+      r = { success: false, error: String(e) };
+    }
+  }
+
+  if (r?.success) {
+    addLog(`Repaired ${plural(r.repaired, 'file')}.`, 'ok');
+    toast(`Repaired ${plural(r.repaired, 'file')}. ${label} is ready to play.`, 'ok', 5000);
+  } else if (r?.error === 'Cancelled') {
+    addLog('Repair stopped; the damaged files were left as they were. Run Verify Files to try again.', 'info');
+  } else {
+    const err = r?.error || 'Unknown error';
+    addLog(`Repair failed: ${err}`, 'error');
+    toast(`Repair failed: ${err}`, 'error', 6000);
+  }
+  await endClientTask();
+}
+
+$('btnVerifyFiles')?.addEventListener('click', () => {
+  closeManageMenu();
+  runVerifyFiles();
 });
 
 // Stop Game logic with Modal
@@ -4331,7 +4637,9 @@ async function setNetwork(name) {
   // client, so switching underneath them would leave the UI describing a client
   // it is no longer pointing at.
   if (isDownloading || isPaused) {
-    toast('Finish or cancel the current download before switching networks.', 'warn', 4000);
+    toast(clientTask
+      ? 'Finish or cancel the file check before switching networks.'
+      : 'Finish or cancel the current download before switching networks.', 'warn', 4000);
     closeNetworkMenu();
     return;
   }

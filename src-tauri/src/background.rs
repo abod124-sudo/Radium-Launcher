@@ -152,15 +152,27 @@ pub fn tray_menu_state(app: AppHandle) -> Option<TrayState> {
     pending.then(|| tray_state(&app))
 }
 
+/// Where [`tray_menu_show`] put the menu.
+#[derive(Clone, Default, serde::Serialize)]
+pub struct TrayPlacement {
+    /// Liquid Glass only: the blurred screen behind the menu, for the page to
+    /// paint as its frost (see the `frost` module).
+    frost: Option<String>,
+    /// The menu opened upwards from the cursor, so its bottom edge is the one
+    /// by the cursor. The window has room for every network's menu (see
+    /// `roomFor` in traymenu.js), and the page pins the menu to this edge, so
+    /// a shorter menu leaves the far side of the window clear.
+    above: bool,
+}
+
 /// The page has drawn the menu at `width` x `height` (logical pixels): place
 /// it by the cursor, where Windows would have put its own menu, and bring it
 /// up with focus so a click elsewhere closes it.
-///
-/// Under Liquid Glass (`frost`) it returns the blurred screen behind the
-/// menu for the page to paint as its frost (see the `frost` module).
 #[tauri::command]
-pub fn tray_menu_show(app: AppHandle, width: f64, height: f64, frost: bool) -> Result<Option<String>, String> {
-    let Some((cx, cy)) = *TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()) else { return Ok(None) };
+pub fn tray_menu_show(app: AppHandle, width: f64, height: f64, frost: bool) -> Result<TrayPlacement, String> {
+    let Some((cx, cy)) = *TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()) else {
+        return Ok(TrayPlacement::default());
+    };
     let win = app.get_webview_window(TRAY_MENU_LABEL).ok_or("No tray menu window")?;
     if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
         return Err("Bad tray menu size".into());
@@ -181,28 +193,31 @@ pub fn tray_menu_show(app: AppHandle, width: f64, height: f64, frost: bool) -> R
 
     // Above and to the right of the cursor, flipped where that would leave
     // the screen, then kept inside the work area (off the taskbar).
+    let above = cy - mh >= top;
     let mut mx = if cx + mw <= right { cx } else { cx - mw };
-    let mut my = if cy - mh >= top { cy - mh } else { cy };
+    let mut my = if above { cy - mh } else { cy };
     mx = mx.clamp(left, (right - mw).max(left));
     my = my.clamp(top, (bottom - mh).max(top));
+    let (x, y) = (mx.round() as i32, my.round() as i32);
 
-    // A menu already on screen is calling back to resize itself — the network
-    // rows switch the launcher in place, and Vanilla's menu is one row taller
-    // than Radium's. It keeps the frost it was given: capturing now would
-    // photograph the menu itself. The picture is stretched to the window
-    // either way (`100% 100%` in traymenu.css), and it is a heavy blur, so one
-    // row's worth of rescale is not visible.
+    // A menu already on screen is calling back to resize itself, which only
+    // a skin change while it is open needs: the window already has room for
+    // every network's menu, so switching network doesn't resize it. It keeps
+    // the frost it was given, since capturing now would photograph the menu
+    // itself; the picture is stretched to the window, and it is a heavy blur.
     let already_up = win.is_visible().unwrap_or(false);
 
-    win.set_size(tauri::PhysicalSize::new(mw as u32, mh as u32)).map_err(|e| e.to_string())?;
-    win.set_position(tauri::PhysicalPosition::new(mx.round() as i32, my.round() as i32))
-        .map_err(|e| e.to_string())?;
-    // Captured while the menu is still hidden, so it isn't in the picture.
-    let backdrop = if frost && !already_up {
-        crate::frost::backdrop(mx.round() as i32, my.round() as i32, mw as i32, mh as i32)
+    if already_up {
+        // One move-and-resize. As two calls, a menu that opens upwards spends
+        // a frame grown downwards from its old top edge before the move
+        // catches up.
+        resize_in_place(&win, x, y, mw as i32, mh as i32)?;
     } else {
-        None
-    };
+        win.set_size(tauri::PhysicalSize::new(mw as u32, mh as u32)).map_err(|e| e.to_string())?;
+        win.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+    }
+    // Captured while the menu is still hidden, so it isn't in the picture.
+    let backdrop = if frost && !already_up { crate::frost::backdrop(x, y, mw as i32, mh as i32) } else { None };
     // Only on the way in. Re-showing and re-focusing a menu that is already up
     // makes Windows treat the resize as a fresh activation, which flickers.
     if !already_up {
@@ -210,7 +225,26 @@ pub fn tray_menu_show(app: AppHandle, width: f64, height: f64, frost: bool) -> R
         let _ = win.set_always_on_top(true);
         let _ = win.set_focus();
     }
-    Ok(backdrop)
+    Ok(TrayPlacement { frost: backdrop, above })
+}
+
+#[cfg(windows)]
+fn resize_in_place(win: &tauri::WebviewWindow, x: i32, y: i32, w: i32, h: i32) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
+    let hwnd = win.hwnd().map_err(|e| e.to_string())?.0 as _;
+    // SAFETY: `hwnd` is this live window's handle; the call only moves and
+    // sizes it, without activating it or changing its place in the z-order.
+    let ok = unsafe { SetWindowPos(hwnd, std::ptr::null_mut(), x, y, w, h, SWP_NOACTIVATE | SWP_NOZORDER) };
+    if ok == 0 {
+        return Err("Could not resize the tray menu".into());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn resize_in_place(win: &tauri::WebviewWindow, x: i32, y: i32, w: i32, h: i32) -> Result<(), String> {
+    win.set_size(tauri::PhysicalSize::new(w as u32, h as u32)).map_err(|e| e.to_string())?;
+    win.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

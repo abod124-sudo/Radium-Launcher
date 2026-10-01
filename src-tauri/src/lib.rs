@@ -10,6 +10,7 @@ pub mod server;
 pub mod stella;
 pub mod thumbs;
 pub mod updater;
+pub mod verify;
 pub mod vanilla;
 pub mod vanilla_auth;
 
@@ -132,6 +133,8 @@ pub fn run() {
             download::open_client_folder,
             download::select_folder,
             download::get_default_client_dir,
+            verify::verify_client,
+            verify::repair_client,
             // Game
             game::launch_game,
             game::kill_game,

@@ -100,7 +100,7 @@ fn zip_stem(network: Network) -> &'static str {
 
 /// The User-Agent `network`'s client download is fetched with. Stella's
 /// Cloudflare turns away anything but its own launcher's.
-fn download_user_agent(network: Network) -> &'static str {
+pub(crate) fn download_user_agent(network: Network) -> &'static str {
     match network {
         Network::Stella => crate::stella::USER_AGENT,
         Network::Radium | Network::Vanilla => BROWSER_UA,
@@ -112,7 +112,7 @@ static DOWNLOAD_CANCELLED: AtomicBool = AtomicBool::new(false);
 
 /// The error a cancelled download or extraction ends with. The frontend
 /// matches it exactly, to tell a cancel apart from a failure.
-const CANCELLED: &str = "Cancelled";
+pub(crate) const CANCELLED: &str = "Cancelled";
 
 /// Atomic flag used to pause an in-progress download. Unlike cancellation, a
 /// pause leaves the partial file (and its resume metadata) on disk so the
@@ -125,7 +125,7 @@ static DOWNLOAD_PAUSED: AtomicBool = AtomicBool::new(false);
 static DOWNLOAD_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 /// How long to wait for the client zip's response headers.
-const RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+pub(crate) const RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// How often the download loop looks at the pause and cancel flags while it
 /// waits for the next chunk.
@@ -133,7 +133,7 @@ const FLAG_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis
 
 /// A download that receives nothing for this long is given up on (and can be
 /// resumed), rather than left holding the download guard forever.
-const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+pub(crate) const STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Largest client zip this will write to disk.
 ///
@@ -162,13 +162,39 @@ fn same_file_total(recorded: u64, now: Option<u64>) -> bool {
 ///
 /// `Instant::now() - interval` panics if the clock is younger than `interval`,
 /// and the release profile turns a panic into an abort.
-fn emit_now_baseline(interval: std::time::Duration) -> std::time::Instant {
+pub(crate) fn emit_now_baseline(interval: std::time::Duration) -> std::time::Instant {
     let now = std::time::Instant::now();
     now.checked_sub(interval).unwrap_or(now)
 }
 
+/// Claim the client for one operation that reads or rewrites its files — a
+/// download, a file check or a repair — so no two run at once. The error is
+/// what to tell the user.
+pub(crate) fn claim_client_task() -> Result<DownloadGuard, String> {
+    if DOWNLOAD_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        return Err("A download or a file check is already running.".into());
+    }
+    Ok(DownloadGuard)
+}
+
+/// Whether a download, file check or repair is running. The game is not
+/// started under one: its files are being written, or read to be judged.
+pub fn client_busy() -> bool {
+    DOWNLOAD_IN_PROGRESS.load(Ordering::SeqCst)
+}
+
+/// Clear a cancel left over from an earlier operation, at the start of a new one.
+pub(crate) fn reset_cancel() {
+    DOWNLOAD_CANCELLED.store(false, Ordering::SeqCst);
+}
+
+/// Whether the user has asked the running operation to stop.
+pub(crate) fn cancel_requested() -> bool {
+    DOWNLOAD_CANCELLED.load(Ordering::SeqCst)
+}
+
 /// RAII guard that clears `DOWNLOAD_IN_PROGRESS` on every exit path.
-struct DownloadGuard;
+pub(crate) struct DownloadGuard;
 impl Drop for DownloadGuard {
     fn drop(&mut self) {
         DOWNLOAD_IN_PROGRESS.store(false, Ordering::SeqCst);
@@ -182,6 +208,20 @@ struct PartMeta {
     url: String,
     etag: String,
     total: u64,
+    /// Whether the server can continue this download from where it stopped.
+    /// Stella's can't: it sends the client with no length and no byte ranges,
+    /// so asking for the rest gets the whole file again from the start.
+    resumable: bool,
+}
+
+/// Whether a response says its server answers byte ranges: a 206 is proof,
+/// and `Accept-Ranges: bytes` is the server saying so.
+fn accepts_ranges(status: reqwest::StatusCode, headers: &reqwest::header::HeaderMap) -> bool {
+    status == reqwest::StatusCode::PARTIAL_CONTENT
+        || headers
+            .get(reqwest::header::ACCEPT_RANGES)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.split(',').any(|unit| unit.trim().eq_ignore_ascii_case("bytes")))
 }
 
 /// Read the sidecar resume metadata, if present and well-formed.
@@ -192,12 +232,20 @@ fn read_part_meta(path: &Path) -> Option<PartMeta> {
         url: v.get("url")?.as_str()?.to_string(),
         etag: v.get("etag").and_then(|e| e.as_str()).unwrap_or("").to_string(),
         total: v.get("total").and_then(|t| t.as_u64()).unwrap_or(0),
+        // Written before this was recorded. A server that sent neither a
+        // length nor an ETag (Stella's) is taken as one that can't: there is
+        // nothing to check a continued file against, and its partials are the
+        // ones left by a Pause from before Pause was hidden for it.
+        resumable: v.get("resumable").and_then(|r| r.as_bool()).unwrap_or_else(|| {
+            v.get("total").and_then(|t| t.as_u64()).unwrap_or(0) > 0
+                || !v.get("etag").and_then(|e| e.as_str()).unwrap_or("").is_empty()
+        }),
     })
 }
 
 /// Persist the sidecar resume metadata (best-effort).
 fn write_part_meta(path: &Path, meta: &PartMeta) {
-    let v = json!({ "url": meta.url, "etag": meta.etag, "total": meta.total });
+    let v = json!({ "url": meta.url, "etag": meta.etag, "total": meta.total, "resumable": meta.resumable });
     if let Ok(txt) = serde_json::to_string(&v) {
         let _ = fs::write(path, txt);
     }
@@ -205,7 +253,7 @@ fn write_part_meta(path: &Path, meta: &PartMeta) {
 
 /// Pull the true total size out of a `Content-Range: bytes start-end/total`
 /// header (the `Content-Length` of a 206 response is only the remaining bytes).
-fn parse_content_range_total(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+pub(crate) fn parse_content_range_total(headers: &reqwest::header::HeaderMap) -> Option<u64> {
     let v = headers
         .get(reqwest::header::CONTENT_RANGE)?
         .to_str()
@@ -215,7 +263,7 @@ fn parse_content_range_total(headers: &reqwest::header::HeaderMap) -> Option<u64
 
 /// The first byte a `Content-Range: bytes start-end/total` header says the
 /// body begins at.
-fn parse_content_range_start(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+pub(crate) fn parse_content_range_start(headers: &reqwest::header::HeaderMap) -> Option<u64> {
     let v = headers
         .get(reqwest::header::CONTENT_RANGE)?
         .to_str()
@@ -246,7 +294,7 @@ fn resolve_link(raw: &str) -> String {
 
 /// Pull the `ETag` header (the CDN's content fingerprint for this exact file)
 /// out of a response, if present.
-fn extract_etag(headers: &reqwest::header::HeaderMap) -> Option<String> {
+pub(crate) fn extract_etag(headers: &reqwest::header::HeaderMap) -> Option<String> {
     headers
         .get(reqwest::header::ETAG)
         .and_then(|v| v.to_str().ok())
@@ -601,15 +649,48 @@ pub async fn download_client(
     app: tauri::AppHandle,
     network: Option<String>,
 ) -> Result<Value, String> {
-    match download_client_impl(app, Network::parse(network.as_deref())).await {
+    match download_client_impl(app, Network::parse(network.as_deref()), None).await {
         Ok(val) => Ok(val),
         Err(err) => Ok(json!({ "success": false, "error": err })),
     }
 }
 
+/// Download `network`'s client zip again, then take from it only the
+/// `damaged` files a file check found, rather than reinstalling. For a server
+/// that can't send single files (see the `verify` module).
+pub(crate) async fn download_and_repair(
+    app: tauri::AppHandle,
+    network: Network,
+    damaged: Vec<crate::verify::FileRecord>,
+) -> Result<Value, String> {
+    download_client_impl(app, network, Some(damaged)).await
+}
+
+/// The client zip's URL for `network`, as a download would fetch it.
+pub(crate) async fn resolve_client_url(app: &tauri::AppHandle, network: Network) -> Result<String, String> {
+    let (_, url) = resolve_download_info(app, network).await?;
+    if !url.starts_with("https://") {
+        return Err("Refusing to download the client over an insecure URL.".into());
+    }
+    Ok(url)
+}
+
+/// Files removed when dropped, whichever way the function holding it ends.
+struct RemoveOnDrop(Vec<std::path::PathBuf>);
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+/// A download and install, or with `repair` a download that replaces only
+/// those files (see [`download_and_repair`]).
 async fn download_client_impl(
     app: tauri::AppHandle,
     network: Network,
+    repair: Option<Vec<crate::verify::FileRecord>>,
 ) -> Result<Value, String> {
     // Reject a second concurrent download — a cancelled download keeps running
     // until its next chunk, so a quick re-click could otherwise start a second
@@ -640,10 +721,20 @@ async fn download_client_impl(
     fs::create_dir_all(&user_data).map_err(|e| e.to_string())?;
     fs::create_dir_all(&client_dir).map_err(|e| e.to_string())?;
 
-    let stem = zip_stem(network);
-    let client_zip = user_data.join(stem);
+    // A repair downloads under a name of its own, and never keeps what it
+    // downloaded: the resume offered at startup installs, and a repair's
+    // partial file picked up by it would reinstall over the client the repair
+    // was meant to leave in place.
+    let stem = match &repair {
+        Some(_) => format!("repair-{}", zip_stem(network)),
+        None => zip_stem(network).to_string(),
+    };
+    let client_zip = user_data.join(&stem);
     let part_path = user_data.join(format!("{}.part", stem));
     let meta_path = user_data.join(format!("{}.part.meta", stem));
+    let _repair_leftovers = repair
+        .as_ref()
+        .map(|_| RemoveOnDrop(vec![client_zip.clone(), part_path.clone(), meta_path.clone()]));
 
     // A completed zip from a previous run is stale — remove it so we never
     // extract an old build. (In-progress resume state lives in the .part file.)
@@ -767,9 +858,16 @@ async fn download_client_impl(
     // 206 Partial Content => our range was honored, append to the .part file.
     // Anything else (200) => the server sent the whole file, so start over.
     let is_resume = status == reqwest::StatusCode::PARTIAL_CONTENT && resume_from > 0;
+    // A resume the server answered with the whole file: it starts again from
+    // nothing, which the page says rather than letting the count drop to 0 KB.
+    let restarted = resume_from > 0 && !is_resume;
     if !is_resume {
         resume_from = 0;
     }
+    // Whether a pause, a dropped connection or a closed launcher can be picked
+    // up from here later. When it can't, there is no Pause to offer, and no
+    // partial file worth keeping: going on means starting over either way.
+    let resumable = accepts_ranges(status, response.headers());
 
     // Capture the CDN's ETag for this build so future checks can detect a
     // rebuilt zip even if the version number on the download page is unchanged.
@@ -803,7 +901,31 @@ async fn download_client_impl(
         url: download_url.clone(),
         etag: resolved_etag.clone().unwrap_or_default(),
         total,
+        resumable,
     });
+    // At once, so Pause goes before anyone can press it, and a restart is
+    // explained before the count is seen starting from 0.
+    let _ = app.emit("download-progress", json!({
+        "phase": "download",
+        "pct": if total > 0 { ((resume_from as f64 / total as f64) * 100.0).min(99.0) as i64 } else { -1 },
+        "downloaded": resume_from,
+        "total": total,
+        "speed": 0,
+        "eta": -1,
+        "resumable": resumable,
+        "restarted": restarted
+    }));
+    // What to do with the partial file when this run stops early: keep it to
+    // continue from, or, when it can't be continued, remove it.
+    let stop_early = |message_resumable: String, message_restart: &str| -> String {
+        if resumable {
+            message_resumable
+        } else {
+            let _ = fs::remove_file(&part_path);
+            let _ = fs::remove_file(&meta_path);
+            message_restart.to_string()
+        }
+    };
 
     let mut downloaded: u64 = resume_from;
     let session_start_bytes = resume_from; // for a speed/ETA based on this run only
@@ -853,6 +975,23 @@ async fn download_client_impl(
             return Err(CANCELLED.into());
         }
 
+        // A download that can't be continued can't be paused either: stopped,
+        // it could only start again from nothing. The page offers no Pause for
+        // one, and a press that reaches here anyway is let go, so the download
+        // carries on rather than being thrown away.
+        if !resumable && DOWNLOAD_PAUSED.swap(false, Ordering::SeqCst) {
+            let _ = app.emit("download-progress", json!({
+                "phase": "download",
+                "pct": -1,
+                "downloaded": downloaded,
+                "total": total,
+                "speed": 0,
+                "eta": -1,
+                "resumable": false,
+                "pauseRefused": true
+            }));
+        }
+
         // Pause stops the loop but keeps the .part file + metadata so it can be
         // resumed (this session or after a restart). Report the paused state.
         if DOWNLOAD_PAUSED.load(Ordering::SeqCst) {
@@ -876,9 +1015,12 @@ async fn download_client_impl(
             // resumes, but give up on a connection that has gone silent.
             if last_data.elapsed() >= STALL_TIMEOUT {
                 drop(file);
-                return Err(format!(
-                    "The download stalled (no data for {} seconds). Resume to continue.",
-                    STALL_TIMEOUT.as_secs()
+                return Err(stop_early(
+                    format!(
+                        "The download stalled (no data for {} seconds). Resume to continue.",
+                        STALL_TIMEOUT.as_secs()
+                    ),
+                    "The download stalled, and this server can't continue one. Download again to start over.",
                 ));
             }
             continue;
@@ -890,7 +1032,10 @@ async fn download_client_impl(
             Err(e) => {
                 // Keep the .part on a network error so it can be resumed later.
                 drop(file);
-                return Err(format!("Download stream error: {}", e));
+                return Err(stop_early(
+                    format!("Download stream error: {}", e),
+                    "The download was cut off, and this server can't continue one. Download again to start over.",
+                ));
             }
         };
 
@@ -955,9 +1100,9 @@ async fn download_client_impl(
     // for instance) would otherwise be promoted and extracted as a truncated
     // zip. Keep the .part so the next run resumes from here instead.
     if total > 0 && downloaded < total {
-        return Err(format!(
-            "Download ended early: got {} of {} bytes. Resume to finish it.",
-            downloaded, total
+        return Err(stop_early(
+            format!("Download ended early: got {} of {} bytes. Resume to finish it.", downloaded, total),
+            "The download ended early, and this server can't continue one. Download again to start over.",
         ));
     }
 
@@ -992,6 +1137,10 @@ async fn download_client_impl(
                 ));
             }
         }
+    }
+
+    if let Some(damaged) = repair {
+        return repair_from_download(&app, &client_zip, &client_dir, damaged).await;
     }
 
     // ── Phase 2: Extract ───────────────────────────────────────────────
@@ -1100,6 +1249,33 @@ async fn download_client_impl(
     }))
 }
 
+/// The end of a repair that downloaded the whole zip: take just the damaged
+/// files from it. The zip itself goes with the repair's other leftovers.
+async fn repair_from_download(
+    app: &tauri::AppHandle,
+    client_zip: &Path,
+    client_dir: &str,
+    damaged: Vec<crate::verify::FileRecord>,
+) -> Result<Value, String> {
+    let repaired = {
+        let app = app.clone();
+        let zip_path = client_zip.to_path_buf();
+        let dir = client_dir.to_string();
+        tokio::task::spawn_blocking(move || {
+            let file = fs::File::open(&zip_path).map_err(|e| format!("Failed to open zip: {}", e))?;
+            let mut archive =
+                zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip archive: {}", e))?;
+            crate::verify::repair_from_archive(&mut archive, Path::new(&dir), &damaged, &mut |progress| {
+                let _ = app.emit("download-progress", progress);
+            })
+        })
+        .await
+        .map_err(|e| format!("Repair task failed: {}", e))??
+    };
+    let _ = app.emit("download-progress", json!({ "phase": "done", "pct": 100 }));
+    Ok(json!({ "success": true, "repaired": repaired }))
+}
+
 /// Largest total the extracted client may occupy.
 ///
 /// Nothing upstream promises a sane archive: the Radium zip is resolved from a
@@ -1204,6 +1380,11 @@ fn extract_client_zip(
     // reinstall — removes exactly these and nothing that was already there.
     // See [`INSTALL_MANIFEST`].
     write_install_manifest(Path::new(client_dir), &top_level_entries(&mut archive))
+        .map_err(|e| format!("Failed to record the install: {}", e))?;
+    // And every file's size and CRC-32, from the archive's own directory, for
+    // "Verify game files" to check the install against later. See the
+    // `verify` module.
+    crate::verify::write_files_manifest(Path::new(client_dir), &crate::verify::record_files(&mut archive))
         .map_err(|e| format!("Failed to record the install: {}", e))?;
     // And that it is not finished yet, for as long as it isn't. See
     // [`INCOMPLETE_MARKER`].
@@ -1372,7 +1553,16 @@ pub async fn resumable_download_info(app: tauri::AppHandle, network: Option<Stri
     if downloaded == 0 {
         return json!({ "resumable": false });
     }
-    let total = read_part_meta(&meta_path).map(|m| m.total).unwrap_or(0);
+    let meta = read_part_meta(&meta_path);
+    // A partial from a server that can't continue it (Stella's): Resume would
+    // start from nothing, so it isn't offered, and the gigabytes it holds are
+    // let go rather than kept for a download that can't use them.
+    if meta.as_ref().is_some_and(|m| !m.resumable) && !DOWNLOAD_IN_PROGRESS.load(Ordering::SeqCst) {
+        let _ = fs::remove_file(&part_path);
+        let _ = fs::remove_file(&meta_path);
+        return json!({ "resumable": false });
+    }
+    let total = meta.map(|m| m.total).unwrap_or(0);
 
     json!({
         "resumable": true,
@@ -1487,6 +1677,11 @@ pub async fn check_install(
     // whatever exe it happens to contain. See [`INCOMPLETE_MARKER`].
     let incomplete = install_incomplete(&client_dir);
     let installed = !incomplete && !exe_path.is_empty() && Path::new(&exe_path).exists();
+    // An install this launcher made — its file list is still in the folder —
+    // whose game executable has gone. That is a damaged client rather than no
+    // client: Verify Files can put the missing files back, where offering a
+    // fresh download would throw away the gigabytes that are still fine.
+    let needs_repair = !installed && !incomplete && crate::verify::has_files_manifest(&client_dir);
     let is_running = game::game_running(&app);
 
     // A client installed under a different build id (or with no recorded build,
@@ -1511,6 +1706,9 @@ pub async fn check_install(
         "orphanedClientDir": cfg.orphaned_client_dir,
         // An install that was interrupted and needs downloading again.
         "incomplete": incomplete,
+        // An install that is there but missing files, its executable among
+        // them. See `needs_repair` above.
+        "needsRepair": needs_repair,
         // Surfaced so the frontend can log the concrete build mismatch behind an
         // "outdated" verdict instead of an opaque message.
         "clientBuild": cfg.client_build_for(network),
@@ -1743,8 +1941,10 @@ const INCOMPLETE_MARKER: &str = ".radium-install-incomplete";
 /// Whether `name` is one of the launcher's own files in the client folder.
 /// Case-blind, as Windows paths are: an archive entry spelled
 /// `.RADIUM-INSTALL` would land on the same file.
-fn is_reserved_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case(INSTALL_MANIFEST) || name.eq_ignore_ascii_case(INCOMPLETE_MARKER)
+pub(crate) fn is_reserved_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(INSTALL_MANIFEST)
+        || name.eq_ignore_ascii_case(INCOMPLETE_MARKER)
+        || name.eq_ignore_ascii_case(crate::verify::FILES_MANIFEST)
 }
 
 /// Whether an extraction into `client_dir` started and never finished. See
@@ -1858,6 +2058,7 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
             remove_entry(&path.join(name));
         }
         let _ = fs::remove_file(path.join(INCOMPLETE_MARKER));
+        let _ = fs::remove_file(path.join(crate::verify::FILES_MANIFEST));
         let _ = fs::remove_file(path.join(INSTALL_MANIFEST));
         return Ok(true);
     }
@@ -2430,5 +2631,50 @@ mod update_check_tests {
     #[test]
     fn test_unescape_html_decimal_apostrophe() {
         assert_eq!(unescape_html("&#39;3D Charades&#39; &amp; more"), "'3D Charades' & more");
+    }
+}
+
+#[cfg(test)]
+mod resume_tests {
+    use super::*;
+    use reqwest::header::{HeaderMap, HeaderValue, ACCEPT_RANGES};
+    use reqwest::StatusCode;
+
+    fn headers(accept_ranges: Option<&str>) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        if let Some(v) = accept_ranges {
+            h.insert(ACCEPT_RANGES, HeaderValue::from_str(v).unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn a_server_that_can_continue_is_told_apart_from_one_that_cannot() {
+        // Stella: a plain 200, chunked, nothing said about ranges.
+        assert!(!accepts_ranges(StatusCode::OK, &headers(None)));
+        assert!(!accepts_ranges(StatusCode::OK, &headers(Some("none"))));
+        assert!(accepts_ranges(StatusCode::OK, &headers(Some("bytes"))));
+        assert!(accepts_ranges(StatusCode::OK, &headers(Some("Bytes"))));
+        // A range already honoured is proof enough.
+        assert!(accepts_ranges(StatusCode::PARTIAL_CONTENT, &headers(None)));
+    }
+
+    #[test]
+    fn a_partial_records_whether_it_can_be_continued() {
+        let dir = std::env::temp_dir().join(format!("radium-resume-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("client.zip.part.meta");
+        write_part_meta(&path, &PartMeta { url: "https://x/c.zip".into(), etag: String::new(), total: 0, resumable: false });
+        assert!(!read_part_meta(&path).unwrap().resumable);
+        // One written before this was recorded: resumable if the server said
+        // anything to check a continued file against (a length or an ETag)...
+        fs::write(&path, r#"{"url":"https://x/c.zip","etag":"","total":5}"#).unwrap();
+        assert!(read_part_meta(&path).unwrap().resumable);
+        fs::write(&path, r#"{"url":"https://x/c.zip","etag":"\"abc\"","total":0}"#).unwrap();
+        assert!(read_part_meta(&path).unwrap().resumable);
+        // ...and not if it said neither, as Stella's doesn't.
+        fs::write(&path, r#"{"url":"https://x/c.zip","etag":"","total":0}"#).unwrap();
+        assert!(!read_part_meta(&path).unwrap().resumable);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

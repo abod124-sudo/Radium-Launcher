@@ -429,6 +429,11 @@ fn launch_game_impl(
     let cfg = config::current(&app);
     let client_dir = config::get_client_dir_for(&app, &cfg, network);
 
+    // A download, file check or repair is reading or rewriting these files.
+    if crate::download::client_busy() {
+        return Err("Wait for the download or file check to finish before playing.".into());
+    }
+
     // Half a client, from an install that was cut off: whatever exe is in
     // there is not one to run. See `download::INCOMPLETE_MARKER`.
     if crate::download::install_incomplete(&client_dir) {

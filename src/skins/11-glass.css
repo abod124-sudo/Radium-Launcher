@@ -384,9 +384,12 @@
    transparent layer and only picked up the backdrop when it finished
    — they came in hollow and then snapped. Holding it with
    `forwards` would only keep them hollow for good. Doubled class to
-   outrank the four-class rule it replaces. */
+   outrank the four-class rule it replaces.
+   Both detail views, as the modern skins have (04-modern.css): the
+   moderndark rule glass is layered over only ever named the room one, so
+   opening a player's profile had no entrance at all under glass. */
 :root body.glass-enabled.glass-enabled .tab-panel.active,
-:root body.glass-enabled.glass-enabled #roomsDetailView:not(.hidden) {
+:root body.glass-enabled.glass-enabled :is(#roomsDetailView, #peopleDetailView):not(.hidden) {
   animation: glassTabIn 0.4s var(--lg-ease) !important;
 }
 @keyframes glassTabIn {

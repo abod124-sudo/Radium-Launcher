@@ -355,6 +355,7 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   & #manageMenu:not([hidden]) .manage-item:nth-of-type(3) { animation-delay: 0.09s; }
   & #manageMenu:not([hidden]) .manage-item:nth-of-type(4) { animation-delay: 0.12s; }
   & #manageMenu:not([hidden]) .manage-item:nth-of-type(5) { animation-delay: 0.15s; }
+  & #manageMenu:not([hidden]) .manage-item:nth-of-type(6) { animation-delay: 0.18s; }
   & #manageMenu.is-closing .manage-item { animation: none; }
 
   /* Status cards and stat tiles rise on hover. */

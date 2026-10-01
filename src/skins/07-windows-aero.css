@@ -12,6 +12,13 @@
    jagged corners on the user's GPU.
    ══════════════════════════════════════════════════════════════════════ */
 
+/* The marquee's chunk, from just off the left of the bar to just off the
+   right. It is 30% of the track wide, so the track is 3.33 of it. */
+@keyframes sk-aero-marquee {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(334%); }
+}
+
 body:is(.theme-winvista, .theme-win7) {
   --font-ui:   'Segoe UI', Tahoma, sans-serif;
   --font-mono: Consolas, 'Lucida Console', monospace;
@@ -294,6 +301,32 @@ body:is(.theme-winvista, .theme-win7) {
   & .dlp-step-idx { border-radius: 50%; }
   & .toast::before { display: none; }
   & .toast { padding: 8px 12px; }
+
+  /* A download of unknown size (Stella's server sends none) is Windows'
+     marquee: a chunk of the green gel gliding along the bar and out the far
+     end, soft at both edges. It is drawn by ::before inside a fill that stays
+     the size of the track, so it glides inside the bar rather than over its
+     frame, as the shared sliding fill did. */
+  & .dlp-bar-wrap > .dlp-bar-fill.indeterminate {
+    position: relative;
+    width: 100% !important;
+    overflow: hidden;
+    background: none;
+    animation: none;
+  }
+  & .dlp-bar-wrap > .dlp-bar-fill.indeterminate::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 30%;
+    background: var(--bar-fill);
+    border-radius: var(--bar-fill-radius);
+    -webkit-mask: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
+            mask: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
+    animation: sk-aero-marquee 2s linear infinite;
+  }
 
   /* Aero fades: a button's blue glow and a pane item's highlight fade in
      quickly and linger on the way out, and pressing snaps straight to the
