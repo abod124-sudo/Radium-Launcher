@@ -1778,36 +1778,25 @@ pub async fn select_folder(network: Option<String>) -> Result<Option<String>, St
         .await
         .map_err(|e| format!("Folder picker failed: {}", e))?;
 
-    Ok(folder.map(|p| install_folder_for(&p, Network::parse(network.as_deref())).to_string_lossy().to_string()))
-}
-
-/// The client folder for a folder the user picked: a subfolder named for the
-/// network, the way Steam keeps each game in its own folder under a library.
-/// The extraction writes thousands of files by name, and into a shared folder
-/// like `D:\Games` that overwrote anything of the same name already there.
-///
-/// The pick is used as it is when it is already this kind of folder: empty,
-/// already named for the network, or already holding a client (the user
-/// pointing at an existing install, or at the subfolder made last time).
-fn install_folder_for(picked: &Path, network: Network) -> std::path::PathBuf {
-    let name = match network {
-        Network::Radium => "Radium",
-        Network::Vanilla => "Vanilla",
-        Network::Stella => "Stella",
-    };
-    let named_for_it = picked
-        .file_name()
-        .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name));
-    let empty = fs::read_dir(picked).is_ok_and(|mut entries| entries.next().is_none());
-    let holds_client = dir_is_client_root(picked) || picked.join(INSTALL_MANIFEST).exists();
-    if named_for_it || empty || holds_client {
-        picked.to_path_buf()
-    } else {
-        picked.join(name)
-    }
+    // The pick itself is what gets saved. The client goes in a subfolder of
+    // it named for the network, which `config::custom_client_dir` adds
+    // wherever the folder is resolved.
+    Ok(folder.map(|p| p.to_string_lossy().to_string()))
 }
 
 // ─── Default client directory ───────────────────────────────────────────────
+
+/// Where `network`'s client goes for an install location of `folder`: its
+/// subfolder for a custom location, else the default folder. So Settings
+/// shows the folder the client is really in, and checks a new pick against
+/// the other networks' folders the way the backend will.
+#[tauri::command(async)]
+pub fn resolve_client_dir(app: tauri::AppHandle, network: Option<String>, folder: Option<String>) -> String {
+    match folder.as_deref().map(str::trim) {
+        Some(folder) if !folder.is_empty() => config::custom_client_dir(folder, Network::parse(network.as_deref())),
+        _ => get_default_client_dir(app, network),
+    }
+}
 
 /// Return the default client directory path (`<app_data_dir>/client`).
 #[tauri::command(async)]
@@ -2242,36 +2231,6 @@ mod clear_tests {
         assert!(dir.join("MonoBleedingEdge/etc/config").exists());
 
         let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// A picked folder with other things in it gets a subfolder per network.
-    /// One that is empty, already named for the network or already a client
-    /// is used as it is.
-    #[test]
-    fn a_picked_folder_gets_a_subfolder_unless_it_is_already_one() {
-        let root = temp_dir("picked");
-        touch(&root.join("Photos/holiday.jpg"));
-        assert_eq!(install_folder_for(&root, Network::Stella), root.join("Stella"));
-        assert_eq!(install_folder_for(&root, Network::Vanilla), root.join("Vanilla"));
-
-        let empty = root.join("Empty");
-        fs::create_dir_all(&empty).expect("dir");
-        assert_eq!(install_folder_for(&empty, Network::Stella), empty);
-
-        let named = root.join("stella");
-        touch(&named.join("notes.txt"));
-        assert_eq!(install_folder_for(&named, Network::Stella), named);
-        assert_eq!(install_folder_for(&named, Network::Radium), named.join("Radium"));
-
-        let client = root.join("Rec Room");
-        touch(&client.join("Recroom_Release.exe"));
-        assert_eq!(install_folder_for(&client, Network::Vanilla), client);
-
-        let recorded = root.join("Old");
-        touch(&recorded.join(INSTALL_MANIFEST));
-        assert_eq!(install_folder_for(&recorded, Network::Radium), recorded);
-
-        let _ = fs::remove_dir_all(&root);
     }
 
     /// A client that extracted into a subfolder of its own is still cleared.

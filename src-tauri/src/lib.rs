@@ -133,6 +133,7 @@ pub fn run() {
             download::open_client_folder,
             download::select_folder,
             download::get_default_client_dir,
+            download::resolve_client_dir,
             verify::verify_client,
             verify::repair_client,
             // Game

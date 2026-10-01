@@ -52,6 +52,7 @@ body:not(.glass-enabled) {
   --link:        var(--accent-text);
   --link-hover:  var(--text);
   --ok:          #1a7f37;
+  --on-ok:       #ffffff; /* text on --ok; skins with a light --ok set it dark */
   --warn:        #9a6700;
   --err:         #cf222e;
   --info:        #0969da;

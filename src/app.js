@@ -183,21 +183,19 @@ function shownInstallDir(network = activeNetwork) {
 /// Fill both install-location rows.
 ///
 /// The inactive network has no checkInstall() result to draw on, so its
-/// resolved default comes straight from the backend — the same path its
-/// download would use.
+/// resolved folder comes straight from the backend — the same path its
+/// download would use: the default, or a custom location's network subfolder.
 async function refreshInstallDirRows() {
   for (const network of Object.keys(NETWORKS)) {
     const span = installDirSpan(network);
     if (!span) continue;
-    let dir = configInstallDir(network);
-    if (!dir) {
-      try {
-        dir = await window.radium?.getDefaultClientDir(network);
-      } catch (e) {
-        console.error('getDefaultClientDir error:', e);
-      }
+    let dir = '';
+    try {
+      dir = await window.radium?.resolveClientDir(network, configInstallDir(network));
+    } catch (e) {
+      console.error('resolveClientDir error:', e);
     }
-    span.textContent = dir || defaultInstallDirHint(network);
+    span.textContent = dir || configInstallDir(network) || defaultInstallDirHint(network);
   }
 }
 
@@ -284,11 +282,14 @@ function withoutBackdrop(cfg) {
     // download when `full` (see verify.rs).
     verifyClient: () => invoke('verify_client', { network: activeNetwork }),
     repairClient: (full = false) => invoke('repair_client', { network: activeNetwork, full }),
-    // These three take an explicit network: Settings lists both networks'
-    // install folders at once, so it has to address the inactive one too.
+    // These take an explicit network: Settings lists every network's install
+    // folder at once, so it has to address the inactive ones too.
     openClientFolder: (network = activeNetwork) => invoke('open_client_folder', { network }),
     selectFolder:     (network = activeNetwork) => invoke('select_folder', { network }),
     getDefaultClientDir: (network = activeNetwork) => invoke('get_default_client_dir', { network }),
+    // The folder the client really goes in for a picked location: its
+    // network's subfolder of it (`config::custom_client_dir`).
+    resolveClientDir: (network = activeNetwork, folder = '') => invoke('resolve_client_dir', { network, folder }),
     onDownloadProgress: async (cb) => {
       if (unlistenMap['download-progress']) unlistenMap['download-progress']();
       unlistenMap['download-progress'] = await listen('download-progress', (event) => cb(event.payload));
@@ -3542,23 +3543,31 @@ document.querySelectorAll('[data-change-folder]').forEach(btn => {
     // the other network's game in a folder that holds it. It silently clears
     // the colliding entry on the next config read, so catch it here instead
     // and leave the user's existing setting alone.
-    const clash = overlappingInstallDir(network, newDir);
+    // The client goes in the network's own subfolder of the pick, which is
+    // what gets checked and shown. The pick itself is what gets saved.
+    let clientDir = newDir;
+    try {
+      clientDir = (await window.radium?.resolveClientDir(network, newDir)) || newDir;
+    } catch (e) {
+      console.error('resolveClientDir error:', e);
+    }
+    const clash = overlappingInstallDir(network, clientDir);
     if (clash) {
       const otherLabel = networkInfo(clash.network).label;
-      const why = normDir(clash.dir) === normDir(newDir) ? 'is already' : 'overlaps';
+      const why = normDir(clash.dir) === normDir(clientDir) ? 'is already' : 'overlaps';
       toast(`That folder ${why} ${otherLabel}'s install location. Pick a different one.`, 'error', 4000);
-      addLog(`Rejected ${label} install directory: ${newDir} ${why} ${otherLabel}'s (${clash.dir}).`, 'warn');
+      addLog(`Rejected ${label} install directory: ${clientDir} ${why} ${otherLabel}'s (${clash.dir}).`, 'warn');
       return;
     }
 
     const span = installDirSpan(network);
     if (!span) return;
-    span.textContent = newDir;
+    span.textContent = clientDir;
     setConfigInstallDir(newDir, network);
     const ok = await window.radium?.saveConfig(config);
     if (ok) {
       toast(`${label} install location updated and saved!`, 'ok');
-      addLog(`Selected and saved ${label} install directory: ${newDir}`, 'info');
+      addLog(`Selected and saved ${label} install directory: ${clientDir}`, 'info');
     } else {
       toast(`Failed to save the ${label} install location.`, 'error');
     }
@@ -6291,7 +6300,7 @@ async function init() {
 
   addLog(`Network: ${networkInfo().label} (${networkInfo().site})`, 'info');
   addLog(`API: ${config.apiUrl}`, 'info');
-  addLog(`Install dir: ${configInstallDir() || defaultInstallDirHint()}`, 'info');
+  addLog(`Install dir: ${shownInstallDir()}`, 'info');
 
   // Check install first (determines which panel to show)
   await checkInstall();

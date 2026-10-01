@@ -357,6 +357,7 @@ body.theme-royalenoir {
   --link: #7cbcff;
   --link-hover: #b8dcff;
   --ok: #62d862;
+  --on-ok: #000000;
   --warn: #f0b43c;
   --err: #ff7563;
   --info: #7cbcff;

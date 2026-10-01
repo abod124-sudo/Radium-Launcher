@@ -1237,7 +1237,8 @@ fn replace_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result
 
 /// Returns the game client directory for `network`.
 ///
-/// If that network's configured install dir is non-empty it is used as-is;
+/// If that network's configured install dir is non-empty, the client goes in
+/// a subfolder of it named for the network (see [`custom_client_dir`]);
 /// otherwise the default location is returned. The two networks default to
 /// separate folders (`client` and `client-vanilla`) so both clients can be
 /// installed at once without one uninstall wiping the other.
@@ -1259,6 +1260,37 @@ pub fn default_client_folder(network: Network) -> &'static str {
     }
 }
 
+/// The subfolder a custom install location gets for each network.
+pub fn network_subfolder(network: Network) -> &'static str {
+    match network {
+        Network::Radium => "Radium",
+        Network::Vanilla => "Vanilla",
+        Network::Stella => "Stella",
+    }
+}
+
+/// Where `network`'s client goes when the user has picked `picked` as its
+/// install location: a subfolder named for the network, the way Steam keeps
+/// each game in its own folder under a library. The extraction writes
+/// thousands of files by name, so straight into a shared folder like
+/// `D:\Games` it overwrote anything of the same name already there.
+///
+/// Applied here, where the folder is resolved, rather than when it is picked,
+/// so every custom location gets it, including ones saved before. The one
+/// exception is a pick already named for the network, so `D:\Games\Stella`
+/// does not become `D:\Games\Stella\Stella`.
+pub fn custom_client_dir(picked: &str, network: Network) -> String {
+    let name = network_subfolder(network);
+    let path = std::path::Path::new(picked);
+    if path
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name))
+    {
+        return picked.to_string();
+    }
+    path.join(name).to_string_lossy().to_string()
+}
+
 pub fn app_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     app_handle
         .path()
@@ -1271,7 +1303,7 @@ pub fn app_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
 pub fn client_dir_for(config: &Config, network: Network, app_data_dir: &std::path::Path) -> String {
     let configured = config.install_dir_for(network);
     if !configured.is_empty() {
-        return configured.to_string();
+        return custom_client_dir(configured, network);
     }
     app_data_dir
         .join(default_client_folder(network))
@@ -1625,22 +1657,34 @@ mod tests {
         );
     }
 
-    /// Two custom dirs pointing at one folder: Radium yields, because its flat
-    /// field is the one the buggy autosave wrote.
+    /// Two networks given one custom folder each get their own subfolder in
+    /// it, so nothing needs splitting apart.
     #[test]
-    fn a_shared_custom_folder_is_split_apart() {
+    fn a_shared_custom_folder_gives_each_network_a_subfolder() {
         let data = PathBuf::from("C:/data");
         let mut cfg = Config::default();
         cfg.install_dir = "D:/Games/RecRoom".to_string();
         cfg.vanilla.install_dir = "D:/Games/RecRoom".to_string();
 
-        assert!(dedupe_install_dirs_at(&mut cfg, &data));
-        assert_eq!(cfg.install_dir, "");
-        assert_eq!(cfg.vanilla.install_dir, "D:/Games/RecRoom");
-        assert_ne!(
-            client_dir_for(&cfg, Network::Radium, &data),
-            client_dir_for(&cfg, Network::Vanilla, &data)
+        assert!(!dedupe_install_dirs_at(&mut cfg, &data));
+        assert!(norm_dir(&client_dir_for(&cfg, Network::Radium, &data)).ends_with("d:/games/recroom/radium"));
+        assert!(norm_dir(&client_dir_for(&cfg, Network::Vanilla, &data)).ends_with("d:/games/recroom/vanilla"));
+    }
+
+    /// A custom location always gets the network's subfolder, empty or not,
+    /// unless it is already named for that network.
+    #[test]
+    fn a_custom_location_resolves_to_the_network_subfolder() {
+        let data = PathBuf::from("C:/data");
+        let mut cfg = Config::default();
+        cfg.stella.install_dir = r"C:\Users\me\Downloads\games".into();
+        assert_eq!(
+            norm_dir(&client_dir_for(&cfg, Network::Stella, &data)),
+            "c:/users/me/downloads/games/stella"
         );
+        cfg.stella.install_dir = r"D:\Games\stella".into();
+        assert_eq!(client_dir_for(&cfg, Network::Stella, &data), r"D:\Games\stella");
+        assert_eq!(norm_dir(&custom_client_dir(r"D:\Games\stella", Network::Radium)), "d:/games/stella/radium");
     }
 
     /// Stella is held to the same rule against both of the others.
@@ -1664,16 +1708,22 @@ mod tests {
         assert!(dedupe_install_dirs_at(&mut cfg, &data));
         assert_eq!(cfg.stella.install_dir, "");
 
-        // All three pointed at one folder: two must give way, Radium first.
+        // All three pointed at one folder: each has its own subfolder in it.
         let mut cfg = Config::default();
         cfg.install_dir = "D:/Games".into();
         cfg.vanilla.install_dir = "D:/Games".into();
         cfg.stella.install_dir = "D:/Games".into();
+        assert!(!dedupe_install_dirs_at(&mut cfg, &data));
+        assert!(all_apart(&cfg));
+
+        // Radium's subfolder is the folder Stella was pointed at, so one
+        // would hold the other: Radium gives way.
+        let mut cfg = Config::default();
+        cfg.install_dir = "D:/Games".into();
+        cfg.stella.install_dir = "D:/Games/Radium".into();
         assert!(dedupe_install_dirs_at(&mut cfg, &data));
         assert!(all_apart(&cfg));
         assert_eq!(cfg.install_dir, "");
-        assert_eq!(cfg.vanilla.install_dir, "");
-        assert_eq!(cfg.stella.install_dir, "D:/Games");
 
         // A relative Stella folder is dropped like the others.
         let mut cfg = Config::default();
@@ -1706,11 +1756,18 @@ mod tests {
     fn a_folder_inside_the_other_networks_is_split_apart() {
         let data = PathBuf::from("C:/data");
 
-        // Radium pointed at the folder holding Vanilla's default.
+        // Radium pointed at Vanilla's default folder: its subfolder would sit
+        // inside Vanilla's client.
         let mut cfg = Config::default();
-        cfg.install_dir = "C:\\Data\\".to_string();
+        cfg.install_dir = "C:\\Data\\client-vanilla\\".to_string();
         assert!(dedupe_install_dirs_at(&mut cfg, &data));
         assert_eq!(cfg.install_dir, "");
+
+        // The folder holding the defaults is fine now: Radium gets
+        // `C:\Data\Radium`, beside them rather than around them.
+        let mut cfg = Config::default();
+        cfg.install_dir = "C:\\Data\\".to_string();
+        assert!(!dedupe_install_dirs_at(&mut cfg, &data));
 
         // Vanilla pointed inside Radium's default.
         let mut cfg = Config::default();

@@ -31,6 +31,7 @@ body.theme-steam-green {
   --link: #c4b550;
   --link-hover: #ffffff;
   --ok: #b6e089;
+  --on-ok: #000000;
   --warn: #e6c35a;
   --err: #ff8f7a;
   --info: #a9c7d9;
@@ -299,6 +300,7 @@ body.theme-steam2010 {
   --link: #8cc6ef;
   --link-hover: #ffffff;
   --ok: #a4d007;
+  --on-ok: #000000;
   --warn: #e5b54a;
   --err: #e7776d;
   --info: #67c1f5;

@@ -351,7 +351,7 @@ body:not(.glass-enabled) {
     border: 1px solid var(--line-strong);
   }
   & .dlp-step.active .dlp-step-idx { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
-  & .dlp-step.done .dlp-step-idx { color: #ffffff; background: var(--ok); border-color: var(--ok); }
+  & .dlp-step.done .dlp-step-idx { color: var(--on-ok); background: var(--ok); border-color: var(--ok); }
   & .dlp-stat-label { font-family: var(--font-ui); font-size: 9px; color: var(--muted); }
   & .dlp-stat-val { font-family: var(--font-ui); font-size: 12px; color: var(--text); }
 
