@@ -1369,6 +1369,7 @@ fn extract_client_zip(
     // refusing over: extraction overwrites by name, and a folder the launcher
     // doesn't recognise as an install is not one it reports as installed
     // either. Deleting it anyway is the behaviour the guard exists to prevent.
+    let was_client = dir_is_client_root(Path::new(client_dir));
     if Path::new(client_dir).exists() {
         let _ = safe_clear_client_dir(client_dir);
     }
@@ -1379,7 +1380,8 @@ fn extract_client_zip(
     // lands, so a cancel partway through — and every later uninstall or
     // reinstall — removes exactly these and nothing that was already there.
     // See [`INSTALL_MANIFEST`].
-    write_install_manifest(Path::new(client_dir), &top_level_entries(&mut archive))
+    let entries = recordable_entries(Path::new(client_dir), top_level_entries(&mut archive), was_client);
+    write_install_manifest(Path::new(client_dir), &entries)
         .map_err(|e| format!("Failed to record the install: {}", e))?;
     // And every file's size and CRC-32, from the archive's own directory, for
     // "Verify game files" to check the install against later. See the
@@ -1616,7 +1618,7 @@ async fn uninstall_client_impl(
         // the UI reporting "not installed" over gigabytes still on disk.
         if !cleared {
             return Err(format!(
-                "Nothing was removed: '{}' holds no recognisable game files, so it \
+                "Nothing was removed: '{}' has no game client directly in it, so it \
                  was left untouched in case it is not a client folder. Delete it \
                  yourself if it is.",
                 client_dir
@@ -1776,7 +1778,33 @@ pub async fn select_folder(network: Option<String>) -> Result<Option<String>, St
         .await
         .map_err(|e| format!("Folder picker failed: {}", e))?;
 
-    Ok(folder.map(|p| p.to_string_lossy().to_string()))
+    Ok(folder.map(|p| install_folder_for(&p, Network::parse(network.as_deref())).to_string_lossy().to_string()))
+}
+
+/// The client folder for a folder the user picked: a subfolder named for the
+/// network, the way Steam keeps each game in its own folder under a library.
+/// The extraction writes thousands of files by name, and into a shared folder
+/// like `D:\Games` that overwrote anything of the same name already there.
+///
+/// The pick is used as it is when it is already this kind of folder: empty,
+/// already named for the network, or already holding a client (the user
+/// pointing at an existing install, or at the subfolder made last time).
+fn install_folder_for(picked: &Path, network: Network) -> std::path::PathBuf {
+    let name = match network {
+        Network::Radium => "Radium",
+        Network::Vanilla => "Vanilla",
+        Network::Stella => "Stella",
+    };
+    let named_for_it = picked
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name));
+    let empty = fs::read_dir(picked).is_ok_and(|mut entries| entries.next().is_none());
+    let holds_client = dir_is_client_root(picked) || picked.join(INSTALL_MANIFEST).exists();
+    if named_for_it || empty || holds_client {
+        picked.to_path_buf()
+    } else {
+        picked.join(name)
+    }
 }
 
 // ─── Default client directory ───────────────────────────────────────────────
@@ -1802,49 +1830,11 @@ const SENTINEL_FILES: [&str; 7] = [
     "RecRoom_Data",
 ];
 
-/// Returns true if `path` (or any subdirectory up to `depth` 4) contains a
-/// recognized Rec Room game file. The recursion mirrors `game::find_game_exe`,
-/// so a client that extracted into a nested subfolder is still detected.
-fn dir_contains_game_files(path: &Path, depth: u32) -> bool {
-    if depth > 4 || !path.is_dir() {
-        return false;
-    }
-
-    for file_name in &SENTINEL_FILES {
-        if path.join(file_name).exists() {
-            return true;
-        }
-    }
-
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() && dir_contains_game_files(&p, depth + 1) {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-/// Returns true only if the given directory contains at least one recognized
-/// Rec Room game file (at any depth) — ensuring we never accidentally clear a
-/// folder that isn't actually a game installation.
-pub fn is_game_install_dir(client_dir: &str) -> bool {
-    let path = Path::new(client_dir);
-    if !path.exists() {
-        // Non-existent directories are safe to treat as empty install targets.
-        return true;
-    }
-    dir_contains_game_files(path, 0)
-}
-
 /// Whether `dir` is broad enough that operating on it would reach far beyond a
 /// game install — a drive root, a system directory, or a well-known user
 /// folder.
 ///
-/// Deletion is already protected by the sentinel scan above, but that check
+/// Deletion is already protected by `safe_clear_client_dir`, but that check
 /// deliberately passes for a *non-existent* directory and says nothing about
 /// scope. Adding a Windows Defender exclusion is the opposite problem: the
 /// directory always exists, and the danger is picking one so broad that the
@@ -1987,6 +1977,24 @@ fn is_plain_name(name: &str) -> bool {
         && !name.chars().any(|c| c.is_control())
 }
 
+/// The archive's top-level names that an install into `dir` may record as its
+/// own. If a name is already in the folder after the old install was cleared,
+/// the extraction merges into it, and recording it would have a later
+/// uninstall take the whole thing. In a folder like `D:\Games` that is
+/// somebody's `MonoBleedingEdge` or `BepInEx`. Such a name is kept off the
+/// record unless the folder was a client before this install
+/// (`was_client`). Then it is an old build's leftover, game files like
+/// the rest.
+fn recordable_entries(dir: &Path, entries: Vec<String>, was_client: bool) -> Vec<String> {
+    if was_client {
+        return entries;
+    }
+    entries
+        .into_iter()
+        .filter(|name| fs::symlink_metadata(dir.join(name)).is_err())
+        .collect()
+}
+
 fn write_install_manifest(dir: &Path, entries: &[String]) -> std::io::Result<()> {
     let mut text = String::new();
     for name in entries.iter().filter(|n| is_plain_name(n)) {
@@ -2063,12 +2071,6 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
         return Ok(true);
     }
 
-    // Safety guard: abort if this directory does not look like a game install.
-    if !is_game_install_dir(client_dir) {
-        // The directory is not empty but has no game files — do not touch it.
-        return Ok(false);
-    }
-
     // Some client builds extract into a subfolder rather than directly into
     // the client dir, and that subfolder goes too — but only the one holding
     // the client this launcher would launch. Every subfolder that merely had
@@ -2079,7 +2081,19 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
     let nested_client = crate::game::find_game_exe(client_dir)
         .map(std::path::PathBuf::from)
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
-        .filter(|sub| sub.parent() == Some(path));
+        .filter(|sub| sub.parent() == Some(path))
+        .filter(|sub| dir_is_client_root(sub));
+
+    // Safety guard: only a folder that is itself a client, or holds one
+    // directly, is cleared. This used to be a sentinel scan that passed
+    // for a Rec Room anywhere up to four levels down. So a `D:\Games` that
+    // holds a Steam library had its own `changelog.txt`, `BepInEx` or `dotnet`
+    // deleted by the name list below.
+    let top_is_client = dir_is_client_root(path);
+    if !top_is_client && nested_client.is_none() {
+        // The directory is not empty but has no game files — do not touch it.
+        return Ok(false);
+    }
 
     let game_files = [
         "Recroom_Release.exe",
@@ -2102,7 +2116,9 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
         "changelog.txt",
     ];
 
-    for file_name in &game_files {
+    // Names as generic as `dotnet` or `changelog.txt` are only the client's
+    // when the client is right here beside them.
+    for file_name in game_files.iter().filter(|_| top_is_client) {
         let file_path = path.join(file_name);
         if file_path.exists() {
             if file_path.is_dir() {
@@ -2118,7 +2134,7 @@ fn safe_clear_client_dir(client_dir: &str) -> std::io::Result<bool> {
     // beneath it, four levels deep, which is a Steam library holding the real
     // Rec Room. `find_game_exe` never steps through a link, so this is a real
     // folder inside the client dir.
-    if let Some(sub) = nested_client.filter(|sub| dir_is_client_root(sub)) {
+    if let Some(sub) = nested_client {
         let _ = fs::remove_dir_all(&sub);
     }
     let _ = fs::remove_file(path.join(INCOMPLETE_MARKER));
@@ -2159,6 +2175,103 @@ mod clear_tests {
         assert!(dir.join("Photos/holiday.jpg").exists());
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// With no client in the folder itself, a Rec Room further down doesn't
+    /// make the folder's own files the client's. Nothing is touched, not even
+    /// the names on the old guess list.
+    #[test]
+    fn a_folder_with_a_game_only_deep_inside_is_left_alone() {
+        let dir = temp_dir("deep-only");
+        let steam_game = dir.join("SteamLibrary/steamapps/common/Rec Room/Recroom_Release.exe");
+        touch(&steam_game);
+        touch(&dir.join("changelog.txt"));
+        touch(&dir.join("dotnet/host.dll"));
+        touch(&dir.join("BepInEx/plugins/mod.dll"));
+
+        assert!(!safe_clear_client_dir(&dir.to_string_lossy()).expect("clear"));
+        assert!(steam_game.exists());
+        assert!(dir.join("changelog.txt").exists());
+        assert!(dir.join("dotnet/host.dll").exists());
+        assert!(dir.join("BepInEx/plugins/mod.dll").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// With only a client one level down, that subfolder goes and the folder's
+    /// own generic names stay.
+    #[test]
+    fn a_nested_client_takes_only_its_own_subfolder() {
+        let dir = temp_dir("nested-only");
+        touch(&dir.join("client-build/RecRoom.exe"));
+        touch(&dir.join("changelog.txt"));
+
+        assert!(safe_clear_client_dir(&dir.to_string_lossy()).expect("clear"));
+        assert!(!dir.join("client-build").exists());
+        assert!(dir.join("changelog.txt").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// An install into a folder that already has some of the archive's names
+    /// doesn't record them. The uninstall leaves what was there before.
+    #[test]
+    fn names_already_in_a_non_client_folder_are_not_recorded() {
+        let dir = temp_dir("preexisting");
+        touch(&dir.join("BepInEx/plugins/their-mod.dll"));
+        touch(&dir.join("MonoBleedingEdge/etc/config"));
+        let archive = vec!["RecRoom.exe".to_string(), "BepInEx".into(), "MonoBleedingEdge".into(), "RecRoom_Data".into()];
+
+        assert_eq!(
+            recordable_entries(&dir, archive.clone(), false),
+            vec!["RecRoom.exe".to_string(), "RecRoom_Data".into()]
+        );
+        // Over an old client, a leftover with the archive's name is the old
+        // build's, and is recorded.
+        assert_eq!(recordable_entries(&dir, archive.clone(), true), archive);
+
+        // End to end: install, then uninstall.
+        write_install_manifest(&dir, &recordable_entries(&dir, archive, false)).expect("manifest");
+        touch(&dir.join("RecRoom.exe"));
+        touch(&dir.join("RecRoom_Data/level0"));
+        touch(&dir.join("BepInEx/core/BepInEx.dll"));
+        assert!(safe_clear_client_dir(&dir.to_string_lossy()).expect("clear"));
+        assert!(!dir.join("RecRoom.exe").exists());
+        assert!(!dir.join("RecRoom_Data").exists());
+        assert!(dir.join("BepInEx/plugins/their-mod.dll").exists());
+        assert!(dir.join("MonoBleedingEdge/etc/config").exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A picked folder with other things in it gets a subfolder per network.
+    /// One that is empty, already named for the network or already a client
+    /// is used as it is.
+    #[test]
+    fn a_picked_folder_gets_a_subfolder_unless_it_is_already_one() {
+        let root = temp_dir("picked");
+        touch(&root.join("Photos/holiday.jpg"));
+        assert_eq!(install_folder_for(&root, Network::Stella), root.join("Stella"));
+        assert_eq!(install_folder_for(&root, Network::Vanilla), root.join("Vanilla"));
+
+        let empty = root.join("Empty");
+        fs::create_dir_all(&empty).expect("dir");
+        assert_eq!(install_folder_for(&empty, Network::Stella), empty);
+
+        let named = root.join("stella");
+        touch(&named.join("notes.txt"));
+        assert_eq!(install_folder_for(&named, Network::Stella), named);
+        assert_eq!(install_folder_for(&named, Network::Radium), named.join("Radium"));
+
+        let client = root.join("Rec Room");
+        touch(&client.join("Recroom_Release.exe"));
+        assert_eq!(install_folder_for(&client, Network::Vanilla), client);
+
+        let recorded = root.join("Old");
+        touch(&recorded.join(INSTALL_MANIFEST));
+        assert_eq!(install_folder_for(&recorded, Network::Radium), recorded);
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     /// A client that extracted into a subfolder of its own is still cleared.
