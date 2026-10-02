@@ -94,15 +94,21 @@ const NETWORKS = {
     logo: 'assets/stella-logo.png',
     site: 'https://discord.com/invite/stella-rr',
     downloadPage: 'https://discord.com/invite/stella-rr',
+    // Stella serves images openly at api.stellaonline.org/img/<name>; the
+    // backend attaches absolute ThumbUrl/AvatarUrl, so no imageBase is needed.
     imageBase: '',
-    // Stella publishes no rooms, people, photos or player count the launcher
-    // can read, so ROOMS and PEOPLE are hidden rather than shown empty.
-    hasSocial: false,
-    hasFilters: false,
+    // Stella's game API (rooms, people, profiles) is reached by signing in with
+    // the player's Steam account — see stella_api.rs. Rooms and People are live;
+    // there is no network-wide photo feed, and presence exists only for friends.
+    hasSocial: true,
+    hasFilters: true,
     hasSort: false,
     hasFeed: false,
     hasPresence: false,
     hasPhotoFeed: false,
+    // People can only be searched by name: there is no list of everyone to
+    // show before something is typed.
+    hasPeopleBrowse: false,
     needsConfiguredDownloadUrl: false,
     // The client is patched at launch; the patch has its own UPDATE button.
     hasPatch: true
@@ -329,8 +335,9 @@ function withoutBackdrop(cfg) {
     fetchPeople:          (args) => invoke('fetch_people', { args: { ...args, network: activeNetwork } }),
     fetchFilters:         ()     => invoke('fetch_filters', { network: activeNetwork }),
     fetchRoomWebDetails:  (name) => invoke('fetch_room_web_details', { name: String(name), network: activeNetwork }),
-    fetchUserWebDetails:  (name) => invoke('fetch_user_web_details', { name: String(name), network: activeNetwork }),
+    fetchUserWebDetails:  (name, accountId) => invoke('fetch_user_web_details', { name: String(name), network: activeNetwork, accountId: accountId ?? null }),
     fetchUserPhotos:      (args) => invoke('fetch_user_photos', { args: { ...args, network: activeNetwork } }),
+    fetchRoomPhotos:      (args) => invoke('fetch_room_photos', { args: { ...args, network: activeNetwork } }),
     fetchUserRooms:       (args) => invoke('fetch_user_rooms', { args: { ...args, network: activeNetwork } }),
     fetchUserFeed:        (args) => invoke('fetch_user_feed', { args: { ...args, network: activeNetwork } }),
     fetchRecentPhotos:    (args) => invoke('fetch_recent_photos', { args: { ...args, network: activeNetwork } }),
@@ -347,6 +354,12 @@ function withoutBackdrop(cfg) {
     // only `{ authenticated, player }`, a token count and notification rows.
     vanillaLogin:         () => invoke('vanilla_login'),
     vanillaLogout:        () => invoke('vanilla_logout'),
+    stellaAuthStatus:     () => invoke('stella_auth_status'),
+    stellaLogin:          () => invoke('stella_login'),
+    stellaLogout:         () => invoke('stella_logout'),
+    stellaRoomInteraction:    (roomId) => invoke('stella_room_interaction', { roomId: Number(roomId) }),
+    stellaSetRoomInteraction: (roomId, kind, on) => invoke('stella_set_room_interaction', { roomId: Number(roomId), kind, on }),
+    stellaRoomPlayers:    (roomId) => invoke('stella_room_players', { roomId: Number(roomId) }),
     vanillaAuthStatus:    () => invoke('vanilla_auth_status'),
     vanillaAccount:       () => invoke('vanilla_account'),
     vanillaNotifications: () => invoke('vanilla_notifications'),
@@ -377,6 +390,13 @@ function withoutBackdrop(cfg) {
     onDesktopNotifOpen: async (cb) => {
       if (unlistenMap['desktop-notif-open']) unlistenMap['desktop-notif-open']();
       unlistenMap['desktop-notif-open'] = await listen('desktop-notif-open', (event) => cb(event.payload));
+    },
+    stellaFriends:      () => invoke('stella_friends'),
+    stellaFriendsStop:  () => invoke('stella_friends_stop'),
+    stellaPresence:     (playerId) => invoke('stella_presence', { playerId: Number(playerId) }),
+    onStellaFriends: async (cb) => {
+      if (unlistenMap['stella-friends-changed']) unlistenMap['stella-friends-changed']();
+      unlistenMap['stella-friends-changed'] = await listen('stella-friends-changed', () => cb());
     },
     onVanillaAuth: async (cb) => {
       if (unlistenMap['vanilla-auth-changed']) unlistenMap['vanilla-auth-changed']();
@@ -1037,9 +1057,19 @@ function setProfileStat(el, value) {
 /// the header blank. Radium keeps its themed gradient, which a scraped banner
 /// then overrides where one exists.
 function defaultProfileBanner() {
-  return activeNetwork === 'vanilla'
-    ? "url('assets/vanilla-pattern.png')"
-    : 'linear-gradient(135deg, var(--green-dim), var(--green))';
+  if (activeNetwork === 'vanilla') return "url('assets/vanilla-pattern.png')";
+  // Stella has no default banner image of its own, so it gets the Stella Home
+  // hero: the logo on its maroon glow (style.css, .home-hero-art).
+  if (activeNetwork === 'stella') {
+    return "url('assets/stella-logo.png'), radial-gradient(ellipse at 50% 30%, #5a1a13 0%, #300c08 55%, #1a0604 100%)";
+  }
+  return 'linear-gradient(135deg, var(--green-dim), var(--green))';
+}
+
+/// `background-size` for [defaultProfileBanner]'s layers: Stella's logo is
+/// drawn at a fixed share of the banner's height rather than covering it.
+function defaultProfileBannerSize() {
+  return activeNetwork === 'stella' ? 'auto 58%, cover' : 'cover';
 }
 
 /// Full-resolution avatar for the lightbox.
@@ -1176,6 +1206,8 @@ document.querySelectorAll('.sidebar-nav .nav-btn').forEach(btn => {
       // Only reload an empty feed, so returning to the tab keeps your place
       // in the list instead of jumping back to the top.
       if (!$('feedGrid')?.children.length) loadFeed();
+    } else if (tabName === 'friends') {
+      refreshStellaFriends();
     }
   });
 });
@@ -1239,6 +1271,9 @@ async function loadConfig() {
   // custom theme — before it gets here, so this is always a skin that ships.
   const activeTheme = AVAILABLE_THEMES.includes(config.theme) ? config.theme : DEFAULT_THEME;
   setValue('cfgTheme', activeTheme);
+
+  // Where Stella's friends list shows.
+  applyFriendsView();
 
   // Liquid Glass, which is now an effect over that skin rather than a mode of
   // a custom theme.
@@ -1644,6 +1679,12 @@ function debouncedSaveThemeSettings() {
   clearTimeout(_themeSaveTimer);
   _themeSaveTimer = setTimeout(saveThemeSettings, 800);
 }
+
+$('cfgFriendsView')?.addEventListener('change', () => {
+  config.stella = { ...(config.stella || {}), friendsView: $('cfgFriendsView').value || 'home' };
+  applyFriendsView();
+  autoSaveSettings();
+});
 
 $('cfgTheme')?.addEventListener('change', () => {
   config.theme = $('cfgTheme').value || DEFAULT_THEME;
@@ -3909,10 +3950,16 @@ async function checkServerStatus(silent = false) {
 }
 
 // Periodically fetch player count and update stats card
+/// While Stella's count is still settling, it is asked for again sooner than
+/// the minute-long poll.
+let playerCountRetry = null;
+
 async function updatePlayerCount(silent = false) {
   const qsPlayers = $('qsPlayers');
   const qscPlayers = $('qsc-players');
   if (!qsPlayers) return;
+  clearTimeout(playerCountRetry);
+  qsPlayers.title = '';
   if (!silent) {
     qsPlayers.textContent = 'LOADING...';
     addLog('Fetching online player count...', 'info');
@@ -3920,6 +3967,25 @@ async function updatePlayerCount(silent = false) {
 
   try {
     const result = await window.radium?.getPlayerCount();
+    // Stella's count comes from its live presence (stella_hub.rs), which has
+    // states the other networks' counts don't.
+    if (activeNetwork === 'stella' && result && !result.success && (result.counting || result.paused || result.signedOut)) {
+      qscPlayers?.classList.remove('online', 'offline');
+      if (result.counting) {
+        // A floor that rises as players are heard from; settled after a
+        // couple of minutes, when the "+" goes.
+        qsPlayers.textContent = result.soFar > 0 ? `${result.soFar}+` : 'COUNTING...';
+        qsPlayers.title = 'Still counting: Stella reports each player every half minute or so, so the full number takes about a minute.';
+        playerCountRetry = setTimeout(() => updatePlayerCount(true), 10000);
+      } else if (result.paused) {
+        qsPlayers.textContent = 'PAUSED';
+        qsPlayers.title = "Stella lets one sign-in at a time listen for players, and the game is using it. This comes back when you close the game.";
+      } else {
+        qsPlayers.textContent = 'LOG IN';
+        qsPlayers.title = 'Log in to Stella to see how many players are online.';
+      }
+      return;
+    }
     if (result?.unsupported) {
       // Stella publishes no player count: say so, rather than OFFLINE.
       qsPlayers.textContent = 'N/A';
@@ -3927,6 +3993,9 @@ async function updatePlayerCount(silent = false) {
       if (!silent) addLog(`${networkInfo().label} doesn't publish a player count.`, 'info');
     } else if (result && result.success) {
       qsPlayers.textContent = result.count;
+      if (activeNetwork === 'stella') {
+        qsPlayers.title = 'Players Stella reported online in the last couple of minutes.';
+      }
       if (qscPlayers) {
         qscPlayers.classList.add('online');
         qscPlayers.classList.remove('offline');
@@ -4029,10 +4098,17 @@ $('steamAppAnywayBtn')?.addEventListener('click', () => {
   doLaunch();
 });
 
+/// Where the next launch goes on Stella, used up by that launch: a friend
+/// (`{ id, name }`, from their JOIN) or a room (`{ room, name }`, from the
+/// room's PLAY). See joinStellaFriend() and playStellaRoom().
+let pendingJoin = null;
+
 async function doLaunch() {
   setGameRunning(true);
-  addLog('Launching game...', 'info');
-  toast(`Launching ${networkInfo().label}...`, 'info', 2000);
+  const join = activeNetwork === 'stella' ? pendingJoin : null;
+  pendingJoin = null;
+  addLog(join ? `Launching game to join ${join.name}...` : 'Launching game...', 'info');
+  toast(join ? `Launching ${networkInfo().label} to join ${join.name}...` : `Launching ${networkInfo().label}...`, 'info', 2000);
 
   let result = null;
   try {
@@ -4043,6 +4119,8 @@ async function doLaunch() {
       gameExePath: config.gameExePath || '',
       minimizeOnLaunch: config.minimizeOnLaunch === true,
       closeOnLaunch: config.closeOnLaunch === true,
+      joinPlayerId: join?.id ?? null,
+      joinRoomName: join?.room ?? null,
     });
   } catch (e) {
     console.error('launchGame error:', e);
@@ -4210,11 +4288,49 @@ $('btnPlay')?.addEventListener('click', async () => {
   if (isGameLaunching || !isInstalled) return;
   if (stellaUpdateNeeded()) return;
   isGameLaunching = true;
+  pendingJoin = null;
 
   // Full pre-launch safety chain: AV exclusion → Smart App Control → Steam →
   // launch.
   await checkAvAndLaunch();
 });
+
+/// Start Stella with `target` as where it goes (see pendingJoin), through the
+/// same checks PLAY runs. `what` names it in the messages.
+function launchStellaInto(target, what) {
+  if (isGameRunning) {
+    toast(`Stella is already running. Go to ${what} from the game.`, 'info', 5000);
+    return;
+  }
+  if (isGameLaunching) return;
+  if (!isInstalled) {
+    toast('Download Stella first, from Home.', 'info');
+    return;
+  }
+  if (stellaUpdateNeeded()) {
+    toast("Stella's patch needs an update first. Press UPDATE on Home.", 'info', 5000);
+    return;
+  }
+  isGameLaunching = true;
+  pendingJoin = target;
+  checkAvAndLaunch();
+}
+
+/// A room's PLAY on Stella: start the game in that room (`+roomname:`).
+function playStellaRoom(room) {
+  const name = String(room?.Name || '').replace(/^\^/, '');
+  if (!name) return;
+  launchStellaInto({ room: name, name: `^${name}` }, `^${name}`);
+}
+
+/// A friend's JOIN: start Stella straight into their room, through the same
+/// checks PLAY runs. The game does the joining (`+join:<id>`, as Steam's "Join
+/// Game" does), so whether they can be joined is the server's call.
+function joinStellaFriend(friend) {
+  if (activeNetwork !== 'stella' || !friend?.id) return;
+  const name = friend.displayName || friend.userName || 'your friend';
+  launchStellaInto({ id: friend.id, name }, name);
+}
 
 // Tray menu ────────────────────────────────────────────────────────────────
 // The tray's Play entry launches without opening the window, like Steam's
@@ -4309,7 +4425,7 @@ function playFromTray() {
 }
 
 window.radium?.onTrayAction?.(async ({ action, value }) => {
-  if (action === 'play') playFromTray();
+  if (action === 'play') { pendingJoin = null; playFromTray(); }
   else if (action === 'tab') switchTab(value);
   else if (action === 'network') {
     // Switching network from the tray leaves the window where it is — the menu
@@ -4565,6 +4681,14 @@ function applyNetworkUI(name) {
   document.body.classList.toggle('network-no-social', info.hasSocial === false);
   // The UPDATE button is Stella's; another network never inherits it.
   applyStellaPatchUI();
+  // Who is signed in to Stella, and their friends. Deferred: at startup this
+  // runs before the account section of this file has been evaluated. Leaving
+  // Stella closes the friends connection.
+  if (activeNetwork === 'stella') {
+    setTimeout(() => { refreshStellaAuth(); refreshStellaFriends(); }, 0);
+  } else {
+    window.radium?.stellaFriendsStop?.().catch(() => {});
+  }
   // Mirrored so the pre-paint bootstrap in index.html can brand the window
   // before CSS loads on the next launch.
   try { localStorage.setItem('radium-network', activeNetwork); } catch (e) {}
@@ -4680,6 +4804,9 @@ async function setNetwork(name) {
   peopleSkip = 0;
   activeRoomsTag = '';
   activeRoomsSort = 0;
+  // The highlight follows, or the old network's sort stays lit (and Most
+  // Players, which is Stella's, would be lit while hidden).
+  document.querySelectorAll('#roomsSortList .sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === '0'));
   roomsSearchQuery = '';
   peopleSearchQuery = '';
   setValue('roomsSearch', '');
@@ -4739,6 +4866,9 @@ async function setNetwork(name) {
     // on a tab whose nav button just disappeared would strand them.
     if (networkInfo().hasPhotoFeed) loadFeed(false, { refresh: true });
     else switchTab('home');
+  } else if (openTab === 'tab-friends' && activeNetwork !== 'stella') {
+    // Likewise FRIENDS, which is Stella's.
+    switchTab('home');
   }
 
   // Warm the new network's bulk sets now, while the user is reading whatever
@@ -4962,17 +5092,24 @@ document.addEventListener('keydown', (e) => {
 // backend hands over a display name, an avatar and a token count.
 
 let vanillaPlayer = null;
+/// Stella's signed-in account (a people row), or null. See the Stella account
+/// section below; declared here because fitAccountName reads it.
+let stellaPlayer = null;
 
 /// Fit a long name into the account button: first a smaller face on one line
 /// (down to 12px), then two lines, then 11px on two lines, and only after
 /// that an ellipsis. Re-run whenever the name, the skin or the sidebar's width
 /// changes, since each skin sets its own face and size.
 function fitAccountName() {
-  const name = $('vanillaAccountName');
+  fitOneAccountName($('vanillaAccountName'), vanillaPlayer);
+  fitOneAccountName($('stellaAccountName'), stellaPlayer);
+}
+
+function fitOneAccountName(name, player) {
   if (!name) return;
   name.style.fontSize = '';
   name.classList.remove('two-lines');
-  if (!vanillaPlayer || !name.clientWidth) return;
+  if (!player || !name.clientWidth) return;
 
   const wide = () => name.scrollWidth > name.clientWidth + 0.5;
   const tall = () => name.scrollHeight > name.clientHeight + 0.5;
@@ -4986,8 +5123,10 @@ function fitAccountName() {
   if (tall()) name.style.fontSize = '11px';
 }
 if (window.ResizeObserver) {
-  const nameEl = document.getElementById('vanillaAccountName');
-  if (nameEl) new ResizeObserver(() => fitAccountName()).observe(nameEl);
+  for (const id of ['vanillaAccountName', 'stellaAccountName']) {
+    const nameEl = document.getElementById(id);
+    if (nameEl) new ResizeObserver(() => fitAccountName()).observe(nameEl);
+  }
 }
 // A skin switch changes the face without resizing the box.
 new MutationObserver(() => requestAnimationFrame(fitAccountName))
@@ -5161,6 +5300,377 @@ $('vanillaLogoutBtn')?.addEventListener('click', async () => {
     await window.radium.vanillaLogout();
   } catch (e) {
     toast(String(e), 'error');
+  }
+});
+
+// ── Stella account ───────────────────────────────────────────────────────
+// Stella has no password sign-in: the backend signs in with the player's Steam
+// account (stella_api.rs), and this shows which Stella account that is. LOG
+// OUT is remembered by the backend across restarts; until LOG IN, Rooms and
+// People offer a sign-in instead of signing in on their own.
+
+/// The error every Stella API call answers while logged out
+/// (`stella_api::SIGNED_OUT_ERROR`).
+const STELLA_SIGNED_OUT = 'Signed out of Stella.';
+/// What a sign-in answers when Steam isn't running
+/// (`stella_api::STEAM_NOT_RUNNING`).
+const STEAM_NOT_RUNNING = "Steam isn't running.";
+let stellaAuthPending = false;
+/// Why the last sign-in failed, if it did.
+let stellaAuthError = '';
+
+function renderStellaAccount() {
+  const name = $('stellaAccountName');
+  const avatar = $('stellaAccountAvatar');
+  const btn = $('stellaAccountBtn');
+  if (!name || !avatar || !btn) return;
+
+  if (stellaPlayer) {
+    const handle = stellaPlayer.userName || stellaPlayer.displayName || 'account';
+    name.textContent = stellaPlayer.displayName || handle;
+    const differs = stellaPlayer.displayName && stellaPlayer.displayName !== handle;
+    btn.setAttribute('aria-label', `Signed in to Stella as ${differs ? `${stellaPlayer.displayName} (@${handle})` : `@${handle}`}`);
+    avatar.dataset.fallback = PLACEHOLDER_AVATAR;
+    avatar.src = stellaPlayer.AvatarUrl
+      ? thumbSrc(stellaPlayer.AvatarUrl, avatarWidth(28))
+      : PLACEHOLDER_AVATAR;
+    avatar.hidden = false;
+    btn.setAttribute('aria-haspopup', 'menu');
+    $('stellaAccountFullName').textContent = `@${handle}`;
+    const display = $('stellaAccountDisplay');
+    if (display) {
+      display.textContent = differs ? stellaPlayer.displayName : '';
+      display.hidden = !differs;
+    }
+  } else {
+    name.textContent = stellaAuthPending ? 'SIGNING IN…' : 'LOG IN';
+    btn.setAttribute('aria-label', 'Sign in to Stella with your Steam account');
+    avatar.hidden = true;
+    avatar.removeAttribute('src');
+    btn.removeAttribute('aria-haspopup');
+    closeStellaAccountMenu();
+  }
+  fitAccountName();
+}
+
+/// Rooms and People belong to whoever is signed in (or to nobody): reload the
+/// one on screen, and close a detail view the old account opened.
+function reloadStellaLists() {
+  if (activeNetwork !== 'stella') return;
+  roomsRenderKey = '';
+  peopleRenderKey = '';
+  filtersRenderKey = '';
+  userWebDetailsCache.clear();
+  const openTab = document.querySelector('.tab-panel.active')?.id;
+  if (openTab === 'tab-rooms') {
+    hideRoomDetails();
+    loadFilters();
+    loadRooms();
+  } else if (openTab === 'tab-people') {
+    hidePlayerDetails();
+    loadPeople();
+  }
+}
+
+function applyStellaAuth(player) {
+  const was = stellaPlayer;
+  stellaPlayer = player || null;
+  renderStellaAccount();
+  refreshStellaFriends();
+  if (was?.id === stellaPlayer?.id) return;
+  // An open room's cheer and favorite tiles belong to the account.
+  if (socialRoom) paintRoomCheer(socialRoom);
+  if (stellaPlayer) addLog(`Signed in to Stella as @${stellaPlayer.userName}`, 'ok');
+  else if (was) addLog('Signed out of Stella', 'info');
+  reloadStellaLists();
+}
+
+/// Ask the backend who is signed in. Unless the user logged out, this signs in
+/// with Steam (a second or two), so the button says so meanwhile. A failure
+/// (Steam not running, say) just leaves LOG IN; pressing it says why.
+async function refreshStellaAuth() {
+  if (activeNetwork !== 'stella' || stellaPlayer || stellaAuthPending) return;
+  stellaAuthPending = true;
+  renderStellaAccount();
+  let state = null;
+  try {
+    state = await window.radium.stellaAuthStatus();
+  } catch (e) {}
+  stellaAuthPending = false;
+  stellaAuthError = state?.authenticated ? '' : (state?.error || '');
+  applyStellaAuth(state?.authenticated ? state.player : null);
+}
+
+async function stellaSignIn() {
+  if (stellaAuthPending) return;
+  stellaAuthPending = true;
+  renderStellaAccount();
+  try {
+    const player = await window.radium.stellaLogin();
+    stellaAuthPending = false;
+    stellaAuthError = '';
+    applyStellaAuth(player);
+  } catch (e) {
+    stellaAuthPending = false;
+    stellaAuthError = String(e);
+    renderStellaAccount();
+    // Signed out stays cleared: the next list load tries again, and shows
+    // the real reason (Steam not running) rather than a sign-in prompt.
+    reloadStellaLists();
+    toast(stellaAuthError === STEAM_NOT_RUNNING
+      ? "Steam isn't running. Start Steam, then try again."
+      : `Stella sign-in failed: ${e}`, 'error', 6000);
+  }
+}
+
+// Steam was started while the launcher sat waiting for it: try again when
+// the user comes back to the window, which they had to leave to start it.
+window.addEventListener('focus', () => {
+  if (activeNetwork === 'stella' && !stellaPlayer && stellaAuthError === STEAM_NOT_RUNNING) {
+    refreshStellaAuth();
+  }
+});
+
+function closeStellaAccountMenu() {
+  const btn = $('stellaAccountBtn');
+  const menu = $('stellaAccountMenu');
+  if (menu && !menu.hidden) hideDropdown(menu);
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.classList.remove('is-open');
+  }
+}
+
+function openStellaAccountMenu() {
+  const menu = $('stellaAccountMenu');
+  const btn = $('stellaAccountBtn');
+  showDropdown(menu);
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'true');
+    btn.classList.add('is-open');
+  }
+  menu?.querySelector('.network-option')?.focus();
+}
+
+$('stellaAccountBtn')?.addEventListener('click', () => {
+  if (stellaPlayer) {
+    const menu = $('stellaAccountMenu');
+    if (menu && !menu.hidden) closeStellaAccountMenu(); else openStellaAccountMenu();
+    return;
+  }
+  stellaSignIn();
+});
+
+$('stellaProfileBtn')?.addEventListener('click', () => {
+  closeStellaAccountMenu();
+  if (!stellaPlayer) return;
+  showCreatorProfile(stellaPlayer.userName, {
+    id: stellaPlayer.id,
+    displayName: stellaPlayer.displayName,
+    avatarUrl: stellaPlayer.AvatarUrl
+  });
+});
+
+$('stellaLogoutBtn')?.addEventListener('click', async () => {
+  closeStellaAccountMenu();
+  try {
+    await window.radium.stellaLogout();
+  } catch (e) {
+    toast(String(e), 'error');
+    return;
+  }
+  applyStellaAuth(null);
+});
+
+// ── Stella friends (Home card) ───────────────────────────────────────────
+// The backend keeps a live connection to Stella's notification hub while this
+// is showing and reports each friend as online (with their room), offline, or
+// still "checking" in the first minute, before their first update could have
+// arrived. See stella_hub.rs.
+
+let stellaFriendsQueued = null;
+
+/// Where the friends list shows (Settings → FRIENDS): "home", "tab" or
+/// "hidden". Anything else, including unset, is Home.
+function friendsView() {
+  const v = config?.stella?.friendsView;
+  return v === 'tab' || v === 'hidden' ? v : 'home';
+}
+
+function applyFriendsView() {
+  const view = friendsView();
+  for (const v of ['home', 'tab', 'hidden']) {
+    document.body.classList.toggle(`friends-view-${v}`, view === v);
+  }
+  setValue('cfgFriendsView', view);
+  // Its nav button just went away: don't leave the user on a tab they can't
+  // see the button for.
+  if (view !== 'tab' && document.getElementById('tab-friends')?.classList.contains('active')) {
+    switchTab('home');
+  }
+  // Deferred: at startup this runs from loadConfig, possibly before the
+  // account section of this file (stellaPlayer) has been evaluated.
+  setTimeout(refreshStellaFriends, 0);
+}
+
+async function refreshStellaFriends() {
+  if (activeNetwork !== 'stella') return;
+  // Hidden: no list to fill, so no reason to hold the friends connection
+  // open for it. (A profile page still starts it for its own status.)
+  if (friendsView() === 'hidden') return;
+  if (!stellaPlayer) {
+    renderStellaFriends(null);
+    return;
+  }
+  let res;
+  try {
+    res = await window.radium.stellaFriends();
+  } catch (e) {
+    res = { success: false, error: String(e) };
+  }
+  if (activeNetwork !== 'stella' || !stellaPlayer) return;
+  renderStellaFriends(res);
+}
+
+/// Coalesces a burst of presence events into one redraw.
+function queueStellaFriends() {
+  clearTimeout(stellaFriendsQueued);
+  stellaFriendsQueued = setTimeout(refreshStellaFriends, 250);
+}
+
+function friendStatusText(f) {
+  if (f.status === 'checking') return 'Checking…';
+  if (f.status === 'paused') return 'Shown in game';
+  if (f.status !== 'online') return 'Offline';
+  if (f.roomName) return f.private ? `In ${f.roomName} · private` : `In ${f.roomName}`;
+  if (f.private) return 'In a private room';
+  return 'Online';
+}
+
+/// Fill both places the list can show: the Home card and the FRIENDS tab.
+/// Only one is visible at a time, and keeping both current means switching
+/// the setting shows a full list straight away.
+function renderStellaFriends(res) {
+  renderStellaFriendsInto($('stellaFriendsList'), $('stellaFriendsCount'), res);
+  renderStellaFriendsInto($('stellaFriendsTabList'), $('stellaFriendsTabCount'), res);
+}
+
+function renderStellaFriendsInto(list, count, res) {
+  if (!list || !count) return;
+  const note = (text) => {
+    const el = document.createElement('div');
+    el.className = 'home-friends-note';
+    el.textContent = text;
+    list.replaceChildren(el);
+  };
+
+  if (!stellaPlayer) {
+    count.textContent = '';
+    note(stellaAuthPending ? 'Signing in…' : 'Log in to Stella to see your friends.');
+    return;
+  }
+  if (!res?.success) {
+    count.textContent = '';
+    note(res?.error || "Couldn't load your friends.");
+    return;
+  }
+  if (!res.loaded) {
+    count.textContent = '';
+    note(res.error || 'Loading friends…');
+    return;
+  }
+  const friends = res.friends || [];
+  if (friends.length === 0) {
+    count.textContent = '';
+    note("No friends yet. Add some in game and they'll show up here.");
+    return;
+  }
+
+  const online = friends.filter(f => f.status === 'online').length;
+  count.textContent = res.paused ? 'Paused while you play'
+    : (!res.connected && res.error ? 'Reconnecting…' : `${online} online`);
+  count.title = res.paused
+    ? "Stella lets one sign-in at a time watch your friends, and the game is using it. This picks up again when you close the game."
+    : '';
+
+  list.replaceChildren(...friends.map(f => {
+    const row = document.createElement('div');
+    row.className = `home-friend is-${f.status}`;
+    const main = document.createElement('button');
+    main.type = 'button';
+    main.className = 'home-friend-main';
+    const name = f.displayName || f.userName || 'Player';
+    main.title = `${name} (@${f.userName}) · ${friendStatusText(f)}`;
+
+    const pic = document.createElement('span');
+    pic.className = 'home-friend-pic';
+    const img = document.createElement('img');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.dataset.fallback = PLACEHOLDER_AVATAR;
+    img.src = f.AvatarUrl ? thumbSrc(f.AvatarUrl, avatarWidth(28)) : PLACEHOLDER_AVATAR;
+    const dot = document.createElement('span');
+    dot.className = 'home-friend-dot';
+    pic.append(img, dot);
+
+    const text = document.createElement('span');
+    text.className = 'home-friend-text';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'home-friend-name';
+    nameEl.textContent = name;
+    const sub = document.createElement('span');
+    sub.className = 'home-friend-sub';
+    sub.textContent = friendStatusText(f);
+    text.append(nameEl, sub);
+
+    main.append(pic, text);
+    main.addEventListener('click', () => showCreatorProfile(f.userName, {
+      id: f.id,
+      displayName: f.displayName,
+      avatarUrl: f.AvatarUrl
+    }));
+    row.append(main);
+
+    // Only someone online can be joined.
+    if (f.status === 'online') {
+      const join = document.createElement('button');
+      join.type = 'button';
+      join.className = 'btn-refresh home-friend-join';
+      join.textContent = 'JOIN';
+      join.title = `Start Stella and join ${name}`;
+      join.addEventListener('click', () => joinStellaFriend(f));
+      row.append(join);
+    }
+    return row;
+  }));
+}
+
+window.radium?.onStellaFriends?.(queueStellaFriends);
+// "Checking…" turns into "Offline", and a friend gone quiet into offline, by
+// time passing rather than by an event, so the card is redrawn now and then.
+setInterval(() => {
+  if (activeNetwork === 'stella' && stellaPlayer && !document.hidden) refreshStellaFriends();
+}, 20000);
+
+// The LOG IN button a signed-out Rooms or People list shows.
+document.addEventListener('click', (e) => {
+  if (e.target.closest?.('[data-stella-login]')) stellaSignIn();
+  if (e.target.closest?.('[data-stella-retry]')) {
+    reloadStellaLists();
+    refreshStellaAuth();
+  }
+});
+
+document.addEventListener('click', (e) => {
+  const menu = $('stellaAccountMenu');
+  if (menu && !menu.hidden && !menu.contains(e.target) && !$('stellaAccountBtn')?.contains(e.target)) {
+    closeStellaAccountMenu();
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('stellaAccountMenu')?.hidden) {
+    closeStellaAccountMenu();
+    $('stellaAccountBtn')?.focus();
   }
 });
 
@@ -5689,6 +6199,13 @@ let roomJoin = null;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+function requireStellaLogin(what) {
+  if (stellaPlayer) return true;
+  toast(`Log in to Stella to ${what}.`, 'info');
+  stellaSignIn();
+  return false;
+}
+
 function requireVanillaLogin(what) {
   if (vanillaPlayer) return true;
   toast(`Sign in to Vanilla to ${what}.`, 'info');
@@ -5725,17 +6242,73 @@ function bumpCount(el, delta) {
 
 async function paintRoomCheer(room) {
   const btn = $('roomsDetailCheerBtn');
+  const fav = $('roomsDetailFavoriteBtn');
+  const stella = activeNetwork === 'stella';
   setCheerEnabled(btn, !!room);
   setCheerPressed(btn, false);
-  if (!btn || !room || !vanillaPlayer) return;
+  // Favorite is Stella's only; there it takes the cheer tile's look too.
+  fav?.classList.toggle('cheer-stat', stella);
+  setCheerEnabled(fav, stella && !!room);
+  setCheerPressed(fav, false);
+  if (!btn || !room) return;
+  if (stella) {
+    if (!stellaPlayer) return;
+    try {
+      const state = await window.radium.stellaRoomInteraction(room.RoomId);
+      if (socialRoom === room) {
+        setCheerPressed(btn, !!state.cheered);
+        setCheerPressed(fav, !!state.favorited);
+      }
+    } catch (e) {}
+    return;
+  }
+  if (!vanillaPlayer) return;
   try {
     const on = await window.radium.vanillaRoomCheered(room.RoomId);
     if (socialRoom === room) setCheerPressed(btn, on);
   } catch (e) {}
 }
 
+/// Stella: cheer or favorite the open room from its tile. The tile and count
+/// change at once and are put back if Stella says no.
+async function toggleStellaRoom(btn, kind, countEl) {
+  const room = socialRoom;
+  if (!room || btn.dataset.pending === 'true') return;
+  if (!requireStellaLogin(kind === 'cheer' ? 'cheer rooms' : 'favorite rooms')) return;
+  const next = btn.getAttribute('aria-pressed') !== 'true';
+  btn.dataset.pending = 'true';
+  setCheerPressed(btn, next);
+  bumpCount(countEl, next ? 1 : -1);
+  try {
+    const state = await window.radium.stellaSetRoomInteraction(room.RoomId, kind, next);
+    const now = kind === 'cheer' ? !!state.cheered : !!state.favorited;
+    // Stella's answer is the truth; it can differ if the tile was stale.
+    if (socialRoom === room && now !== next) {
+      setCheerPressed(btn, now);
+      bumpCount(countEl, now ? 1 : -1);
+    }
+  } catch (err) {
+    if (socialRoom === room) {
+      setCheerPressed(btn, !next);
+      bumpCount(countEl, next ? -1 : 1);
+    }
+    toast(`Couldn't update ${kind === 'cheer' ? 'cheer' : 'favorite'}: ${err}`, 'error');
+  } finally {
+    btn.dataset.pending = 'false';
+  }
+}
+
+$('roomsDetailFavoriteBtn')?.addEventListener('click', (e) => {
+  if (activeNetwork !== 'stella') return;
+  toggleStellaRoom(e.currentTarget, 'favorite', $('roomsDetailFavorites'));
+});
+
 $('roomsDetailCheerBtn')?.addEventListener('click', async (e) => {
   const btn = e.currentTarget;
+  if (activeNetwork === 'stella') {
+    toggleStellaRoom(btn, 'cheer', $('roomsDetailCheers'));
+    return;
+  }
   const room = socialRoom;
   if (!room || btn.dataset.pending === 'true') return;
   if (!requireVanillaLogin('cheer rooms')) return;
@@ -6030,6 +6603,10 @@ async function playRoom(room) {
 $('roomsDetailPlay')?.addEventListener('click', () => {
   const room = socialRoom;
   if (!room || !room.RoomId) return;
+  if (activeNetwork === 'stella') {
+    playStellaRoom(room);
+    return;
+  }
   // A second click on the room already joining cancels it.
   if (roomJoin && roomJoin.roomId === room.RoomId) {
     roomJoin.cancelled = true;
@@ -6046,7 +6623,7 @@ $('roomsDetailPlay')?.addEventListener('click', () => {
 // Entry points from the detail views ────────────────────────────────────
 
 function setupRoomSocial(room) {
-  socialRoom = activeNetwork === 'vanilla' && room?.RoomId ? room : null;
+  socialRoom = (activeNetwork === 'vanilla' || activeNetwork === 'stella') && room?.RoomId ? room : null;
   paintPlayButton();
   paintRoomCheer(socialRoom);
 }
@@ -6515,8 +7092,28 @@ async function loadFilters() {
   } else {
     // Left unset so the next visit retries rather than caching the failure.
     filtersRenderKey = '';
-    listEl.innerHTML = '<div style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px;">Error loading filters</div>';
+    // Signed out of Stella, or no Steam: the rooms list beside this says so.
+    listEl.innerHTML = res?.error === STELLA_SIGNED_OUT || res?.error === STEAM_NOT_RUNNING
+      ? ''
+      : '<div style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px;">Error loading filters</div>';
   }
+}
+
+/// What a failed Rooms or People load shows. Signed out of Stella isn't an
+/// error, so it gets a way to sign in instead.
+function listErrorHtml(res, what) {
+  if (res?.error === STELLA_SIGNED_OUT) {
+    return `Log in to Stella to see ${what}.<br><button type="button" class="btn-refresh stella-login-prompt" data-stella-login>LOG IN WITH STEAM</button>`;
+  }
+  if (String(res?.error || '').startsWith("Couldn't reach Stella")) {
+    return `${escapeHtml(res.error)}<br><button type="button" class="btn-refresh stella-login-prompt" data-stella-retry>TRY AGAIN</button>`;
+  }
+  if (res?.error === STEAM_NOT_RUNNING) {
+    // Lets the window's focus handler retry once Steam is up.
+    stellaAuthError = STEAM_NOT_RUNNING;
+    return `Start Steam to see ${what}. Stella signs in with your Steam account.<br><button type="button" class="btn-refresh stella-login-prompt" data-stella-retry>TRY AGAIN</button>`;
+  }
+  return `Error: ${escapeHtml(res?.error || `Failed to fetch ${what}`)}`;
 }
 
 async function loadRooms() {
@@ -6543,6 +7140,8 @@ async function loadRooms() {
   endListLoad(gridEl);
   
   if (res && res.success && res.data) {
+    // Signed in on the way (Steam was started after the startup check).
+    if (activeNetwork === 'stella' && !stellaPlayer) refreshStellaAuth();
     const rooms = res.data.Results || [];
     const total = res.data.TotalResults || 0;
     roomsRenderKey = key;
@@ -6551,6 +7150,13 @@ async function loadRooms() {
     gridEl.innerHTML = '';
     if (rooms.length === 0) {
       gridEl.dataset.listPlaceholder = '1';
+      // Most Players lists only rooms with someone in them, so an empty page
+      // there means nobody is playing in one, not a search that missed.
+      if (emptyEl) {
+        emptyEl.textContent = activeRoomsSort === 5 && !roomsSearchQuery
+          ? 'Nobody is in any of these rooms right now.'
+          : 'No rooms matched your search.';
+      }
       emptyEl?.classList.remove('hidden');
     } else {
       delete gridEl.dataset.listPlaceholder;
@@ -6569,6 +7175,7 @@ async function loadRooms() {
         const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
         card.innerHTML = `
           <img class="room-card-image image-loading-placeholder" loading="lazy" decoding="async" data-fallback="./images.png" src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(roomName)}" />
+          ${liveBadgeHtml(room)}
           <div class="room-card-name">${escapeHtml(roomName)}</div>
           <div class="room-card-creator">by ${escapeHtml(creatorUsername)}</div>
         `;
@@ -6578,7 +7185,11 @@ async function loadRooms() {
         if (creatorEl) {
           creatorEl.addEventListener('click', (e) => {
             e.stopPropagation();
-            showCreatorProfile(creatorUsername);
+            showCreatorProfile(creatorUsername, {
+              id: room.CreatorPlayerId ?? room.CreatorAccountId ?? null,
+              displayName: room.CreatorUsername,
+              avatarUrl: room.CreatorAvatarUrl
+            });
           });
         }
         gridEl.appendChild(card);
@@ -6604,7 +7215,9 @@ async function loadRooms() {
     // rendered page.
     roomsRenderKey = '';
     gridEl.dataset.listPlaceholder = '1';
-    gridEl.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${escapeHtml(res?.error || 'Failed to fetch rooms')}</div>`;
+    gridEl.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">${listErrorHtml(res, 'rooms')}</div>`;
+    const txtPage = $('txtRoomsPage');
+    if (txtPage) txtPage.textContent = 'Page 1 of 1';
     const btnPrev = $('btnRoomsPrev');
     const btnNext = $('btnRoomsNext');
     if (btnPrev) btnPrev.disabled = true;
@@ -6695,6 +7308,8 @@ async function loadPeople() {
   endListLoad(bodyEl);
   
   if (res && res.success && res.data) {
+    // Signed in on the way (Steam was started after the startup check).
+    if (activeNetwork === 'stella' && !stellaPlayer) refreshStellaAuth();
     const people = res.data.Results || [];
     const total = res.data.TotalResults || 0;
     peopleRenderKey = key;
@@ -6703,7 +7318,11 @@ async function loadPeople() {
     bodyEl.innerHTML = '';
     if (people.length === 0) {
       bodyEl.dataset.listPlaceholder = '1';
-      bodyEl.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">No players found.</td></tr>';
+      // An empty box on a network with no browse list isn't a failed search.
+      const message = !peopleSearchQuery && networkInfo().hasPeopleBrowse === false
+        ? 'Search for a player by name.'
+        : 'No players found.';
+      bodyEl.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">${message}</td></tr>`;
     } else {
       delete bodyEl.dataset.listPlaceholder;
       people.forEach(person => {
@@ -6756,7 +7375,9 @@ async function loadPeople() {
     // Escaped for the same reason as the rooms error above.
     peopleRenderKey = '';
     bodyEl.dataset.listPlaceholder = '1';
-    bodyEl.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Error: ${escapeHtml(res?.error || 'Failed to fetch players')}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">${listErrorHtml(res, 'players')}</td></tr>`;
+    const txtPage = $('txtPeoplePage');
+    if (txtPage) txtPage.textContent = 'Page 1 of 1';
     const btnPrev = $('btnPeoplePrev');
     const btnNext = $('btnPeopleNext');
     if (btnPrev) btnPrev.disabled = true;
@@ -6852,18 +7473,37 @@ function switchTab(tabName) {
 /// happened to come back last.
 let creatorLookupSeq = 0;
 
-async function showCreatorProfile(username) {
-  if (!username) return;
+/// `creator`, when given, is the id/displayName/avatar a room or photo row
+/// already carried for this person. It is used to build the profile directly,
+/// skipping the by-name search below: the id is exact, and it saves a request.
+async function showCreatorProfile(username, creator = null) {
+  if (!username && !(creator && creator.id != null)) return;
   const seq = ++creatorLookupSeq;
   let person = null;
+
+  if (creator && creator.id != null) {
+    person = {
+      id: creator.id,
+      userName: username || creator.userName || '',
+      displayName: creator.displayName || username || '',
+      // An absolute URL the row already resolved; personAvatarUrl prefers it.
+      AvatarUrl: creator.avatarUrl || '',
+      profileImage: '',
+      isOnline: null,
+      bio: ''
+    };
+  }
+
   try {
-    const res = await window.radium?.fetchPeople({ query: username });
-    if (seq !== creatorLookupSeq) return;
-    if (res && res.success && res.data && res.data.Results) {
-      // A row can come back without a username; that one just isn't a match.
-      person = res.data.Results.find(p => String(p.userName || '').toLowerCase() === username.toLowerCase());
-      if (!person && res.data.Results.length > 0) {
-        person = res.data.Results[0];
+    if (!person) {
+      const res = await window.radium?.fetchPeople({ query: username });
+      if (seq !== creatorLookupSeq) return;
+      if (res && res.success && res.data && res.data.Results) {
+        // A row can come back without a username; that one just isn't a match.
+        person = res.data.Results.find(p => String(p.userName || '').toLowerCase() === username.toLowerCase());
+        if (!person && res.data.Results.length > 0) {
+          person = res.data.Results[0];
+        }
       }
     }
   } catch (err) {
@@ -6923,13 +7563,15 @@ async function getPhotoWebDetails(photoId, photo) {
   return res;
 }
 
-async function getUserWebDetails(username) {
-  if (!username) return null;
-  const key = username.toLowerCase();
+async function getUserWebDetails(username, accountId = null) {
+  // Stella resolves by account id, so a row with an id but no username is
+  // still lookupable. Cache by id when present.
+  if (!username && accountId == null) return null;
+  const key = accountId != null ? `#${accountId}` : username.toLowerCase();
   if (userWebDetailsCache.has(key)) {
     return userWebDetailsCache.get(key);
   }
-  const res = await window.radium?.fetchUserWebDetails(username);
+  const res = await window.radium?.fetchUserWebDetails(username || '', accountId);
   if (res && res.success) {
     if (userWebDetailsCache.size >= 200) {
       const oldestKey = userWebDetailsCache.keys().next().value;
@@ -7077,7 +7719,32 @@ async function loadRoomPhotos(roomId, append = false) {
   
   currentRoomId = roomId;
   roomPhotosLoading = true;
-  
+
+  // Networks with a direct per-room photo endpoint (Stella) use it. Others
+  // answer `unsupported` and fall through to the network-wide feed scan below.
+  {
+    const directSkip = append ? roomPhotosFeedSkip : 0;
+    const direct = await window.radium?.fetchRoomPhotos({ roomId, skip: directSkip, take: roomPhotosFeedTake });
+    if (seq !== roomPhotosSeq) return;
+    if (direct && direct.success) {
+      const results = (direct.data && direct.data.Results) || [];
+      if (!append && currentRoomPhotosCount === 0) photosGrid.innerHTML = '';
+      const loadEl = $('roomPhotosLoading');
+      if (loadEl) loadEl.remove();
+      results.forEach(photo => { currentRoomPhotosCount++; photosGrid.appendChild(buildPhotoCard(photo, 'rooms-detail')); });
+      roomPhotosFeedSkip = directSkip + roomPhotosFeedTake;
+      roomPhotosHasMore = results.length >= roomPhotosFeedTake;
+      roomPhotosLoading = false;
+      if (photosEmpty) {
+        if (currentRoomPhotosCount === 0) { photosEmpty.textContent = 'No photos yet.'; photosEmpty.style.display = 'block'; }
+        else { photosEmpty.style.display = 'none'; }
+      }
+      setupRoomPhotoObserver();
+      return;
+    }
+    // Not supported on this network: fall through to the feed scan.
+  }
+
   let resultsLength = 0;
   let hasFailed = false;
   let pagesSearched = 0;
@@ -7444,11 +8111,51 @@ $('btnPhotoDetailBack')?.addEventListener('click', () => {
 
 
 
+/// The "● 7" corner badge on a room card: players in the room right now, in
+/// public and private copies of it together (hover for the split). Only
+/// Stella's rows carry the counts, and an empty room gets no badge.
+function liveBadgeHtml(room) {
+  const pub = Number(room?.LivePlayers) || 0;
+  const priv = Number(room?.PrivatePlayers) || 0;
+  const n = pub + priv;
+  if (n <= 0) return '';
+  const label = priv > 0
+    ? `${n} in this room now: ${pub} in public, ${priv} in private`
+    : `${n} ${n === 1 ? 'player' : 'players'} in this room now`;
+  return `<span class="room-live-badge" title="${label}" aria-label="${label}"><span class="room-live-dot" aria-hidden="true"></span>${n}</span>`;
+}
+
+/// "7 playing now · 3 in private" under the room's name. `players` (public
+/// copies) null hides it; `priv` null or 0 leaves the private part off.
+function setRoomLive(players, priv = null) {
+  const el = $('roomsDetailLive');
+  if (!el) return;
+  const known = Number.isFinite(players) && players >= 0;
+  el.hidden = !known;
+  if (!known) return;
+  const p = Number.isFinite(priv) ? priv : 0;
+  el.classList.toggle('is-empty', players + p === 0);
+  let text;
+  if (players + p === 0) text = 'Nobody here right now';
+  else if (p === 0) text = `${players} playing now`;
+  else if (players === 0) text = `${p} playing now · all in private`;
+  else text = `${players} playing now · ${p} in private`;
+  el.lastChild.textContent = text;
+}
+
 async function showRoomDetails(room) {
   const list = $('roomsListView');
   const detail = $('roomsDetailView');
   if (!list || !detail) return;
   const seq = ++roomDetailSeq;
+
+  // What the list row knew, then a fresh count: the page may have sat open.
+  setRoomLive(activeNetwork === 'stella' ? (room.LivePlayers ?? null) : null, room.PrivatePlayers ?? null);
+  if (activeNetwork === 'stella' && (room.RoomId || room.roomId)) {
+    window.radium?.stellaRoomPlayers(room.RoomId || room.roomId)
+      .then(r => { if (seq === roomDetailSeq && r?.players != null) setRoomLive(r.players, r.private); })
+      .catch(() => {});
+  }
   
   const thumbUrl = roomThumbUrl(room, 720);
   
@@ -7474,7 +8181,11 @@ async function showRoomDetails(room) {
   if (creatorLinkEl) {
     creatorLinkEl.onclick = async (e) => {
       e.stopPropagation();
-      await showCreatorProfile(creatorUsername);
+      await showCreatorProfile(creatorUsername, {
+        id: room.CreatorPlayerId ?? room.CreatorAccountId ?? null,
+        displayName: creatorUsername,
+        avatarUrl: room.CreatorAvatarUrl
+      });
       hideRoomDetails();
     };
   }
@@ -7485,9 +8196,14 @@ async function showRoomDetails(room) {
     // Re-armed on every visit, as on the photo screen: the shared handler
     // uses the fallback up the first time a picture fails.
     creatorAvatarEl.dataset.fallback = PLACEHOLDER_AVATAR;
-    creatorAvatarEl.src = defaultAvatarUrl(32);
+    // A row that resolved its creator (Stella, Vanilla) carries the picture
+    // already. Stella has no room page to look it up from below, so without
+    // this it would stay on the placeholder.
+    creatorAvatarEl.src = room.CreatorAvatarUrl
+      ? thumbSrc(room.CreatorAvatarUrl, avatarWidth(32))
+      : defaultAvatarUrl(32);
   }
-  
+
   const roomId = room.RoomId || room.roomId || '—';
   const idEl = $('roomsDetailId');
   if (idEl) idEl.textContent = roomId;
@@ -7623,8 +8339,11 @@ async function showPlayerDetails(person) {
   // so flashing those tiles as "..." only to hide them a moment later is the
   // jump the user sees on opening a profile. Radium's scraped profile has all
   // three. `webDetails` fills the real values (or '' to hide) once it lands.
-  const hasFriendsStat = activeNetwork !== 'vanilla';
-  const hasVisitsStat  = activeNetwork !== 'vanilla';
+  // Only Radium publishes friends and visit counts. Vanilla and Stella expose
+  // a subscriber count and nothing else, so those tiles stay hidden rather than
+  // flashing "..." and then vanishing.
+  const hasFriendsStat = activeNetwork === 'radium';
+  const hasVisitsStat  = activeNetwork === 'radium';
   setProfileStat(friendsEl, hasFriendsStat ? '...' : '');
   setProfileStat(subsEl, '...');
   setProfileStat(visitsEl, hasVisitsStat ? '...' : '');
@@ -7653,8 +8372,9 @@ async function showPlayerDetails(person) {
   const bannerEl = $('peopleDetailBanner');
   if (bannerEl) {
     bannerEl.style.backgroundImage = defaultProfileBanner();
-    bannerEl.style.backgroundSize = 'cover';
+    bannerEl.style.backgroundSize = defaultProfileBannerSize();
     bannerEl.style.backgroundPosition = 'center';
+    bannerEl.style.backgroundRepeat = 'no-repeat';
   }
 
   const peoplePhotosGrid = $('peopleDetailPhotosGrid');
@@ -7674,7 +8394,7 @@ async function showPlayerDetails(person) {
   // Load scraped web details asynchronously
   let webDetails = null;
   try {
-    webDetails = await getUserWebDetails(person.userName);
+    webDetails = await getUserWebDetails(person.userName, person.id);
   } catch (err) {
     console.error("Error loading web details for user:", err);
   }
@@ -7686,6 +8406,13 @@ async function showPlayerDetails(person) {
     setProfileStat(subsEl, webDetails.subscribers);
     setProfileStat(visitsEl, webDetails.visits);
     if (bioEl) bioEl.textContent = webDetails.bio || 'This user has not setup a bio yet.';
+    // A profile opened from a room/photo row may have had no avatar on the row
+    // (e.g. the row's creator lookup came back thin). The details carry the real
+    // one, so fill it in now — through the thumbnail cache like every picture.
+    if (webDetails.avatar && avatarEl) {
+      const resolved = thumbSrc(webDetails.avatar, avatarWidth(80));
+      if (resolved && resolved.startsWith(THUMB_BASE)) avatarEl.src = resolved;
+    }
     // Through the thumbnail cache like every other remote picture. Set as the
     // bare scraped URL it could never load — the CSP's img-src doesn't allow
     // remote hosts — and whatever the page's markup held went into the style
@@ -7695,6 +8422,7 @@ async function showPlayerDetails(person) {
     // Layered over the default, which then shows if the picture fails.
     if (bannerEl && banner && banner.startsWith(THUMB_BASE)) {
       bannerEl.style.backgroundImage = `url("${banner}"), ${defaultProfileBanner()}`;
+      bannerEl.style.backgroundSize = `cover, ${defaultProfileBannerSize()}`;
     }
     
     // Live update status if scrape has it
@@ -7718,11 +8446,15 @@ async function showPlayerDetails(person) {
     // The lookup failed, which is different from the stat not existing: the
     // number is real on this network, we just don't have it right now. A stat
     // the network doesn't have stays hidden rather than showing a dash.
+    // (Presence on Stella is filled in separately, below.)
     setProfileStat(friendsEl, hasFriendsStat ? '—' : '');
     setProfileStat(subsEl, '—');
     setProfileStat(visitsEl, hasVisitsStat ? '—' : '');
     if (bioEl) bioEl.textContent = person.bio || 'This user has not setup a bio yet.';
   }
+
+  // Stella's presence comes from its live hub, not the profile lookup.
+  if (activeNetwork === 'stella' && person.id != null) applyStellaPresence(person.id, seq);
 
   // Disconnect existing observers and reset pagination states
   if (playerPhotoObserver) playerPhotoObserver.disconnect();
@@ -7792,6 +8524,48 @@ async function showPlayerDetails(person) {
 
   // Reset tabs to Photos active by default
   if (tabs[0].btn) tabs[0].btn.click();
+}
+
+/// Online / offline, and the room, on a Stella profile — what the game shows
+/// for that player. Right after the hub connects a player not yet heard from
+/// is still "checking", so it asks again a few times before settling.
+async function applyStellaPresence(playerId, seq, tries = 0) {
+  let p;
+  try {
+    p = await window.radium.stellaPresence(playerId);
+  } catch (e) {
+    return;
+  }
+  if (seq !== playerDetailSeq) return;
+  const dotEl = $('peopleDetailStatusDot');
+  const labelEl = $('peopleDetailStatusLabel');
+  const activityEl = $('peopleDetailActivityBadge');
+  const setBadge = (text) => {
+    if (!activityEl) return;
+    activityEl.textContent = text;
+    activityEl.style.display = text ? 'inline-flex' : 'none';
+  };
+  if (p?.status === 'online') {
+    if (dotEl) dotEl.className = 'status-dot online';
+    if (labelEl) labelEl.textContent = 'ONLINE';
+    setBadge(p.roomName ? `In ${p.roomName}${p.private ? ' · private' : ''}` : (p.private ? 'In a private room' : ''));
+  } else if (p?.status === 'offline') {
+    if (dotEl) dotEl.className = 'status-dot offline';
+    if (labelEl) labelEl.textContent = 'OFFLINE';
+    setBadge('');
+  } else if (p?.status === 'checking') {
+    if (dotEl) dotEl.className = 'status-dot unknown';
+    if (labelEl) labelEl.textContent = 'CHECKING…';
+    if (tries < 20) setTimeout(() => applyStellaPresence(playerId, seq, tries + 1), 5000);
+  } else if (p?.status === 'paused') {
+    // The game holds Stella's presence connection while it runs; see
+    // stella_hub.rs. Asked again so it fills in once the game closes.
+    if (dotEl) dotEl.className = 'status-dot unknown';
+    if (labelEl) labelEl.textContent = 'SHOWN IN GAME';
+    setBadge('');
+    setTimeout(() => applyStellaPresence(playerId, seq, 0), 10000);
+  }
+  // "unknown" (hub unreachable) leaves STATUS UNKNOWN as it is.
 }
 
 async function loadPlayerFeeds(userId, append = false) {
@@ -7907,6 +8681,7 @@ async function loadPlayerRooms(userId, append = false) {
       const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
       roomCard.innerHTML = `
         <img class="room-card-image image-loading-placeholder" loading="lazy" decoding="async" src="${escapeHtml(imgUrl)}" data-fallback="./images.png" alt="${escapeHtml(roomName)}" />
+        ${liveBadgeHtml(room)}
         <div class="room-card-name">${escapeHtml(roomName)}</div>
         <div class="room-card-creator">by ${escapeHtml(creatorUsername)}</div>
         <div class="room-card-stats">

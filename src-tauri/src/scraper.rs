@@ -221,10 +221,26 @@ pub async fn fetch_room_web_details(name: String, network: Option<String>) -> Va
 // 2. fetch_user_web_details
 // ---------------------------------------------------------------------------
 #[tauri::command]
-pub async fn fetch_user_web_details(name: String, network: Option<String>) -> Value {
+pub async fn fetch_user_web_details(
+    name: String,
+    network: Option<String>,
+    account_id: Option<i64>,
+) -> Value {
     match Network::parse(network.as_deref()) {
         Network::Vanilla => return vanilla::user_web_details(&name).await,
-        Network::Stella => return crate::server::no_public_api(),
+        // Stella looks a profile up by account id. The id usually comes from
+        // the row the profile was opened from; without one, the name is
+        // resolved to an account first.
+        Network::Stella => {
+            let id = match account_id {
+                Some(id) => Some(id),
+                None => crate::stella_api::account_id_for_name(&name).await,
+            };
+            return match id {
+                Some(id) => crate::stella_api::user_details(id).await,
+                None => json!({ "success": false, "error": "No such player." }),
+            };
+        }
         Network::Radium => {}
     }
     let safe_name = vanilla::urlencoding(&name);

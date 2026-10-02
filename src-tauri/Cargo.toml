@@ -29,6 +29,8 @@ crc32fast = "1.5"
 flate2 = "1"
 regex = "1"
 futures-util = "0.3"
+# Stella's notification hub (friends' presence) is a SignalR websocket.
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 # Integrity checks on the two things this launcher downloads and then executes:
 # the game client zip and its own installer. See download.rs / updater.rs.
 sha2 = "0.10"
@@ -38,6 +40,11 @@ zeroize = "1"
 # Decode/resize/re-encode only. Default features pull in every format there is;
 # the images this touches are the PNGs and JPEGs the two networks serve.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Stella's game API authenticates with a Steam auth-session ticket (the launcher
+# signs in the same way the client does). This wraps the Steamworks SDK to get
+# that ticket; it needs steam_api64.dll beside the exe and Steam running. See
+# stella_api.rs.
+steamworks = "0.13"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

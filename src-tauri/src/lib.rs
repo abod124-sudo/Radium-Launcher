@@ -8,6 +8,8 @@ pub mod game;
 pub mod scraper;
 pub mod server;
 pub mod stella;
+pub mod stella_api;
+pub mod stella_hub;
 pub mod thumbs;
 pub mod updater;
 pub mod verify;
@@ -85,6 +87,7 @@ pub fn run() {
             server::fetch_people,
             server::fetch_filters,
             server::fetch_user_photos,
+            server::fetch_room_photos,
             server::fetch_user_rooms,
             server::fetch_user_feed,
             server::fetch_recent_photos,
@@ -146,6 +149,16 @@ pub fn run() {
             // Stella's patch
             stella::stella_patch_status,
             stella::stella_update_patch,
+            // Stella account
+            stella_api::stella_auth_status,
+            stella_api::stella_login,
+            stella_api::stella_logout,
+            stella_api::stella_room_players,
+            stella_api::stella_room_interaction,
+            stella_api::stella_set_room_interaction,
+            stella_hub::stella_friends,
+            stella_hub::stella_friends_stop,
+            stella_hub::stella_presence,
             // Defender
             defender::add_defender_exclusion,
             defender::remove_defender_exclusion,
@@ -170,6 +183,11 @@ pub fn run() {
                     .unwrap_or_else(|_| std::env::temp_dir().join("radium-launcher"))
                     .join("thumbs"),
             );
+
+            // Whether the user logged out of Stella, which outlives a restart.
+            if let Ok(dir) = app.path().app_local_data_dir() {
+                stella_api::init(dir);
+            }
 
             // Start game monitoring background task
             game::start_game_monitor(app_handle.clone());

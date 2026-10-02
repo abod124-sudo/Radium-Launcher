@@ -346,6 +346,12 @@ pub fn check_game_running(app: tauri::AppHandle) -> bool {
     game_running(&app)
 }
 
+/// Whether any Rec Room client is running, wherever it was started from. Used
+/// by Stella's friends connection, which must not run alongside the game's.
+pub fn rec_room_running() -> bool {
+    any_process_running(&GAME_EXES)
+}
+
 /// Checks whether `steam.exe` is currently running.
 #[tauri::command(async)]
 pub fn check_steam() -> bool {
@@ -407,6 +413,12 @@ fn spawn_bat(_exe_path: &str, _work_dir: &str) -> std::io::Result<std::process::
         std::io::ErrorKind::Unsupported,
         "Launching a .bat client is only supported on Windows.",
     ))
+}
+
+/// A room name as Rec Room allows them: 1–64 letters, digits, `_` and `-`.
+fn valid_room_name(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 fn launch_game_impl(
@@ -497,8 +509,31 @@ fn launch_game_impl(
     let is_bat = file_lower.ends_with(".bat");
     // Stella starts the game and loads its patch into it, which takes a moment
     // longer than a plain spawn and fails the launch if the patch can't go in.
+    // Stella can start straight into a friend's room: `+join:<account id>` is
+    // the connect string the game publishes to Steam for "Join Game" (read off
+    // its rich presence, 2026-10-02), and the game itself does the joining —
+    // the server decides whether that player can be joined.
+    let join_arg = config
+        .get("joinPlayerId")
+        .and_then(|v| v.as_i64())
+        .filter(|&id| id > 0 && network == config::Network::Stella)
+        .map(|id| format!("+join:{id}"));
+    // Likewise a room, by name: `+roomname:` sits beside `+join:` in the
+    // game's own list of launch arguments. Only a plain room name is passed
+    // on (letters, digits, `_`, `-`), never anything that could read as more.
+    let room_arg = config
+        .get("joinRoomName")
+        .and_then(|v| v.as_str())
+        .map(|n| n.trim().trim_start_matches('^'))
+        .filter(|n| network == config::Network::Stella && valid_room_name(n))
+        .map(|n| format!("+roomname:{n}"));
     let stella_pid = if network == config::Network::Stella {
-        Some(crate::stella::launch(&app, exe, &work_dir, &[mode_arg])?)
+        let mut args = vec![mode_arg];
+        // A player to join wins over a room; the frontend only sends one.
+        if let Some(join) = join_arg.as_ref().or(room_arg.as_ref()) {
+            args.push(join.as_str());
+        }
+        Some(crate::stella::launch(&app, exe, &work_dir, &args)?)
     } else {
         None
     };
@@ -809,5 +844,23 @@ mod process_snapshot_tests {
         let buf = [b'a' as u16; 260];
         assert!(!image_name_matches(&buf, &["a.exe"]));
         assert!(image_name_matches(&buf, &["a".repeat(260).as_str()]));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_room_name;
+
+    #[test]
+    fn room_names_are_plain() {
+        assert!(valid_room_name("RecCenter"));
+        assert!(valid_room_name("ink383s_infinteinkzone"));
+        assert!(valid_room_name("Rec-Pulse"));
+        assert!(!valid_room_name(""));
+        assert!(!valid_room_name("^RecCenter"));
+        assert!(!valid_room_name("Rec Center"));
+        assert!(!valid_room_name("RecCenter +join:1"));
+        assert!(!valid_room_name("@someone's Dorm"));
+        assert!(!valid_room_name(&"a".repeat(65)));
     }
 }

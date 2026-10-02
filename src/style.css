@@ -689,6 +689,9 @@ img:is([src$="vanilla-logo.png"], [src$="stella-logo.png"]) { image-rendering: a
 .vn-icon-thumb {
   --vn-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z'/%3E%3C/svg%3E");
 }
+.vn-icon-star {
+  --vn-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z'/%3E%3C/svg%3E");
+}
 .vn-icon-bell {
   --vn-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z'/%3E%3C/svg%3E");
 }
@@ -696,10 +699,10 @@ img:is([src$="vanilla-logo.png"], [src$="stella-logo.png"]) { image-rendering: a
   --vn-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z'/%3E%3C/svg%3E");
 }
 
-/* The footer holds only the Vanilla account row now that the version badge is
-   gone, so on any other network it would be an empty strip with a divider
-   above it. */
-body:not(.network-vanilla) .sidebar-footer { display: none; }
+/* The footer holds only the account row (Vanilla's or Stella's) now that the
+   version badge is gone, so on Radium it would be an empty strip with a
+   divider above it. */
+body:not(.network-vanilla):not(.network-stella) .sidebar-footer { display: none; }
 
 /* Account row: [avatar  name] [bell] */
 .account-slot { position: relative; }
@@ -720,12 +723,13 @@ body .sidebar-footer .account-row .notif-bell { width: 38px; }
 /* A username is shown as written. Several skins set their nav rows in
    capitals with wide tracking (Steam 2010), which turned "abod124" into
    "ABOD1…"; the ids outrank that. "LOG IN" keeps the skin's look. */
-body #vanillaAccountBtn:is([aria-haspopup]) #vanillaAccountName {
+body #vanillaAccountBtn:is([aria-haspopup]) #vanillaAccountName,
+body #stellaAccountBtn:is([aria-haspopup]) #stellaAccountName {
   text-transform: none !important;
   letter-spacing: normal !important;
 }
 /* A name too long for one line even at 12px gets a second (fitAccountName). */
-#vanillaAccountName.two-lines {
+:is(#vanillaAccountName, #stellaAccountName).two-lines {
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.15;
@@ -735,7 +739,7 @@ body #vanillaAccountBtn:is([aria-haspopup]) #vanillaAccountName {
 }
 /* Liquid Glass pads every .nav-btn 12px a side with !important, which left
    the name about 60px; the ids outrank it for these two. */
-body.glass-enabled #vanillaAccountBtn { padding: 6px 8px !important; }
+body.glass-enabled :is(#vanillaAccountBtn, #stellaAccountBtn) { padding: 6px 8px !important; }
 body.glass-enabled #vanillaNotifsBtn { padding: 0 !important; }
 /* While their popup is open these two are highlighted with `.is-open`, not
    the nav's `.active`: every skin gives `.active` the current-tab treatment
@@ -751,19 +755,19 @@ body .sidebar-footer .account-row :is(.account-btn, .notif-bell).is-open {
    above: its press tokens are its hover link style, blue on its blue pane. */
 body:not(.glass-enabled):not(:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
                                   .theme-blackandwhite, .theme-blackandwhite-inverted)) {
-  &:not(:is(.theme-winxp, .theme-royalenoir)) :is(#vanillaAccountBtn, #vanillaNotifsBtn):is(:active, .is-open) {
+  &:not(:is(.theme-winxp, .theme-royalenoir)) :is(#vanillaAccountBtn, #stellaAccountBtn, #vanillaNotifsBtn):is(:active, .is-open) {
     color: var(--nav-press-fg);
     background: var(--nav-press-bg) !important;
     border: var(--nav-press-border);
     box-shadow: var(--nav-press-shadow);
   }
-  & #vanillaAccountBtn:is(:active, .is-open) { padding: 7px 7px 5px 9px; }
+  & :is(#vanillaAccountBtn, #stellaAccountBtn):is(:active, .is-open) { padding: 7px 7px 5px 9px; }
   & #vanillaNotifsBtn:is(:active, .is-open) .vn-icon { transform: translate(1px, 1px); }
 }
 /* XP's sidebar rows are its blue link colour, which reads on the light top of
    its task pane but not on the dark blue at the bottom, where these two sit.
    They take the colour XP gives its sidebar footer text (--version-fg). */
-body.theme-winxp:not(.glass-enabled) :is(#vanillaAccountBtn, #vanillaNotifsBtn) {
+body.theme-winxp:not(.glass-enabled) :is(#vanillaAccountBtn, #stellaAccountBtn, #vanillaNotifsBtn) {
   color: var(--version-fg);
 }
 body .sidebar-footer .notif-bell .vn-icon { width: 20px; height: 20px; }
@@ -947,7 +951,7 @@ body.glass-enabled .notif-avatar {
 .cheer-stat :is(.room-stat-val, .photo-detail-stat-value) {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
-body.network-vanilla .cheer-stat :is(.room-stat-val, .photo-detail-stat-value) {
+body:is(.network-vanilla, .network-stella) .cheer-stat :is(.room-stat-val, .photo-detail-stat-value) {
   padding: 3px 10px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--text) 7%, transparent);
@@ -958,7 +962,17 @@ body.network-vanilla .cheer-stat :is(.room-stat-val, .photo-detail-stat-value) {
   color: var(--text-muted);
   transition: transform 0.15s ease, color 0.15s ease;
 }
-body:not(.network-vanilla) .cheer-icon { display: none; }
+body:not(.network-vanilla):not(.network-stella) .cheer-icon { display: none; }
+/* The favorite star is Stella's alone: Vanilla's room page has no favorite. */
+body:not(.network-stella) .fav-icon { display: none; }
+/* The FAVORITES tile is a button so Stella can press it; everywhere else it
+   must look exactly like the plain stat it used to be. */
+.stat-btn {
+  font: inherit; color: inherit;
+  border: 0;
+  -webkit-appearance: none; appearance: none;
+}
+.stat-btn:disabled { color: inherit; cursor: default; }
 .cheer-stat:not(:disabled):hover :is(.room-stat-val, .photo-detail-stat-value) {
   background: color-mix(in srgb, var(--text) 13%, transparent);
 }
@@ -1651,6 +1665,77 @@ body.glass-enabled .btn-play.running:is(:active, .is-pressed) {
 .qs-card.online .qs-value { color: var(--status-online); text-shadow: none; }
 .qs-card.offline .qs-value { color: #ff6666; text-shadow: none; }
 .qs-card.update-available .qs-value { color: #ffaa00; text-shadow: none; }
+
+/* Home friends card (Stella). A qs-card, so every skin paints it like the
+   status cards above it; full width, with friends in as many columns as fit. */
+.home-friends { margin-top: 10px; }
+.home-friends-count { font-family: var(--font-mono); font-size: 9px; color: var(--text-muted); }
+.home-friends-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 4px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+.home-friends-note { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); padding: 2px 0; }
+.home-friend {
+  display: flex; align-items: center; gap: 4px;
+  min-width: 0;
+  border-radius: 4px;
+}
+.home-friend:hover { background: color-mix(in srgb, var(--text) 10%, transparent); }
+/* The avatar and name: opens the profile. */
+.home-friend-main {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1; min-width: 0;
+  padding: 4px 6px;
+  background: transparent; border: 0;
+  color: var(--text); text-align: left; cursor: pointer;
+  font: inherit;
+}
+.home-friend-join {
+  flex-shrink: 0;
+  margin-right: 4px;
+  padding: 2px 8px;
+  font-size: 10px; font-weight: bold;
+}
+.home-friend-pic { position: relative; flex-shrink: 0; width: 28px; height: 28px; }
+.home-friend-pic img {
+  width: 28px; height: 28px; object-fit: cover; display: block;
+  border: 1px solid var(--border-dark);
+  border-radius: 7px;
+}
+.home-friend-dot {
+  position: absolute; right: -3px; bottom: -3px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--err, #ff4444);
+  box-shadow: 0 0 0 2px var(--bg-panel);
+}
+.home-friend.is-online .home-friend-dot { background: var(--status-online, #3ddc84); }
+.home-friend:is(.is-checking, .is-paused) .home-friend-dot { background: #777; }
+.home-friend-text { display: flex; flex-direction: column; min-width: 0; }
+.home-friend-name, .home-friend-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-friend-name { font-size: 12px; font-weight: bold; }
+.home-friend-sub { font-size: 10px; color: var(--text-muted); }
+.home-friend.is-online .home-friend-sub { color: var(--status-online, #3ddc84); }
+.home-friend.is-offline { opacity: 0.7; }
+
+/* Where the friends list shows is a setting (Settings → FRIENDS): the Home
+   card, a FRIENDS tab, or neither. */
+body:not(.friends-view-home) #stellaFriendsCard { display: none !important; }
+body:not(.friends-view-tab) #nav-friends { display: none !important; }
+.friends-tab-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; }
+.friends-tab-list {
+  max-height: none;
+  overflow: visible;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+}
+.friends-tab-list .home-friend-main { padding: 6px 8px; }
+.friends-tab-list .home-friend-pic,
+.friends-tab-list .home-friend-pic img { width: 36px; height: 36px; }
+.friends-tab-list .home-friend-name { font-size: 13px; }
+.friends-tab-list .home-friend-sub { font-size: 11px; }
 /* Update control sits beside the status value rather than under it; it drops
    to its own line only if the card gets too narrow to hold both. */
 
@@ -2441,6 +2526,37 @@ body.theme-moderndark .modal-close-btn {
   background: var(--bg-dark);
 }
 
+/* Live player count over the thumbnail's corner (Stella). Placed against the
+   card, which is why .room-card is positioned: 6px padding + 2px border, plus
+   the image's own 2px border and a little air. */
+.room-card { position: relative; }
+.room-live-badge {
+  position: absolute; top: 14px; right: 14px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-family: var(--font-ui); font-size: 10px; font-weight: bold;
+  line-height: 14px;
+  pointer-events: none;
+}
+.room-live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #3ddc84;
+  box-shadow: 0 0 0 2px rgba(61, 220, 132, 0.25);
+  flex-shrink: 0;
+}
+.room-live-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  width: fit-content;
+  font-size: 11px; font-weight: bold;
+  color: var(--text);
+}
+.room-live-pill[hidden] { display: none; }
+.room-live-pill.is-empty { color: var(--text-muted); font-weight: normal; }
+.room-live-pill.is-empty .room-live-dot { background: var(--text-muted); box-shadow: none; }
+
 .room-card-name {
   font-weight: bold;
   font-size: 11px;
@@ -3181,6 +3297,11 @@ body.theme-moderndark .feed-post-footer {
    <body> rather than the button so the rule reads the same way as the other
    per-network switches. */
 body:not(.network-vanilla) .network-only-vanilla { display: none !important; }
+/* A room's PLAY: Vanilla sends the running game there, Stella starts in it. */
+body:not(.network-vanilla):not(.network-stella) .room-play-net { display: none !important; }
+body:not(.network-stella) .network-only-stella { display: none !important; }
+/* The sign-in offered in place of a Rooms/People list while signed out. */
+.stella-login-prompt { margin-top: 10px; padding: 5px 14px; font-size: 11px; }
 
 /* Like the other list panels: the panel itself doesn't scroll, the list inside
    it does, so the header stays put. (.tab-panel already sets the display.) */

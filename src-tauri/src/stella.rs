@@ -124,7 +124,7 @@ async fn fetch_patch(mut on_progress: impl FnMut(u64, u64)) -> Result<Vec<u8>, S
         .header("User-Agent", USER_AGENT)
         .send()
         .await
-        .map_err(|e| format!("Couldn't reach Stella: {}", e))?;
+        .map_err(|e| crate::stella_api::unreachable_message(&e))?;
     let status = response.status();
     if !status.is_success() {
         return Err(format!("Stella's patch server answered HTTP {}.", status.as_u16()));

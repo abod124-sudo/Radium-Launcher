@@ -57,6 +57,7 @@ try {
   var savedNetwork = localStorage.getItem('radium-network');
   var network = (savedNetwork === 'vanilla' || savedNetwork === 'stella') ? savedNetwork : 'radium';
   document.body.classList.add('network-' + network);
-  // Mirrors NETWORKS[*].hasSocial in app.js.
-  if (network === 'stella') document.body.classList.add('network-no-social');
+  // Every network now has a rooms/people API, so none start socially hidden.
+  // (applyNetworkUI still toggles `network-no-social` from NETWORKS[*].hasSocial
+  // if a future network opts out.)
 } catch (e) {}

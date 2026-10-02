@@ -111,6 +111,11 @@
         <button class="nav-btn network-social-only" data-tab="people" id="nav-people">
           PEOPLE
         </button>
+        <!-- Stella only, and only when Settings puts the friends list in a
+             tab of its own (body.friends-view-tab) rather than on Home. -->
+        <button class="nav-btn network-only-stella" data-tab="friends" id="nav-friends">
+          FRIENDS
+        </button>
         <!-- Vanilla only: it publishes a network-wide photo feed. Hidden on
              any network that doesn't, via body.network-* in the stylesheet. -->
         <button class="nav-btn network-only-vanilla" data-tab="feed" id="nav-feed">
@@ -150,6 +155,27 @@
             </div>
             <button class="nav-btn network-option" role="menuitem" id="vanillaProfileBtn">MY PROFILE</button>
             <button class="nav-btn network-option" role="menuitem" id="vanillaLogoutBtn">LOG OUT</button>
+          </div>
+        </div>
+        <!-- Stella account. Signed in with the player's Steam account (see
+             stella_api.rs); this shows the Stella account that maps to. -->
+        <div class="account-slot network-only-stella">
+          <div class="account-row">
+            <button class="nav-btn account-btn" id="stellaAccountBtn"
+                    aria-haspopup="menu" aria-expanded="false">
+              <img class="account-avatar" id="stellaAccountAvatar" alt="" hidden />
+              <span class="account-name" id="stellaAccountName">LOG IN</span>
+            </button>
+          </div>
+          <div class="network-menu account-menu" id="stellaAccountMenu" role="menu"
+               aria-label="Stella account" hidden>
+            <div class="account-meta">
+              <span class="account-meta-display" id="stellaAccountDisplay" hidden></span>
+              <span class="account-meta-name" id="stellaAccountFullName"></span>
+              <span class="account-meta-tokens">Signed in with Steam</span>
+            </div>
+            <button class="nav-btn network-option" role="menuitem" id="stellaProfileBtn">MY PROFILE</button>
+            <button class="nav-btn network-option" role="menuitem" id="stellaLogoutBtn">LOG OUT</button>
           </div>
         </div>
       </div>
@@ -323,10 +349,31 @@
           </div>
         </div>
 
+        <!-- Stella only: your friends, online first, from Stella's live
+             presence (stella_hub.rs). Clicking one opens their profile. -->
+        <div class="qs-card home-friends network-only-stella" id="stellaFriendsCard">
+          <div class="qs-header-row">
+            <span class="qs-label">Friends</span>
+            <span class="home-friends-count" id="stellaFriendsCount"></span>
+          </div>
+          <div class="home-friends-list" id="stellaFriendsList"></div>
+        </div>
+
       </section>
 
       <!-- ───────── ROOMS TAB ────────────────────────── -->
       <!-- ───────── FEED TAB (Vanilla only) ────────────── -->
+      <!-- ───────── FRIENDS TAB (Stella, when chosen in Settings) ───── -->
+      <section class="tab-panel" id="tab-friends">
+        <div class="panel-header">
+          <h2>FRIENDS</h2>
+          <span class="home-friends-count" id="stellaFriendsTabCount"></span>
+        </div>
+        <div class="native-panel friends-tab-panel">
+          <div class="home-friends-list friends-tab-list" id="stellaFriendsTabList"></div>
+        </div>
+      </section>
+
       <section class="tab-panel" id="tab-feed">
         <div class="panel-header">
           <h2>FEED</h2>
@@ -368,6 +415,8 @@
                   <button class="sort-btn" data-sort="2">Most Visited</button>
                   <button class="sort-btn" data-sort="3">Most Cheered</button>
                   <button class="sort-btn" data-sort="4">Most Favorited</button>
+                  <!-- Stella only: where the players are right now. -->
+                  <button class="sort-btn network-only-stella" data-sort="5">Most Players</button>
                 </div>
               </div>
             </div>
@@ -410,6 +459,8 @@
                   <!-- Right Column: Details info -->
                   <div class="room-details-content">
                     <h3 id="roomsDetailName" class="room-title">Room Name</h3>
+                    <!-- Stella only: players in the room right now. -->
+                    <div id="roomsDetailLive" class="room-live-pill" hidden><span class="room-live-dot" aria-hidden="true"></span><span></span></div>
                     
                     <!-- Creator Signature Box -->
                     <div id="roomsDetailCreatorLink" class="room-creator-box bevel-inset">
@@ -423,8 +474,9 @@
                     <!-- Description -->
                     <p id="roomsDetailDescription" class="room-description">Room description goes here...</p>
 
-                    <!-- Vanilla only: sends the running game into this room. -->
-                    <button type="button" class="modal-btn modal-btn-primary room-play-btn network-only-vanilla"
+                    <!-- Vanilla: sends the running game into this room.
+                         Stella: starts the game in this room (+roomname:). -->
+                    <button type="button" class="modal-btn modal-btn-primary room-play-btn room-play-net"
                             id="roomsDetailPlay">
                       <span class="room-play-label">&#9654; PLAY</span>
                     </button>
@@ -444,10 +496,17 @@
                       </div>
                       <div class="room-stat-lbl">CHEERS</div>
                     </button>
-                    <div class="room-stat-item bevel-inset">
-                      <div id="roomsDetailFavorites" class="room-stat-val">0</div>
+                    <!-- A button for the same reason as CHEERS: on Stella the
+                         tile favorites the room. It only wears .cheer-stat
+                         (the pill and pressed look) there; see paintRoomCheer. -->
+                    <button type="button" class="room-stat-item bevel-inset stat-btn" id="roomsDetailFavoriteBtn"
+                            aria-pressed="false" disabled>
+                      <div class="room-stat-val">
+                        <span class="vn-icon vn-icon-star cheer-icon fav-icon" aria-hidden="true"></span>
+                        <span id="roomsDetailFavorites">0</span>
+                      </div>
                       <div class="room-stat-lbl">FAVORITES</div>
-                    </div>
+                    </button>
                     <div class="room-stat-item bevel-inset">
                       <div id="roomsDetailVisits" class="room-stat-val">0</div>
                       <div class="room-stat-lbl">VISITS</div>
@@ -836,6 +895,19 @@
             </div>
             <div class="sg-row" style="margin-top: 12px; margin-bottom: 4px;">
               <button class="btn-test-server" id="btnTestNotif">SEND A TEST POP-UP</button>
+            </div>
+          </div>
+
+          <!-- Stella friends: where the list shows. Stella only. -->
+          <div class="settings-group network-only-stella">
+            <div class="sg-title">FRIENDS</div>
+            <div class="sg-row">
+              <label for="cfgFriendsView">Show friends</label>
+              <select id="cfgFriendsView" class="cfg-input">
+                <option value="home">On Home</option>
+                <option value="tab">In their own tab</option>
+                <option value="hidden">Hidden</option>
+              </select>
             </div>
           </div>
 

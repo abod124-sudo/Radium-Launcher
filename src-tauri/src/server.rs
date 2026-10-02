@@ -25,6 +25,32 @@ pub(crate) fn http() -> &'static Client {
     })
 }
 
+/// Process-wide client whose User-Agent is `BestHTTP`, the one string Stella's
+/// Cloudflare lets through to its game API (see `stella_api`). Everything on
+/// `api.stellaonline.org` except `/download/*` is a 403 block page without it,
+/// so this is kept separate from [`http`] (whose `Radium-Launcher` UA is used
+/// for Radium's own API and Stella's open download paths) rather than switched
+/// per request.
+///
+/// Idle connections are dropped after 20 seconds rather than reqwest's 90:
+/// Stella's edge closes them sooner than that, and a request sent down one it
+/// had already closed failed at once with "error sending request" — the
+/// intermittent Rooms error. Keep-alive probes catch the rest; `stella_api`
+/// retries what still slips through.
+pub(crate) fn http_client_besthttp() -> &'static Client {
+    static HTTP: OnceLock<Client> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        Client::builder()
+            .user_agent(crate::stella_api::USER_AGENT)
+            .gzip(true)
+            .brotli(true)
+            .pool_idle_timeout(Duration::from_secs(20))
+            .tcp_keepalive(Duration::from_secs(15))
+            .build()
+            .unwrap_or_else(|_| Client::new())
+    })
+}
+
 /// Read a response body, refusing to buffer more than `max` bytes.
 ///
 /// `Response::bytes()` reads to the end however long that is; a server can
@@ -201,10 +227,11 @@ pub async fn ping_server(url: String) -> Value {
 
 /// Get the current online player count from the Radium API.
 #[tauri::command]
-pub async fn get_player_count(network: Option<String>) -> Value {
+pub async fn get_player_count(app: tauri::AppHandle, network: Option<String>) -> Value {
     match Network::parse(network.as_deref()) {
         Network::Vanilla => return vanilla::get_player_count().await,
-        Network::Stella => return no_public_api(),
+        // Counted from Stella's live presence; see `stella_hub::player_count`.
+        Network::Stella => return crate::stella_hub::player_count(app),
         Network::Radium => {}
     }
 
@@ -237,7 +264,7 @@ pub async fn get_player_count(network: Option<String>) -> Value {
 
 /// Fetch a paginated list of rooms with optional search query and tag filter.
 #[tauri::command]
-pub async fn fetch_rooms(args: Value) -> Value {
+pub async fn fetch_rooms(app: tauri::AppHandle, args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = page_size(&args, 20);
     let sort_by = args.get("sortBy").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -257,7 +284,7 @@ pub async fn fetch_rooms(args: Value) -> Value {
         // whole public room set is cached in the module instead, so all four
         // are applied there over every room rather than over one API page.
         Network::Vanilla => return vanilla::fetch_rooms(skip, take, &query, &tag, sort_by).await,
-        Network::Stella => return no_public_api(),
+        Network::Stella => return crate::stella_api::fetch_rooms(&app, skip, take, &query, &tag, sort_by).await,
         Network::Radium => {}
     }
 
@@ -298,7 +325,7 @@ pub async fn fetch_people(args: Value) -> Value {
 
     match network_of(&args) {
         Network::Vanilla => return vanilla::fetch_people(skip, take, &query).await,
-        Network::Stella => return no_public_api(),
+        Network::Stella => return crate::stella_api::fetch_people(skip, take, &query).await,
         Network::Radium => {}
     }
 
@@ -329,7 +356,7 @@ pub async fn fetch_filters(network: Option<String>) -> Value {
         // Vanilla publishes no filter endpoint, so the tag list is tallied from
         // the cached room set. See vanilla::fetch_filters.
         Network::Vanilla => return vanilla::fetch_filters().await,
-        Network::Stella => return no_public_api(),
+        Network::Stella => return crate::stella_api::fetch_filters().await,
         Network::Radium => {}
     }
 
@@ -338,6 +365,27 @@ pub async fn fetch_filters(network: Option<String>) -> Value {
     match http_get_json(url).await {
         Ok(data) => json!({ "success": true, "data": data }),
         Err(e) => json!({ "success": false, "error": e }),
+    }
+}
+
+/// Fetch photos taken in a specific room.
+///
+/// Stella has a direct per-room photo endpoint. Radium and Vanilla do not, so
+/// they answer `unsupported` and the frontend falls back to scanning the
+/// network-wide feed and filtering by room id.
+#[tauri::command]
+pub async fn fetch_room_photos(args: Value) -> Value {
+    let room_id = match args.get("roomId") {
+        Some(v) if v.is_number() => v.to_string(),
+        Some(v) if v.is_string() => v.as_str().unwrap().to_string(),
+        _ => return json!({ "success": false, "error": "roomId is required" }),
+    };
+    let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
+    let take = page_size(&args, 60);
+
+    match network_of(&args) {
+        Network::Stella => crate::stella_api::fetch_room_photos(&room_id, skip, take).await,
+        _ => no_public_api(),
     }
 }
 
@@ -356,7 +404,7 @@ pub async fn fetch_user_photos(args: Value) -> Value {
 
     match network_of(&args) {
         Network::Vanilla => return vanilla::fetch_user_photos(&user_id, skip, take).await,
-        Network::Stella => return no_public_api(),
+        Network::Stella => return crate::stella_api::fetch_user_photos(&user_id, skip, take).await,
         Network::Radium => {}
     }
 
@@ -388,7 +436,7 @@ pub async fn fetch_user_rooms(args: Value) -> Value {
 
     match network_of(&args) {
         Network::Vanilla => return vanilla::fetch_user_rooms(&user_id, skip, take).await,
-        Network::Stella => return no_public_api(),
+        Network::Stella => return crate::stella_api::fetch_user_rooms(&user_id, skip, take).await,
         Network::Radium => {}
     }
 
@@ -421,13 +469,14 @@ pub async fn fetch_user_feed(args: Value) -> Value {
     match network_of(&args) {
         // Vanilla publishes no activity feed. The UI hides the FEEDS tab, so
         // this is only reachable defensively.
-        Network::Vanilla => {
+        // Neither Vanilla nor Stella publishes a per-user activity feed, so the
+        // FEEDS tab shows an empty state rather than erroring.
+        Network::Vanilla | Network::Stella => {
             return json!({
                 "success": true,
                 "data": { "Results": [], "TotalResults": 0 }
             })
         }
-        Network::Stella => return no_public_api(),
         Network::Radium => {}
     }
 
@@ -451,8 +500,10 @@ pub async fn fetch_user_feed(args: Value) -> Value {
 /// anything to warm — Radium's lists are server-paged and each page is small.
 #[tauri::command]
 pub async fn prefetch_network_data(network: Option<String>) {
-    if Network::parse(network.as_deref()) == Network::Vanilla {
-        vanilla::prefetch();
+    match Network::parse(network.as_deref()) {
+        Network::Vanilla => vanilla::prefetch(),
+        Network::Stella => crate::stella_api::prefetch_rooms(),
+        Network::Radium => {}
     }
 }
 

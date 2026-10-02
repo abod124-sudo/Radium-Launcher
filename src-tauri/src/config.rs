@@ -190,6 +190,9 @@ pub struct StellaState {
     /// build, or one they installed by pressing UPDATE. Launch injects the
     /// patch on disk only if it still hashes to this.
     pub patch_sha256: String,
+    /// Where the friends list shows: "home" (a card on Home, also what empty
+    /// means), "tab" (its own sidebar tab) or "hidden". Owned by Settings.
+    pub friends_view: String,
 }
 
 /// Application configuration for the Radium Launcher.
