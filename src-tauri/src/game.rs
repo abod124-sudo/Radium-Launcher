@@ -378,12 +378,20 @@ pub fn check_required_steam_app() -> bool {
     }
 }
 
-#[tauri::command(async)]
-pub fn launch_game(
+/// Start the game. On the blocking pool: a Stella launch waits for the game to
+/// load its code before the patch goes in (up to two minutes on a slow first
+/// start) and then for the patch to load, and a sync command marked `async`
+/// runs on one of the async runtime's few worker threads, which every other
+/// command, download and connection shares.
+#[tauri::command]
+pub async fn launch_game(
     app: tauri::AppHandle,
     config: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    match launch_game_impl(app, config) {
+    let result = tokio::task::spawn_blocking(move || launch_game_impl(app, config))
+        .await
+        .unwrap_or_else(|e| Err(format!("The launch failed: {}", e)));
+    match result {
         Ok(val) => Ok(val),
         Err(err) => Ok(json!({ "success": false, "error": err })),
     }

@@ -1304,14 +1304,25 @@ pub fn app_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
 /// [`get_client_dir_for`] without the app handle, so the resolution rule has a
 /// single definition that tests can exercise directly.
 pub fn client_dir_for(config: &Config, network: Network, app_data_dir: &std::path::Path) -> String {
-    let configured = config.install_dir_for(network);
-    if !configured.is_empty() {
-        return custom_client_dir(configured, network);
+    resolve_install_dir(config.install_dir_for(network), network, app_data_dir)
+}
+
+/// Where `network`'s client is for an install location of `configured`: its
+/// default folder when nothing is set, else its subfolder of what is (see
+/// [`custom_client_dir`]).
+///
+/// A location that *is* the network's default folder counts as unset. The old
+/// settings autosave wrote the default path it was showing into the field, so
+/// configs carry `%APPDATA%\com.radium.launcher\client` for Radium with the
+/// client right there. Given a subfolder like any other pick, that install
+/// went missing behind `client\Radium`, and the next download put a second
+/// copy in there.
+pub fn resolve_install_dir(configured: &str, network: Network, app_data_dir: &std::path::Path) -> String {
+    let default = app_data_dir.join(default_client_folder(network)).to_string_lossy().to_string();
+    if configured.trim().is_empty() || same_dir(configured, &default) {
+        return default;
     }
-    app_data_dir
-        .join(default_client_folder(network))
-        .to_string_lossy()
-        .to_string()
+    custom_client_dir(configured, network)
 }
 
 #[cfg(test)]
@@ -1688,6 +1699,25 @@ mod tests {
         cfg.stella.install_dir = r"D:\Games\stella".into();
         assert_eq!(client_dir_for(&cfg, Network::Stella, &data), r"D:\Games\stella");
         assert_eq!(norm_dir(&custom_client_dir(r"D:\Games\stella", Network::Radium)), "d:/games/stella/radium");
+    }
+
+    /// A saved location that is the network's own default folder (what the
+    /// old autosave wrote) is that folder, not a subfolder of it.
+    #[test]
+    fn a_saved_default_folder_is_the_default_folder() {
+        let data = PathBuf::from(r"C:\Users\me\AppData\Roaming\com.radium.launcher");
+        let mut cfg = Config::default();
+        cfg.install_dir = r"C:\Users\me\AppData\Roaming\com.radium.launcher\client".into();
+        assert_eq!(client_dir_for(&cfg, Network::Radium, &data), data.join("client").to_string_lossy());
+        // Spelled with other slashes and case, as the sources disagree.
+        cfg.install_dir = "c:/users/me/appdata/roaming/com.radium.launcher/CLIENT/".into();
+        assert_eq!(client_dir_for(&cfg, Network::Radium, &data), data.join("client").to_string_lossy());
+        cfg.stella.install_dir = data.join("client-stella").to_string_lossy().to_string();
+        assert_eq!(client_dir_for(&cfg, Network::Stella, &data), data.join("client-stella").to_string_lossy());
+        // Another network's default is still a pick like any other.
+        cfg.vanilla.install_dir = data.join("client").to_string_lossy().to_string();
+        assert!(norm_dir(&client_dir_for(&cfg, Network::Vanilla, &data)).ends_with("/client/vanilla"));
+        assert!(dedupe_install_dirs_at(&mut cfg, &data));
     }
 
     /// Stella is held to the same rule against both of the others.

@@ -153,6 +153,7 @@ pub fn run() {
             stella_api::stella_auth_status,
             stella_api::stella_login,
             stella_api::stella_logout,
+            stella_api::stella_set_in_use,
             stella_api::stella_room_players,
             stella_api::stella_room_interaction,
             stella_api::stella_set_room_interaction,
@@ -184,9 +185,10 @@ pub fn run() {
                     .join("thumbs"),
             );
 
-            // Whether the user logged out of Stella, which outlives a restart.
+            // Whether the user logged out of Stella, which outlives a restart,
+            // and the window Stella checks is on screen before using Steam.
             if let Ok(dir) = app.path().app_local_data_dir() {
-                stella_api::init(dir);
+                stella_api::init(app_handle.clone(), dir);
             }
 
             // Start game monitoring background task

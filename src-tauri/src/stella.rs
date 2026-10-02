@@ -309,20 +309,43 @@ pub fn remove_patch(app: &tauri::AppHandle) {
 
 // ─── Launch ─────────────────────────────────────────────────────────────────
 
+/// Open `path` for reading, shared for reading only: while the handle is open,
+/// nothing else can write, rename or delete the file, though anyone may still
+/// read it, which is all `LoadLibraryW` does.
+fn open_locked(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 0x1;
+        options.share_mode(FILE_SHARE_READ);
+    }
+    options.open(path)
+}
+
 /// Read the accepted patch and confirm it is still the build the user
-/// accepted. Returns its path.
-fn verified_patch(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+/// accepted. Returns its path, and the file held open (see [`open_locked`]) so
+/// it stays that build until the game has loaded it: checked and then loaded
+/// by path up to two minutes later, as the game starts, it could have been
+/// swapped in between.
+fn verified_patch(app: &tauri::AppHandle) -> Result<(PathBuf, std::fs::File), String> {
+    use std::io::Read;
+
     let accepted = config::current(app).stella.patch_sha256.clone();
     let path = patch_path(app);
     if accepted.is_empty() || !path.exists() {
         return Err("Stella's patch isn't installed. Press UPDATE on Home to get it.".into());
     }
-    if !stored_patch_matches(&path, &accepted) {
+    let mut file = open_locked(&path).map_err(|e| format!("Couldn't open Stella's patch: {}", e))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|e| format!("Couldn't read Stella's patch: {}", e))?;
+    if !crate::download::digest_matches(&sha256_of(&bytes), &accepted) {
         return Err("Stella's patch file has changed since it was installed, so it was not \
                     loaded. Press UPDATE on Home to download it again."
             .into());
     }
-    Ok(path)
+    Ok((path, file))
 }
 
 /// Start the Stella client with its patch loaded. Returns the game's pid.
@@ -340,7 +363,8 @@ pub fn launch(
 ) -> Result<u32, String> {
     use std::os::windows::process::CommandExt;
 
-    let patch = verified_patch(app)?;
+    // `_held` keeps the patch as it was checked until this returns.
+    let (patch, _held) = verified_patch(app)?;
     let mut child = std::process::Command::new(exe)
         .args(args)
         .current_dir(work_dir)
@@ -544,6 +568,40 @@ mod tests {
         assert!(is_pinned(&PINNED_PATCH_SHA256[0].to_uppercase()));
         assert!(!is_pinned(""));
         assert!(!is_pinned(&"0".repeat(64)));
+    }
+
+    /// While the checked patch is held, nothing can write, rename or delete
+    /// it, and Windows still loads it as a DLL, which is what the game does.
+    #[cfg(windows)]
+    #[test]
+    fn a_held_patch_cant_be_swapped_but_still_loads() {
+        use windows_sys::Win32::Foundation::FreeLibrary;
+        use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
+
+        let dir = std::env::temp_dir().join(format!("stella-held-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Any real DLL will do. A name of its own, so it isn't taken for the
+        // system copy already loaded.
+        let dll = dir.join("radium-held-patch-test.dll");
+        let system = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+        std::fs::copy(Path::new(&system).join("System32").join("msimg32.dll"), &dll).unwrap();
+
+        let held = open_locked(&dll).unwrap();
+        assert!(std::fs::OpenOptions::new().write(true).open(&dll).is_err(), "written while held");
+        assert!(std::fs::rename(&dll, dir.join("swapped.dll")).is_err(), "renamed while held");
+        assert!(std::fs::remove_file(&dll).is_err(), "deleted while held");
+        assert!(std::fs::read(&dll).is_ok(), "read while held");
+
+        let wide: Vec<u16> = dll.as_os_str().to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: a NUL-terminated path to a system DLL's copy, freed below.
+        let module = unsafe { LoadLibraryW(wide.as_ptr()) };
+        assert!(!module.is_null(), "loads while held: {}", std::io::Error::last_os_error());
+        // SAFETY: the module loaded just above, and nothing of it is used.
+        unsafe { FreeLibrary(module) };
+
+        drop(held);
+        let _ = std::fs::remove_file(&dll);
+        let _ = std::fs::remove_dir(&dir);
     }
 
     #[test]

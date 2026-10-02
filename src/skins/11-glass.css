@@ -1455,6 +1455,14 @@
   background: transparent !important;
 }
 
+/* A player's photo thumbnails, rounded like the rest of the glass wells
+   (glass sets no picture tokens for style.css to read). */
+:root body.glass-enabled .profile-photo-tile {
+  border: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
 /* Inner wells inside the detail views: tinted, not blurred again. */
 :root body.glass-enabled .bevel-inset,
 :root body.glass-enabled .bevel-outset {

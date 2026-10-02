@@ -1061,13 +1061,7 @@ body:is(.theme-winxp, .theme-royalenoir):not(.glass-enabled) :is(.card-cheer, .c
 }
 .room-details-content .room-play-btn.is-busy { font-size: 11px; letter-spacing: 0.5px; }
 
-/* Subscribe sits at the right end of the profile header. */
-.profile-header-content .subscribe-btn {
-  align-self: center; flex-shrink: 0;
-  min-width: 118px;
-  margin-left: auto;
-}
-.profile-header-content .subscribe-btn[hidden] { display: none; }
+/* Subscribe sits with the profile's other actions; see .profile-actions. */
 
 /* Main Content */
 .main-content {
@@ -1712,7 +1706,7 @@ body.glass-enabled .btn-play.running:is(:active, .is-pressed) {
   box-shadow: 0 0 0 2px var(--bg-panel);
 }
 .home-friend.is-online .home-friend-dot { background: var(--status-online, #3ddc84); }
-.home-friend:is(.is-checking, .is-paused) .home-friend-dot { background: #777; }
+.home-friend:is(.is-checking, .is-paused, .is-unknown) .home-friend-dot { background: #777; }
 .home-friend-text { display: flex; flex-direction: column; min-width: 0; }
 .home-friend-name, .home-friend-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-friend-name { font-size: 12px; font-weight: bold; }
@@ -3138,18 +3132,23 @@ body.theme-moderndark .feed-post-footer {
   min-height: 280px;
 }
 
-/* Redesigned Profile Details View */
+/* ── Profile page ────────────────────────────────────────────────────────
+   A banner header: the avatar overlaps the banner beside the player's name,
+   handle and presence, with what you can do (JOIN, SUBSCRIBE) at the right;
+   one row of stat tiles; the bio only when there is one; then the tabs, and
+   photos as a thumbnail grid. These rules are the shapes. Colours, borders
+   and fonts are each skin's (03-content.css, and the glass sheet). */
 .profile-card-container {
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-radius: 6px;
   overflow: hidden;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .profile-banner-container {
-  height: 140px;
+  height: 150px;
   position: relative;
   background-size: cover;
   background-position: center;
@@ -3163,19 +3162,16 @@ body.theme-moderndark .feed-post-footer {
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.15) 0%, rgba(0, 0, 0, 0.65) 100%);
 }
 
-/* Only the avatar overlaps the banner. The whole row used to be pulled up by
-   -55px, which put the handle entirely on the card below the banner and left
-   the display name straddling its edge (measured: 12px of a 24px line over the
-   banner, 0px for the handle). Both were painted white "for contrast on the
-   banner overlay", so on every light skin the name was half-legible and the
-   handle invisible. Pulling the avatar alone keeps it exactly where it was -
-   39px into the banner - and lets the text below use the card's own colours. */
+/* Only the avatar overlaps the banner: half of it. The text beside it sits on
+   the card, in the card's own colours. Once the whole row was pulled up over
+   the banner and painted white "for contrast", and on every light skin the
+   name was half-legible and the handle invisible. */
 .profile-header-content {
   display: flex;
   flex-direction: row;
-  padding: 16px;
-  gap: 16px;
-  align-items: flex-end;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 0 20px 14px;
   position: relative;
   z-index: 2;
 }
@@ -3183,13 +3179,9 @@ body.theme-moderndark .feed-post-footer {
 .profile-avatar-wrapper {
   position: relative;
   flex-shrink: 0;
-  width: 80px;
-  height: 80px;
-  /* Overlap the banner on its own, rather than dragging the identity text up
-     with it. flex-start pins the top so the negative margin lifts the avatar
-     instead of the row. */
-  align-self: flex-start;
-  margin-top: -55px;
+  width: 104px;
+  height: 104px;
+  margin-top: -52px;
 }
 
 .profile-avatar-image {
@@ -3198,43 +3190,71 @@ body.theme-moderndark .feed-post-footer {
   border-radius: 8px;
   object-fit: cover;
   border: 4px solid var(--bg-panel);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
   background: var(--bg-panel);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .profile-avatar-image:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5);
+  transform: scale(1.04);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
 }
 
+/* Name and badges, the handle, then where they are. */
 .profile-identity-info {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 6px;
-  flex-grow: 1;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  padding-top: 12px;
+}
+
+.profile-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .profile-display-name {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: bold;
-  /* On the card, not the banner - see .profile-header-content above. */
   color: var(--text);
   line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-username-status {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
+  margin-top: 6px;
 }
 
 .profile-username {
   font-size: 12px;
   color: var(--text-muted);
   font-family: var(--font-mono);
+}
+
+/* JOIN / SUBSCRIBE, level with the name, at the right. */
+.profile-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 16px;
+}
+.profile-actions .modal-btn { min-width: 118px; }
+.profile-actions .modal-btn[hidden] { display: none; }
+/* A narrow window: the actions go under the name rather than squeezing it. */
+@media (max-width: 720px) {
+  .profile-header-content { flex-wrap: wrap; }
+  .profile-actions { width: 100%; padding-top: 0; }
 }
 
 .profile-status-badge {
@@ -3255,42 +3275,23 @@ body.theme-moderndark .feed-post-footer {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px;
-  padding-top: 8px;
+  padding: 0 20px 18px;
   background: var(--bg-panel);
 }
 
-/* 2-column details underneath header info */
-.profile-details-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-
-@media (min-width: 768px) {
-  .profile-details-grid {
-    grid-template-columns: 280px 1fr;
-    gap: 16px;
-  }
-}
-
-.profile-sidebar-stats {
+/* One row of tiles, as many as the network publishes. */
+.profile-stats-row {
   display: flex;
-  flex-direction: row;
-  gap: 8px;
-  width: 100%;
+  flex-wrap: wrap;
+  gap: 10px;
 }
-
-@media (min-width: 768px) {
-  .profile-sidebar-stats {
-    flex-direction: column;
-    gap: 10px;
-  }
-}
+.profile-stats-row:not(:has(.profile-stat-item:not([hidden]))) { display: none; }
 
 /* `display:flex` below outranks the UA's `[hidden] { display: none }`, so a
-   tile hidden for a network that doesn't publish that stat needs this. */
-.profile-stat-item[hidden] { display: none; }
+   tile hidden for a network that doesn't publish that stat needs this. The
+   bio box likewise. */
+.profile-stat-item[hidden],
+.profile-bio-box[hidden] { display: none; }
 
 /* ── Feed tab ───────────────────────────────────────────────────────────
    Vanilla-only, so the nav button is hidden everywhere else. Gated from
@@ -3358,6 +3359,14 @@ body:not(.network-stella) .network-only-stella { display: none !important; }
    A flex row lets the handle shrink and ellipsize while the badges keep their
    full width, so both stay readable however long the name is. */
 .people-username-cell { white-space: nowrap; }
+/* A long display name stays on one line beside its status dot. */
+.people-name-cell { max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Stella's Room column: one line, a long dorm name cut short. It takes the
+   Bio column's place there, since Stella's player rows carry no bio. */
+.people-room-cell { max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.network-stella .people-bio-col { display: none; }
+/* People's Level column: the networks whose player rows carry a level. */
+body:not(.network-vanilla):not(.network-stella) .people-level-col { display: none !important; }
 /* The flex row is a wrapper INSIDE the <td>, not the <td> itself.
    display:flex on the <td> directly used to be what did this, and it broke
    the one thing every other cell in the row gets for free: a <td> is
@@ -3411,22 +3420,20 @@ body:not(.network-stella) .network-only-stella { display: none !important; }
 
 .profile-stat-item {
   display: flex;
-  flex: 1;
   flex-direction: column;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
+  min-width: 104px;
   background: var(--bg-dark);
-  padding: 10px;
+  padding: 9px 16px;
   border-radius: 4px;
-  text-align: center;
-  min-height: 52px;
   box-sizing: border-box;
 }
 
 .profile-stat-val {
   font-family: var(--font-mono);
   font-weight: bold;
-  font-size: 16px;
+  font-size: 17px;
   color: var(--green);
   line-height: 1;
 }
@@ -3502,6 +3509,11 @@ body:not(.network-stella) .network-only-stella { display: none !important; }
   border-bottom: 2px solid var(--green) !important;
 }
 
+.profile-tab-btn[hidden] { display: none; }
+.profile-tab-btn:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 3px; }
+
+/* Where they are, beside the status: "In RecCenter". The text carries its
+   own "In", so there is no label in front of it. */
 .profile-activity-badge {
   display: inline-flex;
   align-items: center;
@@ -3517,12 +3529,32 @@ body:not(.network-stella) .network-only-stella { display: none !important; }
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
-.profile-activity-badge::before {
-  content: "ROOM: ";
-  color: var(--text-muted);
-  font-size: 8px;
-  font-family: var(--font-mono);
+/* A player's photos: square thumbnails, as many across as fit; each opens
+   the photo page. Corners and borders are the skin's picture tokens. */
+.profile-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
 }
+.profile-photo-grid > .profile-grid-note { grid-column: 1 / -1; }
+.profile-photo-tile {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--media-bg, var(--bg-dark));
+  border: var(--media-border, 0);
+  border-radius: var(--media-radius, 6px);
+}
+.profile-photo-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.25s ease;
+}
+.profile-photo-tile:hover img { transform: scale(1.05); }
+.profile-photo-tile:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 2px; }
 
 /* Redesigned Room Details Card */
 .room-card-container {

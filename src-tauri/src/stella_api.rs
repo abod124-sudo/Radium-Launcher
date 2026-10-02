@@ -32,7 +32,7 @@
 //! ticket. A sign-in needs Steam running and the account owning Rec Room
 //! (AppId 471710); when it isn't, the tabs show that rather than an error.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
@@ -74,11 +74,24 @@ fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-/// Clear the cached session, so the next call signs in again. Called on a 401,
-/// and when the user signs out.
+/// Clear the cached session, so the next call signs in again. Called when the
+/// user signs in or out.
 pub fn forget_session() {
     if let Ok(mut s) = SESSION.lock() {
         *s = None;
+    }
+}
+
+/// Clear the cached session if it is still the one holding `token`: what a
+/// 401 does. A page of room counts sent on an expired token gets a 401 for
+/// each, some of them after the first has already signed in again, and
+/// clearing whatever was cached threw that fresh session away and signed in
+/// with Steam once more.
+pub(crate) fn forget_session_if(token: &str) {
+    if let Ok(mut s) = SESSION.lock() {
+        if s.as_ref().is_some_and(|s| s.access_token == token) {
+            *s = None;
+        }
     }
 }
 
@@ -100,11 +113,63 @@ pub const STEAM_NOT_RUNNING: &str = "Steam isn't running.";
 /// prompt for it rather than an error.
 pub const SIGNED_OUT_ERROR: &str = "Signed out of Stella.";
 
-/// Called once at startup with the app's local data dir.
-pub fn init(local_data_dir: std::path::PathBuf) {
+/// Whether the page has Stella picked ([`stella_set_in_use`]). Half of
+/// [`in_use`]; the window being on screen is the other.
+///
+/// Signing in starts Rec Room's Steam API for a moment, which Steam shows to
+/// the player's friends as playing Rec Room, so it happens only while Stella
+/// is in use. Hidden in the tray, minimized or on another network, a sign-in
+/// that has expired is left until Stella is opened again, rather than renewed
+/// in the background, and the live hub (`stella_hub`) is closed. A sign-in
+/// that is still valid is kept, so coming back needs no Steam at all.
+static IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The app, for [`window_on_screen`].
+static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+/// What a sign-in answers while Stella isn't in use.
+pub const NOT_IN_USE: &str = "Stella signs in when you open it.";
+
+/// Whether Stella is in use: picked, in a launcher window that is on screen.
+pub(crate) fn in_use() -> bool {
+    IN_USE.load(std::sync::atomic::Ordering::SeqCst) && window_on_screen()
+}
+
+/// Whether the main window is showing: not hidden in the tray, not minimized.
+/// Asked of the window itself: hidden in the tray, the page inside it still
+/// reports itself visible.
+#[cfg(not(test))]
+fn window_on_screen() -> bool {
+    use tauri::Manager;
+    APP.get()
+        .and_then(|app| app.get_webview_window("main"))
+        .is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(true))
+}
+
+/// Unit tests have no window. Linking the window calls into the test binary
+/// also stops it starting on Windows: they bring in a common-controls import
+/// that only the app's manifest provides.
+#[cfg(test)]
+fn window_on_screen() -> bool {
+    false
+}
+
+/// The page saying whether it has Stella picked (see [`IN_USE`]).
+#[tauri::command]
+pub fn stella_set_in_use(in_use: bool) {
+    IN_USE.store(in_use, std::sync::atomic::Ordering::SeqCst);
+    if !in_use {
+        crate::stella_hub::suspend();
+    }
+}
+
+/// Called once at startup with the app and its local data dir.
+pub fn init(app: tauri::AppHandle, local_data_dir: std::path::PathBuf) {
+    let _ = APP.set(app);
     let marker = local_data_dir.join(SIGNED_OUT_FILE);
     SIGNED_OUT.store(marker.exists(), std::sync::atomic::Ordering::SeqCst);
     let _ = SIGNED_OUT_MARKER.set(marker);
+    let _ = DEVICE_ID_FILE.set(local_data_dir.join(DEVICE_ID_FILE_NAME));
 }
 
 pub(crate) fn signed_out() -> bool {
@@ -152,9 +217,13 @@ pub async fn stella_auth_status() -> Value {
     }
 }
 
-/// LOG IN: clear the signed-out state and sign in with Steam now.
+/// LOG IN: clear the signed-out state and sign in with Steam now. Refused,
+/// with the current sign-in left as it was, while Stella isn't in use.
 #[tauri::command]
 pub async fn stella_login() -> Result<Value, String> {
+    if !in_use() {
+        return Err(NOT_IN_USE.into());
+    }
     set_signed_out(false);
     forget_session();
     let player = me().await?;
@@ -174,25 +243,143 @@ pub fn stella_logout() {
 }
 
 // ─── Steam ticket ─────────────────────────────────────────────────────────
+//
+// Steam counts a process that has started the Steam API as Rec Room as
+// playing Rec Room until that process exits: shutting the API down again
+// doesn't end it. Measured 2026-10-02: after one sign-in, Steam's
+// RunningAppID stayed 471710 for as long as the launcher ran, hidden in the
+// tray or not, and went back to 0 two seconds after it quit. So the launcher
+// never starts the Steam API itself. A sign-in runs a second copy of the
+// launcher ([`TICKET_HELPER_ARG`], see [`steam_ticket_helper`]) that gets the
+// ticket, holds it until Stella has checked it, and exits; Steam shows Rec
+// Room for those few seconds only. That copy's environment is its own, too,
+// so the `SteamAppId` the Steam API sets never reaches the games the launcher
+// starts.
 
-/// Acquire a Steam auth-session ticket for Rec Room, as uppercase hex, with the
-/// signed-in Steam id. Blocking (the Steamworks callbacks are pumped briefly),
-/// so callers run it on a blocking thread.
+/// The argument that makes the launcher's exe the Steam ticket helper.
+pub const TICKET_HELPER_ARG: &str = "--stella-steam-ticket";
+/// How the helper's answer starts on its stdout, which the Steam API prints
+/// its own lines to as well.
+const TICKET_LINE: &str = "RADIUM-STEAM-TICKET ";
+/// The longest the helper stays, should the launcher never let it go.
+const HELPER_MAX_LIFE: Duration = Duration::from_secs(90);
+
+/// A ticket for Rec Room, as uppercase hex, with the signed-in Steam id. The
+/// helper that got it, and with it the ticket, stays until this is dropped.
+struct SteamTicket {
+    steam_id: String,
+    ticket_hex: String,
+    _helper: TicketHelper,
+}
+
+/// The ticket helper's process. Dropped, it is told to go (its stdin closes),
+/// and stopped if it hasn't within a few seconds.
+struct TicketHelper(Option<std::process::Child>);
+
+impl Drop for TicketHelper {
+    fn drop(&mut self) {
+        let Some(mut child) = self.0.take() else { return };
+        drop(child.stdin.take());
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            while started.elapsed() < Duration::from_secs(3) {
+                if let Ok(Some(_)) = child.try_wait() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+        });
+    }
+}
+
+/// Get a Steam auth-session ticket for Rec Room from the ticket helper.
+/// Blocking (it waits for the helper's answer), so callers run it on a
+/// blocking thread.
 ///
 /// Fails cleanly when Steam isn't running or the account doesn't own the app —
 /// the caller turns that into a message the tab can show.
 #[cfg(target_os = "windows")]
-fn steam_ticket() -> Result<(String, String), String> {
+fn steam_ticket() -> Result<SteamTicket, String> {
+    use std::io::BufRead;
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+
     // Told apart from a failed init so the UI can say "start Steam" and retry
     // when it does, rather than a vaguer either-or.
     if !crate::game::check_steam() {
         return Err(STEAM_NOT_RUNNING.into());
     }
-    let client = steamworks::Client::init_app(STEAM_APP_ID).map_err(|_| {
-        "Steam couldn't sign you in to Stella. Make sure you're logged in to Steam with an account that owns Rec Room.".to_string()
-    })?;
-    let steam_id = client.user().steam_id().raw().to_string();
+    let exe = std::env::current_exe().map_err(|e| format!("Couldn't start Stella's Steam sign-in: {e}"))?;
+    let mut child = std::process::Command::new(exe)
+        .arg(TICKET_HELPER_ARG)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+        .spawn()
+        .map_err(|e| format!("Couldn't start Stella's Steam sign-in: {e}"))?;
+    let stdout = child.stdout.take();
+    let helper = TicketHelper(Some(child));
+    let stdout = stdout.ok_or("Couldn't start Stella's Steam sign-in.")?;
 
+    // Read on a thread, so a helper that never answers can be given up on.
+    // It goes on reading to the end, so the helper never writes into a
+    // closed pipe.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            if let Some(answer) = line.strip_prefix(TICKET_LINE) {
+                let _ = tx.send(answer.to_string());
+            }
+        }
+    });
+    let answer = rx
+        .recv_timeout(Duration::from_secs(20))
+        .map_err(|_| "Steam didn't answer Stella's sign-in. Try again.".to_string())?;
+    let answer: Value = serde_json::from_str(&answer).map_err(|e| e.to_string())?;
+    if let Some(error) = answer.get("error").and_then(Value::as_str) {
+        return Err(error.to_string());
+    }
+    let (steam_id, ticket_hex) = (str_at(&answer, "steamId").to_string(), str_at(&answer, "ticket").to_string());
+    if steam_id.is_empty() || ticket_hex.is_empty() {
+        return Err("Steam returned an empty auth ticket.".into());
+    }
+    Ok(SteamTicket { steam_id, ticket_hex, _helper: helper })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn steam_ticket() -> Result<SteamTicket, String> {
+    Err("Stella sign-in is only supported on Windows.".into())
+}
+
+/// The ticket helper: what the launcher's exe does when started with
+/// [`TICKET_HELPER_ARG`] (see `main.rs`). Starts the Steam API as Rec Room,
+/// prints the ticket on one [`TICKET_LINE`], keeps it (and Steam's callbacks)
+/// alive until the launcher closes this process's stdin, and exits. Returns
+/// the exit code.
+#[cfg(target_os = "windows")]
+pub fn steam_ticket_helper() -> i32 {
+    use std::io::{Read, Write};
+    let answer = |v: Value| {
+        let mut out = std::io::stdout();
+        let _ = writeln!(out, "{TICKET_LINE}{v}");
+        let _ = out.flush();
+    };
+
+    let dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf));
+    if !dir.is_some_and(|dir| load_steam_api(&dir)) {
+        answer(json!({ "error": "Stella sign-in needs steam_api64.dll, which is missing from the launcher's folder. \
+                                 Reinstall the launcher to put it back." }));
+        return 1;
+    }
+    let Ok(client) = steamworks::Client::init_app(STEAM_APP_ID) else {
+        answer(json!({ "error": "Steam couldn't sign you in to Stella. Make sure you're logged in to Steam with an account that owns Rec Room." }));
+        return 1;
+    };
+    let steam_id = client.user().steam_id().raw().to_string();
     let identity = steamworks::networking_types::NetworkingIdentity::new();
     let (_handle, ticket) = client.user().authentication_session_ticket(identity);
 
@@ -205,14 +392,55 @@ fn steam_ticket() -> Result<(String, String), String> {
         std::thread::sleep(Duration::from_millis(50));
     }
     if ticket.is_empty() {
-        return Err("Steam returned an empty auth ticket.".into());
+        answer(json!({ "error": "Steam returned an empty auth ticket." }));
+        return 1;
     }
-    Ok((steam_id, hex_upper(&ticket)))
+    answer(json!({ "steamId": steam_id, "ticket": hex_upper(&ticket) }));
+
+    // Held until the launcher is done with it: its end of stdin closes.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 64];
+        while matches!(std::io::stdin().read(&mut buf), Ok(n) if n > 0) {}
+        let _ = tx.send(());
+    });
+    let start = std::time::Instant::now();
+    while start.elapsed() < HELPER_MAX_LIFE {
+        client.run_callbacks();
+        if !matches!(rx.recv_timeout(Duration::from_millis(100)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)) {
+            break;
+        }
+    }
+    0
 }
 
 #[cfg(not(target_os = "windows"))]
-fn steam_ticket() -> Result<(String, String), String> {
-    Err("Stella sign-in is only supported on Windows.".into())
+pub fn steam_ticket_helper() -> i32 {
+    1
+}
+
+/// Load `steam_api64.dll` from `dir`, the launcher's own folder.
+///
+/// The launcher links the Steam API delay-loaded (see build.rs), so it starts
+/// without the DLL and every network but Stella works whatever happens to it;
+/// only the ticket helper ever loads it. The price is that a delay-loaded DLL
+/// found missing at its first call doesn't fail the call, it crashes the
+/// process, so it is loaded here first. Loading it by full path also means the
+/// one beside the launcher is the one used: the delay-load helper finds it
+/// already loaded by name.
+#[cfg(target_os = "windows")]
+fn load_steam_api(dir: &std::path::Path) -> bool {
+    use windows_sys::Win32::System::LibraryLoader::LoadLibraryW;
+    let path: Vec<u16> = dir
+        .join("steam_api64.dll")
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `path` is NUL-terminated. The module is left loaded on
+    // purpose: the Steam API is called through it until the helper exits.
+    !unsafe { LoadLibraryW(path.as_ptr()) }.is_null()
 }
 
 fn hex_upper(bytes: &[u8]) -> String {
@@ -235,24 +463,68 @@ fn hex_upper(bytes: &[u8]) -> String {
 /// computes. So the launcher must present the *same* id the game did.
 ///
 /// Unity doesn't store it as a plain field, but it stamps it on every analytics
-/// event as `"deviceid":"<40 hex>"`. This reads it back from Rec Room's own
-/// analytics events on disk, caches it for the process, and is why signing in
-/// needs the game to have run at least once (it always has: the launcher
-/// installed it).
-fn device_id() -> Result<String, String> {
-    static CACHE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(None));
-    if let Ok(g) = cache.lock() {
-        if let Some(v) = g.as_ref() {
-            return Ok(v.clone());
-        }
+/// event as `"deviceid":"<40 hex>"`, and that is where it is read from first,
+/// which is why signing in needs the game to have run once (it always has: the
+/// launcher installed it).
+///
+/// Those files are the game's to tidy away, though. So once an id has signed
+/// in, it is kept in the launcher's own local data ([`DEVICE_ID_FILE_NAME`])
+/// and used from there, and a sign-in no longer depends on the files still
+/// being there. A kept id Stella stops accepting is looked up in the game's
+/// files again (see [`login`]).
+struct DeviceId {
+    id: String,
+    /// Read from the launcher's own copy rather than the game's files.
+    kept: bool,
+}
+
+/// Where the device id that last signed in is kept.
+static DEVICE_ID_FILE: OnceLock<std::path::PathBuf> = OnceLock::new();
+const DEVICE_ID_FILE_NAME: &str = "stella-device-id";
+
+const NO_DEVICE_ID: &str =
+    "Couldn't read your Rec Room device id — launch Rec Room once so Stella registers this device, then try again.";
+
+/// What a sign-in answers when Stella turns down the device id it was sent.
+const DEVICE_REJECTED: &str =
+    "Stella couldn't verify this PC for your account. Play Stella once from the launcher, then log in again.";
+
+/// The id to sign in with: the one that last signed in, else the game's own.
+fn device_id() -> Result<DeviceId, String> {
+    if let Some(id) = DEVICE_ID_FILE.get().and_then(|path| read_device_id_file(path)) {
+        return Ok(DeviceId { id, kept: true });
     }
-    let id = scan_device_id()
-        .ok_or("Couldn't read your Rec Room device id — launch Rec Room once so Stella registers this device, then try again.")?;
-    if let Ok(mut g) = cache.lock() {
-        *g = Some(id.clone());
+    scan_device_id()
+        .map(|id| DeviceId { id, kept: false })
+        .ok_or_else(|| NO_DEVICE_ID.to_string())
+}
+
+/// Keep `id`, which Stella has just accepted, for the sign-ins after this one.
+fn keep_device_id(id: &str) {
+    if let Some(path) = DEVICE_ID_FILE.get() {
+        let _ = write_device_id_file(path, id);
     }
-    Ok(id)
+}
+
+fn read_device_id_file(path: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let id = text.trim();
+    is_device_id(id).then(|| id.to_string())
+}
+
+fn write_device_id_file(path: &std::path::Path, id: &str) -> std::io::Result<()> {
+    if read_device_id_file(path).as_deref() == Some(id) {
+        return Ok(());
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, id)
+}
+
+/// Whether `s` has the shape of a Unity device id: 40 hex digits.
+fn is_device_id(s: &str) -> bool {
+    s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// Walk Rec Room's Unity analytics events for the first `"deviceid":"<40 hex>"`.
@@ -291,11 +563,7 @@ fn extract_deviceid(bytes: &[u8]) -> Option<String> {
     let rest = &hay[start..];
     let end = rest.find('"')?;
     let val = &rest[..end];
-    if val.len() == 40 && val.bytes().all(|b| b.is_ascii_hexdigit()) {
-        Some(val.to_string())
-    } else {
-        None
-    }
+    is_device_id(val).then(|| val.to_string())
 }
 
 /// Depth-bounded file walk, calling `f` on every file found.
@@ -354,12 +622,49 @@ fn base64url_decode(s: &str) -> Option<Vec<u8>> {
 }
 
 /// Sign in with a fresh Steam ticket and return a live [`Session`].
+///
+/// The device id must be the one the game registered for this account (see
+/// [`DeviceId`]). It is read first: without it there is no point starting
+/// the Steam API. One read from the game's files is kept once it works. A kept
+/// one Stella turns down may simply be out of date (the game registers a new
+/// id when this PC's hardware changes), so the game's files are asked again,
+/// and a different id there gets one more try.
 async fn login() -> Result<Session, String> {
-    let (steam_id, ticket_hex) =
-        tokio::task::spawn_blocking(steam_ticket).await.map_err(|e| e.to_string())??;
+    let device = tokio::task::spawn_blocking(device_id).await.map_err(|e| e.to_string())??;
+    match login_as(&device.id).await {
+        Ok(session) => {
+            if !device.kept {
+                keep_device_id(&device.id);
+            }
+            Ok(session)
+        }
+        Err(e) if e == DEVICE_REJECTED && device.kept => {
+            let kept = device.id;
+            let fresh = tokio::task::spawn_blocking(scan_device_id)
+                .await
+                .ok()
+                .flatten()
+                .filter(|id| *id != kept)
+                .ok_or(e)?;
+            let session = login_as(&fresh).await?;
+            keep_device_id(&fresh);
+            Ok(session)
+        }
+        Err(e) => Err(e),
+    }
+}
 
-    // The device id must be the one the game registered for this account.
-    let device = device_id()?;
+/// Whether a refused sign-in's answer is Stella turning down the device id.
+fn is_device_rejection(body: &[u8]) -> bool {
+    String::from_utf8_lossy(body).to_ascii_lowercase().contains("platform verification failed")
+}
+
+/// One sign-in attempt with `device` as the device id.
+async fn login_as(device: &str) -> Result<Session, String> {
+    // Kept until this sign-in is over: the helper, and Steam's "playing Rec
+    // Room" with it, goes when this is dropped.
+    let ticket = tokio::task::spawn_blocking(steam_ticket).await.map_err(|e| e.to_string())??;
+    let (steam_id, ticket_hex) = (ticket.steam_id.clone(), ticket.ticket_hex.clone());
 
     let client = http_client_besthttp();
 
@@ -370,6 +675,11 @@ async fn login() -> Result<Session, String> {
             .timeout(Duration::from_secs(15)),
     )
     .await?;
+    // Checked before the body is read as an account list, or a Cloudflare
+    // block page or an outage would read as "no Stella account".
+    if !lookup.status().is_success() {
+        return Err(format!("Stella sign-in failed (HTTP {}). Try again later.", lookup.status().as_u16()));
+    }
     let lookup_body = read_capped(lookup, MAX_API_BYTES).await?;
     let account_id = serde_json::from_slice::<Value>(&lookup_body)
         .ok()
@@ -401,7 +711,7 @@ async fn login() -> Result<Session, String> {
         ("client_secret", CLIENT_SECRET),
         ("platform", "0"),
         ("platform_id", &steam_id),
-        ("device_id", &device),
+        ("device_id", device),
         ("device_class", "2"),
         ("ver", "20240418"),
         ("cid", "13735"),
@@ -422,6 +732,11 @@ async fn login() -> Result<Session, String> {
         .map_err(|e| format!("Stella sign-in failed: {e}"))?;
     let status = resp.status();
     let body = read_capped(resp, MAX_API_BYTES).await?;
+    // Looked at whatever the status: Stella turns a device id down with a
+    // 200 that carries no token, not with an error status.
+    if is_device_rejection(&body) {
+        return Err(DEVICE_REJECTED.into());
+    }
     if !status.is_success() {
         return Err(format!("Stella sign-in was refused (HTTP {}).", status.as_u16()));
     }
@@ -430,7 +745,13 @@ async fn login() -> Result<Session, String> {
         .get("access_token")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or("Stella sign-in returned no token.")?
+        .ok_or_else(|| {
+            // Stella's own reason, when it gives one (OAuth's error fields).
+            match ["error_description", "error"].iter().find_map(|k| token.get(*k).and_then(Value::as_str)) {
+                Some(reason) => format!("Stella sign-in was refused ({}).", reason.chars().take(200).collect::<String>()),
+                None => "Stella sign-in returned no token.".to_string(),
+            }
+        })?
         .to_string();
     let expires_at = jwt_expiry(&access_token);
 
@@ -479,6 +800,10 @@ pub(crate) async fn ensure_session() -> Result<(String, i64), String> {
     if let Some(hit) = cached_valid() {
         return Ok(hit);
     }
+    // A sign-in uses Steam: only while Stella is in use (see IN_USE).
+    if !in_use() {
+        return Err(NOT_IN_USE.into());
+    }
 
     let session = login().await?;
     // Logged out while that sign-in was under way: don't keep it.
@@ -518,7 +843,7 @@ async fn api_request(method: reqwest::Method, path: &str) -> Result<Value, Strin
         let status = resp.status();
         if status == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
             // Token rejected: drop it and sign in fresh once.
-            forget_session();
+            forget_session_if(&token);
             continue;
         }
         if !status.is_success() {
@@ -615,6 +940,40 @@ pub(crate) async fn resolve_accounts(ids: &[i64]) -> People {
     map
 }
 
+/// Players asked about in one `/api/players/v2/progression/bulk` call.
+const LEVEL_BATCH: usize = 25;
+
+/// Each of `ids`' level, from `/api/players/v2/progression/bulk`, which
+/// answers `[{ PlayerId, Level, XP }]`. Batched, side by side. A player it
+/// leaves out, or a level of 0, is simply absent.
+async fn player_levels(ids: &[i64]) -> std::collections::HashMap<i64, i64> {
+    let batches = futures_util::future::join_all(ids.chunks(LEVEL_BATCH).map(|chunk| async move {
+        let query = chunk.iter().map(|id| format!("id={id}")).collect::<Vec<_>>().join("&");
+        api_get(&format!("/api/players/v2/progression/bulk?{query}")).await.ok()
+    }))
+    .await;
+    batches
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_array().cloned())
+        .flatten()
+        .map(|p| (i64_at(&p, "PlayerId"), i64_at(&p, "Level")))
+        .filter(|&(id, level)| id != 0 && level > 0)
+        .collect()
+}
+
+/// Set `level` on each people row (null where unknown, which hides it).
+async fn attach_levels(rows: &mut [Value]) {
+    let ids: Vec<i64> = rows.iter().map(|r| i64_at(r, "id")).filter(|&id| id > 0).collect();
+    if ids.is_empty() {
+        return;
+    }
+    let levels = player_levels(&ids).await;
+    for row in rows {
+        row["level"] = levels.get(&i64_at(row, "id")).map_or(Value::Null, |level| json!(level));
+    }
+}
+
 /// Reshape one Stella room into the frontend's room row, flattening `Stats` and
 /// attaching an absolute thumbnail and (when resolved) its creator.
 fn room_row(r: &Value, creators: &People) -> Value {
@@ -660,14 +1019,20 @@ pub(crate) fn person_row(p: &Value) -> Value {
 
 /// Pull the room array out of whichever envelope an endpoint used: `hot` returns
 /// `{ Results: [...] }`, `search` returns `{ TotalResults, Results }`, and the
-/// `ownedby`/`createdby` lists return a bare array.
-fn rooms_of(v: &Value) -> (Vec<Value>, Option<i64>) {
-    if let Some(arr) = v.as_array() {
-        return (arr.clone(), None);
+/// `ownedby`/`createdby` lists return a bare array. Takes the answer, so the
+/// rooms are moved out of it rather than copied.
+fn rooms_of(v: Value) -> (Vec<Value>, Option<i64>) {
+    match v {
+        Value::Array(rooms) => (rooms, None),
+        Value::Object(mut map) => {
+            let total = map.get("TotalResults").and_then(Value::as_i64);
+            match map.remove("Results") {
+                Some(Value::Array(rooms)) => (rooms, total),
+                _ => (Vec::new(), total),
+            }
+        }
+        _ => (Vec::new(), None),
     }
-    let results = v.get("Results").and_then(|r| r.as_array()).cloned().unwrap_or_default();
-    let total = v.get("TotalResults").and_then(|t| t.as_i64());
-    (results, total)
 }
 
 // ─── Public API (mirrors the server.rs command shapes) ───────────────────────
@@ -683,8 +1048,12 @@ fn rooms_of(v: &Value) -> (Vec<Value>, Option<i64>) {
 /// background as soon as the player signs in ([`prefetch_rooms`]); once it is
 /// [`HOT_FRESH`] old it is still served at once while a fresh copy is fetched
 /// behind it; and only one fetch is ever in flight.
+///
+/// Shared rather than copied: the list is tens of megabytes as parsed JSON,
+/// and every page, sort and tag works from references into it, so only the
+/// rows a page shows are ever copied.
 struct HotCache {
-    rooms: Vec<Value>,
+    rooms: Arc<Vec<Value>>,
     at: std::time::Instant,
 }
 static HOT_CACHE: Mutex<Option<HotCache>> = Mutex::new(None);
@@ -697,15 +1066,15 @@ fn hot_fetch_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// The cached list and whether it is still fresh.
-fn hot_cached() -> Option<(Vec<Value>, bool)> {
+fn hot_cached() -> Option<(Arc<Vec<Value>>, bool)> {
     let guard = HOT_CACHE.lock().ok()?;
     let c = guard.as_ref()?;
-    Some((c.rooms.clone(), c.at.elapsed() < HOT_FRESH))
+    Some((Arc::clone(&c.rooms), c.at.elapsed() < HOT_FRESH))
 }
 
 /// Download the list and keep it. One at a time: a caller that waited for
 /// another's download uses that instead of starting its own.
-async fn fetch_hot(force: bool) -> Result<Vec<Value>, String> {
+async fn fetch_hot(force: bool) -> Result<Arc<Vec<Value>>, String> {
     let _guard = hot_fetch_lock().lock().await;
     if !force {
         if let Some((rooms, true)) = hot_cached() {
@@ -713,11 +1082,11 @@ async fn fetch_hot(force: bool) -> Result<Vec<Value>, String> {
         }
     }
     let data = api_get("/roomserver/rooms/hot?skip=0&take=1000").await?;
-    let (rows, _) = rooms_of(&data);
+    let rows = Arc::new(rooms_of(data).0);
     // Logged out meanwhile: don't keep it.
     if !signed_out() {
         if let Ok(mut guard) = HOT_CACHE.lock() {
-            *guard = Some(HotCache { rooms: rows.clone(), at: std::time::Instant::now() });
+            *guard = Some(HotCache { rooms: Arc::clone(&rows), at: std::time::Instant::now() });
         }
     }
     Ok(rows)
@@ -745,7 +1114,7 @@ pub fn prefetch_rooms() {
 
 /// The whole list: from the cache (refreshed behind it once stale), or
 /// downloaded now if there is none yet.
-async fn hot_all() -> Result<Vec<Value>, String> {
+async fn hot_all() -> Result<Arc<Vec<Value>>, String> {
     match hot_cached() {
         Some((rooms, fresh)) => {
             if !fresh {
@@ -761,15 +1130,14 @@ async fn hot_all() -> Result<Vec<Value>, String> {
 /// rooms (`IsRRO`), "community" every other room, and any other tag a room
 /// whose `Tags` list holds it. Checked against Stella's own lists for "pvp",
 /// "rro" and "community": the same rooms, in the same order.
-fn filter_tag(rooms: Vec<Value>, tag: &str) -> Vec<Value> {
+fn filter_tag<'a>(rooms: &'a [Value], tag: &str) -> Vec<&'a Value> {
     let tag = tag.trim();
-    if tag.is_empty() {
-        return rooms;
-    }
     let rro = |r: &Value| r.get("IsRRO").and_then(Value::as_bool) == Some(true);
+    let kind = tag.to_ascii_lowercase();
     rooms
-        .into_iter()
-        .filter(|r| match tag.to_ascii_lowercase().as_str() {
+        .iter()
+        .filter(|r| match kind.as_str() {
+            "" => true,
             "rro" => rro(r),
             "community" => !rro(r),
             _ => r
@@ -780,16 +1148,12 @@ fn filter_tag(rooms: Vec<Value>, tag: &str) -> Vec<Value> {
         .collect()
 }
 
-/// The `hot` list for `tag` ("" for all).
-async fn hot_rooms(tag: &str) -> Result<Vec<Value>, String> {
-    Ok(filter_tag(hot_all().await?, tag))
-}
-
 /// Rooms list: `query` → search (server-paged), else `tag`/none → hot (paged
 /// locally from the cached full list, sorted by `sort_by`; see [`sort_rooms`]).
 pub async fn fetch_rooms(app: &tauri::AppHandle, skip: i64, take: i64, query: &str, tag: &str, sort_by: i64) -> Value {
     let query = query.trim();
     let tag = tag.trim();
+    let skip = skip.max(0);
 
     // Search is the one endpoint that pages server-side and returns a real
     // total, so it is used as-is.
@@ -799,19 +1163,20 @@ pub async fn fetch_rooms(app: &tauri::AppHandle, skip: i64, take: i64, query: &s
             Ok(v) => v,
             Err(e) => return json!({ "success": false, "error": e }),
         };
-        let (rows, total) = rooms_of(&data);
+        let (rows, total) = rooms_of(data);
         return finish_room_page(rows, skip, take, total).await;
     }
 
     // Hot (optionally tag-filtered): whole list cached, sorted and sliced
-    // locally.
-    let mut all = match hot_rooms(tag).await {
+    // locally. Only the page's rows are copied out of the cache.
+    let hot = match hot_all().await {
         Ok(v) => v,
         Err(e) => return json!({ "success": false, "error": e }),
     };
+    let mut all = filter_tag(&hot, tag);
     sort_rooms(app, &mut all, sort_by).await;
     let total = all.len() as i64;
-    let page: Vec<Value> = all.into_iter().skip(skip.max(0) as usize).take(take.max(1) as usize).collect();
+    let page: Vec<Value> = all.into_iter().skip(skip as usize).take(take.max(1) as usize).cloned().collect();
     finish_room_page(page, skip, take, Some(total)).await
 }
 
@@ -820,7 +1185,7 @@ pub async fn fetch_rooms(app: &tauri::AppHandle, skip: i64, take: i64, query: &s
 /// Cheered, 4 Most Favorited, 5 Most Players — which also drops every room
 /// with nobody in it, so the list is only where people are. Ties keep Hot's
 /// order.
-async fn sort_rooms(app: &tauri::AppHandle, rooms: &mut Vec<Value>, sort_by: i64) {
+async fn sort_rooms(app: &tauri::AppHandle, rooms: &mut Vec<&Value>, sort_by: i64) {
     let stat = |r: &Value, k: &str| r.get("Stats").and_then(|s| s.get(k)).and_then(Value::as_i64).unwrap_or(0);
     match sort_by {
         // ISO-8601 timestamps sort as text.
@@ -851,7 +1216,7 @@ const LIVE_FALLBACK_ROOMS: usize = 120;
 /// for free — plus the top of Hot. While the hub can't help (just started, or
 /// paused because the game is running), the top of Hot is asked instead, where
 /// nearly everyone is. All through the same one-minute cache as the badges.
-async fn live_by_room(app: &tauri::AppHandle, rooms: &[Value]) -> std::collections::HashMap<i64, usize> {
+async fn live_by_room(app: &tauri::AppHandle, rooms: &[&Value]) -> std::collections::HashMap<i64, usize> {
     let listed: std::collections::HashSet<i64> = rooms.iter().map(|r| i64_at(r, "RoomId")).collect();
     let mut ids: Vec<i64> = Vec::new();
     match crate::stella_hub::room_counts(app.clone()).filter(|c| !c.is_empty()) {
@@ -1029,18 +1394,19 @@ pub async fn stella_room_players(room_id: i64) -> Value {
 /// People search. Stella's `/account/search` takes the text as `name` (a
 /// `query` parameter is accepted and silently matches nothing), ignores
 /// `skip`/`take`, and returns its best 50 matches with an exact username first.
-/// So the whole answer is one page of at most 50, sliced here. With no text
-/// there is no browse-all endpoint, so an empty query returns an empty page.
+/// So the whole answer is one page of at most 50, sliced here. Each result
+/// carries the player's presence where the live hub has it.
+///
+/// Stella has no list of everyone, so with no text the page lists the players
+/// online now instead ([`browse_online`]).
 ///
 /// This is also how a profile opened by name (a photo's uploader, a tagged
 /// player) finds the account behind it.
-pub async fn fetch_people(skip: i64, take: i64, query: &str) -> Value {
+pub async fn fetch_people(app: &tauri::AppHandle, skip: i64, take: i64, query: &str) -> Value {
     let query = query.trim();
+    let (skip, take) = (skip.max(0) as usize, take.max(1) as usize);
     if query.is_empty() {
-        return json!({
-            "success": true,
-            "data": { "Results": [], "TotalResults": 0, "TotalKnown": true }
-        });
+        return browse_online(app, skip, take).await;
     }
 
     let path = format!("/account/search?name={}", urlenc(query));
@@ -1050,12 +1416,19 @@ pub async fn fetch_people(skip: i64, take: i64, query: &str) -> Value {
     };
     let rows = data.as_array().cloned().unwrap_or_default();
     let total = rows.len() as i64;
-    let shaped: Vec<Value> = rows
+    let mut shaped: Vec<Value> = rows
         .iter()
-        .skip(skip.max(0) as usize)
-        .take(take.max(1) as usize)
-        .map(person_row)
+        .skip(skip)
+        .take(take)
+        .map(|p| {
+            let mut row = person_row(p);
+            if let Some((online, room, private)) = crate::stella_hub::presence_for(i64_at(p, "accountId")) {
+                set_presence(&mut row, online, &room, private);
+            }
+            row
+        })
         .collect();
+    attach_levels(&mut shaped).await;
 
     json!({
         "success": true,
@@ -1063,14 +1436,140 @@ pub async fn fetch_people(skip: i64, take: i64, query: &str) -> Value {
     })
 }
 
+/// Fill a people row's presence: the dot, and where they are.
+fn set_presence(row: &mut Value, online: bool, room: &str, private: bool) {
+    row["isOnline"] = json!(online);
+    row["roomName"] = json!(room);
+    row["roomPrivate"] = json!(private);
+}
+
+/// People before anything is typed: everyone the live hub has heard is
+/// online (public status only, see `stella_hub::online_players`), friends
+/// first, then by name, with the room each is in. `partial` is set while the
+/// hub hasn't listened long enough to have heard everyone, for the page to
+/// ask again; `note` says why a list is empty.
+async fn browse_online(app: &tauri::AppHandle, skip: usize, take: usize) -> Value {
+    use crate::stella_hub::{online_players, Online};
+
+    let me = match my_account_id().await {
+        Ok(id) => id,
+        Err(e) => return json!({ "success": false, "error": e }),
+    };
+    // Opened just after signing in: give the connection a moment to come up
+    // rather than show an empty list.
+    let mut online = online_players(app.clone());
+    let started = std::time::Instant::now();
+    while matches!(online, Online::Connecting) && started.elapsed() < Duration::from_secs(8) {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        online = online_players(app.clone());
+    }
+    let empty = |note: &str, partial: bool| {
+        json!({
+            "success": true,
+            "data": { "Results": [], "TotalResults": 0, "TotalKnown": true },
+            "note": note,
+            "partial": partial,
+        })
+    };
+    let (players, settled) = match online {
+        Online::Players { players, settled } => (players, settled),
+        Online::Connecting => return empty("Finding who's online…", true),
+        Online::Paused => return empty("The game shows who's online while it runs. Search for a player by name.", false),
+        Online::Down => return empty("Couldn't reach Stella's live player list. Search for a player by name.", false),
+        Online::Idle => return empty("Open Stella to see who's online.", false),
+    };
+    let players: Vec<_> = players.into_iter().filter(|p| p.id != me).collect();
+    if players.is_empty() {
+        return if settled { empty("Nobody else is online right now.", false) } else { empty("Finding who's online…", true) };
+    }
+
+    let ids: Vec<i64> = players.iter().map(|p| p.id).collect();
+    let accounts = cached_accounts(&ids).await;
+    // Friends first, then by display name. A player whose account couldn't be
+    // read is left out: there would be no name to show.
+    let mut rows: Vec<(bool, String, Value)> = players
+        .iter()
+        .filter_map(|p| {
+            let mut row = person_row(accounts.get(&p.id)?);
+            set_presence(&mut row, true, &p.room_name, p.private);
+            let name = format!("{}\0{}", str_at(&row, "displayName"), str_at(&row, "userName")).to_lowercase();
+            Some((!p.friend, name, row))
+        })
+        .collect();
+    rows.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+    let total = rows.len() as i64;
+    let mut page: Vec<Value> = rows.into_iter().skip(skip).take(take).map(|(_, _, row)| row).collect();
+    attach_levels(&mut page).await;
+    json!({
+        "success": true,
+        "data": { "Results": page, "TotalResults": total, "TotalKnown": true },
+        "partial": !settled,
+    })
+}
+
+/// Accounts looked up for the online list, kept a while: the same few hundred
+/// players come and go all evening, and paging or coming back to the tab
+/// shouldn't look them all up again.
+type AccountCache = std::collections::HashMap<i64, (Value, std::time::Instant)>;
+static ACCOUNT_CACHE: Mutex<Option<AccountCache>> = Mutex::new(None);
+const ACCOUNT_TTL: Duration = Duration::from_secs(30 * 60);
+/// Accounts asked for in one `/account/bulk` call.
+const ACCOUNT_BATCH: usize = 25;
+
+/// `ids`' accounts: from [`ACCOUNT_CACHE`], and the rest looked up in
+/// batches, side by side.
+async fn cached_accounts(ids: &[i64]) -> People {
+    let mut found = People::new();
+    let mut missing = Vec::new();
+    {
+        let guard = ACCOUNT_CACHE.lock().ok();
+        let cache = guard.as_ref().and_then(|g| g.as_ref());
+        for &id in ids {
+            match cache.and_then(|c| c.get(&id)).filter(|(_, at)| at.elapsed() < ACCOUNT_TTL) {
+                Some((account, _)) => {
+                    found.insert(id, account.clone());
+                }
+                None => missing.push(id),
+            }
+        }
+    }
+    let batches = futures_util::future::join_all(missing.chunks(ACCOUNT_BATCH).map(resolve_accounts)).await;
+    let fetched: Vec<(i64, Value)> = batches.into_iter().flatten().collect();
+    if let Ok(mut guard) = ACCOUNT_CACHE.lock() {
+        let cache = guard.get_or_insert_with(Default::default);
+        cache.retain(|_, (_, at)| at.elapsed() < ACCOUNT_TTL);
+        let now = std::time::Instant::now();
+        cache.extend(fetched.iter().map(|(id, account)| (*id, (account.clone(), now))));
+    }
+    found.extend(fetched);
+    found
+}
+
+/// A Stella account or room id as the page sent it, which must be a plain
+/// number. It goes into an API path, sent with the player's token, so
+/// anything else is refused rather than encoded: a `..` there would ask for a
+/// different path on the API.
+fn numeric_id(id: &str) -> Result<i64, Value> {
+    id.trim()
+        .parse::<i64>()
+        .ok()
+        .filter(|&id| id > 0)
+        .ok_or_else(|| json!({ "success": false, "error": "That isn't a Stella id." }))
+}
+
 /// Rooms a given account owns.
 pub async fn fetch_user_rooms(user_id: &str, skip: i64, take: i64) -> Value {
-    let path = format!("/roomserver/rooms/ownedby/{}?skip={}&take={}", urlenc(user_id), skip, take);
+    let user_id = match numeric_id(user_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    let skip = skip.max(0);
+    let path = format!("/roomserver/rooms/ownedby/{user_id}?skip={skip}&take={take}");
     let data = match api_get(&path).await {
         Ok(v) => v,
         Err(e) => return json!({ "success": false, "error": e }),
     };
-    let (rows, total) = rooms_of(&data);
+    let (rows, total) = rooms_of(data);
     let ids: Vec<i64> = rows.iter().map(|r| i64_at(r, "CreatorAccountId")).filter(|&i| i != 0).collect();
     let creators = resolve_accounts(&ids).await;
     let mut shaped: Vec<Value> = rows.iter().map(|r| room_row(r, &creators)).collect();
@@ -1108,7 +1607,12 @@ fn photo_row(p: &Value, creators: &People) -> Value {
 /// Photos taken in a room. Unlike Radium/Vanilla (which scan a global feed),
 /// Stella has a direct per-room endpoint.
 pub async fn fetch_room_photos(room_id: &str, skip: i64, take: i64) -> Value {
-    let path = format!("/api/images/v4/room/{}?skip={}&take={}", urlenc(room_id), skip, take);
+    let room_id = match numeric_id(room_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    let skip = skip.max(0);
+    let path = format!("/api/images/v4/room/{room_id}?skip={skip}&take={take}");
     let data = match api_get(&path).await {
         Ok(v) => v,
         Err(e) => return json!({ "success": false, "error": e }),
@@ -1136,7 +1640,12 @@ pub async fn fetch_room_photos(room_id: &str, skip: i64, take: i64) -> Value {
 
 /// Photos a given account has taken.
 pub async fn fetch_user_photos(user_id: &str, skip: i64, take: i64) -> Value {
-    let path = format!("/api/images/v5/player/{}?skip={}&take={}", urlenc(user_id), skip, take);
+    let user_id = match numeric_id(user_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    let skip = skip.max(0);
+    let path = format!("/api/images/v5/player/{user_id}?skip={skip}&take={take}");
     let data = match api_get(&path).await {
         Ok(v) => v,
         Err(e) => return json!({ "success": false, "error": e }),
@@ -1153,18 +1662,30 @@ pub async fn fetch_user_photos(user_id: &str, skip: i64, take: i64) -> Value {
     })
 }
 
-/// Profile details for one account: bio, subscriber count, avatar and banner.
+/// Profile details for one account: bio, subscriber count, level, avatar and
+/// banner.
 ///
 /// Fills the person detail view. Friends and visit counts aren't exposed for an
 /// arbitrary account on Stella (friends is only the signed-in user's own list),
 /// so those come back empty and the UI hides them — like Vanilla.
 pub async fn user_details(account_id: i64) -> Value {
+    // Four separate reads, side by side rather than one after another.
+    let (account_path, bio_path, reputation_path) = (
+        format!("/account/bulk?id={account_id}"),
+        format!("/account/{account_id}/bio"),
+        format!("/api/playerReputation/v2/bulk?id={account_id}"),
+    );
+    let ids = [account_id];
+    let (account, bio, reputation, levels) = tokio::join!(
+        api_get(&account_path),
+        api_get(&bio_path),
+        api_get(&reputation_path),
+        player_levels(&ids),
+    );
+
     // Core record (display name, images). A system/placeholder account id (e.g.
     // 1, the owner of the official rooms) returns an empty array here.
-    let account = api_get(&format!("/account/bulk?id={account_id}"))
-        .await
-        .ok()
-        .and_then(|v| v.as_array().and_then(|a| a.first().cloned()));
+    let account = account.ok().and_then(|v| v.as_array().and_then(|a| a.first().cloned()));
     let (username, display, avatar, banner) = match account.as_ref() {
         Some(a) => (
             str_at(a, "username").to_string(),
@@ -1177,17 +1698,15 @@ pub async fn user_details(account_id: i64) -> Value {
         ),
         None => (String::new(), String::new(), String::new(), String::new()),
     };
+    // When the account was made, for the profile's JOINED tile. Some old
+    // accounts carry year 1 here; the page leaves those out.
+    let created_at = account.as_ref().map(|a| str_at(a, "createdAt").to_string()).unwrap_or_default();
 
-    let bio = api_get(&format!("/account/{account_id}/bio"))
-        .await
-        .ok()
-        .map(|v| str_at(&v, "bio").to_string())
-        .unwrap_or_default();
+    let bio = bio.ok().map(|v| str_at(&v, "bio").to_string()).unwrap_or_default();
 
     // Reputation carries the subscriber count. It answers 500 for some
     // system accounts, so a failure just leaves the count blank.
-    let subscribers = api_get(&format!("/api/playerReputation/v2/bulk?id={account_id}"))
-        .await
+    let subscribers = reputation
         .ok()
         .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
         .map(|r| i64_at(&r, "SubscriberCount"))
@@ -1200,6 +1719,9 @@ pub async fn user_details(account_id: i64) -> Value {
         "subscribers": subscribers,
         "visits": "",
         "status": "",
+        // Null where unknown, which hides the LEVEL tile.
+        "level": levels.get(&account_id),
+        "createdAt": created_at,
         "bio": bio,
         "banner": banner,
         "avatar": avatar,
@@ -1287,7 +1809,7 @@ mod tests {
             json!({ "RoomId": 101, "IsRRO": false, "Tags": [{ "Tag": "PVP", "Type": 0 }, { "Tag": "quest", "Type": 0 }] }),
             json!({ "RoomId": 102, "IsRRO": false }),
         ];
-        let ids = |tag: &str| filter_tag(rooms.clone(), tag).iter().map(|r| i64_at(r, "RoomId")).collect::<Vec<_>>();
+        let ids = |tag: &str| filter_tag(&rooms, tag).iter().map(|r| i64_at(r, "RoomId")).collect::<Vec<_>>();
         assert_eq!(ids(""), vec![9, 100, 101, 102]);
         assert_eq!(ids("rro"), vec![9]);
         assert_eq!(ids("community"), vec![100, 101, 102]);
@@ -1308,6 +1830,76 @@ mod tests {
         assert!(started.elapsed() >= Duration::from_millis(1100), "{:?}", started.elapsed());
     }
     use super::*;
+
+    /// A device id that signed in is kept, read back, and anything that isn't
+    /// one is ignored rather than sent.
+    #[test]
+    fn a_device_id_is_kept_once_it_works() {
+        let dir = std::env::temp_dir().join(format!("stella-device-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join(DEVICE_ID_FILE_NAME);
+        let id = "0123456789abcdef0123456789abcdef01234567";
+
+        assert_eq!(read_device_id_file(&path), None);
+        write_device_id_file(&path, id).unwrap();
+        assert_eq!(read_device_id_file(&path).as_deref(), Some(id));
+        // Written again unchanged, and read back past a stray newline.
+        write_device_id_file(&path, id).unwrap();
+        std::fs::write(&path, format!("{id}\r\n")).unwrap();
+        assert_eq!(read_device_id_file(&path).as_deref(), Some(id));
+        for junk in ["", "not an id", &id[..39], &format!("{id}0"), "0123456789abcdef0123456789abcdef0123456z"] {
+            std::fs::write(&path, junk).unwrap();
+            assert_eq!(read_device_id_file(&path), None, "{junk}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Stella's "wrong device" answer is told apart from other refusals.
+    #[test]
+    fn a_rejected_device_is_recognised() {
+        assert!(is_device_rejection(br#"{"error":"access_denied","error_description":"platform verification failed"}"#));
+        assert!(is_device_rejection(b"Platform Verification Failed"));
+        assert!(!is_device_rejection(br#"{"error":"access_denied","error_description":"missing fields"}"#));
+        assert!(!is_device_rejection(b"<html>Sorry, you have been blocked</html>"));
+    }
+
+    /// Only a plain positive number reaches an API path.
+    #[test]
+    fn ids_must_be_numbers() {
+        assert_eq!(numeric_id("70541").ok(), Some(70541));
+        assert_eq!(numeric_id(" 9 ").ok(), Some(9));
+        for bad in ["", "..", "../account/me", "9/../../me", "-1", "0", "1.5", "9?x=1"] {
+            assert!(numeric_id(bad).is_err(), "{bad}");
+        }
+    }
+
+    /// A 401 for a token that has since been replaced leaves the new session.
+    #[test]
+    fn a_late_401_keeps_a_fresh_session() {
+        let session = |token: &str| Session { access_token: token.into(), expires_at: now_secs() + 3600, account_id: 1 };
+        *SESSION.lock().unwrap() = Some(session("fresh"));
+        forget_session_if("expired");
+        assert!(SESSION.lock().unwrap().is_some());
+        forget_session_if("fresh");
+        assert!(SESSION.lock().unwrap().is_none());
+
+        // With no session and Stella not in use (hidden, or another network
+        // picked), nothing signs in: no Steam, just the answer.
+        assert!(!in_use());
+        let refused = tokio::runtime::Runtime::new().unwrap().block_on(ensure_session());
+        assert_eq!(refused.unwrap_err(), NOT_IN_USE);
+    }
+
+    /// Rooms come out of every envelope the endpoints use.
+    #[test]
+    fn rooms_come_out_of_each_envelope() {
+        let (rooms, total) = rooms_of(json!({ "TotalResults": 159, "Results": [{ "RoomId": 1 }] }));
+        assert_eq!((rooms.len(), total), (1, Some(159)));
+        let (rooms, total) = rooms_of(json!([{ "RoomId": 1 }, { "RoomId": 2 }]));
+        assert_eq!((rooms.len(), total), (2, None));
+        let (rooms, total) = rooms_of(json!({ "error": "x" }));
+        assert_eq!((rooms.len(), total), (0, None));
+    }
 
     #[test]
     fn img_url_handles_empty_and_default() {

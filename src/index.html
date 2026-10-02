@@ -557,9 +557,12 @@
                     <!-- Wider than Display Name: this column carries the role
                          badges as well as the handle. -->
                     <th style="width: 210px;">Username</th>
-                    <!-- Vanilla only; Radium's roster carries no level. -->
-                    <th class="network-only-vanilla" style="width: 52px;">Level</th>
-                    <th>Bio</th>
+                    <!-- Vanilla and Stella; Radium's roster carries no level. -->
+                    <th class="people-level-col" style="width: 52px;">Level</th>
+                    <!-- Stella only: where an online player is, from the live hub. -->
+                    <th class="network-only-stella">Room</th>
+                    <!-- Hidden on Stella, whose player rows carry no bio. -->
+                    <th class="people-bio-col">Bio</th>
                   </tr>
                 </thead>
                 <tbody id="peopleListBody">
@@ -580,83 +583,95 @@
               <button id="btnPeopleBack" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">← Back to List</button>
             </div>
             <div class="bevel-inset flex-1 p-4 overflow-y-auto" style="background: var(--bg-dark); min-height: 0;">
-              <!-- Redesigned Profile Header Container -->
+              <!-- Profile header: banner, then the avatar overlapping it beside
+                   who the player is and where they are, with what you can do
+                   (JOIN, SUBSCRIBE) at the right; one row of stats, and the
+                   bio only when there is one. Class names are the ones every
+                   skin already styles; the layout is in style.css. -->
               <div class="profile-card-container bevel-inset">
-                <!-- Banner Area -->
                 <div id="peopleDetailBanner" class="profile-banner-container">
                   <div class="profile-banner-overlay"></div>
                 </div>
 
-                <!-- Profile Info Header Bar (overlapping the banner) -->
                 <div class="profile-header-content">
                   <div class="profile-avatar-wrapper">
                     <img id="peopleDetailAvatar" src="data:," alt="Player Avatar" class="profile-avatar-image image-loading-placeholder" />
                   </div>
                   <div class="profile-identity-info">
-                    <div id="peopleDetailDisplayName" class="profile-display-name">Display Name</div>
-                     <div class="profile-username-status">
-                      <span id="peopleDetailUsername" class="profile-username">@username</span>
+                    <div class="profile-name-row">
+                      <div id="peopleDetailDisplayName" class="profile-display-name">Display Name</div>
+                      <!-- Staff roles, populated from the network's own flags. -->
+                      <div id="peopleDetailRoles" class="profile-roles"></div>
+                    </div>
+                    <span id="peopleDetailUsername" class="profile-username">@username</span>
+                    <!-- Online or not, and where: "In RecCenter". -->
+                    <div class="profile-username-status">
                       <div class="profile-status-badge bevel-inset">
                         <span id="peopleDetailStatusDot" class="status-dot online"></span>
                         <span id="peopleDetailStatusLabel">ONLINE</span>
                       </div>
                       <div id="peopleDetailActivityBadge" class="profile-activity-badge bevel-inset" style="display: none;"></div>
-                      <!-- Staff roles, populated from the network's own flags. -->
-                      <div id="peopleDetailRoles" class="profile-roles"></div>
                     </div>
                   </div>
-                  <!-- Vanilla only. Vanilla has no friends API; subscribing is
-                       what its website offers. Hidden on your own profile. -->
-                  <button type="button" class="modal-btn modal-btn-primary subscribe-btn network-only-vanilla"
-                          id="peopleDetailSubscribeBtn" aria-pressed="false" hidden>SUBSCRIBE</button>
+                  <div class="profile-actions">
+                    <!-- Stella only: a friend who is online can be joined, as
+                         from the friends card. -->
+                    <button type="button" class="modal-btn modal-btn-primary profile-join-btn network-only-stella"
+                            id="peopleDetailJoinBtn" hidden>JOIN</button>
+                    <!-- Vanilla only. Vanilla has no friends API; subscribing is
+                         what its website offers. Hidden on your own profile. -->
+                    <button type="button" class="modal-btn modal-btn-primary subscribe-btn network-only-vanilla"
+                            id="peopleDetailSubscribeBtn" aria-pressed="false" hidden>SUBSCRIBE</button>
+                  </div>
                 </div>
 
-                <!-- Profile Body (Stats & Bio) -->
                 <div class="profile-body-content">
-                  <div class="profile-details-grid">
-                    <!-- Left: Stats -->
-                    <div class="profile-sidebar-stats">
-                      <!-- From the player's own row, so it shows at once. Hidden
-                           where the network publishes no level (Radium). -->
-                      <div class="profile-stat-item bevel-inset" hidden>
-                        <div id="peopleDetailLevel" class="profile-stat-val"></div>
-                        <div class="profile-stat-lbl">LEVEL</div>
-                      </div>
-                      <div class="profile-stat-item bevel-inset">
-                        <div id="peopleDetailFriends" class="profile-stat-val">0</div>
-                        <div class="profile-stat-lbl">FRIENDS</div>
-                      </div>
-                      <div class="profile-stat-item bevel-inset">
-                        <div id="peopleDetailSubscribers" class="profile-stat-val">0</div>
-                        <div class="profile-stat-lbl">SUBSCRIBERS</div>
-                      </div>
-                      <div class="profile-stat-item bevel-inset">
-                        <div id="peopleDetailVisits" class="profile-stat-val">0</div>
-                        <div class="profile-stat-lbl">VISITS</div>
-                      </div>
+                  <!-- One row; a tile the network doesn't publish is hidden. -->
+                  <div class="profile-stats-row">
+                    <!-- From the player's own row where the list had it, else
+                         from the profile lookup. Hidden on Radium. -->
+                    <div class="profile-stat-item bevel-inset" hidden>
+                      <div id="peopleDetailLevel" class="profile-stat-val"></div>
+                      <div class="profile-stat-lbl">LEVEL</div>
                     </div>
+                    <div class="profile-stat-item bevel-inset">
+                      <div id="peopleDetailFriends" class="profile-stat-val">0</div>
+                      <div class="profile-stat-lbl">FRIENDS</div>
+                    </div>
+                    <div class="profile-stat-item bevel-inset">
+                      <div id="peopleDetailSubscribers" class="profile-stat-val">0</div>
+                      <div class="profile-stat-lbl">SUBSCRIBERS</div>
+                    </div>
+                    <div class="profile-stat-item bevel-inset">
+                      <div id="peopleDetailVisits" class="profile-stat-val">0</div>
+                      <div class="profile-stat-lbl">VISITS</div>
+                    </div>
+                    <!-- When the account was made, where the network says (Stella). -->
+                    <div class="profile-stat-item bevel-inset" hidden>
+                      <div id="peopleDetailJoined" class="profile-stat-val"></div>
+                      <div class="profile-stat-lbl">JOINED</div>
+                    </div>
+                  </div>
 
-                    <!-- Right: Bio -->
-                    <div class="profile-bio-box bevel-inset">
-                      <div id="peopleDetailAboutLabel" class="profile-bio-title">About Player</div>
-                      <p id="peopleDetailBio" class="profile-bio-text">
-                        Player bio text goes here...
-                      </p>
-                    </div>
+                  <!-- Shown only when the player wrote a bio. -->
+                  <div class="profile-bio-box bevel-inset" hidden>
+                    <div id="peopleDetailAboutLabel" class="profile-bio-title">About Player</div>
+                    <p id="peopleDetailBio" class="profile-bio-text"></p>
                   </div>
                 </div>
               </div>
-              
-              <!-- Redesigned Player Detail Tabs -->
-              <div class="profile-tabs-nav">
-                <div id="tabBtnPeoplePhotos" class="profile-tab-btn active">PHOTOS</div>
-                <div id="tabBtnPeopleFeeds" class="profile-tab-btn">FEEDS</div>
-                <div id="tabBtnPeopleRooms" class="profile-tab-btn">ROOMS</div>
+
+              <!-- What the player has made. FEEDS is hidden where the network
+                   publishes no activity feed (Vanilla, Stella). -->
+              <div class="profile-tabs-nav" role="tablist">
+                <div id="tabBtnPeoplePhotos" class="profile-tab-btn active" role="tab" tabindex="0">PHOTOS</div>
+                <div id="tabBtnPeopleFeeds" class="profile-tab-btn" role="tab" tabindex="0">FEEDS</div>
+                <div id="tabBtnPeopleRooms" class="profile-tab-btn" role="tab" tabindex="0">ROOMS</div>
               </div>
 
-              <!-- PHOTOS -->
+              <!-- PHOTOS: a grid of thumbnails; each opens the photo page. -->
               <div id="peopleDetailPhotosSection" class="profile-tab-content" style="margin-top: 15px; width: 100%;">
-                <div id="peopleDetailPhotosGrid" class="photo-list-vertical">
+                <div id="peopleDetailPhotosGrid" class="profile-photo-grid">
                   <!-- photos inserted here -->
                 </div>
                 <div id="peopleDetailPhotosEmpty" class="photo-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No photos found for this player.</div>

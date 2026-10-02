@@ -20,9 +20,15 @@
 //!   pages, which show what the game would), and forgotten once it is stale.
 //! - A private instance still carries its room's name; the game shows it, and
 //!   so does this, marked private.
-//! - There is no snapshot on connect. A friend is "online" once an update says
-//!   so, and "offline" once one says so or after a minute or so of silence,
-//!   since an online player's update would have come by then.
+//! - There is no snapshot on connect or on subscribing. But reading the friends
+//!   list over REST while a connection is open makes Stella push every
+//!   friend's presence to it at once, online or not, each followed by their
+//!   account (measured 2026-10-02: every time, and not for other reads). So the
+//!   list is read again as soon as the connection is up ([`FRIENDS_SYNC`]),
+//!   and friends show as online or offline within a second. Without that push
+//!   a friend is "online" once an update says so, and "offline" once one says
+//!   so or after a minute or so of silence, since an online player's update
+//!   would have come by then.
 //!
 //! The game also invokes `SubscribeToPlayers` with its friends' ids; this does
 //! the same, in case the server ever stops broadcasting to everyone.
@@ -75,6 +81,10 @@ const PRESENCE_CAP: usize = 5000;
 const COUNT_SETTLE: Duration = Duration::from_secs(60);
 /// How often the game is looked for, connected or waiting.
 const GAME_CHECK: Duration = Duration::from_secs(2);
+/// How long after the friends list is re-read a friend's presence is taken as
+/// Stella's push of the whole list rather than a sign of them playing (see
+/// [`Presence::hidden`]). The push arrives within a fraction of a second.
+const FRIENDS_SYNC: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
 struct Presence {
@@ -84,7 +94,9 @@ struct Presence {
     private: bool,
     /// The player's visibility isn't public, so the server always reports
     /// them offline. They are still re-sent while they play, which is what
-    /// lets the player count include them (as a number, never by name).
+    /// lets the player count include them (as a number, never by name). Never
+    /// set from the friends-list push, which sends every friend whether they
+    /// play or not.
     hidden: bool,
     seen: Instant,
 }
@@ -104,6 +116,9 @@ struct Hub {
     /// Whether the friends list has been read at least once this run.
     loaded: bool,
     error: String,
+    /// Friends whose next presence is expected to be Stella's push of the
+    /// list, until when (see [`FRIENDS_SYNC`]).
+    syncing: HashMap<i64, Instant>,
 }
 
 static HUB: Mutex<Option<Hub>> = Mutex::new(None);
@@ -126,6 +141,23 @@ pub fn stop() {
         h.paused = false;
         h.loaded = false;
         h.error.clear();
+        h.syncing.clear();
+    });
+}
+
+/// Close the connection because Stella isn't in use (hidden in the tray, or
+/// another network picked; see `stella_api::IN_USE`), keeping the friends list
+/// so the card isn't empty when Stella comes back. What was heard is dropped:
+/// it is stale by then, and the friends list push refills it on reconnecting.
+pub fn suspend() {
+    with_hub(|h| {
+        h.generation += 1;
+        h.running = false;
+        h.presence.clear();
+        h.connected_at = None;
+        h.paused = false;
+        h.error.clear();
+        h.syncing.clear();
     });
 }
 
@@ -134,7 +166,7 @@ fn game_running() -> bool {
 }
 
 fn current(gen: u64) -> bool {
-    with_hub(|h| h.generation == gen) && !stella_api::signed_out()
+    with_hub(|h| h.generation == gen) && !stella_api::signed_out() && stella_api::in_use()
 }
 
 /// Read the friends list (accepted friends only, not pending requests) and
@@ -166,6 +198,20 @@ async fn load_friends(gen: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// Mark every friend's next presence, for the next [`FRIENDS_SYNC`], as the
+/// one Stella pushes when the friends list is read.
+fn expect_friends_sync(gen: u64) {
+    with_hub(|h| {
+        if h.generation != gen {
+            return;
+        }
+        let until = Instant::now() + FRIENDS_SYNC;
+        let ids = h.friend_ids.clone();
+        h.syncing.clear();
+        h.syncing.extend(ids.into_iter().map(|id| (id, until)));
+    });
+}
+
 /// Apply one hub frame. Returns true when a friend's shown state changed.
 fn apply_frame(frame: &str, gen: u64) -> bool {
     let Ok(outer) = serde_json::from_str::<Value>(frame) else {
@@ -190,7 +236,7 @@ fn apply_frame(frame: &str, gen: u64) -> bool {
         return false;
     };
     let room = msg.get("RoomInstance").filter(|r| r.is_object());
-    let next = Presence {
+    let mut next = Presence {
         online: msg.get("IsOnline").and_then(Value::as_bool).unwrap_or(false),
         room_id: room.and_then(|r| r.get("RoomId")).and_then(Value::as_i64).unwrap_or(0),
         // Rooms are named with a leading '^' ("^RecCenter") and dorms with a
@@ -213,6 +259,11 @@ fn apply_frame(frame: &str, gen: u64) -> bool {
         if h.presence.len() >= PRESENCE_CAP {
             h.presence.retain(|_, p| p.seen.elapsed() < ONLINE_STALE);
         }
+        // Stella's push of the friends list says nothing about a hidden
+        // friend playing: it sends everyone.
+        if h.syncing.remove(&player).is_some_and(|until| Instant::now() < until) {
+            next.hidden = false;
+        }
         let friend = h.friend_ids.contains(&player);
         let changed = match h.presence.get(&player) {
             Some(p) => {
@@ -230,8 +281,10 @@ fn apply_frame(frame: &str, gen: u64) -> bool {
     })
 }
 
-/// A player's status as shown: "online" (heard from recently), "offline", or
-/// "checking" (the connection is too new for silence to mean offline), with
+/// A player's status as shown: "online" (heard from recently), "offline",
+/// "checking" (the connection is too new for silence to mean offline), or
+/// "unknown" (never heard from, and the connection is down after an error —
+/// without this they said "Checking…" for as long as it stayed down), with
 /// their latest presence when online.
 fn status_of(h: &Hub, id: i64) -> (&'static str, Option<&Presence>) {
     if h.paused {
@@ -244,14 +297,19 @@ fn status_of(h: &Hub, id: i64) -> (&'static str, Option<&Presence>) {
         "online"
     } else if p.is_some() || settled {
         "offline"
+    } else if h.connected_at.is_none() && !h.error.is_empty() {
+        "unknown"
     } else {
         "checking"
     };
     (status, live)
 }
 
-/// Start the hub task unless it is already running.
+/// Start the hub task unless it is already running, or Stella isn't in use.
 fn ensure_running(app: AppHandle) {
+    if !stella_api::in_use() {
+        return;
+    }
     let start = with_hub(|h| {
         if h.running {
             None
@@ -285,7 +343,7 @@ async fn run_connection(app: &AppHandle, gen: u64) -> Result<(), String> {
         .map_err(|e| {
             if let tokio_tungstenite::tungstenite::Error::Http(r) = &e {
                 if r.status().as_u16() == 401 {
-                    stella_api::forget_session();
+                    stella_api::forget_session_if(&token);
                 }
             }
             format!("Couldn't connect to Stella's friends service: {e}")
@@ -319,11 +377,24 @@ async fn run_connection(app: &AppHandle, gen: u64) -> Result<(), String> {
             last_ping = Instant::now();
         }
         if last_friends.elapsed() >= FRIENDS_REFRESH {
+            subscribed = false;
+        }
+        // Once connected, and again every FRIENDS_REFRESH: read the friends
+        // list, which also has Stella push every friend's presence to this
+        // connection (see the module docs), then subscribe to them.
+        if !subscribed && with_hub(|h| h.connected_at.is_some()) {
+            subscribed = true;
             last_friends = Instant::now();
+            expect_friends_sync(gen);
             if load_friends(gen).await.is_ok() {
-                subscribed = false;
                 let _ = app.emit(CHANGED_EVENT, ());
             }
+            let ids = with_hub(|h| h.friend_ids.clone());
+            let sub = json!({
+                "type": 1, "invocationId": "1", "nonblocking": false,
+                "target": "SubscribeToPlayers", "arguments": [{ "PlayerIds": ids }]
+            });
+            tx.send(Message::Text(format!("{sub}{RS}"))).await.map_err(|e| e.to_string())?;
         }
 
         let msg = match tokio::time::timeout(Duration::from_secs(1), rx.next()).await {
@@ -356,15 +427,6 @@ async fn run_connection(app: &AppHandle, gen: u64) -> Result<(), String> {
                 return Err("Stella closed the friends connection.".into());
             }
             changed |= apply_frame(frame, gen);
-        }
-        if !subscribed && with_hub(|h| h.connected_at.is_some()) {
-            let ids = with_hub(|h| h.friend_ids.clone());
-            let sub = json!({
-                "type": 1, "invocationId": "1", "nonblocking": false,
-                "target": "SubscribeToPlayers", "arguments": [{ "PlayerIds": ids }]
-            });
-            tx.send(Message::Text(format!("{sub}{RS}"))).await.map_err(|e| e.to_string())?;
-            subscribed = true;
         }
         if changed {
             let _ = app.emit(CHANGED_EVENT, ());
@@ -439,8 +501,8 @@ async fn run(app: AppHandle, gen: u64) {
 /// The friends card's contents, starting the hub connection if it isn't up.
 ///
 /// Each friend is `{ id, userName, displayName, AvatarUrl, status, roomId,
-/// roomName, private }`, `status` being "online", "offline", "checking", or
-/// "paused" while the game is running.
+/// roomName, private }`, `status` being "online", "offline", "checking",
+/// "unknown" (see [`status_of`]), or "paused" while the game is running.
 /// Online friends come first.
 #[tauri::command]
 pub async fn stella_friends(app: AppHandle) -> Value {
@@ -466,7 +528,7 @@ pub async fn stella_friends(app: AppHandle) -> Value {
             .collect();
         let rank = |s: &str| match s {
             "online" => 0,
-            "checking" | "paused" => 1,
+            "checking" | "paused" | "unknown" => 1,
             _ => 2,
         };
         friends.sort_by(|a, b| {
@@ -530,6 +592,72 @@ pub fn room_counts(app: AppHandle) -> Option<HashMap<i64, usize>> {
             }
         }
         Some(counts)
+    })
+}
+
+/// Who the hub can say is online, for People's list before anything is typed.
+pub enum Online {
+    /// Players heard online recently, and whether it has listened long
+    /// enough ([`COUNT_SETTLE`]) for that to be everyone.
+    Players { players: Vec<OnlinePlayer>, settled: bool },
+    /// Connecting, with nothing heard yet.
+    Connecting,
+    /// Disconnected while the game runs (see the module docs).
+    Paused,
+    /// Down after an error; it keeps retrying.
+    Down,
+    /// Closed because Stella isn't in use (see `stella_api::in_use`).
+    Idle,
+}
+
+pub struct OnlinePlayer {
+    pub id: i64,
+    pub room_name: String,
+    pub private: bool,
+    pub friend: bool,
+}
+
+/// Players online now, starting the hub if it isn't up. Only players whose
+/// status is public: a hidden one is always reported offline, and is never
+/// listed by name (they count only as a number; see [`player_count`]).
+pub fn online_players(app: AppHandle) -> Online {
+    if stella_api::signed_out() {
+        return Online::Down;
+    }
+    if !stella_api::in_use() {
+        return Online::Idle;
+    }
+    ensure_running(app);
+    with_hub(|h| {
+        if h.paused {
+            return Online::Paused;
+        }
+        let Some(since) = h.connected_at else {
+            return if h.error.is_empty() { Online::Connecting } else { Online::Down };
+        };
+        let players = h
+            .presence
+            .iter()
+            .filter(|(_, p)| p.online && p.seen.elapsed() < ONLINE_STALE)
+            .map(|(&id, p)| OnlinePlayer {
+                id,
+                room_name: p.room_name.clone(),
+                private: p.private,
+                friend: h.friend_ids.contains(&id),
+            })
+            .collect();
+        Online::Players { players, settled: since.elapsed() >= COUNT_SETTLE }
+    })
+}
+
+/// A player's presence for a search result, as their profile would show it:
+/// `Some((online, room name, private))`, or `None` while it can't be told.
+/// Reads what the hub has without starting it.
+pub fn presence_for(id: i64) -> Option<(bool, String, bool)> {
+    with_hub(|h| match status_of(h, id) {
+        ("online", live) => Some((true, live.map(|p| p.room_name.clone()).unwrap_or_default(), live.is_some_and(|p| p.private))),
+        ("offline", _) => Some((false, String::new(), false)),
+        _ => None,
     })
 }
 
@@ -603,6 +731,11 @@ pub fn player_count(app: AppHandle) -> Value {
     if stella_api::signed_out() {
         return json!({ "success": false, "signedOut": true, "error": stella_api::SIGNED_OUT_ERROR });
     }
+    // Not counting while Stella isn't in use: the page leaves the card as it
+    // was, and asks again when it is back on screen.
+    if !stella_api::in_use() {
+        return json!({ "success": false, "idle": true });
+    }
     ensure_running(app);
     with_hub(|h| {
         if h.paused {
@@ -649,6 +782,21 @@ mod tests {
         h.presence.insert(2, p(false, true)); // hidden, still re-sent
         h.presence.insert(3, p(false, false)); // public, logged off
         assert_eq!(count_online(&h), 2);
+    }
+
+    /// Never heard from: "checking" while connecting, "unknown" once the
+    /// connection has failed, rather than "checking" for as long as it's down.
+    #[test]
+    fn a_friend_never_heard_from_is_unknown_while_disconnected() {
+        let mut h = Hub::default();
+        assert_eq!(status_of(&h, 7).0, "checking");
+        h.error = "Couldn't connect to Stella's friends service".into();
+        assert_eq!(status_of(&h, 7).0, "unknown");
+        h.connected_at = Some(Instant::now());
+        h.error.clear();
+        assert_eq!(status_of(&h, 7).0, "checking");
+        h.connected_at = Instant::now().checked_sub(SETTLE + Duration::from_secs(1));
+        assert_eq!(status_of(&h, 7).0, "offline");
     }
 
     fn frame(msg: Value) -> String {
@@ -699,6 +847,34 @@ mod tests {
         assert_eq!(heard_among(&[18024, 5, 999]), Some(2));
         with_hub(|h| h.paused = true);
         assert_eq!(heard_among(&[18024, 5, 999]), None);
+        stop();
+
+        // The push that reading the friends list sets off: it settles a
+        // hidden friend as offline, but doesn't count them as playing. Their
+        // next presence, a real re-send, does.
+        let gen = with_hub(|h| {
+            h.friend_ids = vec![519];
+            h.generation
+        });
+        expect_friends_sync(gen);
+        let hidden = frame(json!({ "PlayerId": 519, "IsOnline": false, "StatusVisibility": 2, "RoomInstance": null }));
+        assert!(apply_frame(&hidden, gen));
+        with_hub(|h| {
+            assert_eq!(status_of(h, 519).0, "offline");
+            assert_eq!(count_online(h), 0);
+        });
+        apply_frame(&hidden, gen);
+        with_hub(|h| assert_eq!(count_online(h), 1));
+
+        // Stella no longer in use: the connection goes and what was heard
+        // with it, but the friends list stays for when Stella comes back.
+        with_hub(|h| h.connected_at = Some(Instant::now()));
+        suspend();
+        with_hub(|h| {
+            assert_eq!(h.friend_ids, vec![519]);
+            assert!(h.presence.is_empty());
+            assert!(h.connected_at.is_none() && !h.running && h.generation != gen);
+        });
         stop();
     }
 }

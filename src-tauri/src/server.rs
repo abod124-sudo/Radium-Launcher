@@ -314,7 +314,7 @@ pub async fn fetch_rooms(app: tauri::AppHandle, args: Value) -> Value {
 
 /// Fetch a paginated list of people with optional search query.
 #[tauri::command]
-pub async fn fetch_people(args: Value) -> Value {
+pub async fn fetch_people(app: tauri::AppHandle, args: Value) -> Value {
     let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
     let take = page_size(&args, 15);
     let query = args
@@ -325,7 +325,9 @@ pub async fn fetch_people(args: Value) -> Value {
 
     match network_of(&args) {
         Network::Vanilla => return vanilla::fetch_people(skip, take, &query).await,
-        Network::Stella => return crate::stella_api::fetch_people(skip, take, &query).await,
+        // With no query, Stella's list is the players online now, which the
+        // live hub (started through the app) knows.
+        Network::Stella => return crate::stella_api::fetch_people(&app, skip, take, &query).await,
         Network::Radium => {}
     }
 

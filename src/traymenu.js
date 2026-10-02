@@ -75,15 +75,15 @@
   function build({ network, gameRunning }) {
     const active = NETWORK_ROWS.find(([id]) => id === network) || NETWORK_ROWS[0];
     const vanilla = active[0] === 'vanilla';
-    // Stella has no Rooms or People pages, as in the sidebar.
-    const social = active[0] !== 'stella';
     const rows = [
       gameRunning
         ? item('play', 'Stop Game', { glyph: 'stop', cls: 'play' })
         : item('play', `Play ${active[1]}`, { glyph: 'play', cls: 'play' }),
       sep(),
       item('tab:home', 'Home'),
-      ...(social ? [item('tab:rooms', 'Rooms'), item('tab:people', 'People')] : []),
+      // Every network has Rooms and People now, Stella included.
+      item('tab:rooms', 'Rooms'),
+      item('tab:people', 'People'),
       // The Feed page exists on Vanilla only, as in the sidebar.
       ...(vanilla ? [item('tab:feed', 'Feed')] : []),
       item('tab:settings', 'Settings'),
@@ -282,9 +282,8 @@
 
   /// Room for the menu whichever network is picked: the largest of the
   /// networks' menus, measured in `probe` under the current skin. Vanilla's
-  /// has a Feed row that Radium's doesn't, and Stella's has no Rooms or
-  /// People, so the menu's height changes as you switch, but the window
-  /// doesn't have to. Resizing it with the menu flickered: Windows moves and
+  /// has a Feed row the others don't, so the menu's height changes as you
+  /// switch, but the window doesn't have to. Resizing it with the menu flickered: Windows moves and
   /// sizes the window a frame before the webview draws to the new size.
   function roomFor(state) {
     let width = 0;
@@ -335,7 +334,7 @@
   /// frost: the menu is already on screen and stays put, only its contents and
   /// its height change.
   ///
-  /// When rows come or go (Stella has no Rooms or People), the height change
+  /// When rows come or go (only Vanilla has Feed), the height change
   /// is animated, entirely inside the window: it already has room for every
   /// network's menu (`roomFor`), and the menu is pinned to its edge by the
   /// cursor, so the rest of it is just clear.

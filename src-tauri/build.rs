@@ -24,5 +24,17 @@ fn main() {
         }
     }
 
+    // Only Stella's sign-in uses the Steam API, so it is delay-loaded: the
+    // launcher starts, and Radium and Vanilla work, even with the DLL gone
+    // (quarantined, or an exe copied out on its own). Linked normally, a
+    // missing DLL stopped the launcher before it could show anything.
+    // `stella_api::load_steam_api` loads it ahead of the first Steam call.
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_os == "windows" && target_env == "msvc" {
+        println!("cargo:rustc-link-arg=/DELAYLOAD:steam_api64.dll");
+        println!("cargo:rustc-link-arg=delayimp.lib");
+    }
+
     tauri_build::build()
 }

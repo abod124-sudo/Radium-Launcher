@@ -1792,10 +1792,11 @@ pub async fn select_folder(network: Option<String>) -> Result<Option<String>, St
 /// the other networks' folders the way the backend will.
 #[tauri::command(async)]
 pub fn resolve_client_dir(app: tauri::AppHandle, network: Option<String>, folder: Option<String>) -> String {
-    match folder.as_deref().map(str::trim) {
-        Some(folder) if !folder.is_empty() => config::custom_client_dir(folder, Network::parse(network.as_deref())),
-        _ => get_default_client_dir(app, network),
-    }
+    config::resolve_install_dir(
+        folder.as_deref().unwrap_or("").trim(),
+        Network::parse(network.as_deref()),
+        &config::app_data_dir(&app),
+    )
 }
 
 /// Return the default client directory path (`<app_data_dir>/client`).
