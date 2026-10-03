@@ -172,6 +172,7 @@
             <div class="account-meta">
               <span class="account-meta-display" id="stellaAccountDisplay" hidden></span>
               <span class="account-meta-name" id="stellaAccountFullName"></span>
+              <span class="account-meta-tokens" id="stellaAccountTokens"></span>
               <span class="account-meta-tokens">Signed in with Steam</span>
             </div>
             <button class="nav-btn network-option" role="menuitem" id="stellaProfileBtn">MY PROFILE</button>
@@ -1117,6 +1118,25 @@
         <button class="modal-btn modal-btn-secondary" id="steamAppCancelBtn">Cancel</button>
         <button class="modal-btn modal-btn-secondary" id="steamAppAnywayBtn">Launch Anyway</button>
         <button class="modal-btn modal-btn-primary" id="steamAppInstallBtn">Install</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Friend's Room Full Modal (Stella JOIN) -->
+  <div class="modal-overlay" id="roomFullModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span class="modal-title">⚠ ROOM FULL</span>
+        <button class="modal-close-btn" id="roomFullModalClose" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="roomFullTitle" style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;"></p>
+        <p id="roomFullText" style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="roomFullCancelBtn">Cancel</button>
+        <button class="modal-btn modal-btn-secondary" id="roomFullAnywayBtn">Join Anyway</button>
+        <button class="modal-btn modal-btn-primary" id="roomFullPlayBtn">Play</button>
       </div>
     </div>
   </div>

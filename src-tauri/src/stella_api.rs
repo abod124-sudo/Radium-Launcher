@@ -828,14 +828,21 @@ pub(crate) async fn api_get(path: &str) -> Result<Value, String> {
 /// cheer and favorite) take no body and, unlike the game's matchmaking calls,
 /// need no request signature.
 async fn api_request(method: reqwest::Method, path: &str) -> Result<Value, String> {
+    api_request_with(method, path, None).await
+}
+
+/// [`api_request`] with a JSON body (a photo's cheer).
+async fn api_request_with(method: reqwest::Method, path: &str, json_body: Option<&Value>) -> Result<Value, String> {
     for attempt in 0..2 {
         let (token, _account) = ensure_session().await?;
         let mut req = http_client_besthttp()
             .request(method.clone(), format!("{BASE}{path}"))
             .bearer_auth(&token);
-        // An explicit empty body, so a PUT goes out with Content-Length: 0
-        // (what was tested) rather than none.
-        if method != reqwest::Method::GET {
+        if let Some(body) = json_body {
+            req = req.json(body);
+        } else if method != reqwest::Method::GET {
+            // An explicit empty body, so a PUT goes out with Content-Length: 0
+            // (what was tested) rather than none.
             req = req.body("");
         }
         let req = req.timeout(Duration::from_secs(20));
@@ -858,7 +865,8 @@ async fn api_request(method: reqwest::Method, path: &str) -> Result<Value, Strin
 /// Send a request, trying again (twice, briefly spaced) when it fails before
 /// any answer arrives: a pooled connection Stella's edge had already closed,
 /// or a blip in the network. Every request through here is safe to repeat
-/// (reads, and PUT/DELETE of a cheer or favorite). A timeout isn't retried —
+/// (reads, PUT/DELETE of a room's cheer or favorite, and a photo's cheer, which
+/// sets a state rather than toggling one). A timeout isn't retried —
 /// that has already waited its full 20 seconds.
 async fn send_with_retry(req: reqwest::RequestBuilder) -> Result<reqwest::Response, String> {
     let mut last = None;
@@ -1391,6 +1399,71 @@ pub async fn stella_room_players(room_id: i64) -> Value {
     json!({ "players": players, "private": private })
 }
 
+/// Before a friend's JOIN: is the copy of the room they are in full?
+///
+/// The game asks Stella to put the player in the friend's copy, and when that
+/// copy is at its limit Stella answers "Room Full" and the game sends them to
+/// their dorm instead. Each copy in `/match/room/{id}/instances` carries
+/// Stella's own `isFull` (checked 2026-10-03: a GoldenTrophy copy with 4 of its
+/// 4 players said true, one with 3 said false), so the launcher can say so
+/// first. Answers `{ known: false }` when the friend isn't in a listed copy (a
+/// private copy is never listed) or the list couldn't be read: then nothing is
+/// known and the JOIN goes ahead as before.
+#[tauri::command]
+pub async fn stella_join_check(player_id: i64, room_id: i64) -> Value {
+    if player_id <= 0 || room_id <= 0 {
+        return json!({ "known": false });
+    }
+    match api_get(&format!("/match/room/{room_id}/instances")).await {
+        Ok(data) => join_check_of(&data, player_id),
+        Err(_) => json!({ "known": false }),
+    }
+}
+
+/// The game's currency number for tokens (`RecCenterTokens`, after 1 for
+/// `LaserTagTickets`, in the game's own list).
+const TOKEN_CURRENCY: i64 = 2;
+
+/// The signed-in player's tokens, for the account menu. Stella answers the
+/// game's `/api/storefronts/v4/balance/{currency}` with
+/// `[{ Balance, CurrencyType, Platform }]` (checked 2026-10-03; the v2 path the
+/// game also knows is a 404 there).
+#[tauri::command]
+pub async fn stella_tokens() -> Result<i64, String> {
+    let data = api_get(&format!("/api/storefronts/v4/balance/{TOKEN_CURRENCY}")).await?;
+    token_balance(&data).ok_or_else(|| "Stella sent no token balance.".into())
+}
+
+/// The token rows of a balance answer, added up (one per platform). `None`
+/// when there are none, so a changed answer reads as unknown rather than 0.
+fn token_balance(data: &Value) -> Option<i64> {
+    let rows: Vec<i64> = data
+        .as_array()?
+        .iter()
+        .filter(|r| r.get("CurrencyType").and_then(Value::as_i64) == Some(TOKEN_CURRENCY))
+        .filter_map(|r| r.get("Balance").and_then(Value::as_i64))
+        .collect();
+    (!rows.is_empty()).then(|| rows.iter().sum())
+}
+
+/// [`stella_join_check`]'s answer from an instance list. Stella's `isFull` is
+/// taken as it is: it is what the game is told when it asks to join.
+fn join_check_of(data: &Value, player_id: i64) -> Value {
+    let instance = data.as_array().into_iter().flatten().find(|i| {
+        i.get("playerIds")
+            .and_then(Value::as_array)
+            .is_some_and(|ids| ids.iter().any(|p| p.as_i64() == Some(player_id)))
+    });
+    let Some(instance) = instance else {
+        return json!({ "known": false });
+    };
+    json!({
+        "known": true,
+        "full": instance.get("isFull").and_then(Value::as_bool).unwrap_or(false),
+        "players": instance["playerIds"].as_array().map_or(0, Vec::len),
+    })
+}
+
 /// People search. Stella's `/account/search` takes the text as `name` (a
 /// `query` parameter is accepted and silently matches nothing), ignores
 /// `skip`/`take`, and returns its best 50 matches with an exact username first.
@@ -1594,7 +1667,10 @@ fn photo_row(p: &Value, creators: &People) -> Value {
         "RoomId": i64_at(p, "RoomId"),
         "RoomName": "",
         "CheerCount": i64_at(p, "CheerCount"),
-        "CommentCount": i64_at(p, "CommentCount"),
+        // Stella has no comments (no comment route answers, and every photo's
+        // count is 0, checked 2026-10-03), so no count is passed on and the
+        // card and photo page leave the stat out, as for Vanilla.
+        "CommentCount": Value::Null,
         "Description": p.get("Description").cloned().unwrap_or(Value::Null),
         "CreatedAt": str_at(p, "CreatedAt"),
         "CreatorPlayerId": creator_id,
@@ -1778,6 +1854,52 @@ pub async fn stella_set_room_interaction(room_id: i64, kind: String, on: bool) -
     Ok(interaction_of(&v))
 }
 
+// ─── Photo cheers ───────────────────────────────────────────────────────────
+//
+// `GET /api/images/v5/cheered/bulk?id=1&id=2` answers `[{SavedImageId,
+// IsCheered}]` for the signed-in player. `POST /api/images/v1/cheer` with the
+// JSON `{"SavedImageId": id, "Cheer": bool}` sets or clears one and answers
+// `{}`. The names must be spelled exactly so: any other spelling (`imageId`,
+// `ImageId`, `savedImageId`) is a 404, as is clearing a cheer that isn't
+// there, and a form body is a 500. Measured 2026-10-03 on one of Coach's
+// photos, with the user's go-ahead: its count went 6, 7, 6.
+
+/// Ids per cheered-state request, to keep the query string short.
+const CHEER_BATCH: usize = 50;
+
+/// Which of these photos the signed-in player has cheered.
+#[tauri::command]
+pub async fn stella_cheered_photos(ids: Vec<i64>) -> Result<Vec<i64>, String> {
+    let ids: Vec<i64> = ids.into_iter().filter(|&id| id > 0).collect();
+    let mut cheered = Vec::new();
+    for chunk in ids.chunks(CHEER_BATCH) {
+        let query = chunk.iter().map(|id| format!("id={id}")).collect::<Vec<_>>().join("&");
+        let data = api_get(&format!("/api/images/v5/cheered/bulk?{query}")).await?;
+        cheered.extend(cheered_of(&data));
+    }
+    Ok(cheered)
+}
+
+fn cheered_of(data: &Value) -> Vec<i64> {
+    data.as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| r.get("IsCheered").and_then(Value::as_bool) == Some(true))
+        .filter_map(|r| r.get("SavedImageId").and_then(Value::as_i64))
+        .collect()
+}
+
+/// Cheer a photo (`on`), or take the cheer back.
+#[tauri::command]
+pub async fn stella_set_photo_cheer(photo_id: i64, on: bool) -> Result<bool, String> {
+    if photo_id <= 0 {
+        return Err("No such photo.".into());
+    }
+    let body = json!({ "SavedImageId": photo_id, "Cheer": on });
+    api_request_with(reqwest::Method::POST, "/api/images/v1/cheer", Some(&body)).await?;
+    Ok(on)
+}
+
 /// Room tag/category filters.
 pub async fn fetch_filters() -> Value {
     match api_get("/api/rooms/v1/filters").await {
@@ -1800,6 +1922,45 @@ fn urlenc(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn cheered_of_keeps_the_cheered_ids() {
+        let rows = json!([
+            { "SavedImageId": 27372, "IsCheered": true },
+            { "SavedImageId": 89811, "IsCheered": false },
+            { "SavedImageId": 5, "IsCheered": true }
+        ]);
+        assert_eq!(cheered_of(&rows), vec![27372, 5]);
+        assert!(cheered_of(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn token_balance_reads_the_token_rows() {
+        assert_eq!(token_balance(&json!([{ "Balance": 0, "CurrencyType": 2, "Platform": -1 }])), Some(0));
+        assert_eq!(
+            token_balance(&json!([
+                { "Balance": 150, "CurrencyType": 2, "Platform": -1 },
+                { "Balance": 9, "CurrencyType": 1, "Platform": -1 },
+                { "Balance": 25, "CurrencyType": 2, "Platform": 0 }
+            ])),
+            Some(175)
+        );
+        assert_eq!(token_balance(&json!([{ "Balance": 9, "CurrencyType": 1 }])), None);
+        assert_eq!(token_balance(&json!({ "Message": "nope" })), None);
+    }
+
+    #[test]
+    fn join_check_finds_the_friends_copy() {
+        let list = json!([
+            { "isFull": true, "playerIds": [3372, 67086, 70095, 70754], "roomId": 3, "roomInstanceId": 1 },
+            { "isFull": false, "playerIds": [32183, 51504, 66781], "roomId": 3, "roomInstanceId": 2 }
+        ]);
+        assert_eq!(join_check_of(&list, 70095), json!({ "known": true, "full": true, "players": 4 }));
+        assert_eq!(join_check_of(&list, 51504)["full"], json!(false));
+        // Not in any listed copy (a private one): nothing is known.
+        assert_eq!(join_check_of(&list, 5), json!({ "known": false }));
+        assert_eq!(join_check_of(&json!({ "error": 1 }), 5), json!({ "known": false }));
+    }
 
     #[test]
     fn tag_filter_matches_stellas() {
@@ -1957,3 +2118,6 @@ mod tests {
         out
     }
 }
+
+
+

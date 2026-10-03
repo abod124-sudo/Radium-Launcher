@@ -383,6 +383,10 @@ function withoutBackdrop(cfg) {
     stellaRoomInteraction:    (roomId) => invoke('stella_room_interaction', { roomId: Number(roomId) }),
     stellaSetRoomInteraction: (roomId, kind, on) => invoke('stella_set_room_interaction', { roomId: Number(roomId), kind, on }),
     stellaRoomPlayers:    (roomId) => invoke('stella_room_players', { roomId: Number(roomId) }),
+    stellaTokens:         () => invoke('stella_tokens'),
+    stellaCheeredPhotos:  (ids) => invoke('stella_cheered_photos', { ids: ids.map(Number) }),
+    stellaSetPhotoCheer:  (photoId, on) => invoke('stella_set_photo_cheer', { photoId: Number(photoId), on }),
+    stellaJoinCheck:      (playerId, roomId) => invoke('stella_join_check', { playerId: Number(playerId), roomId: Number(roomId) || 0 }),
     vanillaAuthStatus:    () => invoke('vanilla_auth_status'),
     vanillaAccount:       () => invoke('vanilla_account'),
     vanillaNotifications: () => invoke('vanilla_notifications'),
@@ -814,8 +818,8 @@ function buildPhotoCard(photo, backToView) {
   const embedded = !!photo.CreatorUsername;
   const creator = photo.CreatorDisplayName || photo.CreatorUsername || '';
   const roomName = photo.RoomName || '';
-  // On Vanilla the count is the cheer button, as on vanillarec.net.
-  const vanillaCheers = activeNetwork === 'vanilla' && (photo.Id ?? photo.id) != null;
+  // On Vanilla and Stella the count is the cheer button, as on vanillarec.net.
+  const cheerable = photoCheerable(photo);
 
   let dateStr = '';
   const createdAt = photo.CreatedAt || photo.createdAt;
@@ -852,7 +856,7 @@ function buildPhotoCard(photo, backToView) {
     </div>
     ${tagged.length ? `<div class="feed-post-tagged"><span class="feed-tagged-label">In this photo:</span></div>` : ''}
     <div class="feed-post-footer">
-      ${vanillaCheers ? '' : `<span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>`}
+      ${cheerable ? '' : `<span class="feed-post-stat"><span class="cheers-count">${cheers}</span> Cheers</span>`}
       ${hasComments ? `<span class="feed-post-stat"><span class="comments-count">${comments}</span> Comments</span>` : ''}
     </div>
   `;
@@ -861,7 +865,7 @@ function buildPhotoCard(photo, backToView) {
     showPhotoDetails(photo, backToView);
   });
 
-  if (vanillaCheers) card.querySelector('.feed-post-footer')?.prepend(buildCardCheer(photo));
+  if (cheerable) card.querySelector('.feed-post-footer')?.prepend(buildCardCheer(photo));
 
   // Names are attached as elements, not interpolated markup, so a display name
   // containing quotes can't break out of a JS string context.
@@ -4412,11 +4416,78 @@ function playStellaRoom(room) {
 /// A friend's JOIN: start Stella straight into their room, through the same
 /// checks PLAY runs. The game does the joining (`+join:<id>`, as Steam's "Join
 /// Game" does), so whether they can be joined is the server's call.
-function joinStellaFriend(friend) {
+///
+/// One thing can be known first: whether the copy of the room they are in is
+/// full. Stella then answers the game with "Room Full" and it lands the player
+/// in their dorm, so that is asked before starting (see stella_join_check) and,
+/// when it is full, a warning offers their own copy of the room instead.
+let joinCheckBusy = false;
+async function joinStellaFriend(friend) {
   if (activeNetwork !== 'stella' || !friend?.id) return;
   const name = friend.displayName || friend.userName || 'your friend';
-  launchStellaInto({ id: friend.id, name }, name);
+  const go = () => launchStellaInto({ id: friend.id, name }, name);
+  // Nothing will start (launchStellaInto says why), so there's nothing to check.
+  if (isGameRunning || isGameLaunching || !isInstalled || stellaUpdateNeeded() || joinCheckBusy) {
+    if (!joinCheckBusy) go();
+    return;
+  }
+  joinCheckBusy = true;
+  let check = null;
+  try {
+    // A slow answer isn't worth holding the JOIN for: it goes ahead unchecked.
+    check = await Promise.race([
+      window.radium.stellaJoinCheck(friend.id, friend.roomId),
+      sleep(5000).then(() => null)
+    ]);
+  } catch (e) {}
+  joinCheckBusy = false;
+  if (activeNetwork !== 'stella') return;
+  if (check?.known && check.full) {
+    showRoomFullModal(friend, name, check);
+    return;
+  }
+  go();
 }
+
+/// The friend JOIN is waiting on this warning: `{ friend, name, room }`.
+let roomFullJoin = null;
+
+function showRoomFullModal(friend, name, check) {
+  const room = String(friend.roomName || '').replace(/^[\^@]/, '');
+  // Only a plain room name can be started into (`+roomname:`), so a dorm
+  // ("abod124's Dorm") has no "play it yourself" button.
+  const playable = /^[A-Za-z0-9_-]+$/.test(room);
+  roomFullJoin = { friend, name, room: playable ? room : '' };
+  $('roomFullTitle').textContent = `${name}'s room is full`;
+  $('roomFullText').textContent = room
+    ? `Their ${playable ? `^${room} room` : room} already has ${check.players} players, its limit. Stella will turn you away and send you to your dorm.`
+    : `The room they're in already has ${check.players} players, its limit. Stella will turn you away and send you to your dorm.`;
+  const play = $('roomFullPlayBtn');
+  play.hidden = !playable;
+  if (playable) play.textContent = `Play ^${room}`;
+  play.setAttribute('aria-label', playable ? `Start Stella in your own ^${room} room` : '');
+  showModal($('roomFullModal'));
+}
+
+function hideRoomFullModal() {
+  roomFullJoin = null;
+  hideModal($('roomFullModal'));
+}
+$('roomFullModalClose')?.addEventListener('click', hideRoomFullModal);
+$('roomFullCancelBtn')?.addEventListener('click', hideRoomFullModal);
+$('roomFullModal')?.addEventListener('click', (e) => {
+  if (e.target === $('roomFullModal')) hideRoomFullModal();
+});
+$('roomFullAnywayBtn')?.addEventListener('click', () => {
+  const job = roomFullJoin;
+  hideRoomFullModal();
+  if (job) launchStellaInto({ id: job.friend.id, name: job.name }, job.name);
+});
+$('roomFullPlayBtn')?.addEventListener('click', () => {
+  const job = roomFullJoin;
+  hideRoomFullModal();
+  if (job?.room) playStellaRoom({ Name: job.room });
+});
 
 // Tray menu ────────────────────────────────────────────────────────────────
 // The tray's Play entry launches without opening the window, like Steam's
@@ -5466,11 +5537,15 @@ function reloadStellaLists() {
 function applyStellaAuth(player) {
   const was = stellaPlayer;
   stellaPlayer = player || null;
+  // Another account's (or nobody's) tokens.
+  if (was?.id !== stellaPlayer?.id) $('stellaAccountTokens').textContent = '';
   renderStellaAccount();
   refreshStellaFriends();
   if (was?.id === stellaPlayer?.id) return;
-  // An open room's cheer and favorite tiles belong to the account.
-  if (socialRoom) paintRoomCheer(socialRoom);
+  // An open room's cheer and favorite tiles, and the photo cheers on screen,
+  // belong to the account.
+  stellaCheerKnown = new Map();
+  refreshSocialButtons();
   if (stellaPlayer) addLog(`Signed in to Stella as @${stellaPlayer.userName}`, 'ok');
   else if (was) addLog('Signed out of Stella', 'info');
   reloadStellaLists();
@@ -5550,9 +5625,23 @@ function closeStellaAccountMenu() {
   }
 }
 
+/// The token count in the account menu, asked for each time the menu opens
+/// (tokens change while playing). The last count stays up meanwhile, and stays
+/// if Stella can't be asked.
+async function refreshStellaTokens() {
+  const asked = stellaPlayer?.id;
+  if (!asked) return;
+  try {
+    const tokens = await window.radium.stellaTokens();
+    if (stellaPlayer?.id !== asked) return;
+    $('stellaAccountTokens').textContent = `${Number(tokens).toLocaleString()} ${tokens === 1 ? 'token' : 'tokens'}`;
+  } catch (e) {}
+}
+
 function openStellaAccountMenu() {
   const menu = $('stellaAccountMenu');
   const btn = $('stellaAccountBtn');
+  refreshStellaTokens();
   showDropdown(menu);
   if (btn) {
     btn.setAttribute('aria-expanded', 'true');
@@ -6337,7 +6426,8 @@ function setCheerPressed(btn, on) {
   if (btn.classList.contains('card-cheer')) btn.setAttribute('aria-label', `${btn.querySelector('.cheers-count')?.textContent || 0} cheers`);
 }
 
-/// Cheer tiles are only buttons on Vanilla; elsewhere they are plain stats.
+/// Cheer tiles are only buttons on Vanilla and Stella; on Radium they are
+/// plain stats.
 function setCheerEnabled(btn, enabled) {
   if (!btn) return;
   btn.disabled = !enabled;
@@ -6455,6 +6545,48 @@ const photoCheerPending = new Set();
 
 const photoIdOf = photo => String(photo?.Id ?? photo?.id ?? '');
 
+/// Whether a photo gets a cheer button: Vanilla and Stella can cheer photos.
+const photoCheerable = photo =>
+  (activeNetwork === 'vanilla' || activeNetwork === 'stella') && (photo?.Id ?? photo?.id) != null;
+
+/// Stella: photo id → cheered, for the signed-in account. Stella has no list
+/// of everything an account has cheered, only a per-photo check, so the
+/// photos on screen are asked about together (see stellaPhotoCheered).
+let stellaCheerKnown = new Map();
+let stellaCheerBatch = null;
+
+/// Whether the Stella account has cheered photo `id`. Every photo asked about
+/// in the same moment (a page of cards) goes in one request.
+function stellaPhotoCheered(id) {
+  if (!stellaPlayer) return Promise.resolve(false);
+  if (stellaCheerKnown.has(id)) return Promise.resolve(stellaCheerKnown.get(id));
+  if (!stellaCheerBatch) {
+    const account = stellaPlayer.id;
+    const batch = { ids: new Set() };
+    batch.done = sleep(0)
+      .then(() => {
+        if (stellaCheerBatch === batch) stellaCheerBatch = null;
+        return window.radium.stellaCheeredPhotos([...batch.ids]);
+      })
+      .then(cheered => {
+        if (stellaPlayer?.id !== account) return;
+        const on = new Set(cheered.map(String));
+        for (const i of batch.ids) stellaCheerKnown.set(i, on.has(i));
+      })
+      .catch(() => {});
+    stellaCheerBatch = batch;
+  }
+  stellaCheerBatch.ids.add(id);
+  return stellaCheerBatch.done.then(() => !!stellaCheerKnown.get(id));
+}
+
+/// Whether the signed-in account has cheered photo `id`, on either network.
+async function photoCheered(id) {
+  if (activeNetwork === 'stella') return stellaPhotoCheered(id);
+  const set = await cheeredPhotoSet();
+  return !!set && set.has(id);
+}
+
 /// The account's cheered photo ids, fetched once and shared by every card.
 function cheeredPhotoSet() {
   if (!vanillaPlayer) return Promise.resolve(null);
@@ -6494,6 +6626,10 @@ function showPhotoCheer(id, cheered, count) {
 async function togglePhotoCheer(photo) {
   const id = photoIdOf(photo);
   if (!id || photoCheerPending.has(id)) return;
+  if (activeNetwork === 'stella') {
+    toggleStellaPhotoCheer(photo, id);
+    return;
+  }
   if (!requireVanillaLogin('cheer photos')) return;
 
   photoCheerPending.add(id);
@@ -6506,6 +6642,29 @@ async function togglePhotoCheer(photo) {
     if (res.cheerCount != null) photo.CheerCount = res.cheerCount;
     showPhotoCheer(id, res.cheered, res.cheerCount);
   } catch (err) {
+    toast(`Couldn't update cheer: ${err}`, 'error');
+  } finally {
+    photoCheerPending.delete(id);
+  }
+}
+
+/// Stella sets a cheer rather than toggling it, and answers with nothing, so
+/// the new state comes from the one known before and the count is moved here.
+async function toggleStellaPhotoCheer(photo, id) {
+  if (!requireStellaLogin('cheer photos')) return;
+  photoCheerPending.add(id);
+  try {
+    const next = !(await stellaPhotoCheered(id));
+    await window.radium.stellaSetPhotoCheer(id, next);
+    stellaCheerKnown.set(id, next);
+    const count = Math.max(0, (Number(photo.CheerCount ?? photo.cheerCount) || 0) + (next ? 1 : -1));
+    photo.CheerCount = count;
+    showPhotoCheer(id, next, count);
+  } catch (err) {
+    // Most likely cheered or un-cheered somewhere else (the game) meanwhile:
+    // ask again, so the button shows what Stella has.
+    stellaCheerKnown.delete(id);
+    showPhotoCheer(id, await stellaPhotoCheered(id));
     toast(`Couldn't update cheer: ${err}`, 'error');
   } finally {
     photoCheerPending.delete(id);
@@ -6538,8 +6697,7 @@ function buildCardCheer(photo) {
 }
 
 async function paintCardCheer(btn) {
-  const set = await cheeredPhotoSet();
-  setCheerPressed(btn, !!set && set.has(btn.dataset.photoId));
+  setCheerPressed(btn, await photoCheered(btn.dataset.photoId));
 }
 
 async function paintPhotoCheer(photo) {
@@ -6547,8 +6705,8 @@ async function paintPhotoCheer(photo) {
   setCheerEnabled(btn, !!photo);
   setCheerPressed(btn, false);
   if (!btn || !photo) return;
-  const set = await cheeredPhotoSet();
-  if (socialPhoto === photo) setCheerPressed(btn, !!set && set.has(photoIdOf(photo)));
+  const cheered = await photoCheered(photoIdOf(photo));
+  if (socialPhoto === photo) setCheerPressed(btn, cheered);
 }
 
 $('photoDetailCheerBtn')?.addEventListener('click', () => {
@@ -6744,7 +6902,7 @@ function setupRoomSocial(room) {
 }
 
 function setupPhotoSocial(photo) {
-  socialPhoto = activeNetwork === 'vanilla' && (photo?.Id ?? photo?.id) != null ? photo : null;
+  socialPhoto = photoCheerable(photo) ? photo : null;
   paintPhotoCheer(socialPhoto);
 }
 

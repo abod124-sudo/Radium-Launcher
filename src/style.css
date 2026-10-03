@@ -2289,6 +2289,7 @@ body.theme-moderndark .toast.info {
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
   background: var(--bg-btn); color: var(--text);
 }
+.modal-footer .modal-btn[hidden] { display: none; }
 .modal-btn:active {
   border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
   padding: 6px 17px 4px 19px;
