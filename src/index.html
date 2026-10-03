@@ -702,13 +702,79 @@
       </section>
 
       <!-- ───────── LOGS TAB ──────────────────────── -->
+      <!-- Drawn by logs.js from the log addLog() keeps (app.js). -->
       <section class="tab-panel" id="tab-status">
         <div class="panel-header">
           <h2>LOGS</h2>
+          <button type="button" class="btn-refresh log-report-btn" id="btnReportProblem">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z"/></svg>
+            <span>Report a problem</span>
+          </button>
         </div>
 
-        <div class="log-section">
-          <div class="log-output" id="logOutput"></div>
+        <div class="log-toolbar">
+          <div class="log-seg log-levels" role="radiogroup" aria-label="Show">
+            <button type="button" class="log-seg-btn log-level active" data-level="all" role="radio" aria-checked="true">All <span class="log-count" data-count="all">0</span></button>
+            <button type="button" class="log-seg-btn log-level" data-level="info" role="radio" aria-checked="false">Info <span class="log-count" data-count="info">0</span></button>
+            <button type="button" class="log-seg-btn log-level" data-level="warn" role="radio" aria-checked="false">Warnings <span class="log-count" data-count="warn">0</span></button>
+            <button type="button" class="log-seg-btn log-level" data-level="error" role="radio" aria-checked="false">Errors <span class="log-count" data-count="error">0</span></button>
+          </div>
+          <div class="log-source">
+            <select id="logSource" class="cfg-input" aria-label="Source">
+              <option value="">All sources</option>
+              <option value="launcher">Launcher</option>
+              <option value="install">Install</option>
+              <option value="game">Game</option>
+              <option value="account">Account</option>
+              <option value="server">Servers</option>
+              <option value="update">Updates</option>
+            </select>
+          </div>
+          <div class="log-search">
+            <svg class="log-search-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            <input type="text" id="logSearch" class="cfg-input" placeholder="Search the log" autocomplete="off" spellcheck="false" aria-label="Search the log" />
+            <button type="button" class="log-search-clear" id="logSearchClear" aria-label="Clear search" hidden></button>
+          </div>
+        </div>
+
+        <div class="log-frame">
+          <div class="log-output" id="logOutput" role="log" aria-label="Launcher log" tabindex="0">
+            <div class="log-list" id="logList"></div>
+            <div class="log-empty" id="logEmpty" hidden>
+              <div class="log-empty-title" id="logEmptyTitle">Nothing logged yet</div>
+              <div class="log-empty-text" id="logEmptyText"></div>
+            </div>
+          </div>
+          <button type="button" class="log-jump" id="logJump" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z"/></svg>
+            <span id="logJumpText">New lines</span>
+          </button>
+        </div>
+
+        <div class="log-statusbar">
+          <div class="log-seg log-sessions" role="radiogroup" aria-label="Session">
+            <button type="button" class="log-seg-btn log-session-btn active" data-session="current" role="radio" aria-checked="true">This session</button>
+            <button type="button" class="log-seg-btn log-session-btn" data-session="previous" role="radio" aria-checked="false">Last session</button>
+          </div>
+          <span class="log-session-info" id="logSessionInfo"></span>
+          <div class="log-actions">
+            <button type="button" class="btn-refresh log-action" id="btnLogCopy">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+              <span>Copy</span>
+            </button>
+            <button type="button" class="btn-refresh log-action" id="btnLogSave">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              <span>Save…</span>
+            </button>
+            <button type="button" class="btn-refresh log-action" id="btnLogFolder">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
+              <span>Open folder</span>
+            </button>
+            <button type="button" class="btn-refresh log-action" id="btnLogClear">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM8 9h8v10H8V9zm7.5-5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+              <span>Clear</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -927,44 +993,6 @@
             </div>
           </div>
 
-          <!-- Report a Bug -->
-          <div class="settings-group">
-            <div class="sg-title">REPORT A BUG</div>
-            <div class="sg-row" style="flex-direction: column; align-items: stretch; gap: 8px; width: 100%;">
-              <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">
-                Found an issue? Describe the bug in detail (minimum 10 characters). System diagnostics (OS version, play mode) will be appended automatically.
-              </div>
-              
-              <!-- Category and Severity Selection -->
-              <div style="display: flex; gap: 10px; width: 100%;">
-                <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
-                  <label for="bugReportCategory" style="font-size: 10px; font-weight: bold; color: var(--text-muted);">BUG CATEGORY</label>
-                  <select id="bugReportCategory" class="cfg-input" style="width: 100%; box-sizing: border-box; height: 26px; padding: 2px 6px;">
-                    <option value="general">General / Launcher Issue</option>
-                    <option value="launch">Game Launch Failure / Crash</option>
-                    <option value="theme">UI Layout / Custom Themes</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-                <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
-                  <label for="bugReportSeverity" style="font-size: 10px; font-weight: bold; color: var(--text-muted);">SEVERITY LEVEL</label>
-                  <select id="bugReportSeverity" class="cfg-input" style="width: 100%; box-sizing: border-box; height: 26px; padding: 2px 6px;">
-                    <option value="low">Low - Cosmetic/Typo</option>
-                    <option value="medium" selected>Medium - Functional Issue</option>
-                    <option value="high">High - Cannot Launch/Play</option>
-                    <option value="critical">Critical - Launcher Crash/Freeze</option>
-                  </select>
-                </div>
-              </div>
-
-              <textarea id="bugReportText" class="cfg-input" placeholder="Describe the steps to reproduce the bug and what happened..." style="width: 100%; min-height: 80px; resize: vertical; box-sizing: border-box;"></textarea>
-              <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 4px; width: 100%;">
-                <span id="bugReportStatus" style="font-size: 11px; font-weight: bold; color: var(--text-muted); line-height: 24px; vertical-align: middle;"></span>
-                <button class="btn-refresh" id="btnSubmitBugReport" style="padding: 4px 12px; font-weight: bold; font-size: 11px;">SUBMIT BUG REPORT</button>
-              </div>
-            </div>
-          </div>
-
           </div>
         </section>
 
@@ -1048,6 +1076,135 @@
       </section>
 
       </main>
+  </div>
+
+  <!-- Report a Problem (logs.js). Opened from the Logs page, or from a line's
+       "Report this". Describe, then review exactly what is sent, then send. -->
+  <div class="modal-overlay" id="reportModal" style="display:none">
+    <div class="modal-box report-box" role="dialog" aria-modal="true" aria-labelledby="reportTitle" data-step="describe">
+      <div class="modal-titlebar">
+        <span class="modal-title" id="reportTitle">REPORT A PROBLEM</span>
+        <button class="modal-close-btn" id="reportClose" aria-label="Close">✕</button>
+      </div>
+
+      <div class="report-steps" id="reportSteps" aria-hidden="true">
+        <span class="report-step active" data-step="describe"><span class="report-step-num">1</span>Describe</span>
+        <span class="report-step-line"></span>
+        <span class="report-step" data-step="review"><span class="report-step-num">2</span>Review &amp; send</span>
+      </div>
+
+      <!-- Step 1: what's wrong -->
+      <div class="modal-body report-page" id="reportPageDescribe">
+        <div class="report-label" id="reportCatLabel">What kind of problem is it?</div>
+        <div class="report-cats" role="radiogroup" aria-labelledby="reportCatLabel">
+          <button type="button" class="report-cat" data-cat="launch" role="radio" aria-checked="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 16.5l6-4.5-6-4.5v9zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+            <span class="report-cat-name">Game won't launch</span>
+          </button>
+          <button type="button" class="report-cat" data-cat="download" role="radio" aria-checked="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+            <span class="report-cat-name">Download or install</span>
+          </button>
+          <button type="button" class="report-cat" data-cat="account" role="radio" aria-checked="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+            <span class="report-cat-name">Sign-in or account</span>
+          </button>
+          <button type="button" class="report-cat" data-cat="looks" role="radio" aria-checked="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+            <span class="report-cat-name">Looks wrong</span>
+          </button>
+          <button type="button" class="report-cat" data-cat="launcher" role="radio" aria-checked="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6a2 2 0 0 0-2-2zm0 14H5V8h14v10z"/></svg>
+            <span class="report-cat-name">Launcher problem</span>
+          </button>
+          <button type="button" class="report-cat" data-cat="other" role="radio" aria-checked="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg>
+            <span class="report-cat-name">Something else</span>
+          </button>
+        </div>
+
+        <div class="report-linked" id="reportLinked" hidden>
+          <div class="report-linked-head">
+            <span>From the log</span>
+            <button type="button" class="report-linked-remove" id="reportLinkedRemove" aria-label="Leave this line out"></button>
+          </div>
+          <div class="report-linked-line" id="reportLinkedLine"></div>
+        </div>
+
+        <label class="report-label" for="reportText">What happened?</label>
+        <textarea id="reportText" class="cfg-input report-text" maxlength="1500" rows="5" placeholder="Tell us what happened, and what you expected instead."></textarea>
+        <div class="report-text-foot">
+          <span class="report-text-hint" id="reportTextHint"></span>
+          <span class="report-text-count" id="reportTextCount">0 / 1500</span>
+        </div>
+
+        <div class="report-label" id="reportSevLabel">How much does it get in your way?</div>
+        <div class="log-seg report-sev" role="radiogroup" aria-labelledby="reportSevLabel">
+          <button type="button" class="log-seg-btn report-sev-btn" data-sev="low" role="radio" aria-checked="false">Minor</button>
+          <button type="button" class="log-seg-btn report-sev-btn" data-sev="medium" role="radio" aria-checked="true">Something's broken</button>
+          <button type="button" class="log-seg-btn report-sev-btn" data-sev="high" role="radio" aria-checked="false">Can't play</button>
+          <button type="button" class="log-seg-btn report-sev-btn" data-sev="critical" role="radio" aria-checked="false">Crashes or freezes</button>
+        </div>
+      </div>
+
+      <!-- Step 2: everything that goes with it -->
+      <div class="modal-body report-page" id="reportPageReview" hidden>
+        <div class="report-summary">
+          <div class="report-summary-head">
+            <span class="report-summary-cat" id="reportSumCat"></span>
+            <span class="report-sev-pill" id="reportSumSev"></span>
+            <button type="button" class="report-link" id="reportEdit">Edit</button>
+          </div>
+          <div class="report-summary-text" id="reportSumText"></div>
+        </div>
+
+        <div class="report-label">Sent with it</div>
+        <dl class="report-facts" id="reportFacts"></dl>
+
+        <div class="report-label">Logs</div>
+        <div class="report-attach">
+          <div class="sg-toggle-row report-attach-row">
+            <span class="report-attach-text">
+              <span class="report-attach-name">This session's log</span>
+              <span class="report-attach-meta" id="reportLogMeta"></span>
+            </span>
+            <div class="toggle-wrap on" id="tglReportLog" role="switch" aria-checked="true" aria-label="Attach this session's log" tabindex="0"><div class="tgl-knob"></div></div>
+          </div>
+          <button type="button" class="report-link report-peek" data-peek="reportPeekCurrent">Show what's in it</button>
+          <pre class="report-peek-box" id="reportPeekCurrent" hidden></pre>
+
+          <div class="sg-toggle-row report-attach-row" id="reportPrevRow" hidden>
+            <span class="report-attach-text">
+              <span class="report-attach-name">Last session's log</span>
+              <span class="report-attach-meta" id="reportPrevMeta"></span>
+            </span>
+            <div class="toggle-wrap" id="tglReportPrev" role="switch" aria-checked="false" aria-label="Attach the last session's log" tabindex="0"><div class="tgl-knob"></div></div>
+          </div>
+          <button type="button" class="report-link report-peek" id="reportPeekPrevBtn" data-peek="reportPeekPrevious" hidden>Show what's in it</button>
+          <pre class="report-peek-box" id="reportPeekPrevious" hidden></pre>
+        </div>
+
+        <p class="report-privacy">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+          <span>Sent to abod. Your Windows user name is replaced with %USERPROFILE% everywhere, and nothing else from your PC is included.</span>
+        </p>
+        <div class="report-error" id="reportError" role="alert" hidden></div>
+      </div>
+
+      <!-- Sent -->
+      <div class="modal-body report-page report-done" id="reportPageDone" hidden>
+        <div class="report-done-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+        </div>
+        <div class="report-done-title">Report sent</div>
+        <div class="report-done-text">Thanks — abod will take a look.</div>
+      </div>
+
+      <div class="modal-footer report-footer">
+        <button class="modal-btn modal-btn-secondary" id="reportBack">Cancel</button>
+        <button class="modal-btn modal-btn-primary" id="reportNext" disabled>Next</button>
+      </div>
+    </div>
   </div>
 
   <!-- Update Available Modal -->
@@ -1402,5 +1559,6 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <script src="app.js"></script>
+  <script src="logs.js"></script>
 </body>
 </html>

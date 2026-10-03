@@ -1727,6 +1727,179 @@
     linear-gradient(#000 0 0) center / 100% calc(100% - 2 * var(--lg-r) + 2px) no-repeat !important;
 }
 
+/* ── Logs page ────────────────────────────────────────────────── */
+:root body.glass-enabled {
+  --lg-warn: #ffd60a;
+  --lg-muted: rgba(235, 235, 245, 0.55);
+}
+:root body.glass-enabled .log-seg {
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+:root body.glass-enabled .log-seg-btn {
+  padding: 4px 11px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(235, 235, 245, 0.68);
+  border-radius: 999px;
+  transition: background-color 0.2s var(--lg-ease), color 0.2s var(--lg-ease);
+}
+:root body.glass-enabled .log-seg-btn:hover:not(:disabled):not(.active) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.07);
+}
+:root body.glass-enabled .log-seg-btn.active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: var(--lg-control-rim), 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+:root body.glass-enabled .log-seg-btn:disabled { color: rgba(235, 235, 245, 0.28); }
+/* The selection glides, springing into place like the play-mode lens. */
+:root body.glass-enabled .log-seg-thumb {
+  display: block;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: var(--lg-control-rim), 0 1px 3px rgba(0, 0, 0, 0.18);
+  transition: transform 0.5s var(--lg-spring), width 0.35s var(--lg-ease);
+}
+:root body.glass-enabled .log-seg-btn.active { background: transparent; box-shadow: none; }
+:root body.glass-enabled .log-count {
+  color: inherit;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+:root body.glass-enabled .log-level.has-errors .log-count { color: #ffffff; background: var(--lg-danger); }
+:root body.glass-enabled .log-session-btn.is-bad:not(.active)::after {
+  content: '';
+  width: 6px; height: 6px;
+  background: var(--lg-warn);
+  border-radius: 50%;
+}
+:root body.glass-enabled .log-search .cfg-input { padding-left: 30px !important; padding-right: 28px !important; border-radius: 999px !important; }
+:root body.glass-enabled :is(.log-search .cfg-input, .report-text) {
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+}
+:root body.glass-enabled .log-search-icon { left: 11px; color: #ffffff; }
+:root body.glass-enabled .log-search-clear { color: #ffffff; }
+:root body.glass-enabled .log-source .cselect-trigger { border-radius: 999px !important; }
+
+:root body.glass-enabled .log-output {
+  padding: 6px 0 !important;
+  color: rgba(255, 255, 255, 0.92);
+}
+:root body.glass-enabled .log-ts,
+:root body.glass-enabled .log-src,
+:root body.glass-enabled .log-more { color: var(--lg-muted); }
+:root body.glass-enabled .log-row { --lvl: rgba(235, 235, 245, 0.7); padding-left: 16px; padding-right: 14px; }
+:root body.glass-enabled .log-row.lvl-ok    { --lvl: var(--lg-positive); }
+:root body.glass-enabled .log-row.lvl-warn  { --lvl: var(--lg-warn); }
+:root body.glass-enabled .log-row.lvl-error { --lvl: var(--lg-danger); }
+:root body.glass-enabled .log-lvl {
+  color: var(--lvl);
+  background: color-mix(in srgb, var(--lvl) 16%, transparent);
+  border-radius: 999px;
+}
+:root body.glass-enabled .log-row:hover { background: rgba(255, 255, 255, 0.05); }
+:root body.glass-enabled .log-row.lvl-warn  { background: rgba(255, 214, 10, 0.07); box-shadow: inset 2px 0 0 var(--lg-warn); }
+:root body.glass-enabled .log-row.lvl-error { background: rgba(255, 69, 58, 0.10); box-shadow: inset 2px 0 0 var(--lg-danger); }
+:root body.glass-enabled .log-row.lvl-warn:hover  { background: rgba(255, 214, 10, 0.12); }
+:root body.glass-enabled .log-row.lvl-error:hover { background: rgba(255, 69, 58, 0.15); }
+:root body.glass-enabled .log-row.is-open { background: rgba(255, 255, 255, 0.08); }
+:root body.glass-enabled .log-row-btn {
+  color: #ffffff;
+  background: var(--lg-control);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: var(--lg-control-rim);
+}
+:root body.glass-enabled .log-row-btn:hover { background: var(--lg-control-hover); }
+:root body.glass-enabled .log-row-btn.is-report { background: var(--lg-danger); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3); }
+:root body.glass-enabled .log-marker { color: var(--lg-muted); }
+:root body.glass-enabled .log-hit { background: rgba(10, 132, 255, 0.45); }
+:root body.glass-enabled .log-empty-title { color: #ffffff; }
+:root body.glass-enabled .log-empty-text { color: var(--lg-muted); }
+:root body.glass-enabled .log-jump {
+  color: #ffffff;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)), var(--lg-accent);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 8px 22px -6px rgba(10, 132, 255, 0.6);
+}
+:root body.glass-enabled .log-session-info { color: var(--lg-muted); }
+:root body.glass-enabled .log-session-info.is-bad { color: var(--lg-warn); }
+:root body.glass-enabled .log-action { padding: 5px 11px; font-size: 11px; }
+:root body.glass-enabled .log-report-btn { padding: 6px 14px; font-size: 11.5px; }
+
+/* ── Report a Problem ─────────────────────────────────────────── */
+:root body.glass-enabled .modal-box.report-box { width: 540px; padding: 0 !important; }
+:root body.glass-enabled .report-box .modal-body { padding: 12px 20px 6px !important; }
+:root body.glass-enabled .report-steps { padding: 6px 20px 2px; color: var(--lg-muted); }
+:root body.glass-enabled .report-step-num { color: var(--lg-muted); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22); }
+:root body.glass-enabled .report-step.active { color: #ffffff; }
+:root body.glass-enabled .report-step.active .report-step-num { color: #ffffff; background: var(--lg-accent); box-shadow: none; }
+:root body.glass-enabled .report-step.done .report-step-num { color: #04140a; background: var(--lg-positive); box-shadow: none; }
+:root body.glass-enabled .report-label { color: rgba(255, 255, 255, 0.9); }
+:root body.glass-enabled .report-cat {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: background-color 0.2s var(--lg-ease), box-shadow 0.2s var(--lg-ease), transform 0.4s var(--lg-spring);
+}
+:root body.glass-enabled .report-cat svg { color: var(--lg-muted); }
+:root body.glass-enabled .report-cat:hover { background: rgba(255, 255, 255, 0.10); }
+:root body.glass-enabled .report-cat:active { transform: scale(0.97); }
+:root body.glass-enabled .report-cat.active {
+  background: rgba(10, 132, 255, 0.22);
+  box-shadow: inset 0 0 0 1.5px var(--lg-accent), 0 6px 18px -8px rgba(10, 132, 255, 0.6);
+}
+:root body.glass-enabled .report-cat.active svg { color: #ffffff; }
+:root body.glass-enabled .report-text { border-radius: 14px !important; }
+:root body.glass-enabled .report-text-foot { color: var(--lg-muted); }
+:root body.glass-enabled .report-text-hint { color: var(--lg-warn); }
+:root body.glass-enabled :is(.report-linked, .report-summary, .report-facts, .report-peek-box) {
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.22);
+  border: 0;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+:root body.glass-enabled .report-linked-head { color: var(--lg-muted); }
+:root body.glass-enabled .report-linked-line { --lvl: rgba(235, 235, 245, 0.7); }
+:root body.glass-enabled .report-linked-line.lvl-warn  { --lvl: var(--lg-warn); }
+:root body.glass-enabled .report-linked-line.lvl-error { --lvl: var(--lg-danger); }
+:root body.glass-enabled .report-linked-line .log-lvl { color: var(--lvl); background: color-mix(in srgb, var(--lvl) 16%, transparent); border-radius: 999px; }
+:root body.glass-enabled .report-sev-pill { border-radius: 999px; color: var(--sev); background: color-mix(in srgb, var(--sev) 18%, transparent); }
+:root body.glass-enabled .report-sev-pill.sev-low      { --sev: var(--lg-positive); }
+:root body.glass-enabled .report-sev-pill.sev-medium   { --sev: var(--lg-warn); }
+:root body.glass-enabled .report-sev-pill.sev-high     { --sev: var(--lg-danger); }
+:root body.glass-enabled .report-sev-pill.sev-critical { --sev: var(--lg-danger); color: #ffffff; background: var(--lg-danger); }
+:root body.glass-enabled .report-link { color: #64b5ff; }
+:root body.glass-enabled .report-link:hover { color: #ffffff; }
+:root body.glass-enabled .report-facts dt { color: var(--lg-muted); }
+:root body.glass-enabled .report-facts dd.is-bad { color: var(--lg-danger); font-weight: 700; }
+:root body.glass-enabled .report-attach-name { color: #ffffff; }
+:root body.glass-enabled .report-attach-meta { color: var(--lg-muted); }
+:root body.glass-enabled .report-attach-meta.is-bad { color: var(--lg-warn); }
+:root body.glass-enabled .report-privacy { color: var(--lg-muted); }
+:root body.glass-enabled .report-error {
+  color: #ffb4ae;
+  background: rgba(255, 69, 58, 0.14);
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgba(255, 69, 58, 0.35);
+}
+:root body.glass-enabled .report-done-icon { color: var(--lg-positive); filter: drop-shadow(0 6px 16px rgba(48, 209, 88, 0.45)); }
+:root body.glass-enabled .report-done-title { color: #ffffff; }
+:root body.glass-enabled .report-done-text { color: var(--lg-muted); }
+
 /* ── Full glass effects ─────────────────────────────────────────
    On by default; switched off from Settings → Liquid Glass. Stronger
    frost on the framing surfaces, the content wells frosted as well,

@@ -174,17 +174,161 @@ body:not(.glass-enabled) {
   & .photo-detail-stat-value { font-family: var(--font-ui); }
 
   /* ── Logs ─────────────────────────────────────────────────────────── */
-  & .log-output {
-    padding: 8px 10px;
+  /* A segmented choice drawn as chips in a sunken field: the field the
+     skin gives its inputs, the chips its Rooms filters use. */
+  & .log-seg {
+    gap: 2px;
+    padding: 2px;
+    background: var(--field-bg);
+    border: var(--field-border);
+    border-radius: var(--field-radius);
+    box-shadow: var(--field-shadow);
+  }
+  & .log-seg-btn {
+    padding: 4px 10px;
+    font-family: var(--font-ui);
     font-size: 11px;
-    line-height: 1.55;
+    font-weight: 500;
+    color: var(--chip-fg);
+    background: var(--chip-bg);
+    border: var(--chip-border);
+    border-radius: max(0px, calc(var(--field-radius) - 2px));
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  & .log-seg-btn:hover:not(:disabled) {
+    color: var(--chip-hover-fg);
+    background: var(--chip-hover-bg);
+    border: var(--chip-hover-border);
+  }
+  & .log-seg-btn.active,
+  & .log-seg-btn.active:hover {
+    font-weight: 700;
+    color: var(--chip-active-fg);
+    background: var(--chip-active-bg);
+    border: var(--chip-active-border);
+    box-shadow: var(--chip-active-shadow);
+  }
+  & .log-seg-btn:disabled { color: color-mix(in srgb, var(--muted) 55%, transparent); }
+  & .log-count {
+    color: inherit;
+    background: color-mix(in srgb, currentColor 13%, transparent);
+    border-radius: var(--badge-radius, 999px);
+  }
+  & .log-level.has-errors .log-count { color: #ffffff; background: var(--err); }
+  & .log-session-btn.is-bad:not(.active)::after {
+    content: '';
+    width: 6px; height: 6px;
+    background: var(--warn);
+    border-radius: var(--dot-radius);
+  }
+  & .log-search-icon,
+  & .log-search-clear { color: var(--field-fg); }
+  & .log-search .cfg-input { padding-left: 30px; padding-right: 28px; }
+  & .log-toolbar .log-seg { align-self: stretch; }
+
+  & .log-output {
+    padding: 4px 0;
     color: var(--well-fg);
   }
-  & .log-entry.info  { color: var(--log-info, var(--well-fg)); }
-  & .log-entry.ok    { color: var(--ok); }
-  & .log-entry.warn  { color: var(--warn); }
-  & .log-entry.error { color: var(--err); }
-  & .log-ts { color: var(--muted); }
+  & .log-ts, & .log-src, & .log-more { color: var(--muted); }
+  & .log-row { --lvl: var(--muted); }
+  & .log-row.lvl-ok    { --lvl: var(--ok); }
+  & .log-row.lvl-warn  { --lvl: var(--warn); }
+  & .log-row.lvl-error { --lvl: var(--err); }
+  & .log-lvl {
+    color: var(--lvl);
+    background: color-mix(in srgb, var(--lvl) 15%, transparent);
+    border-radius: min(var(--badge-radius, 3px), 4px);
+  }
+  & .log-row:hover { background: color-mix(in srgb, var(--well-fg) 5%, transparent); }
+  & .log-row.lvl-warn  { background: color-mix(in srgb, var(--warn) 7%, transparent); box-shadow: inset 2px 0 0 var(--warn); }
+  & .log-row.lvl-error { background: color-mix(in srgb, var(--err) 9%, transparent); box-shadow: inset 2px 0 0 var(--err); }
+  & .log-row.lvl-warn:hover  { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  & .log-row.lvl-error:hover { background: color-mix(in srgb, var(--err) 14%, transparent); }
+  & .log-row.is-open { background: color-mix(in srgb, var(--well-fg) 8%, transparent); }
+  & .log-row-btn {
+    color: var(--btn-fg);
+    background: var(--btn-bg);
+    border: var(--btn-border);
+    border-radius: var(--btn-radius);
+    box-shadow: var(--btn-shadow);
+  }
+  & .log-row-btn:hover { background: var(--btn-hover-bg); border: var(--btn-hover-border); }
+  & .log-row-btn.is-report { color: var(--danger-fg); background: var(--danger-bg); border: var(--danger-border); }
+  & .log-row-btn.is-report:hover { background: var(--danger-hover-bg); }
+  & .log-marker { color: var(--muted); }
+  & .log-hit { background: color-mix(in srgb, var(--accent) 38%, transparent); }
+  & .log-empty-title { color: var(--well-fg); }
+  & .log-empty-text { color: var(--muted); }
+  & .log-jump {
+    color: var(--on-accent);
+    background: var(--accent);
+    border: 0;
+    border-radius: var(--badge-radius, 999px);
+    box-shadow: var(--menu-shadow);
+  }
+  & .log-session-info { color: var(--muted); }
+  & .log-session-info.is-bad { color: var(--warn); }
+  & .log-action { padding: 4px 10px; }
+
+  /* ── Report a Problem ─────────────────────────────────────────────── */
+  & .modal-box.report-box { width: 540px; display: flex; flex-direction: column; }
+  & .report-steps { color: var(--muted); }
+  & .report-step-num { color: var(--muted); border: 1px solid var(--line-strong); }
+  & .report-step.active { color: var(--panel-fg); }
+  & .report-step.active .report-step-num { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+  & .report-step.done .report-step-num { color: var(--on-ok); background: var(--ok); border-color: var(--ok); }
+  & .report-label { color: var(--panel-fg); }
+  & .report-cat {
+    color: var(--panel-fg);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--tile-radius);
+    box-shadow: var(--tile-shadow);
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  }
+  & .report-cat svg { color: var(--muted); }
+  & .report-cat:hover { background: color-mix(in srgb, var(--accent) 8%, var(--tile-bg)); }
+  & .report-cat.active {
+    background: color-mix(in srgb, var(--accent) 14%, var(--tile-bg));
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  & .report-cat.active svg { color: var(--accent-text); }
+  & .report-text-foot { color: var(--muted); }
+  & .report-text-hint { color: var(--warn); }
+  & :is(.report-linked, .report-summary, .report-facts, .report-peek-box) {
+    color: var(--well-fg);
+    background: var(--well-bg);
+    border: var(--well-border);
+    border-radius: var(--well-radius);
+    box-shadow: var(--well-shadow);
+  }
+  & .report-linked-head { color: var(--muted); }
+  & .report-linked-line .log-lvl { color: var(--lvl); background: color-mix(in srgb, var(--lvl) 15%, transparent); border-radius: min(var(--badge-radius, 3px), 4px); }
+  & .report-linked-line { --lvl: var(--muted); }
+  & .report-linked-line.lvl-warn  { --lvl: var(--warn); }
+  & .report-linked-line.lvl-error { --lvl: var(--err); }
+  & .report-sev-pill { border-radius: var(--badge-radius, 999px); color: var(--sev); background: color-mix(in srgb, var(--sev) 16%, transparent); }
+  & .report-sev-pill.sev-low      { --sev: var(--ok); }
+  & .report-sev-pill.sev-medium   { --sev: var(--warn); }
+  & .report-sev-pill.sev-high     { --sev: var(--err); }
+  & .report-sev-pill.sev-critical { --sev: var(--err); color: #ffffff; background: var(--err); }
+  & .report-link { color: var(--link); }
+  & .report-link:hover { color: var(--link-hover); }
+  & .report-facts dt { color: var(--muted); }
+  & .report-facts dd.is-bad { color: var(--err); font-weight: 700; }
+  & .report-attach-meta { color: var(--muted); }
+  & .report-attach-meta.is-bad { color: var(--warn); }
+  & .report-privacy { color: var(--muted); }
+  & .report-error {
+    color: var(--err);
+    background: color-mix(in srgb, var(--err) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+    border-radius: var(--well-radius);
+  }
+  & .report-done-icon { color: var(--ok); }
+  & .report-done-title { color: var(--panel-fg); }
+  & .report-done-text { color: var(--muted); }
 
   /* ── Settings extras ──────────────────────────────────────────────── */
   & .sg-row label { font-size: 11px; font-weight: 400; color: var(--panel-fg); }

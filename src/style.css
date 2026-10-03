@@ -64,15 +64,14 @@
   /* Despite the name, this is the dense/technical text face — log lines,
      paths, small readouts — not a promise of fixed advance widths. The
      modern skins point it at SF Mono; anything that needs a real character
-     grid must hold its columns by width, the way .log-ts and .log-tag do,
+     grid must hold its columns by width, the way the log rows do,
      not by padding text with spaces. */
   --font-mono:    'Lucida Console', 'Courier New', monospace;
   /* The log pane, and nothing else. Held apart from --font-mono precisely so
      a skin cannot reach it: the log is diagnostic output that gets read
-     closely and pasted into bug reports, and its timestamp and level columns
-     only line up under a real fixed-advance face. It is the one place in the
-     app where legibility beats flavour, so no skin re-points this. */
-  --font-log:     'Lucida Console', 'Consolas', 'Courier New', monospace;
+     closely and pasted into bug reports. It is the one place in the app
+     where legibility beats flavour, so no skin re-points this. */
+  --font-log:     'Consolas', 'Cascadia Mono', 'Lucida Console', monospace;
   --titlebar-h:   30px;
 }
 
@@ -1990,30 +1989,257 @@ body.animations-enabled.theme-moderndark .hero-gear[aria-expanded="false"]:hover
 .status-card.offline .sc-state { color: #ff6666; }
 .sc-label { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); }
 
-.log-section { display: flex; flex-direction: column; flex: 1; margin-top: 10px; }
-.ls-header { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); font-weight: bold; margin-bottom: 4px; }
-.log-output {
-  background: var(--bg-dark);
-  border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  padding: 8px; font-family: var(--font-log); font-size: 10px; color: var(--green-dim);
-  line-height: 1.4; overflow-y: auto; flex: 1;
+/* ─── Logs page ───────────────────────────────────────────────────────────
+   Layout only, shared by every skin and Liquid Glass. Colours and borders are
+   in skins/03-content.css (skins) and skins/11-glass.css (glass). */
+#tab-status { overflow: hidden; gap: 8px; }
+#tab-status .panel-header { margin-bottom: 0; }
+
+.log-report-btn,
+.log-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.log-report-btn svg,
+.log-action svg { width: 14px; height: 14px; fill: currentColor; flex-shrink: 0; }
+
+.log-toolbar { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+/* A segmented choice: the level filter, the session switch, a report's
+   severity. Not the hero's play-mode control, whose tokens are tuned for the
+   dark scrim it sits on. */
+.log-seg { display: inline-flex; align-items: stretch; flex-shrink: 0; }
+.log-seg-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  white-space: nowrap; cursor: pointer;
+  border: 0; background: transparent; color: inherit; font: inherit;
 }
-/* Per-severity colouring for log lines. Long lines (paths, URLs, detail
-   strings) wrap instead of being clipped, and the leading level tag keeps its
-   alignment spaces via pre-wrap. */
-.log-entry { white-space: pre-wrap; word-break: break-word; }
-/* The timestamp and level columns are held open by width, not by the space
-   padding in the log string. The log is pinned to --font-log, which no skin
-   re-points, but `ch` (the width of "0" in the active face) still beats
-   padding with spaces: it survives a missing font falling back to whatever
-   monospace the platform substitutes. */
-.log-ts  { display: inline-block; min-width: 10.5ch; }
-.log-tag { display: inline-block; min-width: 8.5ch; }
-.log-msg { white-space: pre-wrap; }
-.log-entry.info  { color: var(--green-dim); }
-.log-entry.ok    { color: var(--status-online); }
-.log-entry.warn  { color: #e6b23a; }
-.log-entry.error { color: #ff6666; }
+.log-seg-btn:disabled { cursor: default; }
+/* The highlight that slides to the selected button (logs.js places it). Off
+   unless a skin draws it; the buttons sit above it. */
+.log-seg { position: relative; }
+.log-seg-btn { position: relative; z-index: 1; }
+.log-seg-thumb {
+  display: none;
+  position: absolute; left: 0; top: 2px; bottom: 2px; z-index: 0;
+  pointer-events: none;
+}
+.log-seg-thumb.no-anim { transition: none !important; }
+@media (prefers-reduced-motion: reduce) { .log-seg-thumb { transition: none !important; } }
+.log-count {
+  display: inline-block; min-width: 18px; padding: 0 5px;
+  font-size: 10px; line-height: 15px; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.log-source { flex: 0 0 136px; display: flex; min-width: 0; }
+.log-source .cselect { flex: 1; }
+.log-search { position: relative; flex: 1 1 160px; min-width: 120px; display: flex; }
+.log-search .cfg-input { width: 100%; padding-left: 28px; padding-right: 26px; }
+.log-search-icon {
+  position: absolute; left: 9px; top: 50%; z-index: 1;
+  width: 14px; height: 14px; transform: translateY(-50%);
+  fill: currentColor; opacity: 0.55; pointer-events: none;
+}
+.log-search-clear {
+  position: absolute; right: 5px; top: 50%; z-index: 1;
+  width: 18px; height: 18px; transform: translateY(-50%);
+  padding: 0; border: 0; background: transparent; color: inherit;
+  cursor: pointer; opacity: 0.6;
+  display: flex; align-items: center; justify-content: center;
+}
+.log-search-clear[hidden] { display: none; }
+.log-search-clear:hover { opacity: 1; }
+.log-search-clear::before,
+.report-linked-remove::before {
+  content: ''; width: 8px; height: 8px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1L1 9' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1L1 9' stroke='%23000' stroke-width='1.6'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+}
+
+.log-frame { position: relative; flex: 1; min-height: 0; display: flex; }
+.log-output {
+  flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden;
+  padding: 4px 0;
+  font-family: var(--font-log); font-size: 11.5px; line-height: 1.5;
+}
+.log-list { display: flex; flex-direction: column; }
+/* One line per row, in fixed columns: time, level, source, message. Columns
+   by width, so they line up in any font. */
+.log-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 7.2ch 46px 66px minmax(0, 1fr) 10px;
+  align-items: baseline;
+  column-gap: 10px;
+  padding: 3px 12px 3px 14px;
+}
+.log-row:is(.is-long, .lvl-warn, .lvl-error) { cursor: pointer; }
+.log-ts { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.log-lvl {
+  justify-self: start;
+  min-width: 42px; padding: 0 5px;
+  font-family: var(--font-ui); font-size: 9px; font-weight: 700; line-height: 16px;
+  letter-spacing: 0.06em; text-align: center;
+}
+.log-src {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-ui); font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em;
+}
+.log-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-row.is-open .log-msg { overflow: visible; white-space: pre-wrap; word-break: break-word; }
+/* The chevron of a row that has more to show. */
+.log-more {
+  align-self: center; width: 6px; height: 6px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); opacity: 0; transition: transform 0.15s ease;
+}
+.log-row.is-long .log-more { opacity: 0.5; }
+.log-row.is-long.is-open .log-more { transform: rotate(45deg); }
+.log-row-actions { grid-column: 4 / -1; display: flex; gap: 6px; padding: 6px 0 3px; }
+.log-row-btn {
+  padding: 3px 10px; cursor: pointer;
+  font-family: var(--font-ui); font-size: 10.5px; font-weight: 600;
+}
+.log-marker {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px 6px;
+  font-family: var(--font-ui); font-size: 10px; letter-spacing: 0.04em;
+}
+.log-marker::before,
+.log-marker::after { content: ''; flex: 1; height: 1px; background: currentColor; opacity: 0.25; }
+.log-hit { color: inherit; border-radius: 2px; }
+.log-empty {
+  height: 100%; min-height: 120px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  font-family: var(--font-ui); text-align: center;
+}
+.log-empty[hidden] { display: none; }
+.log-empty-title { font-size: 13px; font-weight: 600; }
+.log-empty-text { font-size: 11px; }
+.log-jump {
+  position: absolute; left: 50%; bottom: 12px; z-index: 2;
+  transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px 5px 10px; cursor: pointer;
+  font-family: var(--font-ui); font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.log-jump[hidden] { display: none; }
+.log-jump svg { width: 13px; height: 13px; fill: currentColor; }
+
+.log-statusbar { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.log-session-info {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-ui); font-size: 11px;
+}
+.log-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ─── Report a Problem ────────────────────────────────────────────────── */
+.modal-box.report-box {
+  width: 540px; max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 40px);
+}
+.report-box .report-page { flex: 1; min-height: 0; overflow-y: auto; gap: 8px; }
+.report-box .report-page[hidden] { display: none; }
+.report-steps {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px 2px;
+  font-family: var(--font-ui); font-size: 11px; font-weight: 600;
+}
+.report-steps[hidden] { display: none; }
+.report-step { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.report-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  font-size: 10px; font-weight: 700;
+}
+.report-step-line { flex: 1; height: 1px; background: currentColor; opacity: 0.2; }
+.report-label { display: block; margin-top: 4px; font-family: var(--font-ui); font-size: 11px; font-weight: 600; }
+.report-label:first-child { margin-top: 0; }
+.report-cats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.report-cat {
+  display: flex; align-items: center; gap: 9px;
+  min-height: 42px; padding: 8px 10px;
+  text-align: left; cursor: pointer;
+  font-family: var(--font-ui); font-size: 11.5px; font-weight: 600;
+}
+.report-cat svg { width: 18px; height: 18px; flex-shrink: 0; fill: currentColor; }
+.report-cat-name { min-width: 0; line-height: 1.25; }
+.report-text { width: 100%; min-height: 92px; resize: vertical; }
+.report-text-foot {
+  display: flex; justify-content: space-between; gap: 10px;
+  margin-top: -2px; font-family: var(--font-ui); font-size: 10.5px;
+}
+.report-text-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.report-sev { display: flex; }
+.report-sev .log-seg-btn { flex: 1; padding: 6px 8px; }
+.report-linked { padding: 8px 10px; }
+.report-linked[hidden] { display: none; }
+.report-linked-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 4px; font-family: var(--font-ui); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.report-linked-remove {
+  width: 18px; height: 18px; padding: 0; border: 0; background: transparent; color: inherit;
+  cursor: pointer; opacity: 0.6; display: flex; align-items: center; justify-content: center;
+}
+.report-linked-remove:hover { opacity: 1; }
+.report-linked-line { display: flex; align-items: baseline; gap: 8px; font-family: var(--font-log); font-size: 11px; }
+.report-linked-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.report-summary { padding: 10px 12px; }
+.report-summary-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.report-summary-cat { font-family: var(--font-ui); font-size: 12px; font-weight: 700; }
+.report-sev-pill { padding: 1px 8px; font-family: var(--font-ui); font-size: 10px; font-weight: 600; line-height: 16px; }
+.report-link {
+  padding: 0; border: 0; background: none; cursor: pointer;
+  font-family: var(--font-ui); font-size: 11px; font-weight: 600; text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.report-summary-head .report-link { margin-left: auto; }
+.report-summary-text {
+  max-height: 64px; overflow: hidden;
+  font-family: var(--font-ui); font-size: 11.5px; line-height: 1.45;
+  white-space: pre-wrap; word-break: break-word;
+  -webkit-mask: linear-gradient(#000 70%, transparent);
+  mask: linear-gradient(#000 70%, transparent);
+}
+.report-facts {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 14px; row-gap: 3px; padding: 10px 12px;
+  font-family: var(--font-ui); font-size: 11px;
+}
+.report-facts.is-loading { opacity: 0.5; }
+.report-facts dt { white-space: nowrap; }
+.report-facts dd { min-width: 0; overflow-wrap: anywhere; }
+.report-attach { display: flex; flex-direction: column; gap: 4px; }
+.report-attach-row { gap: 12px; }
+.report-attach-row[hidden] { display: none; }
+.report-attach-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.report-attach-name { font-family: var(--font-ui); font-size: 11.5px; font-weight: 600; }
+.report-attach-meta { font-family: var(--font-ui); font-size: 10.5px; font-weight: 400; }
+.report-peek { align-self: flex-start; margin: -2px 0 2px; }
+.report-peek[hidden] { display: none; }
+.report-peek-box {
+  max-height: 150px; overflow: auto; margin: 0 0 4px; padding: 8px 10px;
+  font-family: var(--font-log); font-size: 10.5px; line-height: 1.45;
+  white-space: pre; tab-size: 4;
+}
+.report-peek-box[hidden] { display: none; }
+.report-privacy {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 4px;
+  font-family: var(--font-ui); font-size: 10.5px; line-height: 1.45;
+}
+.report-privacy svg { width: 13px; height: 13px; margin-top: 1px; flex-shrink: 0; fill: currentColor; }
+.report-error { padding: 8px 10px; font-family: var(--font-ui); font-size: 11.5px; font-weight: 600; }
+.report-error[hidden] { display: none; }
+.report-done { align-items: center; text-align: center; padding-top: 26px !important; padding-bottom: 22px !important; gap: 6px; }
+.report-done-icon svg { width: 46px; height: 46px; fill: currentColor; }
+.report-done-icon { animation: report-pop 0.45s cubic-bezier(0.34, 1.5, 0.64, 1) both; }
+@keyframes report-pop { from { transform: scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+.report-done-title { font-family: var(--font-ui); font-size: 16px; font-weight: 700; }
+.report-done-text { max-width: 340px; font-family: var(--font-ui); font-size: 11.5px; line-height: 1.5; }
+.report-footer { align-items: center; }
+.report-box[data-step="done"] .report-footer { justify-content: center; }
+.report-box #reportBack[hidden] { display: none; }
+.is-sending .report-box .modal-close-btn { visibility: hidden; }
 
 /* Settings tab view */
 .settings-body { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; }

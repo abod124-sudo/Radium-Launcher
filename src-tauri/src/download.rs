@@ -1728,10 +1728,6 @@ pub async fn check_install(
 // ─── Open client folder ─────────────────────────────────────────────────────
 
 /// Open the game client directory in the system file explorer.
-///
-/// `explorer.exe` is named by its full path rather than resolved through
-/// `PATH` (which searches the current directory first on Windows), so a file
-/// dropped beside the launcher cannot stand in for it.
 #[tauri::command]
 pub async fn open_client_folder(app: tauri::AppHandle, network: Option<String>) -> bool {
     let cfg = config::current(&app);
@@ -1740,10 +1736,19 @@ pub async fn open_client_folder(app: tauri::AppHandle, network: Option<String>) 
     if !Path::new(&client_dir).exists() {
         return false;
     }
+    reveal_folder(Path::new(&client_dir));
+    true
+}
 
+/// Show a folder in the system file explorer.
+///
+/// `explorer.exe` is named by its full path rather than resolved through
+/// `PATH` (which searches the current directory first on Windows), so a file
+/// dropped beside the launcher cannot stand in for it.
+pub fn reveal_folder(dir: &Path) {
     #[cfg(target_os = "windows")]
     {
-        // explorer.exe lives beside System32 rather than in it; the helper's
+        // explorer.exe lives beside System32 rather than in it; the
         // fallback covers an install that doesn't match either spelling.
         let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
         let explorer = format!(r"{}\explorer.exe", root.trim_end_matches('\\'));
@@ -1752,13 +1757,12 @@ pub async fn open_client_folder(app: tauri::AppHandle, network: Option<String>) 
         } else {
             "explorer".to_string()
         };
-        let _ = std::process::Command::new(explorer).arg(&client_dir).spawn();
+        let _ = std::process::Command::new(explorer).arg(dir).spawn();
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = std::process::Command::new("xdg-open").arg(&client_dir).spawn();
+        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
     }
-    true
 }
 
 // ─── Select folder dialog ───────────────────────────────────────────────────

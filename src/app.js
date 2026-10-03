@@ -1,30 +1,97 @@
-// ─── Uncaught fault capture ───────────────────────────────────────────────────
-// Registered before anything else in this file. Startup is when the launcher is
-// most likely to break (missing runtime, bad config, denied permissions), and a
-// failure there used to leave no trace at all — the bug report would arrive
-// describing a dead launcher with an empty log. `var` is deliberate: it has no
-// temporal dead zone, so these are usable this early.
-var startupFaults = [];          // faults raised before the log helpers exist
-var seenFaults    = new Set();
+// ─── Log ─────────────────────────────────────────────────────────────────────
+// Every line the launcher logs, kept three ways: here for the Logs page
+// (logs.js draws it) and for bug reports; and on disk, a file per session,
+// through applog.rs — so a report can still attach the session that froze or
+// crashed after the launcher has been restarted.
+//
+// First in this file, and `var` throughout: `var` has no temporal dead zone,
+// so anything from here on can log. Startup is when the launcher is most
+// likely to break (missing runtime, bad config, denied permissions), and a
+// failure there used to leave no trace at all.
+
+var LOG_LEVELS = { info: 'INFO', ok: 'OK', warn: 'WARN', error: 'ERROR' };
+/// Where a line comes from. The Logs page filters on it, and it is written
+/// into the line so a log read outside the launcher says the same.
+var LOG_SOURCES = {
+  launcher: 'LAUNCHER',  // the launcher itself: startup, settings, themes
+  update:   'UPDATE',    // launcher updates
+  server:   'SERVER',    // server status, player counts, lookups
+  account:  'ACCOUNT',   // signing in to Vanilla and Stella
+  install:  'INSTALL',   // download, install, verify, uninstall
+  game:     'GAME',      // launching, antivirus checks, the running game
+};
+/// How many lines the page keeps. The file on disk keeps the whole session.
+var LOG_MAX = 2000;
+var logEntries = [];     // { seq, time, level, source, msg }, oldest first
+var logSeq = 0;
+var logListeners = [];   // called with each new entry (logs.js)
+var logDiskQueue = [];
+var logDiskTimer = null;
+var logSessionStart = new Date();
+
+function logPad2(n) { return String(n).padStart(2, '0'); }
+function logClock(d = new Date()) {
+  return `${logPad2(d.getHours())}:${logPad2(d.getMinutes())}:${logPad2(d.getSeconds())}`;
+}
+function logDate(d = new Date()) {
+  return `${d.getFullYear()}-${logPad2(d.getMonth() + 1)}-${logPad2(d.getDate())}`;
+}
+
+/// An entry as one line of text, the way it is saved, copied and sent:
+/// `[17:27:18] ERROR  ACCOUNT   Sign-in failed`. Padded with spaces, which
+/// is the only alignment a text file has; a message's own line breaks are
+/// indented under its start.
+function logLineText(e) {
+  const head = `[${e.time}] ${LOG_LEVELS[e.level].padEnd(5)}  ${LOG_SOURCES[e.source].padEnd(8)}  `;
+  return head + e.msg.split('\n').join('\n' + ' '.repeat(head.length));
+}
+
+/// Log a line. `type` is a key of LOG_LEVELS, `source` a key of LOG_SOURCES.
+function addLog(msg, type = 'info', source = 'launcher') {
+  const entry = {
+    seq: ++logSeq,
+    time: logClock(),
+    level: LOG_LEVELS[type] ? type : 'info',
+    source: LOG_SOURCES[source] ? source : 'launcher',
+    msg: String(msg).replace(/\r\n?/g, '\n'),
+  };
+  logEntries.push(entry);
+  if (logEntries.length > LOG_MAX) logEntries.splice(0, logEntries.length - LOG_MAX);
+
+  logDiskQueue.push(logLineText(entry));
+  if (!logDiskTimer) logDiskTimer = setTimeout(flushLogToDisk, 700);
+
+  for (const fn of logListeners) {
+    try { fn(entry); } catch (e) { /* a broken view must not stop logging */ }
+  }
+}
+
+/// Hand the queued lines to applog.rs. Straight through Tauri's global rather
+/// than the window.radium shim below, which doesn't exist yet when the first
+/// lines are logged.
+function flushLogToDisk() {
+  logDiskTimer = null;
+  if (!logDiskQueue.length) return;
+  const invoke = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+  if (!invoke) { logDiskTimer = setTimeout(flushLogToDisk, 1000); return; }
+  const lines = logDiskQueue.splice(0, logDiskQueue.length);
+  invoke('log_append', { lines }).catch(() => {});
+}
+// A reload (Ctrl+R) restarts the page but not the session file; mark where.
+logDiskQueue.push(`===== Session started ${logDate(logSessionStart)} ${logClock(logSessionStart)} =====`);
+window.addEventListener('pagehide', flushLogToDisk);
+
+// ─── Uncaught fault capture ──────────────────────────────────────────────────
+var seenFaults = new Set();
 
 function recordFault(label, message, where) {
   // Deduped: a fault inside a render or polling loop would otherwise flood the
-  // buffer and push out the history that explains it.
+  // log and push out the history that explains it.
   const key = `${label}|${message}|${where || ''}`;
   if (seenFaults.has(key)) return;
   if (seenFaults.size > 50) seenFaults.clear();
   seenFaults.add(key);
-
-  const text = `${label}: ${message}${where ? ` (${where})` : ''}`;
-  try {
-    // Normal path once the logging helpers have initialised.
-    addLog(text, 'error');
-  } catch {
-    // Thrown only when this fires before those are ready, which is exactly the
-    // startup case worth capturing. Keep it for the bug report instead.
-    const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
-    startupFaults.push(`[${ts}] [ERROR] ${text}  <during startup>`);
-  }
+  addLog(`${label}: ${message}${where ? ` (${where})` : ''}`, 'error');
 }
 
 window.addEventListener('error', (e) => {
@@ -440,9 +507,13 @@ function withoutBackdrop(cfg) {
       unlistenMap['window-maximized-state'] = await listen('window-maximized-state', (event) => cb(event.payload));
     },
 
-    // Bug Reporter
-    submitBugReport: (description, logs, category, severity, diagnostics) =>
-      invoke('submit_bug_report', { description, logs, category, severity, diagnostics }),
+    // Logs and bug reports (logs.js)
+    logPrevious:       () => invoke('log_previous'),
+    logOpenFolder:     () => invoke('log_open_folder'),
+    logSave:           (text, fileName) => invoke('log_save', { text, fileName }),
+    bugReportPreview:  (diagnostics, logs) => invoke('bug_report_preview', { diagnostics, logs }),
+    bugReportCooldown: () => invoke('bug_report_cooldown'),
+    submitBugReport:   (report) => invoke('submit_bug_report', { report }),
   };
 })();
 
@@ -486,10 +557,6 @@ let sacWarnedThisSession  = false;
 // Last-known reachability from checkServerStatus(), surfaced in bug reports.
 // null = not checked yet this session.
 let lastServerStatus      = { apiOnline: null, cdnOnline: null };
-
-// Capped log buffer — captures up to 2000 log entries for bug reports.
-// The DOM viewer is capped at 120 for performance.
-const fullLogBuffer = [];
 
 // ── Image load handling ──────────────────────────────────────────────────
 // Every thumbnail in the app wants the same two things: drop the shimmer class
@@ -1209,52 +1276,6 @@ function toast(msg, type = 'info', ms = 3200) {
   c.appendChild(el);
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, ms);
-}
-
-// Severity levels. The label is stamped into the plain-text line so that
-// copied/exported logs (e.g. pasted into a bug report) carry severity without
-// relying on colour; the key doubles as the CSS class for the coloured viewer.
-const LOG_LEVELS = { info: 'INFO', ok: 'OK', warn: 'WARN', error: 'ERROR' };
-
-// Append log entry to list
-function addLog(msg, type = 'info') {
-  const level = LOG_LEVELS[type] ? type : 'info';
-  const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
-  // Pad the tag to a fixed width so the message column stays aligned in the
-  // monospaced viewer and in exported text. "[ERROR]" is the widest at 7 chars.
-  const tag = `[${LOG_LEVELS[level]}]`.padEnd(8);
-  const line = `[${ts}] ${tag}${msg}`;
-
-  // Push to the full log buffer (capped at 2000 to prevent memory leaks)
-  fullLogBuffer.push(line);
-  if (fullLogBuffer.length > 2000) {
-    fullLogBuffer.shift();
-  }
-
-  // Also render in the DOM viewer (capped at 120 entries for performance)
-  const out = $('logOutput');
-  if (!out) return;
-  const el = document.createElement('div');
-  el.className = `log-entry ${level}`;
-  // Built from spans rather than the padded `line`. The padding in `line` is
-  // literal spaces, which only line up under a monospaced face — and a font
-  // pack can point --font-mono at a proportional one, which loses the column
-  // the padEnd above exists to create. Fixed-width spans keep it square in
-  // every pack. `line` keeps its padding for fullLogBuffer, which is exported
-  // to a plain text file where spaces are the only alignment available.
-  const tsEl = document.createElement('span');
-  tsEl.className = 'log-ts';
-  tsEl.textContent = `[${ts}]`;
-  const tagEl = document.createElement('span');
-  tagEl.className = 'log-tag';
-  tagEl.textContent = `[${LOG_LEVELS[level]}]`;
-  const msgEl = document.createElement('span');
-  msgEl.className = 'log-msg';
-  msgEl.textContent = msg;
-  el.append(tsEl, tagEl, msgEl);
-  out.appendChild(el);
-  out.scrollTop = out.scrollHeight;
-  while (out.children.length > 120) out.removeChild(out.firstChild);
 }
 
 // Tab routing switch.
@@ -2385,7 +2406,7 @@ const lastInstallLog = new Map();
 function logInstallState(kind, msg, level) {
   if (lastInstallLog.get(kind) === msg) return;
   lastInstallLog.set(kind, msg);
-  addLog(msg, level);
+  addLog(msg, level, 'install');
 }
 
 /// The outdated-client dialog, once per client rather than once per
@@ -2418,7 +2439,7 @@ async function checkInstall() {
   // every settings autosave, and the folder sticks around until the user deletes it.
   if (result?.orphanedClientDir && !orphanedDirReported) {
     orphanedDirReported = true;
-    addLog(`Found a client in the wrong network's folder. Moved it aside to ${result.orphanedClientDir} — you can delete that folder.`, 'warn');
+    addLog(`Found a client in the wrong network's folder. Moved it aside to ${result.orphanedClientDir} — you can delete that folder.`, 'warn', 'install');
   }
 
   if (isInstalled) {
@@ -2449,7 +2470,7 @@ async function checkInstall() {
     if (result?.isRunning) {
       const wasRunning = isGameRunning;
       setGameRunning(true);
-      if (!wasRunning) addLog('Game is already running.', 'ok');
+      if (!wasRunning) addLog('Game is already running.', 'ok', 'game');
     }
 
     // An outdated client (left over from a previous launcher version) must be
@@ -2758,10 +2779,10 @@ function updateDlProgress({ phase, pct = 0, downloaded = 0, total = 0, speed = 0
       toast("This download can't be paused. It's still going.", 'info', 4000);
     }
     if (restarted) {
-      addLog(`${networkInfo().label}'s server can't continue a download, so it started again from the beginning.`, 'warn');
+      addLog(`${networkInfo().label}'s server can't continue a download, so it started again from the beginning.`, 'warn', 'install');
       toast("This server can't resume downloads, so it started over.", 'warn', 5000);
     } else if (!resumable) {
-      addLog(`${networkInfo().label}'s server can't continue a paused download, so this one can't be paused.`, 'info');
+      addLog(`${networkInfo().label}'s server can't continue a paused download, so this one can't be paused.`, 'info', 'install');
     }
   }
   // Paused: freeze the panel at the current progress with a Resume button.
@@ -2868,7 +2889,7 @@ async function runClientDownload({ resuming = false } = {}) {
 
   setDownloadUI(true, { resuming });
   if (resuming) {
-    addLog('Resuming download...', 'info');
+    addLog('Resuming download...', 'info', 'install');
     toast('Resuming download...', 'info', 2500);
   } else {
     addLog({
@@ -2876,7 +2897,7 @@ async function runClientDownload({ resuming = false } = {}) {
       vanilla: 'Starting download from the configured Vanilla client URL...',
       // Sent without a length, so the bar can't show a percentage.
       stella: "Starting download from Stella (about 4.7 GB; Stella's server doesn't send the size)...",
-    }[activeNetwork] || 'Starting download...', 'info');
+    }[activeNetwork] || 'Starting download...', 'info', 'install');
     toast('Download started!', 'info', 2500);
   }
 
@@ -2896,15 +2917,15 @@ async function runClientDownload({ resuming = false } = {}) {
   const elapsed = ((Date.now() - dlStart) / 1000).toFixed(1);
   if (result?.success) {
     setDownloadUI(false);
-    addLog(`Download & extraction complete in ${elapsed}s.`, 'ok');
-    addLog(`Exe: ${result.exePath || 'Found in client dir'}`, 'ok');
+    addLog(`Download & extraction complete in ${elapsed}s.`, 'ok', 'install');
+    addLog(`Exe: ${result.exePath || 'Found in client dir'}`, 'ok', 'install');
     toast(`${networkInfo().label} client installed!`, 'ok', 4000);
     // Stella: the install also fetched the patch, installing it if it was a
     // checked build. Either way the next checkInstall() asks afresh, so a
     // patch still to accept shows up as UPDATE straight away.
     if (activeNetwork === 'stella') {
       stellaPatch = null;
-      if (result.patchInstalled) addLog("Stella's patch installed (a checked build).", 'ok');
+      if (result.patchInstalled) addLog("Stella's patch installed (a checked build).", 'ok', 'install');
     }
     // The download stamped a new client build id / version / ETag directly into
     // config.json. Re-sync our in-memory copy from disk so the next settings
@@ -2925,16 +2946,16 @@ async function runClientDownload({ resuming = false } = {}) {
       isDownloading = false;
       isPaused = true;
       setPausedUI();
-      addLog(`Download paused at ${elapsed}s. Click Resume to continue.`, 'info');
+      addLog(`Download paused at ${elapsed}s. Click Resume to continue.`, 'info', 'install');
       return; // don't run checkInstall — the download isn't finished or gone
     }
     setDownloadUI(false);
     if (err === 'Cancelled') {
       // User-initiated cancel — the cancel handler already logged/toasted it,
       // so don't also report it as a failure.
-      addLog(`Download stopped after ${elapsed}s (cancelled by user).`, 'info');
+      addLog(`Download stopped after ${elapsed}s (cancelled by user).`, 'info', 'install');
     } else {
-      addLog(`Download failed after ${elapsed}s: ${err}`, 'error');
+      addLog(`Download failed after ${elapsed}s: ${err}`, 'error', 'install');
       toast(`Failed: ${err}`, 'error', 5000);
     }
     // Restore the correct panel (e.g. back to the launch panel if still installed).
@@ -2956,7 +2977,7 @@ $('btnDownload')?.addEventListener('click', () => {
   // instead of starting a download that would immediately fail.
   if (!clientDownloadAvailable()) {
     const info = networkInfo();
-    addLog(`Opening ${info.downloadPage} — no ${info.label} client to install yet.`, 'info');
+    addLog(`Opening ${info.downloadPage} — no ${info.label} client to install yet.`, 'info', 'install');
     window.radium?.openUrl(info.downloadPage);
     return;
   }
@@ -2986,7 +3007,7 @@ async function offerResumeIfAny({ quiet = false } = {}) {
   setPausedUI({ downloaded: info.downloaded, total: info.total });
 
   const pctTxt = info.total > 0 ? ` (${Math.floor((info.downloaded / info.total) * 100)}%)` : '';
-  addLog(`Found an interrupted download${pctTxt}. Click Resume to continue.`, 'info');
+  addLog(`Found an interrupted download${pctTxt}. Click Resume to continue.`, 'info', 'install');
   if (!quiet) toast('Resume your interrupted download', 'info', 4500);
 }
 
@@ -3119,19 +3140,19 @@ async function checkForClientUpdate(manual = false) {
     const info = await window.radium?.checkClientUpdate();
     if (!info?.success) {
       const reason = info?.error || 'Unknown error';
-      if (manual) { addLog(`Client update check failed: ${reason}`, 'error'); toast(`Update check failed: ${reason}`, 'error', 4000); }
+      if (manual) { addLog(`Client update check failed: ${reason}`, 'error', 'install'); toast(`Update check failed: ${reason}`, 'error', 4000); }
       setClientUpdateButton('check');
       return;
     }
     if (!info.hasUpdate) {
       const curLabel = info.versionKnown ? `v${info.installedVersion}` : 'unknown version';
-      if (manual) { addLog(`Client is up to date (${curLabel}, latest v${info.latestVersion || '—'}).`, 'ok'); toast('Client is up to date.', 'ok', 3000); }
+      if (manual) { addLog(`Client is up to date (${curLabel}, latest v${info.latestVersion || '—'}).`, 'ok', 'install'); toast('Client is up to date.', 'ok', 3000); }
       setClientUpdateButton('check');
       return;
     }
     const fromLabel = info.versionKnown ? `v${info.installedVersion}` : 'unknown version';
     const changeNote = info.sameVersionRebuilt ? ' (same version, new build detected)' : '';
-    addLog(`Client update available: ${fromLabel} → v${info.latestVersion}${changeNote}`, 'warn');
+    addLog(`Client update available: ${fromLabel} → v${info.latestVersion}${changeNote}`, 'warn', 'install');
     toast('Client update available!', 'ok', 4000);
     showClientVersionUpdateModal(info);
   } catch (e) {
@@ -3206,15 +3227,15 @@ async function refreshStellaPatch({ manual = false } = {}) {
 
   if (!status?.success) {
     const reason = status?.error || 'Unknown error';
-    addLog(`Couldn't check for a Stella update: ${reason}`, 'warn');
+    addLog(`Couldn't check for a Stella update: ${reason}`, 'warn', 'install');
     if (manual) toast(`Update check failed: ${reason}`, 'error', 4000);
   } else if (status.updateAvailable) {
     addLog(status.installed
       ? `Stella has an update (patch ${status.latestSha256.slice(0, 12)}…). Press UPDATE on Home to install it.`
-      : 'Stella needs its patch before it can be played. Press UPDATE on Home to install it.', 'warn');
+      : 'Stella needs its patch before it can be played. Press UPDATE on Home to install it.', 'warn', 'install');
     if (manual) toast('Stella has an update.', 'ok', 3000);
   } else if (manual) {
-    addLog('Stella is up to date.', 'ok');
+    addLog('Stella is up to date.', 'ok', 'install');
     toast('Stella is up to date.', 'ok', 3000);
   }
 }
@@ -3228,7 +3249,7 @@ async function runStellaPatchUpdate() {
   stellaPatchUpdating = true;
   applyStellaPatchUI();
   setStellaUpdateProgress('UPDATING', 0);
-  addLog('Updating Stella...', 'info');
+  addLog('Updating Stella...', 'info', 'install');
 
   let result = null;
   try {
@@ -3252,11 +3273,11 @@ async function runStellaPatchUpdate() {
     // settings autosave from carrying a stale copy (it preserves the field
     // anyway, but the in-memory config should say what is on disk).
     config = (await window.radium?.getConfig()) || config;
-    addLog(`Stella updated (patch ${String(result.sha256).slice(0, 12)}…${result.pinned ? ', a checked build' : ''}).`, 'ok');
+    addLog(`Stella updated (patch ${String(result.sha256).slice(0, 12)}…${result.pinned ? ', a checked build' : ''}).`, 'ok', 'install');
     toast('Stella is up to date.', 'ok', 3000);
   } else {
     const err = result?.error || 'Unknown error';
-    addLog(`Stella update failed: ${err}`, 'error');
+    addLog(`Stella update failed: ${err}`, 'error', 'install');
     toast(`Update failed: ${err}`, 'error', 5000);
   }
   applyStellaPatchUI();
@@ -3293,7 +3314,7 @@ $('btnCancelDl')?.addEventListener('click', () => {
     setDownloadUI(false);
   }
   const what = clientTask === 'verify' ? 'File check' : clientTask === 'repair' ? 'Repair' : 'Download';
-  addLog(`${what} cancelled.`, 'info');
+  addLog(`${what} cancelled.`, 'info', 'install');
   toast(`${what} cancelled.`, 'info');
   // A cancelled *active* download's checkInstall() runs when its promise
   // rejects; a cancelled *paused* download has no pending promise, so restore
@@ -3315,7 +3336,7 @@ $('btnPauseDl')?.addEventListener('click', () => {
     // flips to the paused state when the 'paused' event / Paused result lands;
     // update the label now so the click feels responsive.
     window.radium?.pauseDownload();
-    addLog('Pausing download...', 'info');
+    addLog('Pausing download...', 'info', 'install');
     const b = $('btnPauseDl'); if (b) b.textContent = '▶ Resume';
   }
 });
@@ -3356,7 +3377,7 @@ $('reinstallConfirmBtn')?.addEventListener('click', () => {
   // disappeared; an open menu would be left hanging over the download CTA.
   closeManageMenu();
   isInstalled = false;
-  addLog('Reinstall initiated.', 'info');
+  addLog('Reinstall initiated.', 'info', 'install');
   toast('Starting reinstall...', 'info');
   $('btnDownload')?.click();
 });
@@ -3431,7 +3452,7 @@ async function runVerifyFiles() {
   }
   const label = networkInfo().label;
   beginClientTask('verify', ['Verify', 'Repair', 'Done']);
-  addLog(`Verifying ${label} game files...`, 'info');
+  addLog(`Verifying ${label} game files...`, 'info', 'install');
   const started = Date.now();
   let result;
   try {
@@ -3442,19 +3463,19 @@ async function runVerifyFiles() {
   const secs = ((Date.now() - started) / 1000).toFixed(1);
 
   if (result?.status === 'ok') {
-    addLog(`All ${result.checked} files validated in ${secs}s.`, 'ok');
+    addLog(`All ${result.checked} files validated in ${secs}s.`, 'ok', 'install');
     toast(`All ${result.checked} files successfully validated.`, 'ok', 5000);
     await endClientTask();
     return;
   }
   if (result?.status === 'cancelled') {
-    addLog(`File check stopped after ${secs}s.`, 'info');
+    addLog(`File check stopped after ${secs}s.`, 'info', 'install');
     await endClientTask();
     return;
   }
   if (result?.status === 'no-manifest') {
     await endClientTask();
-    addLog(`This ${label} install has no file list to verify against; it predates Verify Files.`, 'warn');
+    addLog(`This ${label} install has no file list to verify against; it predates Verify Files.`, 'warn', 'install');
     const reinstall = await askVerify({
       title: 'VERIFY FILES',
       lead: `This ${label} install has no file list to check against.`,
@@ -3470,16 +3491,16 @@ async function runVerifyFiles() {
   }
   if (result?.status !== 'damaged') {
     const err = result?.error || 'Unknown error';
-    addLog(`File check failed: ${err}`, 'error');
+    addLog(`File check failed: ${err}`, 'error', 'install');
     toast(`File check failed: ${err}`, 'error', 5000);
     await endClientTask();
     return;
   }
 
   const damaged = result.damaged || [];
-  addLog(`${damaged.length} of ${result.checked} files failed to validate (${formatBytes(result.damagedBytes || 0)}):`, 'warn');
-  for (const f of damaged.slice(0, 20)) addLog(`  ${f.path}: ${VERIFY_PROBLEMS[f.problem] || f.problem}`, 'warn');
-  if (damaged.length > 20) addLog(`  ...and ${damaged.length - 20} more.`, 'warn');
+  addLog(`${damaged.length} of ${result.checked} files failed to validate (${formatBytes(result.damagedBytes || 0)}):`, 'warn', 'install');
+  for (const f of damaged.slice(0, 20)) addLog(`  ${f.path}: ${VERIFY_PROBLEMS[f.problem] || f.problem}`, 'warn', 'install');
+  if (damaged.length > 20) addLog(`  ...and ${damaged.length - 20} more.`, 'warn', 'install');
   toast(`${plural(damaged.length, 'file')} failed to validate and will be reacquired.`, 'warn', 5000);
   await runRepair(damaged.length);
 }
@@ -3520,13 +3541,13 @@ async function runRepair(count) {
       confirm: r.needed ? `Download ${formatBytes(r.needed)} and repair` : 'Repair',
     });
     if (!go) {
-      addLog('Repair skipped. Run Verify Files again to repair.', 'info');
+      addLog('Repair skipped. Run Verify Files again to repair.', 'info', 'install');
       return;
     }
     beginClientTask('repair', ['Download', 'Repair', 'Done']);
     addLog(r.needed
       ? `Reading the first ${formatBytes(r.needed)} of the ${label} client to repair ${plural(count, 'file')}...`
-      : `Reading the ${label} client from the start, as far as needed, to repair ${plural(count, 'file')}...`, 'info');
+      : `Reading the ${label} client from the start, as far as needed, to repair ${plural(count, 'file')}...`, 'info', 'install');
     try {
       r = await window.radium?.repairClient(true);
     } catch (e) {
@@ -3535,13 +3556,13 @@ async function runRepair(count) {
   }
 
   if (r?.success) {
-    addLog(`Repaired ${plural(r.repaired, 'file')}.`, 'ok');
+    addLog(`Repaired ${plural(r.repaired, 'file')}.`, 'ok', 'install');
     toast(`Repaired ${plural(r.repaired, 'file')}. ${label} is ready to play.`, 'ok', 5000);
   } else if (r?.error === 'Cancelled') {
-    addLog('Repair stopped; the damaged files were left as they were. Run Verify Files to try again.', 'info');
+    addLog('Repair stopped; the damaged files were left as they were. Run Verify Files to try again.', 'info', 'install');
   } else {
     const err = r?.error || 'Unknown error';
-    addLog(`Repair failed: ${err}`, 'error');
+    addLog(`Repair failed: ${err}`, 'error', 'install');
     toast(`Repair failed: ${err}`, 'error', 6000);
   }
   await endClientTask();
@@ -3559,7 +3580,7 @@ $('stopGameCancelBtn')?.addEventListener('click', closeStopGameModal);
 $('stopGameModalClose')?.addEventListener('click', closeStopGameModal);
 $('stopGameConfirmBtn')?.addEventListener('click', async () => {
   closeStopGameModal();
-  addLog('User confirmed stop game request. Killing game process...', 'info');
+  addLog('User confirmed stop game request. Killing game process...', 'info', 'game');
   toast(`Stopping ${networkInfo().label}...`, 'info', 2000);
   await window.radium?.killGame();
   setGameRunning(false);
@@ -3589,25 +3610,25 @@ $('btnUninstall')?.addEventListener('click', () => {
 
 $('uninstallConfirmBtn')?.addEventListener('click', async () => {
   closeUninstallModal();
-  addLog('Uninstalling client...', 'info');
+  addLog('Uninstalling client...', 'info', 'install');
   toast('Uninstalling...', 'info');
 
   const result = await window.radium?.uninstallClient();
   if (result?.success) {
-    addLog('Client uninstalled successfully.', 'ok');
+    addLog('Client uninstalled successfully.', 'ok', 'install');
     toast(`${networkInfo().label} client uninstalled.`, 'ok');
     await loadConfig();
     await checkInstall();
   } else {
     const err = result?.error || 'Unknown error';
-    addLog(`Uninstall failed: ${err}`, 'error');
+    addLog(`Uninstall failed: ${err}`, 'error', 'install');
     toast(`Uninstall failed: ${err}`, 'error');
   }
 });
 
 // Open client folder button
 $('btnOpenFolder')?.addEventListener('click', async () => {
-  addLog('Opening client folder...', 'info');
+  addLog('Opening client folder...', 'info', 'install');
   const ok = await window.radium?.openClientFolder();
   if (ok) {
     toast('Client folder opened!', 'ok');
@@ -3639,7 +3660,7 @@ document.querySelectorAll('[data-open-folder]').forEach(btn => {
   btn.addEventListener('click', async () => {
     const network = installRowNetwork(btn, 'data-open-folder');
     const label = networkInfo(network).label;
-    addLog(`Opening ${label} client folder from settings...`, 'info');
+    addLog(`Opening ${label} client folder from settings...`, 'info', 'install');
     const ok = await window.radium?.openClientFolder(network);
     if (ok) {
       toast(`${label} client folder opened!`, 'ok');
@@ -3653,10 +3674,10 @@ document.querySelectorAll('[data-change-folder]').forEach(btn => {
   btn.addEventListener('click', async () => {
     const network = installRowNetwork(btn, 'data-change-folder');
     const label = networkInfo(network).label;
-    addLog(`Selecting ${label} install directory...`, 'info');
+    addLog(`Selecting ${label} install directory...`, 'info', 'install');
     const newDir = await window.radium?.selectFolder(network);
     if (!newDir) {
-      addLog(`${label} install directory selection cancelled.`, 'info');
+      addLog(`${label} install directory selection cancelled.`, 'info', 'install');
       return;
     }
     // The backend refuses to let both networks resolve to one folder, or to
@@ -3679,7 +3700,7 @@ document.querySelectorAll('[data-change-folder]').forEach(btn => {
       const otherLabel = networkInfo(clash.network).label;
       const why = normDir(clash.dir) === normDir(clientDir) ? 'is already' : 'overlaps';
       toast(`That folder ${why} ${otherLabel}'s install location. Pick a different one.`, 'error', 4000);
-      addLog(`Rejected ${label} install directory: ${clientDir} ${why} ${otherLabel}'s (${clash.dir}).`, 'warn');
+      addLog(`Rejected ${label} install directory: ${clientDir} ${why} ${otherLabel}'s (${clash.dir}).`, 'warn', 'install');
       return;
     }
 
@@ -3690,7 +3711,7 @@ document.querySelectorAll('[data-change-folder]').forEach(btn => {
     const ok = await window.radium?.saveConfig(config);
     if (ok) {
       toast(`${label} install location updated and saved!`, 'ok');
-      addLog(`Selected and saved ${label} install directory: ${clientDir}`, 'info');
+      addLog(`Selected and saved ${label} install directory: ${clientDir}`, 'info', 'install');
     } else {
       toast(`Failed to save the ${label} install location.`, 'error');
     }
@@ -3702,7 +3723,7 @@ document.querySelectorAll('[data-reset-folder]').forEach(btn => {
   btn.addEventListener('click', async () => {
     const network = installRowNetwork(btn, 'data-reset-folder');
     const label = networkInfo(network).label;
-    addLog(`Resetting ${label} install directory...`, 'info');
+    addLog(`Resetting ${label} install directory...`, 'info', 'install');
     const defaultDir = await window.radium?.getDefaultClientDir(network);
     if (!defaultDir) return;
     const span = installDirSpan(network);
@@ -3715,7 +3736,7 @@ document.querySelectorAll('[data-reset-folder]').forEach(btn => {
     const ok = await window.radium?.saveConfig(config);
     if (ok) {
       toast(`${label} install location reset and saved!`, 'ok');
-      addLog(`Reset and saved ${label} install directory: ${defaultDir}`, 'info');
+      addLog(`Reset and saved ${label} install directory: ${defaultDir}`, 'info', 'install');
     } else {
       toast(`Failed to save the reset ${label} location.`, 'error');
     }
@@ -3765,7 +3786,7 @@ function setExcludeAvLabel(excluded) {
 async function executeExcludeAv() {
   const btn = $('btnExcludeAv');
   if (!btn) return;
-  addLog('Requesting Windows Defender exclusion for client folder...', 'info');
+  addLog('Requesting Windows Defender exclusion for client folder...', 'info', 'game');
   toast('Please approve the Administrator prompt...', 'info');
   const result = await window.radium?.addDefenderExclusion();
   if (result && result.success) {
@@ -3773,7 +3794,7 @@ async function executeExcludeAv() {
     await window.radium?.saveConfig(config);
     setExcludeAvLabel(true);
     toast('Defender exclusion added!', 'ok');
-    addLog('Exclusion successfully added to Windows Defender.', 'ok');
+    addLog('Exclusion successfully added to Windows Defender.', 'ok', 'game');
     
     // Check if we need to proceed to Smart App Control and Steam check and launch
     if (launchAfterExclusion) {
@@ -3783,7 +3804,7 @@ async function executeExcludeAv() {
   } else {
     const err = result?.error || 'UAC elevation cancelled or failed';
     toast('Failed to add exclusion.', 'error');
-    addLog(`Exclusion failed: ${err}`, 'error');
+    addLog(`Exclusion failed: ${err}`, 'error', 'game');
     launchAfterExclusion = false;
     isGameLaunching = false;
   }
@@ -3884,7 +3905,7 @@ $('btnThirdPartyAvAnyway')?.addEventListener('click', async () => {
 
   addLog(config.thirdPartyAvAcknowledged
     ? 'Third-party AV acknowledged — launch warning disabled.'
-    : 'Third-party AV warning dismissed.', 'info');
+    : 'Third-party AV warning dismissed.', 'info', 'game');
 
   if (launchAfterExclusion) {
     launchAfterExclusion = false;
@@ -3924,11 +3945,11 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
       await window.radium?.saveConfig(config);
       setExcludeAvLabel(false);
       toast('AV acknowledgement cleared.', 'ok');
-      addLog('Third-party AV acknowledgement cleared (no Defender exclusion to remove).', 'info');
+      addLog('Third-party AV acknowledgement cleared (no Defender exclusion to remove).', 'info', 'game');
       return;
     }
 
-    addLog('Requesting Windows Defender exclusion removal for client folder...', 'info');
+    addLog('Requesting Windows Defender exclusion removal for client folder...', 'info', 'game');
     toast('Please approve the Administrator prompt...', 'info');
     const result = await window.radium?.removeDefenderExclusion();
     if (result && result.success) {
@@ -3936,11 +3957,11 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
       await window.radium?.saveConfig(config);
       setExcludeAvLabel(false);
       toast('Defender exclusion removed!', 'ok');
-      addLog('Exclusion successfully removed from Windows Defender.', 'ok');
+      addLog('Exclusion successfully removed from Windows Defender.', 'ok', 'game');
     } else {
       const err = result?.error || 'UAC elevation cancelled or failed';
       toast('Failed to remove exclusion.', 'error');
-      addLog(`Exclusion removal failed: ${err}`, 'error');
+      addLog(`Exclusion removal failed: ${err}`, 'error', 'game');
     }
   } else {
     // Detect third party AV
@@ -3976,7 +3997,7 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
     updateQsMode();
     window.radium?.saveConfig(config);
     toast(`Mode: ${playMode.toUpperCase()}`, 'info', 1500);
-    addLog(`Play mode set to ${playMode}.`, 'info');
+    addLog(`Play mode set to ${playMode}.`, 'info', 'game');
   });
 });
 
@@ -3994,7 +4015,7 @@ async function checkServerStatus(silent = false) {
   const qsS = $('qsStatus');
   if (qsS) qsS.textContent = 'CHECKING...';
 
-  if (!silent) addLog('Checking server status...', 'info');
+  if (!silent) addLog('Checking server status...', 'info', 'server');
 
   // Run both pings in parallel — max wait is 5s instead of 10s
   let apiResult, cdnResult;
@@ -4024,9 +4045,9 @@ async function checkServerStatus(silent = false) {
   if (!silent) {
     // A server being unreachable is a status, not a launcher error — log it as a
     // warning so genuine errors stay distinct in the log.
-    addLog(`API Gateway (${apiUrl}): ${apiOnline ? 'ONLINE' : 'OFFLINE'}`, apiOnline ? 'ok' : 'warn');
+    addLog(`API Gateway (${apiUrl}): ${apiOnline ? 'ONLINE' : 'OFFLINE'}`, apiOnline ? 'ok' : 'warn', 'server');
     if (isRadium) {
-      addLog(`CDN Server (${cdnUrl}): ${cdnOnline ? 'ONLINE' : 'OFFLINE'}`, cdnOnline ? 'ok' : 'warn');
+      addLog(`CDN Server (${cdnUrl}): ${cdnOnline ? 'ONLINE' : 'OFFLINE'}`, cdnOnline ? 'ok' : 'warn', 'server');
     }
   }
 }
@@ -4048,7 +4069,7 @@ async function updatePlayerCount(silent = false) {
   const seq = ++playerCountSeq;
   if (!silent) {
     qsPlayers.textContent = 'LOADING...';
-    addLog('Fetching online player count...', 'info');
+    addLog('Fetching online player count...', 'info', 'server');
   }
 
   try {
@@ -4082,21 +4103,21 @@ async function updatePlayerCount(silent = false) {
       // Stella publishes no player count: say so, rather than OFFLINE.
       qsPlayers.textContent = 'N/A';
       qscPlayers?.classList.remove('online', 'offline');
-      if (!silent) addLog(`${networkInfo().label} doesn't publish a player count.`, 'info');
+      if (!silent) addLog(`${networkInfo().label} doesn't publish a player count.`, 'info', 'server');
     } else if (result && result.success) {
       qsPlayers.textContent = result.count;
       if (qscPlayers) {
         qscPlayers.classList.add('online');
         qscPlayers.classList.remove('offline');
       }
-      if (!silent) addLog(`Players online: ${result.count}`, 'ok');
+      if (!silent) addLog(`Players online: ${result.count}`, 'ok', 'server');
     } else {
       qsPlayers.textContent = 'OFFLINE';
       if (qscPlayers) {
         qscPlayers.classList.add('offline');
         qscPlayers.classList.remove('online');
       }
-      if (!silent) addLog(`Failed to fetch player count: ${result?.error || 'Unknown error'}`, 'error');
+      if (!silent) addLog(`Failed to fetch player count: ${result?.error || 'Unknown error'}`, 'error', 'server');
     }
   } catch (err) {
     if (seq !== playerCountSeq) return;
@@ -4105,7 +4126,7 @@ async function updatePlayerCount(silent = false) {
       qscPlayers.classList.add('offline');
       qscPlayers.classList.remove('online');
     }
-    if (!silent) addLog(`Failed to fetch player count: ${err?.message || err}`, 'error');
+    if (!silent) addLog(`Failed to fetch player count: ${err?.message || err}`, 'error', 'server');
   }
 }
 
@@ -4157,7 +4178,7 @@ async function executeLaunch() {
       installed = await window.radium?.checkRequiredSteamApp();
     } catch (e) { /* on error, don't block launch */ }
     if (installed === false) {
-      addLog('Required Rec Room Steam app (steam://install/92) is not installed. Prompting user...', 'info');
+      addLog('Required Rec Room Steam app (steam://install/92) is not installed. Prompting user...', 'info', 'game');
       showSteamAppModal();
       return;
     }
@@ -4178,7 +4199,7 @@ $('steamAppModal')?.addEventListener('click', (e) => {
   if (e.target === $('steamAppModal')) hideSteamAppModal(true);
 });
 $('steamAppInstallBtn')?.addEventListener('click', () => {
-  addLog('Opening Steam to install the required app...', 'info');
+  addLog('Opening Steam to install the required app...', 'info', 'game');
   toast('Opening Steam to install…', 'info', 3000);
   window.radium?.openUrl('steam://install/92');
   hideSteamAppModal(true);
@@ -4197,7 +4218,7 @@ async function doLaunch() {
   setGameRunning(true);
   const join = activeNetwork === 'stella' ? pendingJoin : null;
   pendingJoin = null;
-  addLog(join ? `Launching game to join ${join.name}...` : 'Launching game...', 'info');
+  addLog(join ? `Launching game to join ${join.name}...` : 'Launching game...', 'info', 'game');
   toast(join ? `Launching ${networkInfo().label} to join ${join.name}...` : `Launching ${networkInfo().label}...`, 'info', 2000);
 
   let result = null;
@@ -4221,12 +4242,12 @@ async function doLaunch() {
   if (!result?.success) {
     setGameRunning(false);
     const err = result?.error || 'Unknown error';
-    addLog(`Launch failed: ${err}`, 'error');
+    addLog(`Launch failed: ${err}`, 'error', 'game');
     toast(`Launch failed: ${err}`, 'error', 5000);
   } else {
     // .bat launches report no PID (the cmd.exe wrapper's PID is meaningless).
     const pidPart = (result.pid !== null && result.pid !== undefined) ? ` (PID ${result.pid})` : '';
-    addLog(`Game running${pidPart} — mode: ${playMode}`, 'ok');
+    addLog(`Game running${pidPart} — mode: ${playMode}`, 'ok', 'game');
     toast(`${networkInfo().label} launched in ${playMode.toUpperCase()} mode!`, 'ok');
     // launch_game has already hidden the window (tray mode) or quit; this
     // only logs it. It also used to close the window again a second later,
@@ -4235,7 +4256,7 @@ async function doLaunch() {
     if (config.closeOnLaunch === true) {
       addLog(config.runInBackground !== false
         ? 'Launcher set to step aside on game start. Hidden to the tray.'
-        : 'Launcher configured to exit on game start. Exiting...', 'info');
+        : 'Launcher configured to exit on game start. Exiting...', 'info', 'game');
     }
   }
 }
@@ -4247,30 +4268,30 @@ $('steamAnywayBtn')?.addEventListener('click', () => {
 
 $('steamLaunchBtn')?.addEventListener('click', async () => {
   hideSteamModal(false);
-  addLog('Launching Steam...', 'info');
+  addLog('Launching Steam...', 'info', 'game');
   toast('Launching Steam...', 'info', 2000);
   window.radium?.openUrl('steam://');
   
   // Wait 3 seconds to let Steam start initializing before starting the game
-  addLog('Waiting for Steam to start (3s)...', 'info');
+  addLog('Waiting for Steam to start (3s)...', 'info', 'game');
   setTimeout(() => {
     executeLaunch();
   }, 3000);
 });
 
 async function checkSteamAndLaunch() {
-  addLog('Checking if Steam is running...', 'info');
+  addLog('Checking if Steam is running...', 'info', 'game');
   const steamRunning = await window.radium?.checkSteam();
 
   if (steamRunning) {
-    addLog('Steam is running.', 'ok');
+    addLog('Steam is running.', 'ok', 'game');
     executeLaunch();
   } else {
     if (config.disableWarnings === true) {
-      addLog('Steam is not running. Warning skipped (disabled by user).', 'info');
+      addLog('Steam is not running. Warning skipped (disabled by user).', 'info', 'game');
       executeLaunch();
     } else {
-      addLog('Steam is not running. Prompting user...', 'info');
+      addLog('Steam is not running. Prompting user...', 'info', 'game');
       showSteamModal();
     }
   }
@@ -4286,7 +4307,7 @@ async function proceedAfterAvCheck() {
 // check, then the Steam check, then the actual launch.
 async function checkAvAndLaunch() {
   if (config.disableWarnings === true) {
-    addLog('AV exclusion check skipped (disabled by user).', 'info');
+    addLog('AV exclusion check skipped (disabled by user).', 'info', 'game');
     await proceedAfterAvCheck();
     return;
   }
@@ -4303,11 +4324,11 @@ async function checkAvAndLaunch() {
     // Third-party AV can't be auto-excluded — only a manual folder exclusion in
     // the AV itself helps. Warn (with a manual guide) unless the user opted out.
     if (config.thirdPartyAvAcknowledged === true) {
-      addLog('Third-party AV present; launch warning suppressed by user.', 'info');
+      addLog('Third-party AV present; launch warning suppressed by user.', 'info', 'game');
       await proceedAfterAvCheck();
       return;
     }
-    addLog('Third-party antivirus detected. Prompting user...', 'info');
+    addLog('Third-party antivirus detected. Prompting user...', 'info', 'game');
     launchAfterExclusion = true;
     showThirdPartyAvModal(thirdPartyAvs);
     return;
@@ -4319,14 +4340,14 @@ async function checkAvAndLaunch() {
     return;
   }
   if (avs.some(av => av.isDefender)) {
-    addLog('Windows Defender active and folder not excluded. Prompting user...', 'info');
+    addLog('Windows Defender active and folder not excluded. Prompting user...', 'info', 'game');
     launchAfterExclusion = true;
     showExcludeAvModal();
     return;
   }
 
   // No antivirus detected — nothing to exclude.
-  addLog('No antivirus requiring exclusion detected.', 'ok');
+  addLog('No antivirus requiring exclusion detected.', 'ok', 'game');
   await proceedAfterAvCheck();
 }
 
@@ -4623,21 +4644,21 @@ $('sacModal')?.addEventListener('click', (e) => {
 });
 
 async function checkSacAndLaunch() {
-  addLog('Checking Smart App Control status...', 'info');
+  addLog('Checking Smart App Control status...', 'info', 'game');
   const sac = await window.radium?.checkSmartAppControl();
   if (sac && sac.enabled && !sacWarnedThisSession) {
     if (config.disableWarnings === true) {
-      addLog('Smart App Control is active. Warning skipped (disabled by user).', 'info');
+      addLog('Smart App Control is active. Warning skipped (disabled by user).', 'info', 'game');
       await checkSteamAndLaunch();
     } else {
-      addLog('Smart App Control is active. Prompting user...', 'info');
+      addLog('Smart App Control is active. Prompting user...', 'info', 'game');
       showSacModal();
     }
   } else {
     if (sac && sac.enabled) {
-      addLog('Smart App Control is active (previously acknowledged this session).', 'info');
+      addLog('Smart App Control is active (previously acknowledged this session).', 'info', 'game');
     } else {
-      addLog('Smart App Control is not active.', 'ok');
+      addLog('Smart App Control is not active.', 'ok', 'game');
     }
     await checkSteamAndLaunch();
   }
@@ -4648,13 +4669,13 @@ window.radium?.onGameState((data) => {
   if (data.running === false) {
     setGameRunning(false);
     const code = data.exitCode !== undefined ? ` (exit ${data.exitCode})` : '';
-    addLog(`Game closed${code}`, 'info');
+    addLog(`Game closed${code}`, 'info', 'game');
     toast('Game closed.', 'info', 2000);
   } else if (data.running === true) {
     setGameRunning(true);
   }
   if (data.error) {
-    addLog(`Error: ${data.error}`, 'error');
+    addLog(`Error: ${data.error}`, 'error', 'game');
     toast(`Error: ${data.error}`, 'error', 4000);
   }
 });
@@ -4694,7 +4715,7 @@ $('updateNowBtn')?.addEventListener('click', async () => {
   const status = $('updateStatus');
   if (nowBtn) { nowBtn.disabled = true; nowBtn.textContent = '⬇ Downloading...'; }
   if (status) { status.style.display = 'block'; status.style.color = ''; status.textContent = 'Downloading update, please wait...'; }
-  addLog(`Downloading update ${updateInfo.latestVersion}...`, 'info');
+  addLog(`Downloading update ${updateInfo.latestVersion}...`, 'info', 'update');
 
   // Desktop shortcut placement is always on now — the opt-out checkbox was removed.
   // Every failure comes back as a rejection (a bad digest, a network error), so
@@ -4708,13 +4729,13 @@ $('updateNowBtn')?.addEventListener('click', async () => {
   }
   if (result?.success) {
     if (status) status.textContent = 'Update downloaded! Launching installer...';
-    addLog('Launcher update started — restarting.', 'ok');
+    addLog('Launcher update started — restarting.', 'ok', 'update');
     // App will quit shortly from main process
   } else {
     const err = result?.error || 'Unknown error';
     if (status) { status.textContent = `Error: ${err}`; status.style.color = '#ff6666'; }
     if (nowBtn) { nowBtn.disabled = false; nowBtn.textContent = '⬇ Update Now'; }
-    addLog(`Update failed: ${err}`, 'error');
+    addLog(`Update failed: ${err}`, 'error', 'update');
     toast(`Update failed: ${err}`, 'error', 5000);
   }
 });
@@ -4738,26 +4759,26 @@ async function checkForLauncherUpdate() {
   scheduleLauncherUpdateCheck(LAUNCHER_UPDATE_RECHECK_MS);
   // Only check if autoUpdate is enabled in settings
   if (config.autoUpdate === false) return;
-  addLog('Checking for launcher updates...', 'info');
+  addLog('Checking for launcher updates...', 'info', 'update');
   try {
     const info = await window.radium?.checkForUpdate();
     if (!info) return;
     if (info.error) {
-      addLog(`Update check failed: ${info.error}`, 'info');
+      addLog(`Update check failed: ${info.error}`, 'info', 'update');
       scheduleLauncherUpdateCheck(LAUNCHER_UPDATE_RETRY_MS);
       return;
     }
     if (info.hasUpdate) {
       if (offeredLauncherVersion === info.latestVersion) return;
       offeredLauncherVersion = info.latestVersion;
-      addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok');
+      addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok', 'update');
       toast('Update available!', 'ok', 5000);
       showUpdateModal(info);
     } else {
-      addLog(`Launcher is up to date (v${info.currentVersion}).`, 'info');
+      addLog(`Launcher is up to date (v${info.currentVersion}).`, 'info', 'update');
     }
   } catch (e) {
-    addLog(`Update check error: ${e?.message || e}`, 'info');
+    addLog(`Update check error: ${e?.message || e}`, 'info', 'update');
     scheduleLauncherUpdateCheck(LAUNCHER_UPDATE_RETRY_MS);
   }
 }
@@ -4771,7 +4792,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     resultEl.textContent = 'Checking...';
     resultEl.className = 'test-result';
   }
-  addLog('Manual launcher update check initiated.', 'info');
+  addLog('Manual launcher update check initiated.', 'info', 'update');
   toast('Checking for updates...', 'info', 2000);
   
   try {
@@ -4789,7 +4810,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
         resultEl.textContent = '✕ Error';
         resultEl.className = 'test-result error';
       }
-      addLog(`Update check failed: ${info.error}`, 'info');
+      addLog(`Update check failed: ${info.error}`, 'info', 'update');
       toast('Update check failed.', 'error');
       return;
     }
@@ -4799,7 +4820,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
         resultEl.className = 'test-result ok';
       }
       offeredLauncherVersion = info.latestVersion;
-      addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok');
+      addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok', 'update');
       toast('Update available!', 'ok', 5000);
       showUpdateModal(info);
     } else {
@@ -4807,7 +4828,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
         resultEl.textContent = '✓ Up to date';
         resultEl.className = 'test-result ok';
       }
-      addLog(`Launcher is up to date (v${info.currentVersion}).`, 'info');
+      addLog(`Launcher is up to date (v${info.currentVersion}).`, 'info', 'update');
       toast('Launcher is up to date.', 'ok');
     }
   } catch (e) {
@@ -4815,7 +4836,7 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
       resultEl.textContent = '✕ Error';
       resultEl.className = 'test-result error';
     }
-    addLog(`Update check error: ${e.message}`, 'info');
+    addLog(`Update check error: ${e.message}`, 'info', 'update');
     toast('Update check error.', 'error');
   } finally {
     btn.disabled = false;
@@ -5400,7 +5421,7 @@ function applyVanillaAuth(state) {
   }
 
   if (vanillaPlayer) {
-    if (!was) addLog(`Signed in to Vanilla as @${vanillaPlayer.userName}`, 'ok');
+    if (!was) addLog(`Signed in to Vanilla as @${vanillaPlayer.userName}`, 'ok', 'account');
     refreshVanillaExtras();
     return;
   }
@@ -5409,7 +5430,7 @@ function applyVanillaAuth(state) {
   }
   if (was) {
     const expired = state && state.reason === 'expired';
-    addLog(expired ? 'Vanilla session expired, signed out' : 'Signed out of Vanilla', 'info');
+    addLog(expired ? 'Vanilla session expired, signed out' : 'Signed out of Vanilla', 'info', 'account');
     if (expired) toast('Your Vanilla session expired. Please sign in again.', 'info');
   }
 }
@@ -5546,8 +5567,8 @@ function applyStellaAuth(player) {
   // belong to the account.
   stellaCheerKnown = new Map();
   refreshSocialButtons();
-  if (stellaPlayer) addLog(`Signed in to Stella as @${stellaPlayer.userName}`, 'ok');
-  else if (was) addLog('Signed out of Stella', 'info');
+  if (stellaPlayer) addLog(`Signed in to Stella as @${stellaPlayer.userName}`, 'ok', 'account');
+  else if (was) addLog('Signed out of Stella', 'info', 'account');
   reloadStellaLists();
 }
 
@@ -6828,10 +6849,10 @@ async function playRoom(room) {
 
       if (res.success) {
         setJoinLabel(job, 'JOINING…');
-        addLog(`Vanilla is sending your game to ^${roomName}`, 'info');
+        addLog(`Vanilla is sending your game to ^${roomName}`, 'info', 'game');
         if (await confirmJoined(job, room)) {
           toast(`Joined ^${roomName}`, 'ok');
-          addLog(`Joined ^${roomName}`, 'ok');
+          addLog(`Joined ^${roomName}`, 'ok', 'game');
           setJoinLabel(job, '✓ JOINED');
           await sleep(2000);
         } else if (!job.cancelled) {
@@ -8200,7 +8221,7 @@ async function loadPlayerPhotos(userId, append = false) {
 
 async function showRoomByName(roomName) {
   if (!roomName) return;
-  addLog(`Looking up room "${roomName}"...`, 'info');
+  addLog(`Looking up room "${roomName}"...`, 'info', 'server');
   // A search, not a lookup: results come back in the active sort (most
   // cheered first on Vanilla), and any room whose description mentions the
   // name matches too. So take a page and prefer the room actually called that.
@@ -9189,137 +9210,6 @@ document.addEventListener('keydown', (e) => {
     hideLightbox();
   }
 });
-
-// Bug Reporter event handler
-(function setupBugReporter() {
-  const btnSubmit = $('btnSubmitBugReport');
-  const txtReport = $('bugReportText');
-  const lblStatus = $('bugReportStatus');
-
-  if (!btnSubmit || !txtReport || !lblStatus) return;
-
-  let cooldownTimer = null;
-  let cooldownTimeLeft = 0;
-
-  function setStatus(text, type = 'info') {
-    lblStatus.textContent = text;
-    if (type === 'error') {
-      lblStatus.style.color = '#ff4444'; // Error red matching theme toast.error
-    } else if (type === 'success' || type === 'ok') {
-      lblStatus.style.color = 'var(--green)'; // Success green
-    } else {
-      lblStatus.style.color = 'var(--text-muted)';
-    }
-  }
-
-  function startCooldown(seconds) {
-    cooldownTimeLeft = seconds;
-    btnSubmit.disabled = true;
-    txtReport.disabled = true;
-    const categorySel = $('bugReportCategory');
-    const severitySel = $('bugReportSeverity');
-    if (categorySel) categorySel.disabled = true;
-    if (severitySel) severitySel.disabled = true;
-    setStatus('');
-    
-    if (cooldownTimer) clearInterval(cooldownTimer);
-    
-    cooldownTimer = setInterval(() => {
-      cooldownTimeLeft--;
-      if (cooldownTimeLeft <= 0) {
-        clearInterval(cooldownTimer);
-        cooldownTimer = null;
-        btnSubmit.disabled = false;
-        txtReport.disabled = false;
-        if (categorySel) categorySel.disabled = false;
-        if (severitySel) severitySel.disabled = false;
-        btnSubmit.textContent = 'SUBMIT BUG REPORT';
-      } else {
-        btnSubmit.textContent = `COOLDOWN (${cooldownTimeLeft}s)`;
-      }
-    }, 1000);
-  }
-
-  btnSubmit.addEventListener('click', async () => {
-    const bugText = txtReport.value.trim();
-    const categorySel = $('bugReportCategory');
-    const severitySel = $('bugReportSeverity');
-    const category = categorySel ? categorySel.value : 'general';
-    const severity = severitySel ? severitySel.value : 'medium';
-    
-    // 1. Length validation (frontend check)
-    if (bugText.length < 10) {
-      toast('Description is too short. Minimum 10 characters required.', 'error');
-      setStatus('Description too short (min 10 chars).', 'error');
-      return;
-    }
-    if (bugText.length > 1500) {
-      toast('Description is too long. Maximum 1500 characters allowed.', 'error');
-      setStatus('Description too long (max 1500 chars).', 'error');
-      return;
-    }
-
-    // 2. Disable inputs & show loading state
-    btnSubmit.disabled = true;
-    txtReport.disabled = true;
-    if (categorySel) categorySel.disabled = true;
-    if (severitySel) severitySel.disabled = true;
-    btnSubmit.textContent = 'SUBMITTING...';
-    setStatus('Submitting report to Discord...', 'info');
-
-    // Use the full unbounded log buffer (not the capped DOM viewer)
-    // This ensures early startup logs are always included in bug reports.
-    // Faults raised before the logger existed are prepended — they precede
-    // everything else chronologically and are usually the actual cause.
-    const fullLogs = [...startupFaults, ...fullLogBuffer].join('\n');
-
-    const diagnostics = {
-      launcherVersion: launcherVersion ? `v${launcherVersion}` : 'unknown',
-      isInstalled: isInstalled,
-      isGameRunning: isGameRunning,
-      isDownloading: isDownloading,
-      // A single "downloading" bool couldn't distinguish a stalled download
-      // from a paused or cancelling one — states a report is most likely to be
-      // filed during. Reported as one field so the phase is unambiguous.
-      downloadState: isCancelling  ? 'cancelling'
-                   : isPaused      ? 'paused'
-                   : isDownloading ? 'downloading'
-                   :                 'idle',
-      // How many errors the session logged, so triage can tell "one glitch"
-      // from "everything is failing" without reading the whole attachment.
-      errorCount: startupFaults.length
-        + fullLogBuffer.reduce((n, l) => n + (l.includes('[ERROR]') ? 1 : 0), 0),
-      // Last-known server reachability (null if not yet checked this session).
-      // The client build/version/outdated fields are read authoritatively from
-      // config on the backend, so they aren't duplicated here.
-      apiOnline: lastServerStatus.apiOnline,
-      cdnOnline: lastServerStatus.cdnOnline
-    };
-
-    try {
-      // 3. Invoke Tauri backend command
-      const responseMessage = await window.radium?.submitBugReport(bugText, fullLogs, category, severity, diagnostics);
-      
-      // 4. Handle success
-      toast(responseMessage || 'Bug report submitted successfully! Thank you.', 'ok');
-      setStatus('Submitted successfully!', 'ok');
-      txtReport.value = ''; // Clear report text
-      
-      // 5. Start cooldown (60 seconds)
-      startCooldown(60);
-    } catch (err) {
-      // 6. Handle error
-      const errMsg = String(err || 'Failed to submit bug report.');
-      toast(errMsg, 'error');
-      setStatus(errMsg, 'error');
-      btnSubmit.disabled = false;
-      txtReport.disabled = false;
-      if (categorySel) categorySel.disabled = false;
-      if (severitySel) severitySel.disabled = false;
-      btnSubmit.textContent = 'SUBMIT BUG REPORT';
-    }
-  });
-})();
 
 // Clear image placeholders for images that loaded from cache (where the inline
 // onload may not fire). A MutationObserver reacts only when nodes are actually

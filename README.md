@@ -33,8 +33,9 @@ An **unofficial** launcher for Rec Room revival servers.
 - **15 skins** — Steam 2003 Green, Windows 95 / 98 / XP / Vista / 7, Mac OS Classic and
   Aqua, Modern Dark and more — plus a **Liquid Glass** effect with your own tint or
   background picture.
-- **Diagnostics** — Server status on startup, a built-in bug reporter that bundles logs
-  and system info, and third-party antivirus detection.
+- **Diagnostics** — A searchable, filterable log that is kept on disk for each session,
+  a Report a Problem dialog that shows exactly what it sends (and can attach the session
+  that crashed), server status on startup, and third-party antivirus detection.
 - **Stays current** — Checks GitHub for launcher updates on startup and while it sits in
   the tray, and saves every setting the moment you change it.
 
