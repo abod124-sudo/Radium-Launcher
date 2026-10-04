@@ -423,6 +423,28 @@ pub async fn fetch_user_photos(args: Value) -> Value {
     }
 }
 
+/// Fetch the inventions a specific user has published. Only Stella publishes
+/// them; elsewhere the answer is an empty, complete list, and the page doesn't
+/// offer the tab there anyway.
+#[tauri::command]
+pub async fn fetch_user_inventions(args: Value) -> Value {
+    let user_id = match args.get("userId") {
+        Some(v) if v.is_number() => v.to_string(),
+        Some(v) if v.is_string() => v.as_str().unwrap().to_string(),
+        _ => return json!({ "success": false, "error": "userId is required" }),
+    };
+    let skip = args.get("skip").and_then(|v| v.as_i64()).unwrap_or(0);
+    let take = page_size(&args, 24);
+
+    match network_of(&args) {
+        Network::Stella => crate::stella_api::fetch_user_inventions(&user_id, skip, take).await,
+        Network::Radium | Network::Vanilla => json!({
+            "success": true,
+            "data": { "Results": [], "TotalResults": 0, "TotalKnown": true }
+        }),
+    }
+}
+
 /// Fetch rooms for a specific user.
 #[tauri::command]
 pub async fn fetch_user_rooms(args: Value) -> Value {

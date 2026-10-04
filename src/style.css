@@ -1671,76 +1671,170 @@ body.glass-enabled .btn-play.running:is(:active, .is-pressed) {
 .qs-card.offline .qs-value { color: #ff6666; text-shadow: none; }
 .qs-card.update-available .qs-value { color: #ffaa00; text-shadow: none; }
 
-/* Home friends card (Stella). A qs-card, so every skin paints it like the
-   status cards above it; full width, with friends in as many columns as fit. */
+/* ── Friends (Stella): the Home card and the FRIENDS tab ──────────────────
+   One set of pieces for both, built by renderStellaFriendsInto(). A friend
+   who is online is a card: picture with a presence dot, name, where they
+   are, JOIN. Everyone else is a chip on the Home card, or a smaller card on
+   the tab. These rules are the shapes and a neutral look; each skin paints
+   them in 03-content.css, and glass in 11-glass.css. */
 .home-friends { margin-top: 10px; }
-.home-friends-count { font-family: var(--font-mono); font-size: 9px; color: var(--text-muted); }
+.friends-summary {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; color: var(--text-muted);
+  white-space: nowrap;
+}
+/* A live dot while anyone is online. */
+.friends-summary.has-online::before {
+  content: '';
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--status-online);
+}
 .home-friends-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 4px;
-  max-height: 168px;
+  display: flex; flex-direction: column; gap: 12px;
+  max-height: 240px;
   overflow-y: auto;
 }
-.home-friends-note { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted); padding: 2px 0; }
-.home-friend {
+.friends-note { font-size: 11px; color: var(--text-muted); padding: 2px 0; }
+
+/* "OFFLINE  5 ─────────": a label, its count, and a rule to the edge. */
+.friends-section { display: flex; flex-direction: column; gap: 8px; }
+.friends-section-head { display: flex; align-items: center; gap: 8px; }
+.friends-section-label {
+  font-size: 10px; font-weight: bold;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.friends-section-count { font-size: 10px; color: var(--text-muted); }
+.friends-section-head::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-light);
+}
+
+.friends-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+/* --fa is the picture's size. */
+.friend-card {
+  --fa: 40px;
+  display: flex; align-items: center; gap: 10px;
+  min-width: 0;
+  padding: 8px 10px 8px 8px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}
+/* The picture and the words: opens the profile. */
+.friend-card-main {
+  display: flex; align-items: center; gap: 10px;
+  flex: 1; min-width: 0;
+  margin: 0; padding: 0;
+  background: transparent; border: 0; box-shadow: none;
+  color: inherit; font: inherit; text-align: left;
+  cursor: pointer;
+}
+.friend-avatar {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--fa); height: var(--fa);
+}
+.friend-avatar img {
+  display: block;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+}
+/* Cut out of whatever it sits on: --friend-cut is that surface's colour. */
+.friend-dot {
+  position: absolute; right: -2px; bottom: -2px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #8a8a8a;
+  box-shadow: 0 0 0 2px var(--friend-cut, var(--bg-panel));
+}
+.is-online .friend-dot { background: var(--status-online); }
+/* Offline needs no dot: the section says so, and the picture is greyed. */
+.is-offline .friend-dot { display: none; }
+.is-offline .friend-avatar img { filter: grayscale(0.85); }
+
+.friend-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.friend-name, .friend-handle, .friend-where-text, .friend-chip-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.friend-name { font-size: 12px; font-weight: bold; color: var(--text); }
+.friend-handle { font-size: 10px; color: var(--text-muted); }
+.friend-where {
   display: flex; align-items: center; gap: 4px;
   min-width: 0;
-  border-radius: 4px;
+  font-size: 10.5px;
+  color: var(--text-muted);
 }
-.home-friend:hover { background: color-mix(in srgb, var(--text) 10%, transparent); }
-/* The avatar and name: opens the profile. */
-.home-friend-main {
-  display: flex; align-items: center; gap: 8px;
-  flex: 1; min-width: 0;
-  padding: 4px 6px;
-  background: transparent; border: 0;
-  color: var(--text); text-align: left; cursor: pointer;
-  font: inherit;
-}
-.home-friend-join {
+.is-online .friend-where { color: var(--status-online); }
+.friend-lock { display: inline-flex; flex-shrink: 0; }
+.friend-lock svg { display: block; width: 10px; height: 10px; }
+/* Out-specifies each skin's .modal-btn padding, which is sized for dialogs. */
+.friend-card .friend-join.modal-btn {
   flex-shrink: 0;
-  margin-right: 4px;
-  padding: 2px 8px;
-  font-size: 10px; font-weight: bold;
+  min-width: 0;
+  padding: 5px 12px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
 }
-.home-friend-pic { position: relative; flex-shrink: 0; width: 28px; height: 28px; }
-.home-friend-pic img {
-  width: 28px; height: 28px; object-fit: cover; display: block;
-  border: 1px solid var(--border-dark);
-  border-radius: 7px;
+
+/* Home: everyone not online, as chips under the cards. */
+.friends-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.friend-chip {
+  --fa: 22px;
+  display: inline-flex; align-items: center; gap: 7px;
+  max-width: 190px;
+  margin: 0;
+  padding: 3px 10px 3px 3px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font: inherit; font-size: 11px;
+  cursor: pointer;
 }
-.home-friend-dot {
-  position: absolute; right: -3px; bottom: -3px;
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--err, #ff4444);
-  box-shadow: 0 0 0 2px var(--bg-panel);
-}
-.home-friend.is-online .home-friend-dot { background: var(--status-online, #3ddc84); }
-.home-friend:is(.is-checking, .is-paused, .is-unknown) .home-friend-dot { background: #777; }
-.home-friend-text { display: flex; flex-direction: column; min-width: 0; }
-.home-friend-name, .home-friend-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-friend-name { font-size: 12px; font-weight: bold; }
-.home-friend-sub { font-size: 10px; color: var(--text-muted); }
-.home-friend.is-online .home-friend-sub { color: var(--status-online, #3ddc84); }
-.home-friend.is-offline { opacity: 0.7; }
+.friend-chip:hover { color: var(--text); }
+.friend-chip .friend-avatar img { border-radius: 50%; }
+.friend-chip .friend-dot { right: -1px; bottom: -1px; width: 8px; height: 8px; }
 
 /* Where the friends list shows is a setting (Settings → FRIENDS): the Home
    card, a FRIENDS tab, or neither. */
 body:not(.friends-view-home) #stellaFriendsCard { display: none !important; }
 body:not(.friends-view-tab) #nav-friends { display: none !important; }
-.friends-tab-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; }
-.friends-tab-list {
-  max-height: none;
-  overflow: visible;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 6px;
+
+/* The tab: title and count at the left, the search at the right; Online,
+   then everyone else, each a section of cards. */
+.friends-tab-header { gap: 12px; }
+.friends-tab-title { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.friends-search { flex: 0 1 240px; margin: 0; }
+.friends-search .cfg-input { width: 100%; box-sizing: border-box; }
+.friends-tab-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 2px 12px; }
+.friends-tab-list { display: flex; flex-direction: column; gap: 20px; }
+.friends-grid-online { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.friends-grid-online .friend-card {
+  --fa: 52px;
+  flex-direction: column; align-items: stretch; gap: 12px;
+  padding: 14px;
 }
-.friends-tab-list .home-friend-main { padding: 6px 8px; }
-.friends-tab-list .home-friend-pic,
-.friends-tab-list .home-friend-pic img { width: 36px; height: 36px; }
-.friends-tab-list .home-friend-name { font-size: 13px; }
-.friends-tab-list .home-friend-sub { font-size: 11px; }
+.friends-grid-online .friend-card-main { gap: 12px; }
+.friends-grid-online .friend-name { font-size: 14px; }
+.friends-grid-online .friend-where { margin-top: 2px; font-size: 11px; }
+.friends-grid-online .friend-dot { width: 12px; height: 12px; }
+.friends-grid-online .friend-card .friend-join.modal-btn {
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 11px;
+}
+.friends-grid-others { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.friends-grid-others .friend-card { --fa: 36px; padding: 8px; }
 /* Update control sits beside the status value rather than under it; it drops
    to its own line only if the card gets too narrow to hold both. */
 
@@ -2693,7 +2787,6 @@ body.theme-moderndark .modal-close-btn {
 .status-dot.offline {
   background-color: #ff4444;
 }
-.profile-status-badge:has(.status-dot.offline) { color: #ff6666; }
 
 .native-pagination {
   padding-top: 6px;
@@ -3372,22 +3465,23 @@ body.theme-moderndark .feed-post-footer {
 }
 
 /* ── Profile page ────────────────────────────────────────────────────────
-   A banner header: the avatar overlaps the banner beside the player's name,
-   handle and presence, with what you can do (JOIN, SUBSCRIBE) at the right;
-   one row of stat tiles; the bio only when there is one; then the tabs, and
-   photos as a thumbnail grid. These rules are the shapes. Colours, borders
-   and fonts are each skin's (03-content.css, and the glass sheet). */
+   A header card: the banner, the avatar overlapping it beside the name and
+   one line of handle and presence, and what you can do (JOIN, SUBSCRIBE)
+   at the right. Then two columns: About (the bio, then one row per number)
+   at the left, held in view while PHOTOS / FEEDS / ROOMS at the right
+   scroll. These rules are the shapes; colours, borders and fonts are each
+   skin's (03-content.css, and the glass sheet). */
 .profile-card-container {
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-radius: 6px;
   overflow: hidden;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .profile-banner-container {
-  height: 150px;
+  height: 168px;
   position: relative;
   background-size: cover;
   background-position: center;
@@ -3395,10 +3489,11 @@ body.theme-moderndark .feed-post-footer {
   flex-shrink: 0;
 }
 
+/* Only the bottom darkens, toward the avatar; the picture stays as taken. */
 .profile-banner-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.15) 0%, rgba(0, 0, 0, 0.65) 100%);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.5) 100%);
 }
 
 /* Only the avatar overlaps the banner: half of it. The text beside it sits on
@@ -3410,7 +3505,7 @@ body.theme-moderndark .feed-post-footer {
   flex-direction: row;
   align-items: flex-start;
   gap: 18px;
-  padding: 0 20px 14px;
+  padding: 0 20px 18px;
   position: relative;
   z-index: 2;
 }
@@ -3418,35 +3513,43 @@ body.theme-moderndark .feed-post-footer {
 .profile-avatar-wrapper {
   position: relative;
   flex-shrink: 0;
-  width: 104px;
-  height: 104px;
-  margin-top: -52px;
+  width: 112px;
+  height: 112px;
+  margin-top: -56px;
 }
 
 .profile-avatar-image {
   width: 100%;
   height: 100%;
-  border-radius: 8px;
+  border-radius: 14px;
   object-fit: cover;
   border: 4px solid var(--bg-panel);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   background: var(--bg-panel);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
 }
 
-.profile-avatar-image:hover {
-  transform: scale(1.04);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
+/* Online: a dot on the picture's corner, cut out of the card. Nothing for
+   offline or unknown; the line beside the name says those. */
+.profile-avatar-wrapper .status-dot {
+  display: none;
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  margin: 0;
+  box-shadow: 0 0 0 4px var(--bg-panel);
 }
+.profile-avatar-wrapper .status-dot.online { display: block; }
 
-/* Name and badges, the handle, then where they are. */
+/* The name and badges, then "@handle · Online · In RecCenter". */
 .profile-identity-info {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
   flex: 1;
   min-width: 0;
-  padding-top: 12px;
+  padding-top: 14px;
 }
 
 .profile-name-row {
@@ -3457,28 +3560,46 @@ body.theme-moderndark .feed-post-footer {
 }
 
 .profile-display-name {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: bold;
   color: var(--text);
-  line-height: 1.2;
+  line-height: 1.15;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.profile-username-status {
+.profile-meta-line {
   display: flex;
   align-items: center;
-  gap: 8px;
   flex-wrap: wrap;
-  margin-top: 6px;
+  gap: 2px 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.profile-meta-line > * + *::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--text-muted);
+  font-weight: normal;
 }
 
 .profile-username {
   font-size: 12px;
   color: var(--text-muted);
   font-family: var(--font-mono);
+}
+
+.profile-presence { font-weight: bold; }
+.profile-header-content:has(.status-dot.online) .profile-presence { color: var(--status-online); }
+
+/* Where they are: "In RecCenter". The text carries its own "In". */
+.profile-activity-badge {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text);
 }
 
 /* JOIN / SUBSCRIBE, level with the name, at the right. */
@@ -3488,49 +3609,145 @@ body.theme-moderndark .feed-post-footer {
   flex-shrink: 0;
   padding-top: 16px;
 }
-.profile-actions .modal-btn { min-width: 118px; }
+.profile-actions .modal-btn { min-width: 112px; }
 .profile-actions .modal-btn[hidden] { display: none; }
-/* A narrow window: the actions go under the name rather than squeezing it. */
-@media (max-width: 720px) {
-  .profile-header-content { flex-wrap: wrap; }
-  .profile-actions { width: 100%; padding-top: 0; }
-}
 
-.profile-status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border-radius: 12px;
-  background: var(--bg-dark);
-  font-size: 9px;
-  font-weight: bold;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+/* About at the left, what they've made at the right. */
+.profile-columns {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
 }
-
-.profile-body-content {
+.profile-panel {
+  min-width: 0;
+  padding: 14px 16px;
+  background: var(--bg-panel);
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+/* The left column: About, then Cheers and Mutual friends, each a panel of
+   its own and each left out when empty. It scrolls with the page: pinned, a
+   column this tall would hold its lower panels out of reach. */
+.profile-side {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 20px 18px;
-  background: var(--bg-panel);
+  min-width: 0;
 }
-
-/* One row of tiles, as many as the network publishes. */
-.profile-stats-row {
+.profile-panel[hidden] { display: none; }
+.profile-about {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 10px;
 }
-.profile-stats-row:not(:has(.profile-stat-item:not([hidden]))) { display: none; }
+.profile-side-title {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
 
-/* `display:flex` below outranks the UA's `[hidden] { display: none }`, so a
-   tile hidden for a network that doesn't publish that stat needs this. The
-   bio box likewise. */
+/* A narrow window: the actions go under the name, and the columns stack. */
+@media (max-width: 720px) {
+  .profile-header-content { flex-wrap: wrap; }
+  .profile-actions { width: 100%; padding-top: 0; }
+  .profile-columns { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The player's own words, when they wrote any. */
+.profile-bio-text {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-ui);
+}
+.profile-bio-text.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+  overflow: hidden;
+}
+.profile-bio-more {
+  margin: 6px 0 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--green);
+  cursor: pointer;
+}
+.profile-bio-more:hover { text-decoration: underline; }
+
+/* "Level ........ 18": one row per number the network publishes. */
+.profile-stats-row { display: flex; flex-direction: column; }
+.profile-stats-row:not(:has(.profile-stat-item:not([hidden]))) { display: none; }
+.profile-stat-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-light);
+}
+.profile-stat-item:last-child { padding-bottom: 0; }
+.profile-stat-lbl { font-size: 11px; color: var(--text-muted); }
+.profile-stat-val {
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* `display:flex` above outranks the UA's `[hidden] { display: none }`, so a
+   row hidden for a network that doesn't publish that number needs this. The
+   bio likewise. */
 .profile-stat-item[hidden],
 .profile-bio-box[hidden] { display: none; }
+
+/* PHOTOS / FEEDS / ROOMS, along the top of the right-hand panel; the
+   current one is underlined on the rule beneath them. */
+.profile-main { padding-top: 4px; }
+.profile-tabs-nav {
+  display: flex;
+  gap: 22px;
+  border-bottom: 1px solid var(--border-dark);
+  flex-shrink: 0;
+}
+
+.profile-tab-btn {
+  font-size: 12px;
+  font-weight: bold;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 10px 0 8px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.profile-tab-btn:hover {
+  color: var(--text) !important;
+}
+
+.profile-tab-btn.active {
+  color: var(--green) !important;
+  border-bottom: 2px solid var(--green) !important;
+}
+
+.profile-tab-btn[hidden] { display: none; }
+.profile-tab-btn:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 3px; }
 
 /* ── Feed tab ───────────────────────────────────────────────────────────
    Vanilla-only, so the nav button is hidden everywhere else. Gated from
@@ -3657,117 +3874,6 @@ body:not(.network-vanilla):not(.network-stella) .people-level-col { display: non
    carries .profile-roles too, so the profile rule is scoped away from it. */
 .profile-roles:not(.inline-roles) .role-icon { height: 18px; }
 
-.profile-stat-item {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: flex-start;
-  min-width: 104px;
-  background: var(--bg-dark);
-  padding: 9px 16px;
-  border-radius: 4px;
-  box-sizing: border-box;
-}
-
-.profile-stat-val {
-  font-family: var(--font-mono);
-  font-weight: bold;
-  font-size: 17px;
-  color: var(--green);
-  line-height: 1;
-}
-
-.profile-stat-lbl {
-  font-size: 9px;
-  color: var(--text-muted);
-  font-weight: bold;
-  margin-top: 4px;
-  letter-spacing: 0.5px;
-}
-
-.profile-bio-box {
-  background: var(--bg-dark);
-  padding: 14px;
-  border-radius: 4px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-}
-
-.profile-bio-title {
-  font-size: 11px;
-  font-weight: bold;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  margin-bottom: 8px;
-  border-bottom: 1px dashed var(--border-dark);
-  padding-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.profile-bio-text {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text);
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: var(--font-ui);
-}
-
-/* Premium Profile tabs style */
-.profile-tabs-nav {
-  display: flex;
-  gap: 20px;
-  margin-top: 20px;
-  border-bottom: 1px solid var(--border-dark);
-  padding-bottom: 8px;
-  flex-shrink: 0;
-}
-
-.profile-tab-btn {
-  font-size: 12px;
-  font-weight: bold;
-  font-family: var(--font-mono);
-  cursor: pointer;
-  color: var(--text-muted);
-  padding: 4px 0;
-  transition: color 0.15s ease, border-color 0.15s ease;
-  position: relative;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.profile-tab-btn:hover {
-  color: var(--text) !important;
-}
-
-.profile-tab-btn.active {
-  color: var(--green) !important;
-  border-bottom: 2px solid var(--green) !important;
-}
-
-.profile-tab-btn[hidden] { display: none; }
-.profile-tab-btn:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 3px; }
-
-/* Where they are, beside the status: "In RecCenter". The text carries its
-   own "In", so there is no label in front of it. */
-.profile-activity-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 12px;
-  background: var(--bg-dark);
-  font-size: 9px;
-  font-weight: bold;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--green);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-
 /* A player's photos: square thumbnails, as many across as fit; each opens
    the photo page. Corners and borders are the skin's picture tokens. */
 .profile-photo-grid {
@@ -3776,6 +3882,166 @@ body:not(.network-vanilla):not(.network-stella) .people-level-col { display: non
   gap: 8px;
 }
 .profile-photo-grid > .profile-grid-note { grid-column: 1 / -1; }
+
+/* The emoji a player shows beside their name, and a Junior account's tag. */
+.profile-emoji { flex-shrink: 0; font-size: 20px; line-height: 1; }
+.profile-junior {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+}
+.profile-junior[hidden] { display: none; }
+.profile-side-count { margin-left: 4px; color: var(--text-muted); }
+
+/* Cheers by kind: "Helpful ▬▬▬▬▬▬▬ 79", each bar against the biggest. */
+.profile-cheer-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.profile-cheer {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.profile-cheer-name { color: var(--text-muted); white-space: nowrap; }
+.profile-cheer-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--border-light);
+}
+.profile-cheer-fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--green);
+}
+.profile-cheer-count {
+  min-width: 26px;
+  text-align: right;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* Mutual friends: chips like the Home card's offline friends. */
+.profile-mutual-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.profile-mutual-chip { max-width: 100%; }
+.profile-more-note { align-self: center; font-size: 11px; color: var(--text-muted); }
+
+/* A player's inventions: 16:9 cards, as many across as fit; each opens the
+   invention dialog. */
+.profile-invention-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.profile-invention-grid > .profile-grid-note {
+  grid-column: 1 / -1;
+  padding: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.invention-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 6px 8px;
+  cursor: pointer;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}
+.invention-card:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 2px; }
+.invention-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  margin-bottom: 5px;
+  border-radius: 6px;
+  background: var(--bg-dark);
+}
+.invention-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.25s ease;
+}
+.invention-card:hover .invention-thumb img { transform: scale(1.04); }
+/* On the picture, so held to fixed colours that read on any of them. */
+.invention-badge {
+  position: absolute;
+  top: 6px;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.68);
+  border-radius: 4px;
+}
+.invention-price { right: 6px; }
+.invention-certified { left: 6px; }
+.invention-name, .invention-meta {
+  padding: 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.invention-name { font-size: 12px; font-weight: bold; color: var(--text); }
+.invention-meta { font-size: 10px; color: var(--text-muted); }
+
+/* The invention dialog: the picture, the name and maker, the description
+   when there is one, then its numbers as tiles. */
+.modal-box.invention-modal-box { width: 520px; max-width: calc(100vw - 32px); }
+.invention-modal-body { gap: 12px; }
+.invention-modal-image {
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--bg-dark);
+}
+.invention-modal-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.invention-modal-name { font-size: 16px; font-weight: bold; color: var(--text); word-break: break-word; }
+.invention-modal-creator { margin-top: 2px; font-size: 11px; color: var(--text-muted); }
+.invention-modal-description {
+  max-height: 110px;
+  margin: 0;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.invention-modal-description[hidden] { display: none; }
+.invention-modal-facts { display: flex; flex-wrap: wrap; gap: 8px; }
+.invention-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 100px;
+  padding: 8px 12px;
+  background: var(--bg-dark);
+  border-radius: 6px;
+}
+.invention-fact-val { font-size: 13px; font-weight: bold; color: var(--text); }
+.invention-fact-lbl {
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
 .profile-photo-tile {
   position: relative;
   aspect-ratio: 1;

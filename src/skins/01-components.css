@@ -368,6 +368,7 @@ body:not(.glass-enabled) {
   & #roomsSidebar .border,
   & .room-card-container,
   & .profile-card-container,
+  & .profile-panel,
   & #photoDetailInfoBlock,
   & .feed-post-card {
     color: var(--panel-fg);
@@ -382,7 +383,7 @@ body:not(.glass-enabled) {
   /* Section titles */
   & .sg-title,
   & .caption-header,
-  & .profile-bio-title,
+  & .profile-side-title,
   & #roomsDetailPhotosSection h4 {
     padding-bottom: 4px;
     margin-bottom: 2px;

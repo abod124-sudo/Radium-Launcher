@@ -91,6 +91,7 @@ pub fn run() {
             server::fetch_user_photos,
             server::fetch_room_photos,
             server::fetch_user_rooms,
+            server::fetch_user_inventions,
             server::fetch_user_feed,
             server::fetch_recent_photos,
             server::prefetch_network_data,

@@ -102,8 +102,74 @@ body:not(.glass-enabled) {
   & .feed-post-footer { border-top: var(--sep); color: var(--muted); }
   & :is(.photo-empty-msg, .feed-loading) { font-family: var(--font-ui); color: var(--muted); }
 
+  /* ── Friends (Stella) ─────────────────────────────────────────────── */
+  & :is(.friends-summary, .friends-note, .friends-section-count) { font-family: var(--font-ui); color: var(--muted); }
+  & .friends-summary.has-online::before { background: var(--ok); border-radius: var(--dot-radius); }
+  /* In the tab it sits in the page header, which some skins paint dark
+     (Vista's bar, Windows 95's desktop): the header's own colour, dimmed. */
+  & .friends-tab-title .friends-summary { color: color-mix(in srgb, var(--header-fg) 72%, transparent); }
+  & .friends-tab-title .friends-summary.has-online::before { background: color-mix(in srgb, var(--ok) 60%, var(--header-fg)); }
+  & .friends-section-label {
+    font-family: var(--title-font);
+    font-weight: var(--title-weight);
+    text-transform: var(--title-case);
+    letter-spacing: var(--title-ls);
+    color: var(--title-fg);
+  }
+  & .friends-section-head::after { background: var(--line); }
+  /* On the Home card a friend is a tile, like a room page's numbers; on the
+     tab, where they sit on the page, a card like a room's. */
+  & .home-friends .friend-card {
+    --friend-cut: var(--tile-bg);
+    color: var(--well-fg);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--tile-radius);
+    box-shadow: var(--tile-shadow);
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  & .home-friends .friend-card:hover { background: var(--tile-hover-bg, var(--tile-bg)); border: var(--card-hover-border); }
+  & .friends-tab-list .friend-card {
+    --friend-cut: var(--card-bg);
+    color: var(--panel-fg);
+    background: var(--card-bg);
+    border: var(--card-border);
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+                box-shadow var(--dur) var(--ease);
+  }
+  & .friends-tab-list .friend-card:hover {
+    background: var(--card-hover-bg);
+    border: var(--card-hover-border);
+    box-shadow: var(--card-hover-shadow);
+  }
+  & .friend-avatar img {
+    background: var(--media-bg);
+    border: var(--media-border);
+    border-radius: var(--avatar-radius, var(--media-radius));
+    box-sizing: border-box;
+  }
+  & .friend-dot { border-radius: var(--dot-radius); }
+  & .is-online .friend-dot { background: var(--ok); }
+  & .friend-name { font-family: var(--font-ui); color: inherit; }
+  & :is(.friend-handle, .friend-where) { font-family: var(--font-ui); color: var(--muted); }
+  & .is-online .friend-where { color: var(--ok); }
+  & .friend-chip {
+    --friend-cut: var(--tile-bg);
+    font-family: var(--font-ui);
+    color: var(--muted);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--badge-radius, 999px);
+    box-shadow: var(--tile-shadow);
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  & .friend-chip:hover { color: var(--well-fg); background: var(--tile-hover-bg, var(--tile-bg)); }
+  & .friend-chip .friend-avatar img { border-radius: var(--badge-radius, 999px); }
+
   /* ── Room & profile detail ────────────────────────────────────────── */
-  & :is(.room-card-footer, .profile-body-content) { background: transparent; }
+  & .room-card-footer { background: transparent; }
   & .room-thumbnail-image {
     background: var(--media-bg);
     border: var(--media-border);
@@ -111,8 +177,8 @@ body:not(.glass-enabled) {
   }
   & :is(.room-title, .profile-display-name) { font-family: var(--heading-font); color: var(--panel-fg); }
   & .room-description { font-family: var(--font-ui); color: var(--panel-fg); }
-  & :is(.room-creator-box, .room-stat-item, .profile-stat-item, .profile-bio-box,
-        .room-meta-bar, .photo-detail-box, .photo-detail-stats) {
+  & :is(.room-creator-box, .room-stat-item, .room-meta-bar, .photo-detail-box,
+        .photo-detail-stats) {
     color: var(--well-fg);
     background: var(--tile-bg);
     border: var(--tile-border);
@@ -120,7 +186,7 @@ body:not(.glass-enabled) {
     box-shadow: var(--tile-shadow);
   }
   & .room-creator-box:hover { background: var(--tile-hover-bg, var(--tile-bg)); border: var(--card-hover-border); }
-  & :is(.room-stat-val, .profile-stat-val) { font-family: var(--font-ui); color: var(--tile-value); }
+  & .room-stat-val { font-family: var(--font-ui); color: var(--tile-value); }
   & :is(.room-stat-lbl, .profile-stat-lbl, .photo-detail-stat-label, .photo-detail-room-label) {
     font-family: var(--font-ui);
     color: var(--muted);
@@ -132,21 +198,21 @@ body:not(.glass-enabled) {
     border-radius: var(--avatar-radius, var(--media-radius));
   }
   & .room-meta-bar span { color: var(--well-fg); }
-  & .profile-bio-text { font-family: var(--font-ui); color: var(--well-fg); }
+  & .profile-bio-text { font-family: var(--font-ui); color: var(--panel-fg); }
+  & .profile-bio-more { font-family: var(--font-ui); color: var(--link); }
+  & .profile-bio-more:hover { color: var(--link-hover); }
+  & .profile-stat-item { border-top: var(--sep); }
+  & .profile-stat-val { font-family: var(--font-ui); color: var(--panel-fg); }
   & .profile-avatar-image {
     background: var(--surface);
     border: 4px solid var(--surface);
     border-radius: var(--avatar-radius, var(--media-radius));
   }
-  & .profile-username { font-family: var(--font-ui); color: var(--muted); }
-  & :is(.profile-status-badge, .profile-activity-badge) {
-    color: var(--well-fg);
-    background: var(--tile-bg);
-    border: var(--tile-border);
-    border-radius: var(--badge-radius, 999px);
-    box-shadow: none;
-  }
-  & .profile-activity-badge { color: var(--accent-text); }
+  & .profile-avatar-wrapper .status-dot { box-shadow: 0 0 0 4px var(--surface); }
+  & :is(.profile-meta-line, .profile-username) { font-family: var(--font-ui); color: var(--muted); }
+  & .profile-meta-line > * + *::before { color: var(--muted); }
+  & .profile-header-content:has(.status-dot.online) .profile-presence { color: var(--ok); }
+  & .profile-activity-badge { color: var(--panel-fg); }
   & .profile-tabs-nav { gap: 18px; border-bottom: var(--sep); }
   & .profile-tab-btn { font-family: var(--font-ui); font-size: 11px; color: var(--muted); }
   & .profile-tab-btn:hover { color: var(--text) !important; }
@@ -154,6 +220,57 @@ body:not(.glass-enabled) {
     color: var(--accent-text) !important;
     border-bottom: 2px solid var(--accent) !important;
   }
+
+  /* ── Profile extras and inventions (Stella) ───────────────────────── */
+  & .profile-junior {
+    font-family: var(--font-ui);
+    color: var(--muted);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--badge-radius, 999px);
+    box-shadow: var(--tile-shadow);
+  }
+  & :is(.profile-side-count, .profile-cheer-name, .profile-more-note) { font-family: var(--font-ui); color: var(--muted); }
+  & .profile-cheer-count { font-family: var(--font-ui); color: var(--panel-fg); }
+  & .profile-cheer-bar {
+    background: var(--well-bg);
+    box-shadow: inset 0 0 0 1px var(--line);
+    border-radius: var(--bar-radius);
+  }
+  & .profile-cheer-fill { background: var(--accent); border-radius: var(--bar-fill-radius); }
+  & .invention-card {
+    color: var(--panel-fg);
+    background: var(--card-bg);
+    border: var(--card-border);
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease),
+                box-shadow var(--dur) var(--ease);
+  }
+  & .invention-card:hover {
+    background: var(--card-hover-bg);
+    border: var(--card-hover-border);
+    box-shadow: var(--card-hover-shadow);
+  }
+  & :is(.invention-thumb, .invention-modal-image) {
+    background: var(--media-bg);
+    border: var(--media-border);
+    border-radius: var(--media-radius);
+  }
+  & .invention-badge { font-family: var(--font-ui); border-radius: min(var(--badge-radius, 4px), 4px); }
+  & .invention-name { font-family: var(--font-ui); color: var(--panel-fg); }
+  & :is(.invention-meta, .invention-modal-creator, .invention-fact-lbl) { font-family: var(--font-ui); color: var(--muted); }
+  & .modal-box.invention-modal-box { width: 520px; }
+  & .invention-modal-name { font-family: var(--heading-font); color: var(--panel-fg); }
+  & .invention-modal-description { font-family: var(--font-ui); color: var(--panel-fg); }
+  & .invention-fact {
+    color: var(--well-fg);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--tile-radius);
+    box-shadow: var(--tile-shadow);
+  }
+  & .invention-fact-val { font-family: var(--font-ui); color: var(--tile-value); }
 
   /* ── Photo detail ─────────────────────────────────────────────────── */
   & .photo-detail-img-wrap {

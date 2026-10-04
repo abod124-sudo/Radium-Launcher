@@ -2016,25 +2016,72 @@ pub async fn fetch_user_photos(user_id: &str, skip: i64, take: i64) -> Value {
     })
 }
 
+/// The cheers a player has been given, by kind, from their reputation row:
+/// what the game's own profile shows under the name. Null when the row is
+/// missing (the read failed, or a system account).
+fn cheers_of(reputation: Option<&Value>) -> Value {
+    match reputation {
+        Some(r) => json!({
+            "general": i64_at(r, "CheerGeneral"),
+            "helpful": i64_at(r, "CheerHelpful"),
+            "creative": i64_at(r, "CheerCreative"),
+            "greatHost": i64_at(r, "CheerGreatHost"),
+            "sportsman": i64_at(r, "CheerSportsman"),
+        }),
+        None => Value::Null,
+    }
+}
+
+/// `/api/relationships/mutualfriends` rows (`{AccountId, Username,
+/// DisplayName, ProfileImage}`) in the shape the page draws people in.
+fn mutual_friends_of(rows: &Value) -> Vec<Value> {
+    rows.as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter(|r| i64_at(r, "AccountId") != 0)
+                .map(|r| {
+                    json!({
+                        "id": i64_at(r, "AccountId"),
+                        "userName": str_at(r, "Username"),
+                        "displayName": str_at(r, "DisplayName"),
+                        "AvatarUrl": img_url(str_at(r, "ProfileImage"), 128),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Profile details for one account: bio, subscriber count, level, avatar and
-/// banner.
+/// banner, and what the game's profile shows besides — the display emoji, a
+/// Junior account, cheers by kind, and the friends you share.
 ///
 /// Fills the person detail view. Friends and visit counts aren't exposed for an
 /// arbitrary account on Stella (friends is only the signed-in user's own list),
 /// so those come back empty and the UI hides them — like Vanilla.
 pub async fn user_details(account_id: i64) -> Value {
-    // Four separate reads, side by side rather than one after another.
-    let (account_path, bio_path, reputation_path) = (
+    // Five separate reads, side by side rather than one after another.
+    let (account_path, bio_path, reputation_path, mutual_path) = (
         format!("/account/bulk?id={account_id}"),
         format!("/account/{account_id}/bio"),
         format!("/api/playerReputation/v2/bulk?id={account_id}"),
+        format!("/api/relationships/mutualfriends?id={account_id}"),
     );
     let ids = [account_id];
-    let (account, bio, reputation, levels) = tokio::join!(
+    // Asked about yourself, "mutual friends" answers your whole friends list,
+    // so your own profile doesn't ask.
+    let mutual = async {
+        if my_account_id().await.ok() == Some(account_id) {
+            return Vec::new();
+        }
+        api_get(&mutual_path).await.map(|v| mutual_friends_of(&v)).unwrap_or_default()
+    };
+    let (account, bio, reputation, levels, mutual) = tokio::join!(
         api_get(&account_path),
         api_get(&bio_path),
         api_get(&reputation_path),
         player_levels(&ids),
+        mutual,
     );
 
     // Core record (display name, images). A system/placeholder account id (e.g.
@@ -2056,15 +2103,26 @@ pub async fn user_details(account_id: i64) -> Value {
     // accounts carry year 1 here; the page leaves those out.
     let created_at = account.as_ref().map(|a| str_at(a, "createdAt").to_string()).unwrap_or_default();
 
+    // Shown beside the name, as the game does. Capped: it is meant to be one
+    // emoji, and it goes on the page as text.
+    let emoji: String = account
+        .as_ref()
+        .map(|a| str_at(a, "displayEmoji").trim().chars().take(8).collect())
+        .unwrap_or_default();
+    let junior = account
+        .as_ref()
+        .and_then(|a| a.get("isJunior"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
     let bio = bio.ok().map(|v| str_at(&v, "bio").to_string()).unwrap_or_default();
 
-    // Reputation carries the subscriber count. It answers 500 for some
-    // system accounts, so a failure just leaves the count blank.
+    // Reputation carries the subscriber count and the cheers. It answers 500
+    // for some system accounts, so a failure just leaves those blank.
+    let reputation = reputation.ok().and_then(|v| v.as_array().and_then(|a| a.first().cloned()));
     let subscribers = reputation
-        .ok()
-        .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
-        .map(|r| i64_at(&r, "SubscriberCount"))
-        .map(|n| n.to_string())
+        .as_ref()
+        .map(|r| i64_at(r, "SubscriberCount").to_string())
         .unwrap_or_default();
 
     json!({
@@ -2081,6 +2139,75 @@ pub async fn user_details(account_id: i64) -> Value {
         "avatar": avatar,
         "userName": username,
         "displayName": display,
+        "emoji": emoji,
+        "junior": junior,
+        "cheers": cheers_of(reputation.as_ref()),
+        "mutualFriends": mutual,
+    })
+}
+
+// ─── Inventions ─────────────────────────────────────────────────────────────
+//
+// `/api/inventions/v1/fromcreators?id=<account>&skip=&take=` lists what a
+// player has made, newest first (measured 2026-10-04: creator 2702's 16, and
+// skip/take page it). `creatorId=`, `creatorIds=` and `accountId=` are taken
+// too and always answer `[]` — the same trap as account search's `query=`.
+// Rows are the stock Rec Room invention. Stella leaves CheerCount at 0 on
+// every one sampled, so downloads is the number that means something.
+
+/// One invention in the shape the profile's grid draws.
+fn invention_row(i: &Value) -> Value {
+    let image = str_at(i, "ImageName");
+    let flag = |key: &str| i.get(key).and_then(Value::as_bool).unwrap_or(false);
+    // The game's placeholder, which is no description at all.
+    let description = match str_at(i, "Description").trim() {
+        "No description yet" => "",
+        text => text,
+    };
+    json!({
+        "Id": i64_at(i, "InventionId"),
+        "Name": str_at(i, "Name"),
+        "Description": description,
+        "ImageName": image,
+        "ThumbUrl": img_url(image, 1024),
+        "Downloads": i64_at(i, "NumDownloads"),
+        "CheerCount": i64_at(i, "CheerCount"),
+        "Price": i64_at(i, "Price"),
+        "Certified": flag("IsCertifiedInvention"),
+        "Featured": flag("IsFeatured"),
+        "CreatedAt": str_at(i, "CreatedAt"),
+        "CreatorPlayerId": i64_at(i, "CreatorPlayerId"),
+    })
+}
+
+/// Whether the game would show this invention to other players.
+fn invention_listed(i: &Value) -> bool {
+    i.get("IsPublished").and_then(Value::as_bool).unwrap_or(true)
+        && !i.get("HideFromPlayer").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Inventions a given account has published.
+pub async fn fetch_user_inventions(user_id: &str, skip: i64, take: i64) -> Value {
+    let user_id = match numeric_id(user_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    let skip = skip.max(0);
+    let path = format!("/api/inventions/v1/fromcreators?id={user_id}&skip={skip}&take={take}");
+    let data = match api_get(&path).await {
+        Ok(v) => v,
+        Err(e) => return json!({ "success": false, "error": e }),
+    };
+    let rows = data.as_array().cloned().unwrap_or_default();
+    // Paged by what the server sent, before the unlisted ones are dropped:
+    // a short page is the last one, however many of it are shown.
+    let last_page = (rows.len() as i64) < take;
+    let shaped: Vec<Value> = rows.iter().filter(|i| invention_listed(i)).map(invention_row).collect();
+    let shown = skip + shaped.len() as i64;
+    let (total, known) = if last_page { (shown, true) } else { (shown + 1, false) };
+    json!({
+        "success": true,
+        "data": { "Results": shaped, "TotalResults": total, "TotalKnown": known }
     })
 }
 
@@ -2397,6 +2524,52 @@ mod tests {
         assert_eq!((rooms.len(), total), (2, None));
         let (rooms, total) = rooms_of(json!({ "error": "x" }));
         assert_eq!((rooms.len(), total), (0, None));
+    }
+
+    #[test]
+    fn invention_row_drops_the_placeholder_description() {
+        let i = json!({
+            "InventionId": 406, "CreatorPlayerId": 2702, "Name": "gun thing",
+            "Description": "No description yet", "ImageName": "InventionThumbnail-2702-x",
+            "NumDownloads": 52, "CheerCount": 0, "Price": 0, "IsCertifiedInvention": false,
+            "CreatedAt": "2026-05-04T19:43:48.639Z"
+        });
+        let row = invention_row(&i);
+        assert_eq!(row["Id"], 406);
+        assert_eq!(row["Description"], "");
+        assert_eq!(row["Downloads"], 52);
+        assert_eq!(row["Certified"], false);
+        assert_eq!(row["ThumbUrl"], "https://api.stellaonline.org/img/InventionThumbnail-2702-x?width=1024");
+        let described = invention_row(&json!({ "Description": "  it shoots things " }));
+        assert_eq!(described["Description"], "it shoots things");
+    }
+
+    #[test]
+    fn unpublished_and_hidden_inventions_are_left_out() {
+        assert!(invention_listed(&json!({ "IsPublished": true, "HideFromPlayer": false })));
+        assert!(invention_listed(&json!({})));
+        assert!(!invention_listed(&json!({ "IsPublished": false })));
+        assert!(!invention_listed(&json!({ "IsPublished": true, "HideFromPlayer": true })));
+    }
+
+    #[test]
+    fn mutual_friends_and_cheers_are_reshaped() {
+        let rows = json!([
+            { "AccountId": 66620, "Username": "TopazRaptor1251", "DisplayName": "Topaz", "ProfileImage": "ProfileThumbnail-66620-x" },
+            { "AccountId": 0, "Username": "nobody" }
+        ]);
+        let people = mutual_friends_of(&rows);
+        assert_eq!(people.len(), 1);
+        assert_eq!(people[0]["id"], 66620);
+        assert_eq!(people[0]["userName"], "TopazRaptor1251");
+        assert_eq!(people[0]["AvatarUrl"], "https://api.stellaonline.org/img/ProfileThumbnail-66620-x?width=128");
+        assert!(mutual_friends_of(&json!({ "error": "x" })).is_empty());
+
+        let rep = json!({ "CheerGeneral": 429, "CheerHelpful": 79, "CheerCreative": 107, "CheerGreatHost": 104, "CheerSportsman": 103 });
+        let cheers = cheers_of(Some(&rep));
+        assert_eq!(cheers["general"], 429);
+        assert_eq!(cheers["greatHost"], 104);
+        assert!(cheers_of(None).is_null());
     }
 
     #[test]

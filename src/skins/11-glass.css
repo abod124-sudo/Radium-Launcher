@@ -1448,10 +1448,8 @@
    its own --bg-panel. On an opaque skin that is the card's colour and
    disappears; under glass --bg-panel is a white wash, so it stacked on
    the card's own fill and laid a lighter band across the bottom with a
-   hard edge where the top half ends. The card already has a fill.
-   The player card's stats-and-bio half does exactly the same. */
-:root body.glass-enabled .room-card-footer,
-:root body.glass-enabled .profile-body-content {
+   hard edge where the top half ends. The card already has a fill. */
+:root body.glass-enabled .room-card-footer {
   background: transparent !important;
 }
 
@@ -1462,6 +1460,103 @@
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.05);
 }
+
+/* The profile picture: rounder than the moderndark layout's 8px, with a
+   frosted edge, and the online dot cut out of the glass rather than out of
+   --bg-panel (a white wash here, so the cut-out never showed). */
+:root body.glass-enabled #peopleDetailAvatar {
+  border: 3px solid rgba(255, 255, 255, 0.16) !important;
+  border-radius: 22px !important;
+  box-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.6) !important;
+}
+:root body.glass-enabled .profile-avatar-wrapper .status-dot {
+  right: 1px;
+  bottom: 1px;
+  background: var(--lg-positive);
+  box-shadow: 0 0 0 4px rgba(20, 22, 36, 0.92), 0 0 12px rgba(48, 209, 88, 0.55);
+}
+:root body.glass-enabled .profile-header-content:has(.status-dot.online) .profile-presence {
+  color: var(--lg-positive);
+}
+:root body.glass-enabled .profile-bio-more { color: #64d2ff; }
+
+/* Profile extras and inventions: tinted wells, like the photo tiles. */
+:root body.glass-enabled .profile-junior {
+  border: none;
+  background: rgba(255, 255, 255, 0.10);
+  color: rgba(235, 235, 245, 0.75);
+}
+:root body.glass-enabled .profile-cheer-bar { background: rgba(255, 255, 255, 0.08); }
+:root body.glass-enabled .profile-cheer-fill {
+  background: linear-gradient(90deg, var(--lg-accent), #64d2ff);
+}
+:root body.glass-enabled .invention-card {
+  border: none;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transition: background-color 0.2s var(--lg-ease);
+}
+:root body.glass-enabled .invention-card:hover { background: rgba(255, 255, 255, 0.09); }
+:root body.glass-enabled .invention-thumb { border-radius: 11px; }
+:root body.glass-enabled .invention-modal-image { border-radius: 16px; }
+:root body.glass-enabled .invention-fact {
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* ── Friends (Stella) ─────────────────────────────────────────── */
+/* On the Home card a friend is a well inside the frosted card; on the
+   FRIENDS tab, where they sit straight on the backdrop, a glass card of
+   their own. */
+:root body.glass-enabled .friend-card,
+:root body.glass-enabled .friend-chip {
+  --friend-cut: rgba(20, 22, 36, 0.92);
+  border: none;
+  transition: background-color 0.2s var(--lg-ease), box-shadow 0.2s var(--lg-ease);
+}
+:root body.glass-enabled .home-friends .friend-card,
+:root body.glass-enabled .friend-chip {
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+:root body.glass-enabled .home-friends .friend-card { border-radius: 14px; }
+:root body.glass-enabled .home-friends .friend-card:hover,
+:root body.glass-enabled .friend-chip:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+:root body.glass-enabled .friends-tab-list .friend-card {
+  background: var(--lg-fill);
+  border-radius: 18px;
+  box-shadow: var(--lg-rim-shadow), var(--lg-shadow);
+}
+:root body.glass-enabled .friends-tab-list .friend-card:hover {
+  background: linear-gradient(rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.05)), var(--lg-fill);
+}
+:root body.glass-enabled .friend-avatar img {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24%;
+  box-sizing: border-box;
+}
+:root body.glass-enabled .friend-chip .friend-avatar img { border-radius: 50%; }
+:root body.glass-enabled .is-online .friend-dot {
+  background: var(--lg-positive);
+  box-shadow: 0 0 0 2px var(--friend-cut), 0 0 8px rgba(48, 209, 88, 0.6);
+}
+:root body.glass-enabled .is-online .friend-where { color: var(--lg-positive); }
+:root body.glass-enabled .friends-summary.has-online::before {
+  background: var(--lg-positive);
+  box-shadow: 0 0 8px rgba(48, 209, 88, 0.8);
+}
+:root body.glass-enabled .friends-section-label {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+:root body.glass-enabled .friends-section-head::after { background: rgba(255, 255, 255, 0.08); }
 
 /* Inner wells inside the detail views: tinted, not blurred again. */
 :root body.glass-enabled .bevel-inset,

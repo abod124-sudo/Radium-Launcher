@@ -259,7 +259,7 @@ body.theme-steam-green {
   & .sidebar-footer { box-shadow: inset 0 1px 0 #6a7661; }
   & .sg-title,
   & .caption-header,
-  & .profile-bio-title,
+  & .profile-side-title,
   & #roomsDetailPhotosSection h4 { box-shadow: 0 1px 0 #6a7661; }
   & .manage-sep { box-shadow: 0 1px 0 #6a7661; }
   & .native-table-container { padding: 1px; }

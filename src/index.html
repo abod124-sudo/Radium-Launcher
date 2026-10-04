@@ -355,12 +355,13 @@
           </div>
         </div>
 
-        <!-- Stella only: your friends, online first, from Stella's live
-             presence (stella_hub.rs). Clicking one opens their profile. -->
+        <!-- Stella only: your friends, from Stella's live presence
+             (stella_hub.rs). Online friends are cards with JOIN, everyone
+             else a chip underneath; any of them opens their profile. -->
         <div class="qs-card home-friends network-only-stella" id="stellaFriendsCard">
           <div class="qs-header-row">
             <span class="qs-label">Friends</span>
-            <span class="home-friends-count" id="stellaFriendsCount"></span>
+            <span class="friends-summary" id="stellaFriendsCount"></span>
           </div>
           <div class="home-friends-list" id="stellaFriendsList"></div>
         </div>
@@ -371,12 +372,19 @@
       <!-- ───────── FEED TAB (Vanilla only) ────────────── -->
       <!-- ───────── FRIENDS TAB (Stella, when chosen in Settings) ───── -->
       <section class="tab-panel" id="tab-friends">
-        <div class="panel-header">
-          <h2>FRIENDS</h2>
-          <span class="home-friends-count" id="stellaFriendsTabCount"></span>
+        <div class="panel-header friends-tab-header">
+          <div class="friends-tab-title">
+            <h2>FRIENDS</h2>
+            <span class="friends-summary" id="stellaFriendsTabCount"></span>
+          </div>
+          <div class="native-search-bar friends-search">
+            <input type="text" id="stellaFriendsSearch" class="cfg-input" placeholder="Find a friend..."
+                   aria-label="Find a friend" autocomplete="off" spellcheck="false" />
+          </div>
         </div>
+        <!-- Online and the rest, each a grid of cards (renderStellaFriendsInto). -->
         <div class="native-panel friends-tab-panel">
-          <div class="home-friends-list friends-tab-list" id="stellaFriendsTabList"></div>
+          <div class="friends-tab-list" id="stellaFriendsTabList"></div>
         </div>
       </section>
 
@@ -589,11 +597,13 @@
               <button id="btnPeopleBack" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">← Back to List</button>
             </div>
             <div class="bevel-inset flex-1 p-4 overflow-y-auto" style="background: var(--bg-dark); min-height: 0;">
-              <!-- Profile header: banner, then the avatar overlapping it beside
-                   who the player is and where they are, with what you can do
-                   (JOIN, SUBSCRIBE) at the right; one row of stats, and the
-                   bio only when there is one. Class names are the ones every
-                   skin already styles; the layout is in style.css. -->
+              <!-- Profile: a header card (the banner, the avatar overlapping
+                   it beside who the player is and where they are, and what
+                   you can do — JOIN, SUBSCRIBE — at the right), then two
+                   columns: About (bio and numbers) at the left, staying in
+                   view while PHOTOS / FEEDS / ROOMS at the right scroll.
+                   Layout in style.css; each skin's paint in 03-content.css,
+                   glass in 11-glass.css. -->
               <div class="profile-card-container bevel-inset">
                 <div id="peopleDetailBanner" class="profile-banner-container">
                   <div class="profile-banner-overlay"></div>
@@ -602,21 +612,25 @@
                 <div class="profile-header-content">
                   <div class="profile-avatar-wrapper">
                     <img id="peopleDetailAvatar" src="data:," alt="Player Avatar" class="profile-avatar-image image-loading-placeholder" />
+                    <!-- Presence. Drawn on the picture's corner, and only
+                         while the player is online; the line beside the
+                         name says the rest. -->
+                    <span id="peopleDetailStatusDot" class="status-dot unknown"></span>
                   </div>
                   <div class="profile-identity-info">
                     <div class="profile-name-row">
                       <div id="peopleDetailDisplayName" class="profile-display-name">Display Name</div>
+                      <!-- The emoji the player shows beside their name (Stella). -->
+                      <span id="peopleDetailEmoji" class="profile-emoji" hidden></span>
                       <!-- Staff roles, populated from the network's own flags. -->
                       <div id="peopleDetailRoles" class="profile-roles"></div>
+                      <span id="peopleDetailJunior" class="profile-junior" hidden>Junior</span>
                     </div>
-                    <span id="peopleDetailUsername" class="profile-username">@username</span>
-                    <!-- Online or not, and where: "In RecCenter". -->
-                    <div class="profile-username-status">
-                      <div class="profile-status-badge bevel-inset">
-                        <span id="peopleDetailStatusDot" class="status-dot online"></span>
-                        <span id="peopleDetailStatusLabel">ONLINE</span>
-                      </div>
-                      <div id="peopleDetailActivityBadge" class="profile-activity-badge bevel-inset" style="display: none;"></div>
+                    <!-- "@handle · Online · In RecCenter" -->
+                    <div class="profile-meta-line">
+                      <span id="peopleDetailUsername" class="profile-username">@username</span>
+                      <span id="peopleDetailStatusLabel" class="profile-presence">Online</span>
+                      <span id="peopleDetailActivityBadge" class="profile-activity-badge" style="display: none;"></span>
                     </div>
                   </div>
                   <div class="profile-actions">
@@ -630,76 +644,104 @@
                             id="peopleDetailSubscribeBtn" aria-pressed="false" hidden>SUBSCRIBE</button>
                   </div>
                 </div>
+              </div>
 
-                <div class="profile-body-content">
-                  <!-- One row; a tile the network doesn't publish is hidden. -->
-                  <div class="profile-stats-row">
-                    <!-- From the player's own row where the list had it, else
-                         from the profile lookup. Hidden on Radium. -->
-                    <div class="profile-stat-item bevel-inset" hidden>
-                      <div id="peopleDetailLevel" class="profile-stat-val"></div>
-                      <div class="profile-stat-lbl">LEVEL</div>
+              <div class="profile-columns">
+                <!-- About, then what the network adds: cheers by kind and the
+                     friends you share (Stella), each hidden when empty. -->
+                <aside class="profile-side">
+                  <section class="profile-panel profile-about bevel-inset">
+                    <div class="profile-side-title">About</div>
+                    <!-- Shown only when the player wrote a bio. -->
+                    <div class="profile-bio-box" hidden>
+                      <p id="peopleDetailBio" class="profile-bio-text"></p>
+                      <button type="button" id="peopleDetailBioMore" class="profile-bio-more" hidden>Show more</button>
                     </div>
-                    <div class="profile-stat-item bevel-inset">
-                      <div id="peopleDetailFriends" class="profile-stat-val">0</div>
-                      <div class="profile-stat-lbl">FRIENDS</div>
+                    <!-- One row per number; a row the network doesn't publish
+                         is hidden (setProfileStat). -->
+                    <div class="profile-stats-row">
+                      <!-- From the player's own row where the list had it, else
+                           from the profile lookup. Hidden on Radium. -->
+                      <div class="profile-stat-item" hidden>
+                        <span class="profile-stat-lbl">Level</span>
+                        <span id="peopleDetailLevel" class="profile-stat-val"></span>
+                      </div>
+                      <div class="profile-stat-item">
+                        <span class="profile-stat-lbl">Friends</span>
+                        <span id="peopleDetailFriends" class="profile-stat-val">0</span>
+                      </div>
+                      <div class="profile-stat-item">
+                        <span class="profile-stat-lbl">Subscribers</span>
+                        <span id="peopleDetailSubscribers" class="profile-stat-val">0</span>
+                      </div>
+                      <div class="profile-stat-item">
+                        <span class="profile-stat-lbl">Visits</span>
+                        <span id="peopleDetailVisits" class="profile-stat-val">0</span>
+                      </div>
+                      <!-- When the account was made, where the network says (Stella). -->
+                      <div class="profile-stat-item" hidden>
+                        <span class="profile-stat-lbl">Joined</span>
+                        <span id="peopleDetailJoined" class="profile-stat-val"></span>
+                      </div>
                     </div>
-                    <div class="profile-stat-item bevel-inset">
-                      <div id="peopleDetailSubscribers" class="profile-stat-val">0</div>
-                      <div class="profile-stat-lbl">SUBSCRIBERS</div>
-                    </div>
-                    <div class="profile-stat-item bevel-inset">
-                      <div id="peopleDetailVisits" class="profile-stat-val">0</div>
-                      <div class="profile-stat-lbl">VISITS</div>
-                    </div>
-                    <!-- When the account was made, where the network says (Stella). -->
-                    <div class="profile-stat-item bevel-inset" hidden>
-                      <div id="peopleDetailJoined" class="profile-stat-val"></div>
-                      <div class="profile-stat-lbl">JOINED</div>
-                    </div>
+                  </section>
+
+                  <section class="profile-panel bevel-inset" id="peopleDetailCheers" hidden>
+                    <div class="profile-side-title">Cheers <span class="profile-side-count" id="peopleDetailCheersTotal"></span></div>
+                    <div class="profile-cheer-list" id="peopleDetailCheerList"></div>
+                  </section>
+
+                  <section class="profile-panel bevel-inset" id="peopleDetailMutual" hidden>
+                    <div class="profile-side-title">Mutual friends <span class="profile-side-count" id="peopleDetailMutualCount"></span></div>
+                    <div class="profile-mutual-list" id="peopleDetailMutualList"></div>
+                  </section>
+                </aside>
+
+                <section class="profile-panel profile-main bevel-inset">
+                  <!-- What the player has made. FEEDS is hidden where the network
+                       publishes no activity feed (Vanilla, Stella). -->
+                  <div class="profile-tabs-nav" role="tablist">
+                    <div id="tabBtnPeoplePhotos" class="profile-tab-btn active" role="tab" tabindex="0">PHOTOS</div>
+                    <div id="tabBtnPeopleFeeds" class="profile-tab-btn" role="tab" tabindex="0">FEEDS</div>
+                    <div id="tabBtnPeopleRooms" class="profile-tab-btn" role="tab" tabindex="0">ROOMS</div>
+                    <div id="tabBtnPeopleInventions" class="profile-tab-btn" role="tab" tabindex="0" hidden>INVENTIONS</div>
                   </div>
 
-                  <!-- Shown only when the player wrote a bio. -->
-                  <div class="profile-bio-box bevel-inset" hidden>
-                    <div id="peopleDetailAboutLabel" class="profile-bio-title">About Player</div>
-                    <p id="peopleDetailBio" class="profile-bio-text"></p>
+                  <!-- PHOTOS: a grid of thumbnails; each opens the photo page. -->
+                  <div id="peopleDetailPhotosSection" class="profile-tab-content" style="margin-top: 15px; width: 100%;">
+                    <div id="peopleDetailPhotosGrid" class="profile-photo-grid">
+                      <!-- photos inserted here -->
+                    </div>
+                    <div id="peopleDetailPhotosEmpty" class="photo-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No photos found for this player.</div>
+                    <div id="peopleDetailPhotosSentinel" style="height: 1px; width: 100%;"></div>
                   </div>
-                </div>
-              </div>
 
-              <!-- What the player has made. FEEDS is hidden where the network
-                   publishes no activity feed (Vanilla, Stella). -->
-              <div class="profile-tabs-nav" role="tablist">
-                <div id="tabBtnPeoplePhotos" class="profile-tab-btn active" role="tab" tabindex="0">PHOTOS</div>
-                <div id="tabBtnPeopleFeeds" class="profile-tab-btn" role="tab" tabindex="0">FEEDS</div>
-                <div id="tabBtnPeopleRooms" class="profile-tab-btn" role="tab" tabindex="0">ROOMS</div>
-              </div>
+                  <!-- FEEDS -->
+                  <div id="peopleDetailFeedsSection" class="profile-tab-content" style="display: none; margin-top: 15px; width: 100%;">
+                    <div id="peopleDetailFeedsGrid" class="photo-list-vertical">
+                      <!-- feeds inserted here -->
+                    </div>
+                    <div id="peopleDetailFeedsEmpty" class="photo-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No feeds found for this player.</div>
+                    <div id="peopleDetailFeedsSentinel" style="height: 1px; width: 100%;"></div>
+                  </div>
 
-              <!-- PHOTOS: a grid of thumbnails; each opens the photo page. -->
-              <div id="peopleDetailPhotosSection" class="profile-tab-content" style="margin-top: 15px; width: 100%;">
-                <div id="peopleDetailPhotosGrid" class="profile-photo-grid">
-                  <!-- photos inserted here -->
-                </div>
-                <div id="peopleDetailPhotosEmpty" class="photo-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No photos found for this player.</div>
-                <div id="peopleDetailPhotosSentinel" style="height: 1px; width: 100%;"></div>
-              </div>
+                  <!-- ROOMS -->
+                  <div id="peopleDetailRoomsSection" class="profile-tab-content" style="display: none; margin-top: 15px; width: 100%;">
+                    <div id="peopleDetailRoomsGrid" class="room-list-vertical" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
+                      <!-- rooms inserted here -->
+                    </div>
+                    <div id="peopleDetailRoomsEmpty" class="room-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No rooms found for this player.</div>
+                    <div id="peopleDetailRoomsSentinel" style="height: 1px; width: 100%;"></div>
+                  </div>
 
-              <!-- FEEDS -->
-              <div id="peopleDetailFeedsSection" class="profile-tab-content" style="display: none; margin-top: 15px; width: 100%;">
-                <div id="peopleDetailFeedsGrid" class="photo-list-vertical">
-                  <!-- feeds inserted here -->
-                </div>
-                <div id="peopleDetailFeedsEmpty" class="photo-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No feeds found for this player.</div>
-                <div id="peopleDetailFeedsSentinel" style="height: 1px; width: 100%;"></div>
-              </div>
-
-              <!-- ROOMS -->
-              <div id="peopleDetailRoomsSection" class="profile-tab-content" style="display: none; margin-top: 15px; width: 100%;">
-                <div id="peopleDetailRoomsGrid" class="room-list-vertical" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
-                  <!-- rooms inserted here -->
-                </div>
-                <div id="peopleDetailRoomsEmpty" class="room-empty-msg" style="display: none; font-size: 12px; color: var(--text-muted); font-style: italic; text-align: center; margin-top: 20px;">No rooms found for this player.</div>
-                <div id="peopleDetailRoomsSentinel" style="height: 1px; width: 100%;"></div>
+                  <!-- INVENTIONS (Stella): what the player has published;
+                       each opens the invention dialog. -->
+                  <div id="peopleDetailInventionsSection" class="profile-tab-content" style="display: none; margin-top: 15px; width: 100%;">
+                    <div id="peopleDetailInventionsGrid" class="profile-invention-grid"></div>
+                    <div id="peopleDetailInventionsEmpty" class="photo-empty-msg" style="display: none;">No inventions published yet.</div>
+                    <div id="peopleDetailInventionsSentinel" style="height: 1px; width: 100%;"></div>
+                  </div>
+                </section>
               </div>
             </div>
           </div>
@@ -1535,6 +1577,30 @@
        photo showed it *smaller* than the copy already on the page behind it.
        The inner bevel frame is gone too — the box already draws a border, and
        the two together read as a picture frame inside a picture frame. -->
+  <!-- An invention, opened from a profile's INVENTIONS tab (Stella). -->
+  <div class="modal-overlay" id="inventionModal" style="display:none">
+    <div class="modal-box invention-modal-box" role="dialog" aria-modal="true" aria-labelledby="inventionModalName">
+      <div class="modal-titlebar">
+        <span class="modal-title">INVENTION</span>
+        <button class="modal-close-btn" id="inventionModalClose" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body invention-modal-body">
+        <div class="invention-modal-image">
+          <img id="inventionModalImage" src="data:," alt="" />
+        </div>
+        <div class="invention-modal-head">
+          <div id="inventionModalName" class="invention-modal-name"></div>
+          <div id="inventionModalCreator" class="invention-modal-creator"></div>
+        </div>
+        <p id="inventionModalDescription" class="invention-modal-description" hidden></p>
+        <div id="inventionModalFacts" class="invention-modal-facts"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-primary" id="inventionModalDone">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay lightbox-overlay" id="lightboxModal" style="display:none">
     <div class="modal-box lightbox-box" role="dialog" aria-modal="true" aria-labelledby="lightboxTitle">
       <div class="modal-titlebar">

@@ -384,7 +384,6 @@ body:not(.glass-enabled) {
   /* The skin's error colour, as on an OFFLINE status card. Grey is kept for
      "unknown", so the two never look alike. */
   & .status-dot.offline { background-color: var(--err); }
-  & .profile-status-badge:has(.status-dot.offline) { color: var(--err); }
   & .test-result { font-family: var(--font-ui); }
   & .test-result.ok { color: var(--ok); }
   & .test-result.error { color: var(--err); }

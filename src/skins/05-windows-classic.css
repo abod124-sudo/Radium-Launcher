@@ -366,10 +366,6 @@ body.theme-win95 {
   & :is(.feed-subtitle, .photo-empty-msg, .feed-loading, #roomsDetailPhotosSection h4,
         .autosave-indicator) { color: #ffffff; }
   & #roomsDetailPhotosSection h4 { border-bottom: 1px solid rgba(255, 255, 255, 0.5); }
-  & .profile-tabs-nav { border-bottom: 1px solid rgba(255, 255, 255, 0.5); }
-  & .profile-tab-btn { color: #dfdfdf; }
-  & .profile-tab-btn:hover { color: #ffffff !important; }
-  & .profile-tab-btn.active { color: #ffffff !important; border-bottom-color: #ffffff !important; }
 
   & .native-panel {
     padding: 8px;

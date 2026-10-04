@@ -191,6 +191,8 @@ const NETWORKS = {
     hasFeed: false,
     hasPresence: false,
     hasPhotoFeed: false,
+    // A player's published inventions (stella_api::fetch_user_inventions).
+    hasInventions: true,
     // There is no list of everyone, so before something is typed People lists
     // the players online now, from the live hub (stella_api::browse_online).
     hasPeopleBrowse: true,
@@ -429,6 +431,7 @@ function withoutBackdrop(cfg) {
     fetchUserPhotos:      (args) => invoke('fetch_user_photos', { args: { ...args, network: activeNetwork } }),
     fetchRoomPhotos:      (args) => invoke('fetch_room_photos', { args: { ...args, network: activeNetwork } }),
     fetchUserRooms:       (args) => invoke('fetch_user_rooms', { args: { ...args, network: activeNetwork } }),
+    fetchUserInventions:  (args) => invoke('fetch_user_inventions', { args: { ...args, network: activeNetwork } }),
     fetchUserFeed:        (args) => invoke('fetch_user_feed', { args: { ...args, network: activeNetwork } }),
     fetchRecentPhotos:    (args) => invoke('fetch_recent_photos', { args: { ...args, network: activeNetwork } }),
     // Fire-and-forget: warms the active network's caches so the first visit to
@@ -1195,7 +1198,9 @@ function setProfileStat(el, value) {
 }
 
 /// The profile's bio: shown in the player's own words, and left out
-/// altogether when they wrote none, rather than a box saying so.
+/// altogether when they wrote none, rather than a box saying so. A long one
+/// is cut to a few lines with a toggle for the rest, so the numbers under it
+/// stay in view.
 function setProfileBio(text) {
   const el = $('peopleDetailBio');
   if (!el) return;
@@ -1203,6 +1208,112 @@ function setProfileBio(text) {
   el.textContent = bio;
   const box = el.closest('.profile-bio-box');
   if (box) box.hidden = !bio;
+  const more = $('peopleDetailBioMore');
+  if (!more) return;
+  el.classList.add('is-clamped');
+  more.textContent = 'Show more';
+  more.hidden = true;
+  // Measured once it has been laid out: only a bio the clamp cut short
+  // gets the toggle.
+  if (bio) requestAnimationFrame(() => { more.hidden = el.scrollHeight <= el.clientHeight + 1; });
+}
+
+document.getElementById('peopleDetailBioMore')?.addEventListener('click', (e) => {
+  const clamped = document.getElementById('peopleDetailBio')?.classList.toggle('is-clamped');
+  e.currentTarget.textContent = clamped ? 'Show more' : 'Show less';
+});
+
+/// What a Stella profile shows besides the numbers, from the profile lookup:
+/// the emoji beside the name, a Junior account, cheers by kind and the
+/// friends you share. `null` (another network, or before the lookup
+/// lands) hides them all.
+function setProfileExtras(details) {
+  const emoji = $('peopleDetailEmoji');
+  if (emoji) {
+    emoji.textContent = details?.emoji || '';
+    emoji.hidden = !emoji.textContent;
+  }
+  const junior = $('peopleDetailJunior');
+  if (junior) junior.hidden = details?.junior !== true;
+  renderProfileCheers(details?.cheers);
+  renderMutualFriends(details?.mutualFriends);
+}
+
+/// The kinds of cheer, in the game's order.
+const CHEER_KINDS = [
+  ['general', 'General'],
+  ['helpful', 'Helpful'],
+  ['creative', 'Creative'],
+  ['greatHost', 'Great Host'],
+  ['sportsman', 'Sportsman'],
+];
+
+/// Cheers by kind, each with a bar against the biggest. Hidden when the
+/// network has none to give, or the player has none yet.
+function renderProfileCheers(cheers) {
+  const panel = $('peopleDetailCheers');
+  const list = $('peopleDetailCheerList');
+  if (!panel || !list) return;
+  const counts = CHEER_KINDS.map(([key, label]) => [label, Math.max(0, Number(cheers?.[key]) || 0)]);
+  const total = counts.reduce((sum, [, n]) => sum + n, 0);
+  panel.hidden = !cheers || total === 0;
+  if (panel.hidden) {
+    list.replaceChildren();
+    return;
+  }
+  const totalEl = $('peopleDetailCheersTotal');
+  if (totalEl) totalEl.textContent = formatCount(total);
+  const most = Math.max(...counts.map(([, n]) => n));
+  list.replaceChildren(...counts.map(([label, n]) => {
+    const row = document.createElement('div');
+    row.className = 'profile-cheer';
+    const bar = document.createElement('span');
+    bar.className = 'profile-cheer-bar';
+    const fill = document.createElement('span');
+    fill.className = 'profile-cheer-fill';
+    fill.style.width = `${Math.round((n / most) * 100)}%`;
+    bar.append(fill);
+    row.append(friendSpan('profile-cheer-name', label), bar, friendSpan('profile-cheer-count', formatCount(n)));
+    return row;
+  }));
+}
+
+/// Friends you and this player share, as chips that open their profiles.
+/// The backend leaves the list empty on your own profile.
+const MUTUAL_FRIENDS_SHOWN = 24;
+function renderMutualFriends(people) {
+  const panel = $('peopleDetailMutual');
+  const list = $('peopleDetailMutualList');
+  if (!panel || !list) return;
+  const all = Array.isArray(people) ? people : [];
+  panel.hidden = all.length === 0;
+  const countEl = $('peopleDetailMutualCount');
+  if (countEl) countEl.textContent = String(all.length);
+  const chips = all.slice(0, MUTUAL_FRIENDS_SHOWN).map(p => {
+    const name = p.displayName || p.userName || 'Player';
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'friend-chip profile-mutual-chip';
+    const pic = document.createElement('span');
+    pic.className = 'friend-avatar';
+    const img = document.createElement('img');
+    img.alt = '';
+    img.loading = 'lazy';
+    img.dataset.fallback = PLACEHOLDER_AVATAR;
+    img.src = p.AvatarUrl ? thumbSrc(p.AvatarUrl, avatarWidth(22)) : PLACEHOLDER_AVATAR;
+    pic.append(img);
+    chip.append(pic, friendSpan('friend-chip-name', name));
+    chip.addEventListener('click', () => showCreatorProfile(p.userName, {
+      id: p.id,
+      displayName: p.displayName,
+      avatarUrl: p.AvatarUrl
+    }));
+    return chip;
+  });
+  if (all.length > MUTUAL_FRIENDS_SHOWN) {
+    chips.push(friendSpan('profile-more-note', `+${all.length - MUTUAL_FRIENDS_SHOWN} more`));
+  }
+  list.replaceChildren(...chips);
 }
 
 /// "Jun 2026" for when an account was made, or '' for none (some old
@@ -5946,6 +6057,32 @@ function friendStatusText(f) {
   return 'Online';
 }
 
+/// The line under a friend's name on their card: where they are, with a lock
+/// for a private room, or how they are when not online.
+function friendWhere(f) {
+  if (f.status !== 'online') return { text: friendStatusText(f), locked: false };
+  if (f.private) return { text: f.roomName || 'Private room', locked: true };
+  return { text: f.roomName ? `In ${f.roomName}` : 'Online', locked: false };
+}
+
+/// What the group of friends who aren't online is called. Once the list has
+/// settled they are simply offline; in its first moments some are still being
+/// checked, and while the game runs it holds their status, not the launcher.
+function friendsOthersLabel(others) {
+  const statuses = new Set(others.map(f => f.status));
+  if (statuses.has('paused')) return 'Shown in game';
+  if (statuses.has('checking')) return 'Checking…';
+  if (statuses.has('offline')) return 'Offline';
+  return 'Status unknown';
+}
+
+/// A padlock, drawn in the text's own colour.
+const FRIEND_LOCK_SVG = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.6 5.2V3.9a2.4 2.4 0 0 1 4.8 0v1.3" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="5.2" width="8" height="5.8" rx="1.5" fill="currentColor"/></svg>';
+
+/// The last list the backend sent, kept so typing in the FRIENDS tab's search
+/// can redraw it without asking again.
+let stellaFriendsRes = null;
+
 /// Fill both places the list can show: the Home card and the FRIENDS tab.
 /// Only one is visible at a time, and keeping both current means switching
 /// the setting shows a full list straight away.
@@ -5953,18 +6090,125 @@ function renderStellaFriends(res) {
   if (res?.success && res.loaded) {
     stellaFriendsById = new Map((res.friends || []).map(f => [Number(f.id), f]));
   }
-  renderStellaFriendsInto($('stellaFriendsList'), $('stellaFriendsCount'), res);
-  renderStellaFriendsInto($('stellaFriendsTabList'), $('stellaFriendsTabCount'), res);
+  stellaFriendsRes = res;
+  renderStellaFriendsInto($('stellaFriendsList'), $('stellaFriendsCount'), res, false);
+  renderStellaFriendsInto($('stellaFriendsTabList'), $('stellaFriendsTabCount'), res, true);
 }
 
-function renderStellaFriendsInto(list, count, res) {
+function openFriendProfile(f) {
+  showCreatorProfile(f.userName, {
+    id: f.id,
+    displayName: f.displayName,
+    avatarUrl: f.AvatarUrl
+  });
+}
+
+function friendSpan(className, text) {
+  const el = document.createElement('span');
+  el.className = className;
+  el.textContent = text;
+  return el;
+}
+
+/// A friend's picture, `size` CSS pixels square, with the presence dot on its
+/// corner. The dot shows for online friends, and grey while their status is
+/// still unknown; an offline friend has none.
+function friendAvatar(f, size) {
+  const pic = document.createElement('span');
+  pic.className = 'friend-avatar';
+  const img = document.createElement('img');
+  img.alt = '';
+  img.loading = 'lazy';
+  img.dataset.fallback = PLACEHOLDER_AVATAR;
+  img.src = f.AvatarUrl ? thumbSrc(f.AvatarUrl, avatarWidth(size)) : PLACEHOLDER_AVATAR;
+  pic.append(img, friendSpan('friend-dot', ''));
+  return pic;
+}
+
+/// One friend as a card: picture, name, where they are, and JOIN for someone
+/// online. The tab's cards are bigger and carry the @handle too.
+function buildFriendCard(f, size, withHandle) {
+  const name = f.displayName || f.userName || 'Player';
+  const card = document.createElement('div');
+  card.className = `friend-card is-${f.status}`;
+
+  const main = document.createElement('button');
+  main.type = 'button';
+  main.className = 'friend-card-main';
+  const text = document.createElement('span');
+  text.className = 'friend-text';
+  text.append(friendSpan('friend-name', name));
+  if (withHandle && f.userName) text.append(friendSpan('friend-handle', `@${f.userName}`));
+  const where = friendWhere(f);
+  const whereEl = friendSpan('friend-where', '');
+  if (where.locked) {
+    const lock = friendSpan('friend-lock', '');
+    lock.setAttribute('role', 'img');
+    lock.setAttribute('aria-label', 'Private room:');
+    lock.innerHTML = FRIEND_LOCK_SVG;
+    whereEl.append(lock);
+  }
+  whereEl.append(friendSpan('friend-where-text', where.text));
+  text.append(whereEl);
+  main.append(friendAvatar(f, size), text);
+  main.addEventListener('click', () => openFriendProfile(f));
+  card.append(main);
+
+  // Only someone online can be joined.
+  if (f.status === 'online') {
+    const join = document.createElement('button');
+    join.type = 'button';
+    join.className = 'modal-btn modal-btn-primary friend-join';
+    join.textContent = 'JOIN';
+    join.setAttribute('aria-label', f.private && !stellaInvitedBy(f.id) ? `Ask ${name} to let you into their private room` : `Start Stella and join ${name}`);
+    join.addEventListener('click', () => joinStellaFriend(f));
+    card.append(join);
+  }
+  return card;
+}
+
+/// A friend who isn't online, on the Home card: a small picture and the name.
+function buildFriendChip(f) {
+  const name = f.displayName || f.userName || 'Player';
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = `friend-chip is-${f.status}`;
+  chip.setAttribute('aria-label', `${name}, ${friendStatusText(f)}`);
+  chip.append(friendAvatar(f, 22), friendSpan('friend-chip-name', name));
+  chip.addEventListener('click', () => openFriendProfile(f));
+  return chip;
+}
+
+/// A titled group: "OFFLINE 5", then its cards or chips.
+function friendsSection(label, count, body) {
+  const section = document.createElement('div');
+  section.className = 'friends-section';
+  const head = document.createElement('div');
+  head.className = 'friends-section-head';
+  head.append(friendSpan('friends-section-label', label), friendSpan('friends-section-count', String(count)));
+  section.append(head, body);
+  return section;
+}
+
+function friendsGroup(className, children) {
+  const group = document.createElement('div');
+  group.className = className;
+  group.append(...children);
+  return group;
+}
+
+/// The Home card (`isTab` false): online friends as cards, everyone else as
+/// chips under them. The FRIENDS tab: a section of cards for each, filtered
+/// by the tab's search.
+function renderStellaFriendsInto(list, count, res, isTab) {
   if (!list || !count) return;
   const note = (text) => {
     const el = document.createElement('div');
-    el.className = 'home-friends-note';
+    el.className = 'friends-note';
     el.textContent = text;
     list.replaceChildren(el);
   };
+  count.classList.remove('has-online');
 
   if (!stellaPlayer) {
     count.textContent = '';
@@ -5988,62 +6232,66 @@ function renderStellaFriendsInto(list, count, res) {
     return;
   }
 
-  const online = friends.filter(f => f.status === 'online').length;
+  const onlineCount = friends.filter(f => f.status === 'online').length;
+  const total = `${friends.length} ${friends.length === 1 ? 'friend' : 'friends'}`;
   // Paused: one sign-in at a time can watch friends, and the game is using
   // it. It picks up again when the game closes.
-  count.textContent = res.paused ? 'Paused while you play'
-    : (!res.connected && res.error ? 'Reconnecting…' : `${online} online`);
+  if (res.paused) count.textContent = 'Paused while you play';
+  else if (!res.connected && res.error) count.textContent = 'Reconnecting…';
+  else {
+    count.textContent = `${onlineCount} online · ${total}`;
+    count.classList.toggle('has-online', onlineCount > 0);
+  }
 
-  list.replaceChildren(...friends.map(f => {
-    const row = document.createElement('div');
-    row.className = `home-friend is-${f.status}`;
-    const main = document.createElement('button');
-    main.type = 'button';
-    main.className = 'home-friend-main';
-    const name = f.displayName || f.userName || 'Player';
-
-    const pic = document.createElement('span');
-    pic.className = 'home-friend-pic';
-    const img = document.createElement('img');
-    img.alt = '';
-    img.loading = 'lazy';
-    img.dataset.fallback = PLACEHOLDER_AVATAR;
-    img.src = f.AvatarUrl ? thumbSrc(f.AvatarUrl, avatarWidth(28)) : PLACEHOLDER_AVATAR;
-    const dot = document.createElement('span');
-    dot.className = 'home-friend-dot';
-    pic.append(img, dot);
-
-    const text = document.createElement('span');
-    text.className = 'home-friend-text';
-    const nameEl = document.createElement('span');
-    nameEl.className = 'home-friend-name';
-    nameEl.textContent = name;
-    const sub = document.createElement('span');
-    sub.className = 'home-friend-sub';
-    sub.textContent = friendStatusText(f);
-    text.append(nameEl, sub);
-
-    main.append(pic, text);
-    main.addEventListener('click', () => showCreatorProfile(f.userName, {
-      id: f.id,
-      displayName: f.displayName,
-      avatarUrl: f.AvatarUrl
-    }));
-    row.append(main);
-
-    // Only someone online can be joined.
-    if (f.status === 'online') {
-      const join = document.createElement('button');
-      join.type = 'button';
-      join.className = 'btn-refresh home-friend-join';
-      join.textContent = 'JOIN';
-      join.setAttribute('aria-label', f.private && !stellaInvitedBy(f.id) ? `Ask ${name} to let you into their private room` : `Start Stella and join ${name}`);
-      join.addEventListener('click', () => joinStellaFriend(f));
-      row.append(join);
+  let shown = friends;
+  if (isTab) {
+    const query = ($('stellaFriendsSearch')?.value || '').trim();
+    const q = query.toLowerCase();
+    if (q) shown = friends.filter(f => `${f.displayName || ''}\n${f.userName || ''}`.toLowerCase().includes(q));
+    if (!shown.length) {
+      note(`No friends match "${query}".`);
+      return;
     }
-    return row;
-  }));
+  }
+  const online = shown.filter(f => f.status === 'online');
+  const others = shown.filter(f => f.status !== 'online');
+  const parts = [];
+
+  if (isTab) {
+    if (online.length) {
+      parts.push(friendsSection('Online', online.length,
+        friendsGroup('friends-grid friends-grid-online', online.map(f => buildFriendCard(f, 52, true)))));
+    }
+    if (others.length) {
+      parts.push(friendsSection(friendsOthersLabel(others), others.length,
+        friendsGroup('friends-grid friends-grid-others', others.map(f => buildFriendCard(f, 36, false)))));
+    }
+  } else {
+    if (online.length) {
+      parts.push(friendsGroup('friends-grid', online.map(f => buildFriendCard(f, 40, false))));
+    } else if (others.every(f => f.status === 'offline')) {
+      const none = document.createElement('div');
+      none.className = 'friends-note';
+      none.textContent = 'None of your friends are online right now.';
+      parts.push(none);
+    }
+    if (others.length) {
+      parts.push(friendsSection(friendsOthersLabel(others), others.length,
+        friendsGroup('friends-chips', others.map(buildFriendChip))));
+    }
+  }
+  list.replaceChildren(...parts);
 }
+
+// The tab's search filters the list it already has.
+$('stellaFriendsSearch')?.addEventListener('input', () => {
+  renderStellaFriendsInto($('stellaFriendsTabList'), $('stellaFriendsTabCount'), stellaFriendsRes, true);
+});
+$('stellaFriendsSearch')?.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !e.target.value) return;
+  e.target.value = '';
+  renderStellaFriendsInto($('stellaFriendsTabList'), $('stellaFriendsTabCount'), stellaFriendsRes, true);
+});
 
 window.radium?.onStellaFriends?.(queueStellaFriends);
 // "Checking…" turns into "Offline", and a friend gone quiet into offline, by
@@ -8216,6 +8464,13 @@ let currentPlayerRoomsUserId = null;
 let playerRoomsHasMore = false;
 let playerRoomsLoading = false;
 
+// Inventions pagination state
+let playerInventionsSkip = 0;
+const playerInventionsTake = 24;
+let currentPlayerInventionsId = null;
+let playerInventionsHasMore = false;
+let playerInventionsLoading = false;
+
 let currentBackToView = null;
 
 // Bumped each time a detail view opens or closes. Each view fills in from
@@ -8231,6 +8486,7 @@ let roomPhotoObserver = null;
 let playerPhotoObserver = null;
 let playerFeedsObserver = null;
 let playerRoomsObserver = null;
+let playerInventionsObserver = null;
 
 function setupRoomPhotoObserver() {
   if (roomPhotoObserver) roomPhotoObserver.disconnect();
@@ -8283,6 +8539,193 @@ function setupPlayerRoomsObserver() {
   }, { threshold: 0.1 });
   playerRoomsObserver.observe(sentinel);
 }
+
+function setupPlayerInventionsObserver() {
+  if (playerInventionsObserver) playerInventionsObserver.disconnect();
+  const sentinel = $('peopleDetailInventionsSentinel');
+  if (!sentinel) return;
+  playerInventionsObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && playerInventionsHasMore && !playerInventionsLoading && currentPlayerInventionsId) {
+      playerInventionsSkip += playerInventionsTake;
+      loadPlayerInventions(currentPlayerInventionsId, true);
+    }
+  }, { threshold: 0.1 });
+  playerInventionsObserver.observe(sentinel);
+}
+
+// ── A player's inventions (Stella) ───────────────────────────────────────
+
+/// "May 4, 2026", or '' for a date that won't parse.
+function longDate(iso) {
+  const date = new Date(iso || '');
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function inventionPriceText(price) {
+  const n = Number(price) || 0;
+  return n > 0 ? `${formatCount(n)} ${n === 1 ? 'token' : 'tokens'}` : 'Free';
+}
+
+/// One invention in the profile's grid: its picture, name and downloads,
+/// with what it costs where it isn't free. Opens the invention dialog.
+function buildInventionCard(inv) {
+  const card = document.createElement('div');
+  card.className = 'invention-card';
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  const name = String(inv.Name || '').trim() || 'Untitled invention';
+  card.setAttribute('aria-label', `Invention: ${name}`);
+
+  const thumb = document.createElement('div');
+  thumb.className = 'invention-thumb';
+  const img = document.createElement('img');
+  img.className = 'image-loading-placeholder';
+  img.alt = '';
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.dataset.fallback = './images.png';
+  img.src = thumbSrc(inv.ThumbUrl, 320) || './images.png';
+  thumb.append(img);
+  if (Number(inv.Price) > 0) thumb.append(friendSpan('invention-badge invention-price', inventionPriceText(inv.Price)));
+  if (inv.Certified) thumb.append(friendSpan('invention-badge invention-certified', 'Certified'));
+
+  const downloads = Number(inv.Downloads) || 0;
+  card.append(
+    thumb,
+    friendSpan('invention-name', name),
+    friendSpan('invention-meta', `${formatCount(downloads)} ${downloads === 1 ? 'download' : 'downloads'}`)
+  );
+
+  const open = () => showInventionDetails(inv);
+  card.addEventListener('click', open);
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      open();
+    }
+  });
+  return card;
+}
+
+async function loadPlayerInventions(userId, append = false) {
+  const grid = $('peopleDetailInventionsGrid');
+  const empty = $('peopleDetailInventionsEmpty');
+  if (!grid || playerInventionsLoading) return;
+
+  if (!userId) {
+    grid.replaceChildren();
+    if (empty) empty.style.display = 'block';
+    playerInventionsHasMore = false;
+    return;
+  }
+
+  const loading = document.createElement('div');
+  loading.className = 'profile-grid-note';
+  loading.textContent = append ? 'Loading more...' : 'Loading inventions...';
+  if (!append) {
+    playerInventionsSkip = 0;
+    playerInventionsHasMore = false;
+    grid.replaceChildren(loading);
+    if (empty) empty.style.display = 'none';
+  } else {
+    grid.append(loading);
+  }
+
+  currentPlayerInventionsId = userId;
+  playerInventionsLoading = true;
+  let res;
+  try {
+    res = await window.radium?.fetchUserInventions({ userId, skip: playerInventionsSkip, take: playerInventionsTake });
+  } catch (e) {
+    res = { success: false, error: String(e) };
+  }
+  // Another profile took over meanwhile; see loadPlayerPhotos().
+  if (currentPlayerInventionsId !== userId) return;
+  playerInventionsLoading = false;
+  loading.remove();
+
+  if (res?.success && res.data) {
+    const inventions = res.data.Results || [];
+    grid.append(...inventions.map(buildInventionCard));
+    const any = grid.querySelector('.invention-card');
+    if (empty) empty.style.display = any ? 'none' : 'block';
+    // The backend says whether this was the last page; a page can be short
+    // of `take` without being the last, once unlisted ones are dropped.
+    playerInventionsHasMore = res.data.TotalKnown === false;
+    setupPlayerInventionsObserver();
+  } else if (!append) {
+    const note = document.createElement('div');
+    note.className = 'profile-grid-note';
+    note.textContent = res?.error || "Couldn't load this player's inventions.";
+    grid.replaceChildren(note);
+  }
+}
+
+/// The invention dialog: the picture large, who made it, the description
+/// when there is one, and its downloads, price and publish date.
+function showInventionDetails(inv) {
+  const modal = $('inventionModal');
+  if (!modal) return;
+  const name = String(inv.Name || '').trim() || 'Untitled invention';
+  const img = $('inventionModalImage');
+  if (img) {
+    img.alt = name;
+    img.dataset.fallback = './images.png';
+    img.src = thumbSrc(inv.ThumbUrl, 640) || './images.png';
+  }
+  const nameEl = $('inventionModalName');
+  if (nameEl) nameEl.textContent = name;
+  // Opened from a profile's grid, so the maker is that profile's player.
+  const creator = $('peopleDetailDisplayName')?.textContent || '';
+  const creatorEl = $('inventionModalCreator');
+  if (creatorEl) creatorEl.textContent = creator ? `by ${creator}` : '';
+  const desc = $('inventionModalDescription');
+  if (desc) {
+    desc.textContent = String(inv.Description || '').trim();
+    desc.hidden = !desc.textContent;
+  }
+  const facts = $('inventionModalFacts');
+  if (facts) {
+    const downloads = Number(inv.Downloads) || 0;
+    const rows = [
+      ['Downloads', formatCount(downloads)],
+      ['Price', inventionPriceText(inv.Price)],
+      ['Published', longDate(inv.CreatedAt)],
+    ];
+    if (Number(inv.CheerCount) > 0) rows.splice(1, 0, ['Cheers', formatCount(inv.CheerCount)]);
+    if (inv.Certified) rows.push(['Certified', 'Yes']);
+    facts.replaceChildren(...rows.filter(([, v]) => v).map(([label, value]) => {
+      const fact = document.createElement('div');
+      fact.className = 'invention-fact';
+      fact.append(friendSpan('invention-fact-val', value), friendSpan('invention-fact-lbl', label));
+      return fact;
+    }));
+  }
+  showModal(modal);
+  $('inventionModalDone')?.focus();
+}
+
+function hideInventionDetails() {
+  const modal = $('inventionModal');
+  hideModal(modal, () => {
+    const img = $('inventionModalImage');
+    if (img) img.src = 'data:,';
+  });
+}
+
+$('inventionModalClose')?.addEventListener('click', hideInventionDetails);
+$('inventionModalDone')?.addEventListener('click', hideInventionDetails);
+$('inventionModal')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) hideInventionDetails();
+});
+document.addEventListener('keydown', (e) => {
+  const modal = $('inventionModal');
+  if (e.key === 'Escape' && modal && modal.style.display !== 'none' && !modal.classList.contains('is-closing')) {
+    e.preventDefault();
+    hideInventionDetails();
+  }
+});
 
 /// Bumped by every fresh room-photo load. A room opened while the previous
 /// one's scan was still paging through the feed used to find the scan's
@@ -8897,7 +9340,7 @@ async function showPlayerDetails(person) {
   if (!list || !detail) return;
   const seq = ++playerDetailSeq;
   
-  const avatarUrl = personAvatarUrl(person, 80);
+  const avatarUrl = personAvatarUrl(person, 112);
   
   const avatarEl = $('peopleDetailAvatar');
   if (avatarEl) {
@@ -8925,9 +9368,6 @@ async function showPlayerDetails(person) {
 
   renderPlayerRoles($('peopleDetailRoles'), person);
 
-  const aboutLabelEl = $('peopleDetailAboutLabel');
-  if (aboutLabelEl) aboutLabelEl.textContent = `About ${person.displayName || person.userName || 'Player'}`;
-  
   // Level is on the row itself where the list had it, so it needs no lookup.
   // Stella's profile lookup carries it too, for a profile opened from
   // somewhere with no level (a friend, a room's creator), so there it waits
@@ -8956,6 +9396,8 @@ async function showPlayerDetails(person) {
   setProfileStat(joinedEl, '');
   // Hidden until the lookup brings one, so a missing bio never flashes in.
   setProfileBio('');
+  // Likewise the emoji, cheers and mutual friends.
+  setProfileExtras(null);
   // Shown by applyStellaPresence() for a friend who is online.
   const joinBtn = $('peopleDetailJoinBtn');
   if (joinBtn) joinBtn.hidden = true;
@@ -8972,7 +9414,7 @@ async function showPlayerDetails(person) {
     dotEl.className = `status-dot ${presenceUnknown ? 'unknown' : (isOnline ? 'online' : 'offline')}`;
   }
   if (labelEl) {
-    labelEl.textContent = presenceUnknown ? 'STATUS UNKNOWN' : (isOnline ? 'ONLINE' : 'OFFLINE');
+    labelEl.textContent = presenceUnknown ? 'Status unknown' : (isOnline ? 'Online' : 'Offline');
   }
   if (activityEl) {
     activityEl.style.display = 'none';
@@ -8996,6 +9438,7 @@ async function showPlayerDetails(person) {
   currentPlayerId = null;
   currentPlayerFeedsId = null;
   currentPlayerRoomsUserId = null;
+  currentPlayerInventionsId = null;
 
   list.classList.add('hidden');
   detail.classList.remove('hidden');
@@ -9018,11 +9461,12 @@ async function showPlayerDetails(person) {
     if (activeNetwork === 'stella') setProfileStat(levelEl, webDetails.level ?? person.level ?? '');
     setProfileStat(joinedEl, joinedLabel(webDetails.createdAt));
     setProfileBio(webDetails.bio);
+    setProfileExtras(webDetails);
     // A profile opened from a room/photo row may have had no avatar on the row
     // (e.g. the row's creator lookup came back thin). The details carry the real
     // one, so fill it in now — through the thumbnail cache like every picture.
     if (webDetails.avatar && avatarEl) {
-      const resolved = thumbSrc(webDetails.avatar, avatarWidth(80));
+      const resolved = thumbSrc(webDetails.avatar, avatarWidth(112));
       if (resolved && resolved.startsWith(THUMB_BASE)) avatarEl.src = resolved;
     }
     // Through the thumbnail cache like every other remote picture. Set as the
@@ -9041,7 +9485,7 @@ async function showPlayerDetails(person) {
     if (webDetails.status) {
       const isOnlineScraped = webDetails.status !== 'OFFLINE';
       if (dotEl) dotEl.className = `status-dot ${isOnlineScraped ? 'online' : 'offline'}`;
-      if (labelEl) labelEl.textContent = isOnlineScraped ? 'ONLINE' : 'OFFLINE';
+      if (labelEl) labelEl.textContent = isOnlineScraped ? 'Online' : 'Offline';
 
       // Anything else is the room they're in ("^RECCENTER"), said the way
       // Stella's status reads: "In ^RECCENTER".
@@ -9054,7 +9498,7 @@ async function showPlayerDetails(person) {
     } else {
       // If no status was scraped, fall back to person.isOnline (still tri-state).
       if (dotEl) dotEl.className = `status-dot ${presenceUnknown ? 'unknown' : (person.isOnline ? 'online' : 'offline')}`;
-      if (labelEl) labelEl.textContent = presenceUnknown ? 'STATUS UNKNOWN' : (person.isOnline ? 'ONLINE' : 'OFFLINE');
+      if (labelEl) labelEl.textContent = presenceUnknown ? 'Status unknown' : (person.isOnline ? 'Online' : 'Offline');
     }
   } else {
     // The lookup failed, which is different from the stat not existing: the
@@ -9075,6 +9519,7 @@ async function showPlayerDetails(person) {
   if (playerPhotoObserver) playerPhotoObserver.disconnect();
   if (playerFeedsObserver) playerFeedsObserver.disconnect();
   if (playerRoomsObserver) playerRoomsObserver.disconnect();
+  if (playerInventionsObserver) playerInventionsObserver.disconnect();
 
   playerPhotosSkip = 0;
   playerPhotosHasMore = false;
@@ -9088,16 +9533,23 @@ async function showPlayerDetails(person) {
   playerRoomsHasMore = false;
   playerRoomsLoading = false;
 
+  playerInventionsSkip = 0;
+  playerInventionsHasMore = false;
+  playerInventionsLoading = false;
+
   // Tab switching logic
   const tabs = [
     { btn: $('tabBtnPeoplePhotos'), sec: $('peopleDetailPhotosSection') },
     { btn: $('tabBtnPeopleFeeds'), sec: $('peopleDetailFeedsSection') },
-    { btn: $('tabBtnPeopleRooms'), sec: $('peopleDetailRoomsSection') }
+    { btn: $('tabBtnPeopleRooms'), sec: $('peopleDetailRoomsSection') },
+    { btn: $('tabBtnPeopleInventions'), sec: $('peopleDetailInventionsSection') }
   ];
   
   // FEEDS only where the network publishes an activity feed (Radium); on the
   // others it could only ever be empty.
   if (tabs[1].btn) tabs[1].btn.hidden = networkInfo().hasFeed === false;
+  // INVENTIONS only where the network publishes them (Stella).
+  if (tabs[3].btn) tabs[3].btn.hidden = !networkInfo().hasInventions;
 
   tabs.forEach(t => {
     if (t.btn) {
@@ -9137,6 +9589,11 @@ async function showPlayerDetails(person) {
             loadPlayerRooms(person.id);
           }
           setupPlayerRoomsObserver();
+        } else if (t.btn.id === 'tabBtnPeopleInventions') {
+          if (currentPlayerInventionsId !== person.id) {
+            loadPlayerInventions(person.id);
+          }
+          setupPlayerInventionsObserver();
         }
       };
     }
@@ -9146,6 +9603,7 @@ async function showPlayerDetails(person) {
   currentPlayerId = null;
   currentPlayerFeedsId = null;
   currentPlayerRoomsUserId = null;
+  currentPlayerInventionsId = null;
 
   // Reset tabs to Photos active by default
   if (tabs[0].btn) tabs[0].btn.click();
@@ -9194,25 +9652,25 @@ async function applyStellaPresence(playerId, seq, tries = 0) {
   }
   if (p?.status === 'online') {
     if (dotEl) dotEl.className = 'status-dot online';
-    if (labelEl) labelEl.textContent = 'ONLINE';
+    if (labelEl) labelEl.textContent = 'Online';
     setBadge(p.roomName ? `In ${p.roomName}${p.private ? ' · private' : ''}` : (p.private ? 'In a private room' : ''));
   } else if (p?.status === 'offline') {
     if (dotEl) dotEl.className = 'status-dot offline';
-    if (labelEl) labelEl.textContent = 'OFFLINE';
+    if (labelEl) labelEl.textContent = 'Offline';
     setBadge('');
   } else if (p?.status === 'checking') {
     if (dotEl) dotEl.className = 'status-dot unknown';
-    if (labelEl) labelEl.textContent = 'CHECKING…';
+    if (labelEl) labelEl.textContent = 'Checking…';
     if (tries < 20) setTimeout(() => applyStellaPresence(playerId, seq, tries + 1), 5000);
   } else if (p?.status === 'paused') {
     // The game holds Stella's presence connection while it runs; see
     // stella_hub.rs. Asked again so it fills in once the game closes.
     if (dotEl) dotEl.className = 'status-dot unknown';
-    if (labelEl) labelEl.textContent = 'SHOWN IN GAME';
+    if (labelEl) labelEl.textContent = 'Shown in game';
     setBadge('');
     setTimeout(() => applyStellaPresence(playerId, seq, 0), 10000);
   }
-  // "unknown" (hub unreachable) leaves STATUS UNKNOWN as it is.
+  // "unknown" (hub unreachable) leaves "Status unknown" as it is.
 }
 
 async function loadPlayerFeeds(userId, append = false) {
@@ -9404,6 +9862,7 @@ function hidePlayerDetails() {
   if (playerPhotoObserver) playerPhotoObserver.disconnect();
   if (playerFeedsObserver) playerFeedsObserver.disconnect();
   if (playerRoomsObserver) playerRoomsObserver.disconnect();
+  if (playerInventionsObserver) playerInventionsObserver.disconnect();
 }
 
 $('btnRoomsBack')?.addEventListener('click', hideRoomDetails);

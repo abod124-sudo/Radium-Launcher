@@ -358,18 +358,19 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   & #manageMenu:not([hidden]) .manage-item:nth-of-type(6) { animation-delay: 0.18s; }
   & #manageMenu.is-closing .manage-item { animation: none; }
 
-  /* Status cards and stat tiles rise on hover. */
-  & :is(.qs-card, .room-stat-item, .profile-stat-item) {
+  /* Status cards and stat tiles rise on hover. Not the friends card: it is
+     a list, and the whole of it moving under the pointer reads as a glitch. */
+  & :is(.qs-card, .room-stat-item) {
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
                 box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
                 border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  & .qs-card:hover {
+  & .qs-card:not(.home-friends):hover {
     transform: translateY(-2px);
     border: var(--card-hover-border);
     box-shadow: var(--card-hover-shadow);
   }
-  & :is(.room-stat-item, .profile-stat-item):hover {
+  & .room-stat-item:hover {
     transform: translateY(-2px);
     border: var(--card-hover-border);
   }
