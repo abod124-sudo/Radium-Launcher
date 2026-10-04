@@ -828,22 +828,33 @@ pub(crate) async fn api_get(path: &str) -> Result<Value, String> {
 /// cheer and favorite) take no body and, unlike the game's matchmaking calls,
 /// need no request signature.
 async fn api_request(method: reqwest::Method, path: &str) -> Result<Value, String> {
-    api_request_with(method, path, None).await
+    api_request_with(method, path, Body::None).await
 }
 
-/// [`api_request`] with a JSON body (a photo's cheer).
-async fn api_request_with(method: reqwest::Method, path: &str, json_body: Option<&Value>) -> Result<Value, String> {
+/// What a request carries.
+#[derive(Clone, Copy)]
+enum Body<'a> {
+    None,
+    /// JSON (a photo's cheer).
+    Json(&'a Value),
+    /// A form, as the game sends its messages.
+    Form(&'a [(&'a str, String)]),
+}
+
+/// [`api_request`] with a body.
+async fn api_request_with(method: reqwest::Method, path: &str, body: Body<'_>) -> Result<Value, String> {
     for attempt in 0..2 {
         let (token, _account) = ensure_session().await?;
         let mut req = http_client_besthttp()
             .request(method.clone(), format!("{BASE}{path}"))
             .bearer_auth(&token);
-        if let Some(body) = json_body {
-            req = req.json(body);
-        } else if method != reqwest::Method::GET {
+        match body {
+            Body::Json(v) => req = req.json(v),
+            Body::Form(fields) => req = req.form(fields),
             // An explicit empty body, so a PUT goes out with Content-Length: 0
             // (what was tested) rather than none.
-            req = req.body("");
+            Body::None if method != reqwest::Method::GET => req = req.body(""),
+            Body::None => {}
         }
         let req = req.timeout(Duration::from_secs(20));
         let resp = send_with_retry(req).await?;
@@ -866,7 +877,8 @@ async fn api_request_with(method: reqwest::Method, path: &str, json_body: Option
 /// any answer arrives: a pooled connection Stella's edge had already closed,
 /// or a blip in the network. Every request through here is safe to repeat
 /// (reads, PUT/DELETE of a room's cheer or favorite, and a photo's cheer, which
-/// sets a state rather than toggling one). A timeout isn't retried —
+/// sets a state rather than toggling one; a join request sent twice only asks
+/// twice). A timeout isn't retried —
 /// that has already waited its full 20 seconds.
 async fn send_with_retry(req: reqwest::RequestBuilder) -> Result<reqwest::Response, String> {
     let mut last = None;
@@ -1420,6 +1432,272 @@ pub async fn stella_join_check(player_id: i64, room_id: i64) -> Value {
     }
 }
 
+// ─── Request to join ────────────────────────────────────────────────────────
+//
+// A friend in a private copy of a room can't be joined outright: Stella's
+// matchmaker answers the game's `+join:` (`matchmake/player/{id}`) with
+// RoomDoesNotExist, which the game shows as "Room does not exist". The game
+// asks instead. Its "Request to Join" is `POST /api/messages/v2/send` with the
+// form `ToPlayerId=<friend>&Type=10&Data=`, answered
+// `{"Success":true,"Message":"sent"}`; the friend's game answers with an
+// invite (message type 6, Data `{"InviteId": <room copy>, "Name",
+// "InviteMode"}`) and the asking game goes in through
+// `matchmake/invite/{InviteId}` (all from the user's capture, 2026-10-04).
+// The game signs that request (X-RNSIG) as it signs every write; Stella
+// doesn't check it, as the unsigned room and photo cheers show.
+//
+// The invite goes to the game, so the request is sent only once the game is
+// in: when the launcher starts it for this, it waits for the game's log to say
+// it has landed in a room (`request_join_after_launch`).
+
+/// The game's message type for "Request to Join".
+const REQUEST_JOIN_MESSAGE: i64 = 10;
+
+/// How long a launch may take to land the player in a room before the
+/// request is given up on: a first start with a cold cache can take a while.
+const LAND_LIMIT: Duration = Duration::from_secs(5 * 60);
+
+/// After landing, the game still connects to Stella's live hub, which is
+/// where the friend's invite arrives.
+const AFTER_LANDING: Duration = Duration::from_secs(4);
+
+/// Ask `player_id` to let the signed-in player into their room.
+async fn send_join_request(player_id: i64) -> Result<(), String> {
+    if player_id <= 0 {
+        return Err("No such player.".into());
+    }
+    let form = [
+        ("ToPlayerId", player_id.to_string()),
+        ("Type", REQUEST_JOIN_MESSAGE.to_string()),
+        ("Data", String::new()),
+    ];
+    let v = api_request_with(reqwest::Method::POST, "/api/messages/v2/send", Body::Form(&form)).await?;
+    if v.get("Success").and_then(Value::as_bool) == Some(true) {
+        Ok(())
+    } else {
+        let why = v.get("Message").and_then(Value::as_str).unwrap_or("no reason given");
+        Err(format!("Stella didn't send the join request ({why})."))
+    }
+}
+
+/// Ask a friend to let you in, now: the game is already running.
+#[tauri::command]
+pub async fn stella_request_join(player_id: i64) -> Result<(), String> {
+    send_join_request(player_id).await
+}
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+//
+// Stella's notifications are the game's messages: `GET /api/messages/v2/get`
+// answers `[{ Id, FromPlayerId, Type, Data, RoomId, SentTime, PlayerEventId }]`,
+// and new ones are pushed to the hub as they come (stella_hub). The types are
+// Rec Room's, the same numbers Vanilla's website uses (6 an invite, 10 a join
+// request, 40 an accepted friend request, ...). Stella reuses a deleted
+// message's `Id` (the game deletes what it has handled; seen 2026-10-04, when
+// every new message was 7), so a row's `id` here is its `Id` and `SentTime`
+// together, which is what the page remembers as read. Nothing is deleted from
+// here: that would take it from the game too.
+
+/// The signed-in player's notifications, newest first, shaped as Vanilla's
+/// are (`{ id, type, senderId, senderName, senderDisplay, senderAvatar,
+/// roomId, message, sentTime }`). `message` is a text message's text, or an
+/// invite's room name.
+#[tauri::command]
+pub async fn stella_notifications() -> Result<Value, String> {
+    let raw = api_get("/api/messages/v2/get").await?;
+    let items = raw.as_array().cloned().unwrap_or_default();
+    let mut ids: Vec<i64> = items
+        .iter()
+        .filter_map(|n| n.get("FromPlayerId").and_then(Value::as_i64))
+        .filter(|&id| id > 0)
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let people = cached_accounts(&ids).await;
+    let mut out: Vec<Value> = items.iter().map(|n| notification_row(n, &people)).collect();
+    out.sort_by(|a, b| b["sentTime"].as_str().unwrap_or("").cmp(a["sentTime"].as_str().unwrap_or("")));
+    Ok(Value::Array(out))
+}
+
+/// The game's message type for a text message.
+const TEXT_MESSAGE: i64 = 30;
+/// The game's message type for an invite to a room.
+pub(crate) const INVITE_MESSAGE: i64 = 6;
+
+fn notification_row(n: &Value, people: &People) -> Value {
+    let kind = n.get("Type").and_then(Value::as_i64).unwrap_or(-1);
+    let from = n.get("FromPlayerId").and_then(Value::as_i64).filter(|&id| id > 0);
+    let sender = from.and_then(|id| people.get(&id));
+    let data = n.get("Data").and_then(Value::as_str).unwrap_or("");
+    let message = match kind {
+        TEXT_MESSAGE => Some(data.chars().take(300).collect::<String>()),
+        INVITE_MESSAGE => serde_json::from_str::<Value>(data)
+            .ok()
+            .and_then(|d| d.get("Name").and_then(Value::as_str).map(str::to_string))
+            .map(|name| name.trim_start_matches(['^', '@']).chars().take(80).collect()),
+        _ => None,
+    };
+    let sent = n.get("SentTime").and_then(Value::as_str).unwrap_or("");
+    let id = n.get("Id").map(|v| v.to_string()).unwrap_or_default();
+    json!({
+        "id": format!("{id}-{sent}"),
+        "type": kind,
+        "senderId": from,
+        "senderName": sender.map(|p| str_at(p, "username")),
+        "senderDisplay": sender.map(|p| str_at(p, "displayName")).filter(|s| !s.is_empty()),
+        "senderAvatar": sender.map(|p| img_url(str_at(p, "profileImage"), 256)),
+        "roomId": n.get("RoomId").and_then(Value::as_i64),
+        "message": message,
+        "sentTime": sent,
+    })
+}
+
+/// How long the hub may take to connect before asking.
+const HUB_WAIT: Duration = Duration::from_secs(10);
+
+/// With the game closed: ask `player_id` to let the player in. Their answer
+/// is an invite, which arrives on the launcher's own hub connection and is
+/// shown as a pop-up (`stella-invite`, see stella_hub); once invited, a plain
+/// `+join:` gets into their private room (the user found, 2026-10-04). So the
+/// hub must be listening first. Answers `{ listening, sent }`: not `listening`
+/// means it couldn't be reached and nothing was sent, as the invite would go
+/// unheard.
+#[tauri::command]
+pub async fn stella_ask_to_join(app: tauri::AppHandle, player_id: i64) -> Result<Value, String> {
+    crate::stella_hub::ensure_running(app);
+    let started = std::time::Instant::now();
+    while !crate::stella_hub::listening() {
+        if started.elapsed() > HUB_WAIT {
+            return Ok(json!({ "listening": false, "sent": false }));
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    send_join_request(player_id).await?;
+    Ok(json!({ "listening": true, "sent": true }))
+}
+
+/// The game's own log. Unity moves the last one to `Player-prev.log` and
+/// starts this afresh at each launch.
+fn game_log_path() -> Option<std::path::PathBuf> {
+    let base = std::env::var("USERPROFILE").ok()?;
+    Some(
+        std::path::Path::new(&base)
+            .join("AppData")
+            .join("LocalLow")
+            .join("Against Gravity")
+            .join("Rec Room")
+            .join("Player.log"),
+    )
+}
+
+/// Where the game's log ends now. Taken before a launch, so that waiting for
+/// it to land reads only what that launch writes.
+pub fn game_log_mark() -> u64 {
+    game_log_path()
+        .and_then(|p| std::fs::metadata(p).ok())
+        .map_or(0, |m| m.len())
+}
+
+/// What the game logs on arriving in a room, its dorm included:
+/// `Player joined @abod124's Dorm in scene "Dorm Room" with playerCount 1`.
+const LANDED_LINE: &[u8] = b"Player joined ";
+
+/// Follows the game's log from a mark, a chunk at a time.
+struct LogFollower {
+    offset: u64,
+    /// The end of the last chunk, so a line split across two reads is found.
+    tail: Vec<u8>,
+}
+
+impl LogFollower {
+    fn new(mark: u64) -> Self {
+        Self { offset: mark, tail: Vec::new() }
+    }
+
+    /// Whether the log, now `len` bytes long, has said the player landed
+    /// since the last look. `read` gives the bytes from an offset to the end.
+    /// A log shorter than the mark is a new one (the game started afresh), so
+    /// it is read from its start.
+    fn landed(&mut self, len: u64, read: impl FnOnce(u64) -> Vec<u8>) -> bool {
+        if len < self.offset {
+            self.offset = 0;
+            self.tail.clear();
+        }
+        if len == self.offset {
+            return false;
+        }
+        let chunk = read(self.offset);
+        self.offset += chunk.len() as u64;
+        let mut hay = std::mem::take(&mut self.tail);
+        hay.extend_from_slice(&chunk);
+        let found = hay.windows(LANDED_LINE.len()).any(|w| w == LANDED_LINE);
+        let keep = hay.len().min(LANDED_LINE.len());
+        self.tail = hay[hay.len() - keep..].to_vec();
+        found
+    }
+}
+
+/// Bytes of `path` from `offset` to its end (none if it can't be read).
+fn read_from(path: &std::path::Path, offset: u64) -> Vec<u8> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut out = Vec::new();
+    if let Ok(mut f) = std::fs::File::open(path) {
+        if f.seek(SeekFrom::Start(offset)).is_ok() {
+            let _ = f.read_to_end(&mut out);
+        }
+    }
+    out
+}
+
+/// Wait for the game, just launched, to land in a room. False if it quits
+/// first or takes longer than [`LAND_LIMIT`].
+async fn wait_until_landed(mark: u64) -> bool {
+    let Some(path) = game_log_path() else { return false };
+    let mut follower = LogFollower::new(mark);
+    let started = std::time::Instant::now();
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let len = std::fs::metadata(&path).map_or(0, |m| m.len());
+        if follower.landed(len, |at| read_from(&path, at)) {
+            return true;
+        }
+        // The process is up before launch_game returns; a little slack all
+        // the same before its absence counts as the game having quit.
+        if started.elapsed() > Duration::from_secs(20) && !crate::game::rec_room_running() {
+            return false;
+        }
+        if started.elapsed() > LAND_LIMIT {
+            return false;
+        }
+    }
+}
+
+/// Ask `player_id` to let the player in once the game, being launched now,
+/// has landed. `mark` is [`game_log_mark`] from before the launch. The outcome
+/// goes to the page as `stella-join-request` `{ playerId, ok, error }`.
+pub fn request_join_after_launch(app: tauri::AppHandle, player_id: i64, mark: u64) {
+    use tauri::Emitter;
+    tauri::async_runtime::spawn(async move {
+        // Make sure of a session now, while the window is likely still up: a
+        // launch may hide it, and a hidden launcher doesn't sign in.
+        let ready = ensure_session().await.map(|_| ());
+        let result = match ready {
+            Err(e) => Err(e),
+            Ok(()) if !wait_until_landed(mark).await => {
+                Err("The game didn't get to a room, so no join request was sent.".into())
+            }
+            Ok(()) => {
+                tokio::time::sleep(AFTER_LANDING).await;
+                send_join_request(player_id).await
+            }
+        };
+        let _ = app.emit(
+            "stella-join-request",
+            json!({ "playerId": player_id, "ok": result.is_ok(), "error": result.err() }),
+        );
+    });
+}
+
 /// The game's currency number for tokens (`RecCenterTokens`, after 1 for
 /// `LaserTagTickets`, in the game's own list).
 const TOKEN_CURRENCY: i64 = 2;
@@ -1896,7 +2174,7 @@ pub async fn stella_set_photo_cheer(photo_id: i64, on: bool) -> Result<bool, Str
         return Err("No such photo.".into());
     }
     let body = json!({ "SavedImageId": photo_id, "Cheer": on });
-    api_request_with(reqwest::Method::POST, "/api/images/v1/cheer", Some(&body)).await?;
+    api_request_with(reqwest::Method::POST, "/api/images/v1/cheer", Body::Json(&body)).await?;
     Ok(on)
 }
 
@@ -1922,6 +2200,65 @@ fn urlenc(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn notification_rows_name_the_sender_and_an_invites_room() {
+        let mut people = People::new();
+        people.insert(4034, json!({ "accountId": 4034, "username": "Fangame300", "displayName": "", "profileImage": "pic" }));
+        // As Stella sent them, 2026-10-04.
+        let invite = json!({ "Id": 7, "FromPlayerId": 4034, "Type": 6, "RoomId": 6389,
+            "Data": "{\"InviteId\":70172316,\"Name\":\"@Fangame300\\u0027s Dorm\",\"InviteMode\":22}",
+            "SentTime": "2026-10-04T10:37:38.005231Z" });
+        let row = notification_row(&invite, &people);
+        assert_eq!(row["id"], "7-2026-10-04T10:37:38.005231Z");
+        assert_eq!(row["type"], 6);
+        assert_eq!(row["senderName"], "Fangame300");
+        assert_eq!(row["senderDisplay"], Value::Null);
+        assert_eq!(row["senderAvatar"], "https://api.stellaonline.org/img/pic?width=256");
+        assert_eq!(row["message"], "Fangame300's Dorm");
+        // A new friend: no text, and an unknown sender has no name.
+        let friend = json!({ "Id": 2, "FromPlayerId": 519, "Data": "0", "Type": 40, "RoomId": 0,
+            "SentTime": "2026-10-01T19:09:54.045Z", "PlayerEventId": 1 });
+        let row = notification_row(&friend, &people);
+        assert_eq!(row["message"], Value::Null);
+        assert_eq!(row["senderId"], 519);
+        assert_eq!(row["senderName"], Value::Null);
+    }
+
+    #[test]
+    fn log_follower_finds_the_landing_only_after_the_mark() {
+        let old = b"...Player joined @abod124's Dorm in scene \"Dorm Room\"...
+".to_vec();
+        let mut f = LogFollower::new(old.len() as u64);
+        // Nothing new yet, then more of the old game's lines.
+        assert!(!f.landed(old.len() as u64, |_| unreachable!()));
+        let mut log = old.clone();
+        log.extend_from_slice(b"[Log] loading
+");
+        assert!(!f.landed(log.len() as u64, |at| log[at as usize..].to_vec()));
+        log.extend_from_slice(b"[Log] Player joined ^RecCenter
+");
+        assert!(f.landed(log.len() as u64, |at| log[at as usize..].to_vec()));
+    }
+
+    #[test]
+    fn log_follower_reads_a_new_log_from_its_start() {
+        let mut f = LogFollower::new(5_000_000);
+        let fresh = b"Mono path[0]
+[Log] Player joined @x's Dorm
+".to_vec();
+        assert!(f.landed(fresh.len() as u64, |at| fresh[at as usize..].to_vec()));
+    }
+
+    #[test]
+    fn log_follower_finds_a_line_split_between_reads() {
+        let mut f = LogFollower::new(0);
+        let log = b"[Log] Player joined ^RecCenter
+".to_vec();
+        let cut = 12; // inside "Player joined "
+        assert!(!f.landed(cut as u64, |_| log[..cut].to_vec()));
+        assert!(f.landed(log.len() as u64, |at| log[at as usize..].to_vec()));
+    }
 
     #[test]
     fn cheered_of_keeps_the_cheered_ids() {

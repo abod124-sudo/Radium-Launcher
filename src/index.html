@@ -166,6 +166,11 @@
               <img class="account-avatar" id="stellaAccountAvatar" alt="" hidden />
               <span class="account-name" id="stellaAccountName">LOG IN</span>
             </button>
+            <button class="nav-btn notif-bell" id="stellaNotifsBtn" aria-label="Notifications"
+                    aria-haspopup="dialog" aria-expanded="false" hidden>
+              <span class="vn-icon vn-icon-bell" aria-hidden="true"></span>
+              <span class="notif-badge" id="stellaNotifBadge" hidden></span>
+            </button>
           </div>
           <div class="network-menu account-menu" id="stellaAccountMenu" role="menu"
                aria-label="Stella account" hidden>
@@ -1543,7 +1548,8 @@
   </div>
 
   <!-- Toast -->
-  <!-- Vanilla notifications, opened from the bell in the sidebar. At the top
+  <!-- Notifications (Vanilla's or Stella's), opened from the bell in the
+       sidebar. At the top
        level rather than inside the sidebar: a skin can make the sidebar its
        own layer (Liquid Glass does), and a popover inside it would then be
        drawn under the main content however high its z-index. -->

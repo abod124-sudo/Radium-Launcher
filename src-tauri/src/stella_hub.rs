@@ -33,6 +33,13 @@
 //! The game also invokes `SubscribeToPlayers` with its friends' ids; this does
 //! the same, in case the server ever stops broadcasting to everyone.
 //!
+//! Messages to the account arrive here too, as `{"Id":"2","Msg":{Id,
+//! FromPlayerId, Type, Data, RoomId, SentTime}}`. Invites are passed on to the
+//! page as `stella-invite` (type 6, Data `{"InviteId", "Name", "InviteMode"}`,
+//! seen 2026-10-04), which shows them as a pop-up: a friend inviting the
+//! player, or answering their join request. Once invited, the game can join
+//! that friend even in a private room.
+//!
 //! **It never runs alongside the game.** The hub keeps one session's
 //! connections per account: when a connection from another sign-in arrives,
 //! the older ones are reset (measured: two connections on one token coexist;
@@ -58,6 +65,9 @@ use crate::stella_api;
 const HUB_URL: &str = "wss://api.stellaonline.org/notify/hub/v1";
 /// Tells the frontend to ask again with [`stella_friends`].
 const CHANGED_EVENT: &str = "stella-friends-changed";
+const INVITE_EVENT: &str = "stella-invite";
+/// Any new message, for the notifications list (see `stella_api::stella_notifications`).
+const MESSAGE_EVENT: &str = "stella-message";
 /// SignalR's own record separator.
 const RS: char = '\u{1e}';
 
@@ -119,6 +129,10 @@ struct Hub {
     /// Friends whose next presence is expected to be Stella's push of the
     /// list, until when (see [`FRIENDS_SYNC`]).
     syncing: HashMap<i64, Instant>,
+    /// Invites heard and not yet passed to the page.
+    invites: Vec<Value>,
+    /// A message has come since the page was last told.
+    new_message: bool,
 }
 
 static HUB: Mutex<Option<Hub>> = Mutex::new(None);
@@ -142,6 +156,7 @@ pub fn stop() {
         h.loaded = false;
         h.error.clear();
         h.syncing.clear();
+        h.invites.clear();
     });
 }
 
@@ -212,6 +227,41 @@ fn expect_friends_sync(gen: u64) {
     });
 }
 
+/// The invite in a message notification (`inner`), if it is one, as the page
+/// gets it: `{ fromPlayerId, inviteId, roomId, roomName }`. The room's name
+/// comes as the game shows it ("^RecCenter", "@name's Dorm"), unmarked here
+/// as in the friends list.
+fn invite_of(inner: &Value) -> Option<Value> {
+    let msg = &inner["Msg"];
+    if msg.get("Type").and_then(Value::as_i64) != Some(stella_api::INVITE_MESSAGE) {
+        return None;
+    }
+    let from = msg.get("FromPlayerId").and_then(Value::as_i64).filter(|&id| id > 0)?;
+    let data = msg
+        .get("Data")
+        .and_then(Value::as_str)
+        .and_then(|d| serde_json::from_str::<Value>(d).ok())
+        .unwrap_or(Value::Null);
+    Some(json!({
+        "fromPlayerId": from,
+        "inviteId": data.get("InviteId").and_then(Value::as_i64).unwrap_or(0),
+        "roomId": msg.get("RoomId").and_then(Value::as_i64).unwrap_or(0),
+        "roomName": data.get("Name").and_then(Value::as_str).unwrap_or("").trim_start_matches(['^', '@']),
+    }))
+}
+
+/// Note a message notification (`inner`) for the page, and keep it if it is
+/// an invite.
+fn note_message(inner: &Value, gen: u64) {
+    let invite = invite_of(inner);
+    with_hub(|h| {
+        if h.generation == gen {
+            h.new_message = true;
+            h.invites.extend(invite);
+        }
+    });
+}
+
 /// Apply one hub frame. Returns true when a friend's shown state changed.
 fn apply_frame(frame: &str, gen: u64) -> bool {
     let Ok(outer) = serde_json::from_str::<Value>(frame) else {
@@ -228,8 +278,13 @@ fn apply_frame(frame: &str, gen: u64) -> bool {
     else {
         return false;
     };
-    if inner.get("Id").and_then(Value::as_str) != Some("PresenceUpdate") {
-        return false;
+    match inner.get("Id").and_then(Value::as_str) {
+        Some("PresenceUpdate") => {}
+        Some("2") => {
+            note_message(&inner, gen);
+            return false;
+        }
+        _ => return false,
     }
     let msg = &inner["Msg"];
     let Some(player) = msg.get("PlayerId").and_then(Value::as_i64) else {
@@ -306,7 +361,7 @@ fn status_of(h: &Hub, id: i64) -> (&'static str, Option<&Presence>) {
 }
 
 /// Start the hub task unless it is already running, or Stella isn't in use.
-fn ensure_running(app: AppHandle) {
+pub(crate) fn ensure_running(app: AppHandle) {
     if !stella_api::in_use() {
         return;
     }
@@ -430,6 +485,13 @@ async fn run_connection(app: &AppHandle, gen: u64) -> Result<(), String> {
         }
         if changed {
             let _ = app.emit(CHANGED_EVENT, ());
+        }
+        let (invites, new_message) = with_hub(|h| (std::mem::take(&mut h.invites), std::mem::take(&mut h.new_message)));
+        if new_message {
+            let _ = app.emit(MESSAGE_EVENT, ());
+        }
+        for invite in invites {
+            let _ = app.emit(INVITE_EVENT, invite);
         }
     }
 }
@@ -661,6 +723,11 @@ pub fn presence_for(id: i64) -> Option<(bool, String, bool)> {
     })
 }
 
+/// Whether the hub is connected and listening now.
+pub fn listening() -> bool {
+    with_hub(|h| h.running && !h.paused && h.connected_at.is_some())
+}
+
 /// Players in private copies of each room right now, by room id.
 ///
 /// Stella's per-room instance list (`/match/room/{id}/instances`) holds only
@@ -797,6 +864,21 @@ mod tests {
         assert_eq!(status_of(&h, 7).0, "checking");
         h.connected_at = Instant::now().checked_sub(SETTLE + Duration::from_secs(1));
         assert_eq!(status_of(&h, 7).0, "offline");
+    }
+
+    #[test]
+    fn reads_who_sent_an_invite() {
+        // As captured 2026-10-04: an invite, and a friend notice (type 40).
+        let invite = json!({ "Id": "2", "Msg": {
+            "Id": 7, "FromPlayerId": 4034, "Type": 6, "RoomId": 6389,
+            "Data": "{\"InviteId\":70172316,\"Name\":\"@Fangame300's Dorm\",\"InviteMode\":22}"
+        }});
+        assert_eq!(
+            invite_of(&invite),
+            Some(json!({ "fromPlayerId": 4034, "inviteId": 70172316, "roomId": 6389, "roomName": "Fangame300's Dorm" }))
+        );
+        let notice = json!({ "Id": "2", "Msg": { "Id": 7, "FromPlayerId": 71838, "Type": 40, "Data": "0" } });
+        assert_eq!(invite_of(&notice), None);
     }
 
     fn frame(msg: Value) -> String {

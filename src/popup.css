@@ -171,3 +171,28 @@ html, body {
   color: var(--pop-fg);
   background: rgba(127, 127, 127, 0.18);
 }
+
+/* An invite's JOIN. Drawn from the card's own colours, so it suits any skin. */
+.action {
+  align-self: flex-start;
+  margin-top: 5px;
+  padding: 4px 14px;
+  font: bold 11px var(--pop-font);
+  letter-spacing: 0.06em;
+  color: var(--pop-accent);
+  background: var(--pop-system-bg);
+  border: 1px solid color-mix(in srgb, var(--pop-accent) 45%, transparent);
+  border-radius: min(var(--pop-radius), 6px);
+  cursor: pointer;
+}
+.action:hover { background: color-mix(in srgb, var(--pop-accent) 18%, transparent); }
+.action:focus-visible { outline: 1px dotted var(--pop-accent); outline-offset: 2px; }
+/* Retro skins: framed like the card itself, so it reads as that skin's push
+   button rather than a modern chip. */
+.retro .action {
+  color: var(--pop-fg);
+  background: var(--pop-bg);
+  border: var(--pop-border);
+  border-radius: var(--pop-radius);
+}
+.retro .action:hover { background: color-mix(in srgb, var(--pop-fg) 8%, var(--pop-bg)); }

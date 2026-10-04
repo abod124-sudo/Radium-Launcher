@@ -535,6 +535,15 @@ fn launch_game_impl(
         .map(|n| n.trim().trim_start_matches('^'))
         .filter(|n| network == config::Network::Stella && valid_room_name(n))
         .map(|n| format!("+roomname:{n}"));
+    // A friend in a private copy of a room can't be joined that way (Stella
+    // answers "Room does not exist"); the game starts plainly instead, and once
+    // it has landed the launcher sends them a join request, as the game's own
+    // "Request to Join" does. See `stella_api::request_join_after_launch`.
+    let request_join = config
+        .get("requestJoinPlayerId")
+        .and_then(|v| v.as_i64())
+        .filter(|&id| id > 0 && network == config::Network::Stella);
+    let log_mark = request_join.map(|_| crate::stella_api::game_log_mark());
     let stella_pid = if network == config::Network::Stella {
         let mut args = vec![mode_arg];
         // A player to join wins over a room; the frontend only sends one.
@@ -583,6 +592,10 @@ fn launch_game_impl(
     LAUNCH_GRACE_POLLS.store(GRACE_POLLS_AFTER_LAUNCH, Ordering::SeqCst);
     GAME_RUNNING_STATE.store(true, Ordering::SeqCst);
     let _ = app.emit("game-state", json!({ "running": true }));
+
+    if let (Some(player_id), Some(mark)) = (request_join, log_mark) {
+        crate::stella_api::request_join_after_launch(app.clone(), player_id, mark);
+    }
 
     // 8. Optionally minimize the launcher
     let minimize = config

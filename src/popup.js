@@ -7,6 +7,8 @@
   const { listen } = window.__TAURI__.event;
 
   const SHOW_MS = 6000;
+  // A card with something to do (an invite's JOIN) stays up longer.
+  const ACTION_SHOW_MS = 20000;
   const MAX_CARDS = 3;
   const LEAVE_MS = 220;
   const RETRO_LEAVE_MS = 300;
@@ -124,7 +126,8 @@
 
   function arm(card) {
     clearTimeout(timers.get(card));
-    timers.set(card, setTimeout(() => dismiss(card), SHOW_MS));
+    const ms = card.querySelector('.action') ? ACTION_SHOW_MS : SHOW_MS;
+    timers.set(card, setTimeout(() => dismiss(card), ms));
   }
 
   function avatar(data) {
@@ -169,6 +172,22 @@
       text.appendChild(node);
     }
     body.append(app, text);
+    // An action button does what clicking the card does; it says what that is.
+    const open = () => {
+      invoke('desktop_notif_open', { card: { id: data.id ?? null, sender: data.sender ?? null } }).catch(() => {});
+      dismiss(card);
+    };
+    if (typeof data.action === 'string' && data.action) {
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = 'action';
+      action.textContent = data.action.slice(0, 24);
+      action.addEventListener('click', (e) => {
+        e.stopPropagation();
+        open();
+      });
+      body.appendChild(action);
+    }
     card.appendChild(body);
 
     const close = document.createElement('button');
@@ -182,10 +201,7 @@
     });
     card.appendChild(close);
 
-    card.addEventListener('click', () => {
-      invoke('desktop_notif_open', { card: { id: data.id ?? null, sender: data.sender ?? null } }).catch(() => {});
-      dismiss(card);
-    });
+    card.addEventListener('click', open);
     card.addEventListener('mouseenter', () => clearTimeout(timers.get(card)));
     card.addEventListener('mouseleave', () => arm(card));
 

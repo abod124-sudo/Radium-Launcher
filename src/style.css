@@ -739,7 +739,7 @@ body #stellaAccountBtn:is([aria-haspopup]) #stellaAccountName {
 /* Liquid Glass pads every .nav-btn 12px a side with !important, which left
    the name about 60px; the ids outrank it for these two. */
 body.glass-enabled :is(#vanillaAccountBtn, #stellaAccountBtn) { padding: 6px 8px !important; }
-body.glass-enabled #vanillaNotifsBtn { padding: 0 !important; }
+body.glass-enabled :is(#vanillaNotifsBtn, #stellaNotifsBtn) { padding: 0 !important; }
 /* While their popup is open these two are highlighted with `.is-open`, not
    the nav's `.active`: every skin gives `.active` the current-tab treatment
    (its own padding, an indicator bar, a pressed bevel), which made the button
@@ -754,19 +754,19 @@ body .sidebar-footer .account-row :is(.account-btn, .notif-bell).is-open {
    above: its press tokens are its hover link style, blue on its blue pane. */
 body:not(.glass-enabled):not(:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
                                   .theme-blackandwhite, .theme-blackandwhite-inverted)) {
-  &:not(:is(.theme-winxp, .theme-royalenoir)) :is(#vanillaAccountBtn, #stellaAccountBtn, #vanillaNotifsBtn):is(:active, .is-open) {
+  &:not(:is(.theme-winxp, .theme-royalenoir)) :is(#vanillaAccountBtn, #stellaAccountBtn, #vanillaNotifsBtn, #stellaNotifsBtn):is(:active, .is-open) {
     color: var(--nav-press-fg);
     background: var(--nav-press-bg) !important;
     border: var(--nav-press-border);
     box-shadow: var(--nav-press-shadow);
   }
   & :is(#vanillaAccountBtn, #stellaAccountBtn):is(:active, .is-open) { padding: 7px 7px 5px 9px; }
-  & #vanillaNotifsBtn:is(:active, .is-open) .vn-icon { transform: translate(1px, 1px); }
+  & :is(#vanillaNotifsBtn, #stellaNotifsBtn):is(:active, .is-open) .vn-icon { transform: translate(1px, 1px); }
 }
 /* XP's sidebar rows are its blue link colour, which reads on the light top of
    its task pane but not on the dark blue at the bottom, where these two sit.
    They take the colour XP gives its sidebar footer text (--version-fg). */
-body.theme-winxp:not(.glass-enabled) :is(#vanillaAccountBtn, #stellaAccountBtn, #vanillaNotifsBtn) {
+body.theme-winxp:not(.glass-enabled) :is(#vanillaAccountBtn, #stellaAccountBtn, #vanillaNotifsBtn, #stellaNotifsBtn) {
   color: var(--version-fg);
 }
 body .sidebar-footer .notif-bell .vn-icon { width: 20px; height: 20px; }
@@ -911,6 +911,15 @@ body.glass-enabled .notif-avatar {
 .notif-text strong { font-weight: bold; }
 .notif-item:not(.unread) .notif-text { color: color-mix(in srgb, var(--text) 75%, transparent); }
 .notif-time { font-family: var(--font-ui); font-size: 10px; color: var(--text-muted); }
+/* A Stella invite's row joins them; this says so. */
+.notif-join {
+  align-self: center; flex-shrink: 0; margin-left: auto;
+  padding: 3px 10px;
+  font-family: var(--font-ui); font-size: 10px; font-weight: bold; letter-spacing: 0.06em;
+  color: var(--accent-text, var(--green));
+  border: 1px solid color-mix(in srgb, var(--accent, var(--green)) 50%, transparent);
+  border-radius: 4px;
+}
 .notif-empty {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 36px 16px;
@@ -1021,8 +1030,10 @@ body:not(.glass-enabled):not(:is(.theme-neondark, .theme-modernlight, .theme-mod
   }
   & .card-cheer { height: 24px; padding: 0 10px; }
   & .cheer-stat :is(.room-stat-val, .photo-detail-stat-value) { padding: 2px 10px; }
-  & .card-cheer:hover,
-  & .cheer-stat:not(:disabled):hover :is(.room-stat-val, .photo-detail-stat-value) {
+  /* Never while held or cheered: the tile hover outranks the pressed rule
+     below, so a cheer popped back out under the mouse that just clicked it. */
+  & .card-cheer:not(.is-on, :active):hover,
+  & .cheer-stat:not(:disabled):not(.is-on, :active):hover :is(.room-stat-val, .photo-detail-stat-value) {
     color: var(--btn-hover-fg);
     background: var(--btn-hover-bg) !important;
     border: var(--btn-hover-border);
@@ -1040,7 +1051,8 @@ body:not(.glass-enabled):not(:is(.theme-neondark, .theme-modernlight, .theme-mod
   & .cheer-stat.is-on :is(.room-stat-val, .photo-detail-stat-value) {
     color: var(--btn-active-fg) !important;
   }
-  & :is(.card-cheer, .cheer-stat) .cheer-icon { transition: none; }
+  /* A push button presses in; the pill's shrinking thumb is not part of it. */
+  & :is(.card-cheer, .cheer-stat) .cheer-icon { transition: none; transform: none !important; }
 }
 /* Luna's pressed face is barely darker than its normal one, so the thumb
    carries the state there as well. */

@@ -454,6 +454,9 @@ function withoutBackdrop(cfg) {
     stellaCheeredPhotos:  (ids) => invoke('stella_cheered_photos', { ids: ids.map(Number) }),
     stellaSetPhotoCheer:  (photoId, on) => invoke('stella_set_photo_cheer', { photoId: Number(photoId), on }),
     stellaJoinCheck:      (playerId, roomId) => invoke('stella_join_check', { playerId: Number(playerId), roomId: Number(roomId) || 0 }),
+    stellaRequestJoin:    (playerId) => invoke('stella_request_join', { playerId: Number(playerId) }),
+    stellaAskToJoin:      (playerId) => invoke('stella_ask_to_join', { playerId: Number(playerId) }),
+    stellaNotifications:  () => invoke('stella_notifications'),
     vanillaAuthStatus:    () => invoke('vanilla_auth_status'),
     vanillaAccount:       () => invoke('vanilla_account'),
     vanillaNotifications: () => invoke('vanilla_notifications'),
@@ -495,6 +498,18 @@ function withoutBackdrop(cfg) {
     onStellaFriends: async (cb) => {
       if (unlistenMap['stella-friends-changed']) unlistenMap['stella-friends-changed']();
       unlistenMap['stella-friends-changed'] = await listen('stella-friends-changed', () => cb());
+    },
+    onStellaMessage: async (cb) => {
+      if (unlistenMap['stella-message']) unlistenMap['stella-message']();
+      unlistenMap['stella-message'] = await listen('stella-message', () => cb());
+    },
+    onStellaInvite: async (cb) => {
+      if (unlistenMap['stella-invite']) unlistenMap['stella-invite']();
+      unlistenMap['stella-invite'] = await listen('stella-invite', (event) => cb(event.payload));
+    },
+    onStellaJoinRequest: async (cb) => {
+      if (unlistenMap['stella-join-request']) unlistenMap['stella-join-request']();
+      unlistenMap['stella-join-request'] = await listen('stella-join-request', (event) => cb(event.payload));
     },
     onVanillaAuth: async (cb) => {
       if (unlistenMap['vanilla-auth-changed']) unlistenMap['vanilla-auth-changed']();
@@ -4210,8 +4225,9 @@ $('steamAppAnywayBtn')?.addEventListener('click', () => {
 });
 
 /// Where the next launch goes on Stella, used up by that launch: a friend
-/// (`{ id, name }`, from their JOIN) or a room (`{ room, name }`, from the
-/// room's PLAY). See joinStellaFriend() and playStellaRoom().
+/// (`{ id, name }`, from their JOIN; with `ask`, one in a private room, who is
+/// sent a join request once the game is in) or a room (`{ room, name }`, from
+/// the room's PLAY). See joinStellaFriend() and playStellaRoom().
 let pendingJoin = null;
 
 async function doLaunch() {
@@ -4230,8 +4246,9 @@ async function doLaunch() {
       gameExePath: config.gameExePath || '',
       minimizeOnLaunch: config.minimizeOnLaunch === true,
       closeOnLaunch: config.closeOnLaunch === true,
-      joinPlayerId: join?.id ?? null,
+      joinPlayerId: join?.ask ? null : (join?.id ?? null),
       joinRoomName: join?.room ?? null,
+      requestJoinPlayerId: join?.ask ? join.id : null,
     });
   } catch (e) {
     console.error('launchGame error:', e);
@@ -4447,6 +4464,15 @@ async function joinStellaFriend(friend) {
   if (activeNetwork !== 'stella' || !friend?.id) return;
   const name = friend.displayName || friend.userName || 'your friend';
   const go = () => launchStellaInto({ id: friend.id, name }, name);
+  // Invited: a plain JOIN gets in, private room or not (see stellaInvites).
+  if (stellaInvitedBy(friend.id)) {
+    go();
+    return;
+  }
+  if (friend.private) {
+    askToJoinStellaFriend(friend, name);
+    return;
+  }
   // Nothing will start (launchStellaInto says why), so there's nothing to check.
   if (isGameRunning || isGameLaunching || !isInstalled || stellaUpdateNeeded() || joinCheckBusy) {
     if (!joinCheckBusy) go();
@@ -4469,6 +4495,153 @@ async function joinStellaFriend(friend) {
   }
   go();
 }
+
+/// A friend in a private copy of a room can't be joined outright: Stella
+/// answers the game "Room does not exist". So JOIN asks them instead, as the
+/// game's "Request to Join" does, and their game answers with an invite.
+/// With the game closed the invite comes to the launcher's own hub
+/// connection and pops up with a JOIN of its own (showStellaInvite); once
+/// invited, a plain JOIN gets in. If the hub can't be reached, nothing could
+/// hear the invite, so Stella starts into the dorm and the launcher asks once
+/// the game is in (stella_api::request_join_after_launch, answered as
+/// onStellaJoinRequest), and the invite shows up in the game. With the game
+/// already open, the request goes now and the invite shows up there.
+async function askToJoinStellaFriend(friend, name) {
+  if (isGameRunning) {
+    try {
+      await window.radium.stellaRequestJoin(friend.id);
+      stellaJoinAsked(name);
+    } catch (e) {
+      stellaJoinNotAsked(name, e);
+    }
+    return;
+  }
+  // The game couldn't start to use an invite (launchStellaInto says why).
+  if (isGameLaunching || !isInstalled || stellaUpdateNeeded()) {
+    launchStellaInto({ id: friend.id, name }, name);
+    return;
+  }
+  if (joinCheckBusy) return;
+  joinCheckBusy = true;
+  let res = null;
+  let err = null;
+  try {
+    res = await window.radium.stellaAskToJoin(friend.id);
+  } catch (e) {
+    err = e;
+  }
+  joinCheckBusy = false;
+  if (activeNetwork !== 'stella') return;
+  if (err) {
+    stellaJoinNotAsked(name, err);
+    return;
+  }
+  if (res?.sent) {
+    addLog(`Sent ${name} a join request.`, 'ok', 'game');
+    toast(`Asked ${name} to let you in. Their invite will pop up here.`, 'ok', 6000);
+    stellaAsked.set(Number(friend.id), Date.now());
+    setTimeout(() => {
+      if (!stellaAsked.has(Number(friend.id)) || stellaInvitedBy(friend.id)) return;
+      stellaAsked.delete(Number(friend.id));
+      toast(`${name} hasn't answered your join request.`, 'info', 5000);
+    }, ASK_ANSWER_MS);
+    return;
+  }
+  // A launcher that quits as the game starts can't wait for it to land; and
+  // without an invite, `+join:` would only meet "Room does not exist".
+  const quitsOnLaunch = config.closeOnLaunch === true && config.runInBackground === false;
+  launchStellaInto(quitsOnLaunch ? { name } : { id: friend.id, name, ask: true }, name);
+}
+
+// Invites ─────────────────────────────────────────────────────────────────
+
+/// When each player last invited the signed-in one, by id. An invite lets a
+/// plain JOIN into that friend's room even when it's private (the user found,
+/// 2026-10-04). How long one lasts on Stella isn't known, so it counts for
+/// INVITE_FRESH_MS; past that, JOIN asks again.
+const stellaInvites = new Map();
+const INVITE_FRESH_MS = 10 * 60 * 1000;
+/// Join requests waiting for an answer, by friend id, and how long one may.
+const stellaAsked = new Map();
+const ASK_ANSWER_MS = 45 * 1000;
+
+/// Invites in Stella's notification list count from when they were sent, so
+/// one that came while the launcher wasn't listening still lets JOIN in.
+function noteStellaInvites(items) {
+  for (const n of items) {
+    if (n.type !== 6 || !n.senderId) continue;
+    const at = Date.parse(n.sentTime || '');
+    const id = Number(n.senderId);
+    if (!isNaN(at) && at > (stellaInvites.get(id) || 0)) stellaInvites.set(id, at);
+  }
+}
+
+function stellaInvitedBy(id) {
+  const at = stellaInvites.get(Number(id));
+  return at != null && Date.now() - at < INVITE_FRESH_MS;
+}
+
+/// An invite heard on the hub (with the game closed: the game hears its own).
+function showStellaInvite(invite) {
+  const id = Number(invite?.fromPlayerId);
+  if (!id || activeNetwork !== 'stella') return;
+  stellaInvites.set(id, Date.now());
+  const answered = stellaAsked.delete(id);
+  const friend = stellaFriendsById.get(id);
+  const name = friend?.displayName || friend?.userName || 'A player';
+  const room = String(invite.roomName || '');
+  const where = !room ? 'their room' : /'s Dorm$/.test(room) ? room : `^${room}`;
+  addLog(`${name} invited you to join them in ${where}.`, 'info', 'game');
+  // Shown whatever the pop-up setting when it answers the player's own JOIN:
+  // they are waiting for it.
+  const prefs = notifPrefs();
+  if (!prefs.popups && !answered) {
+    toast(`${name} invited you to join them in ${where}. Press JOIN on their row to go.`, 'info', 8000);
+    return;
+  }
+  window.radium.desktopNotify([{
+    id: `stella-invite:${id}`,
+    sender: null,
+    icon: null,
+    avatar: friend?.AvatarUrl ? thumbSrc(friend.AvatarUrl, avatarWidth(40)) : PLACEHOLDER_AVATAR,
+    app: 'Stella',
+    parts: [{ t: name, b: true }, { t: ` invited you to join them in ${where}.` }],
+    action: 'JOIN',
+    style: notifPopStyle(),
+  }]).catch(() => {});
+  if (prefs.sound) playNotifChime();
+  refreshStellaFriends();
+}
+window.radium?.onStellaInvite?.(showStellaInvite);
+
+/// JOIN on an invite's pop-up.
+async function joinFromStellaInvite(id) {
+  if (activeNetwork !== 'stella') {
+    await setNetwork('stella');
+    if (activeNetwork !== 'stella') return;
+  }
+  const friend = stellaFriendsById.get(Number(id));
+  const name = friend?.displayName || friend?.userName || 'your friend';
+  launchStellaInto({ id: Number(id), name }, name);
+}
+
+function stellaJoinAsked(name) {
+  addLog(`Sent ${name} a join request.`, 'ok', 'game');
+  toast(`Asked ${name} to let you in. Their invite will show up in the game.`, 'ok', 6000);
+}
+
+function stellaJoinNotAsked(name, err) {
+  const why = String(err).trim().replace(/([^.!?])$/, '$1.');
+  addLog(`Couldn't send ${name} a join request: ${why}`, 'error', 'game');
+  toast(`Couldn't ask ${name} to let you in: ${why} You can still ask from the game's friends list.`, 'error', 7000);
+}
+
+window.radium?.onStellaJoinRequest?.((res) => {
+  const friend = stellaFriendsById.get(Number(res?.playerId));
+  const name = friend?.displayName || friend?.userName || 'your friend';
+  if (res?.ok) stellaJoinAsked(name);
+  else stellaJoinNotAsked(name, res?.error || 'Unknown error.');
+});
 
 /// The friend JOIN is waiting on this warning: `{ friend, name, room }`.
 let roomFullJoin = null;
@@ -5350,10 +5523,8 @@ function renderVanillaAccount() {
     btn.removeAttribute('aria-haspopup');
     $('vanillaAccountTokens').textContent = '';
     if (bell) bell.hidden = true;
-    vanillaNotifs = [];
-    setVanillaBadge();
+    resetNotifs(notifSources.vanilla);
     closeAccountMenu();
-    closeNotifPanel();
   }
 }
 
@@ -5416,7 +5587,7 @@ function applyVanillaAuth(state) {
   // Cheer and subscribe buttons on whatever is open reflect the new account.
   if (was?.id !== vanillaPlayer?.id) {
     cheeredPhotoIds = null;
-    announcedNotifIds = null;
+    resetNotifs(notifSources.vanilla);
     refreshSocialButtons();
   }
 
@@ -5525,7 +5696,9 @@ function renderStellaAccount() {
       display.textContent = differs ? stellaPlayer.displayName : '';
       display.hidden = !differs;
     }
+    if ($('stellaNotifsBtn')) $('stellaNotifsBtn').hidden = false;
   } else {
+    if ($('stellaNotifsBtn')) $('stellaNotifsBtn').hidden = true;
     name.textContent = stellaAuthPending ? 'SIGNING IN…' : 'LOG IN';
     btn.setAttribute('aria-label', 'Sign in to Stella with your Steam account');
     avatar.hidden = true;
@@ -5567,6 +5740,8 @@ function applyStellaAuth(player) {
   // belong to the account.
   stellaCheerKnown = new Map();
   refreshSocialButtons();
+  resetNotifs(notifSources.stella);
+  if (stellaPlayer) loadNotifications(notifSources.stella);
   if (stellaPlayer) addLog(`Signed in to Stella as @${stellaPlayer.userName}`, 'ok', 'account');
   else if (was) addLog('Signed out of Stella', 'info', 'account');
   reloadStellaLists();
@@ -5862,7 +6037,7 @@ function renderStellaFriendsInto(list, count, res) {
       join.type = 'button';
       join.className = 'btn-refresh home-friend-join';
       join.textContent = 'JOIN';
-      join.setAttribute('aria-label', `Start Stella and join ${name}`);
+      join.setAttribute('aria-label', f.private && !stellaInvitedBy(f.id) ? `Ask ${name} to let you into their private room` : `Start Stella and join ${name}`);
       join.addEventListener('click', () => joinStellaFriend(f));
       row.append(join);
     }
@@ -5901,12 +6076,34 @@ document.addEventListener('keydown', (e) => {
 
 // ── Vanilla notifications ────────────────────────────────────────────────
 // A panel off the bell next to the account button, laid out like the one on
-// vanillarec.net. Vanilla keeps no read state on its side (its website keeps
-// it in the browser), so neither does this: which ones have been seen is a
-// per-account list in localStorage.
+// vanillarec.net. Vanilla and Stella each have their own list and bell (in
+// their account slots); the one panel shows whichever bell opened it. Neither
+// keeps read state on its side (Vanilla's website keeps it in the browser),
+// so neither does this: which ones have been seen is a per-account list in
+// localStorage.
 
-let vanillaNotifs = [];
-let notifsLoading = false;
+/// Each network's notifications. Stella's are the game's messages, with the
+/// same type numbers as Vanilla's (both are Rec Room's): see
+/// stella_api::stella_notifications.
+const notifSources = {
+  vanilla: {
+    net: 'vanilla', label: 'Vanilla', items: [], loading: false,
+    /// Ids already seen for the signed-in account; `null` until its first
+    /// load, which only records a baseline (see announceNewNotifs).
+    announced: null,
+    bell: 'vanillaNotifsBtn', badge: 'vanillaNotifBadge',
+    player: () => vanillaPlayer,
+    fetch: () => window.radium.vanillaNotifications(),
+  },
+  stella: {
+    net: 'stella', label: 'Stella', items: [], loading: false, announced: null,
+    bell: 'stellaNotifsBtn', badge: 'stellaNotifBadge',
+    player: () => stellaPlayer,
+    fetch: () => window.radium.stellaNotifications(),
+  },
+};
+/// The list the panel shows: the bell that last opened it.
+let panelSource = notifSources.vanilla;
 
 /// Wording per notification type, matching the website. `{s}` is the sender
 /// and `{m}` a free-text message; both are inserted as text, never markup.
@@ -5941,12 +6138,13 @@ const VANILLA_SYSTEM_NOTIFS = new Set([2, 3, 5, 7, 51, 60, 61, 100]);
 
 const READ_NOTIFS_CAP = 500;
 
-function readNotifsKey() {
-  return vanillaPlayer ? `radium-vanilla-read-notifs-${vanillaPlayer.id}` : null;
+function readNotifsKey(src) {
+  const player = src.player();
+  return player ? `radium-${src.net}-read-notifs-${player.id}` : null;
 }
 
-function readNotifIds() {
-  const key = readNotifsKey();
+function readNotifIds(src) {
+  const key = readNotifsKey(src);
   if (!key) return new Set();
   try {
     const list = JSON.parse(localStorage.getItem(key) || '[]');
@@ -5956,46 +6154,58 @@ function readNotifIds() {
   }
 }
 
-function markNotifsRead(ids) {
-  const key = readNotifsKey();
+function markNotifsRead(src, ids) {
+  const key = readNotifsKey(src);
   if (!key || !ids.length) return;
-  const seen = readNotifIds();
+  const seen = readNotifIds(src);
   ids.forEach(id => seen.add(String(id)));
   try {
     localStorage.setItem(key, JSON.stringify([...seen].slice(-READ_NOTIFS_CAP)));
   } catch (e) {}
 }
 
-function unreadNotifs() {
-  const seen = readNotifIds();
-  return vanillaNotifs.filter(n => n.id != null && !seen.has(String(n.id)));
+function unreadNotifs(src) {
+  const seen = readNotifIds(src);
+  return src.items.filter(n => n.id != null && !seen.has(String(n.id)));
 }
 
-function setVanillaBadge() {
-  const badge = $('vanillaNotifBadge');
+function setNotifBadge(src) {
+  const badge = $(src.badge);
   if (!badge) return;
-  const count = unreadNotifs().length;
+  const count = unreadNotifs(src).length;
   badge.hidden = !count;
   badge.textContent = count > 99 ? '99+' : String(count || '');
-  $('vanillaNotifsBtn')?.setAttribute('aria-label', count ? `Notifications, ${count} unread` : 'Notifications');
+  $(src.bell)?.setAttribute('aria-label', count ? `Notifications, ${count} unread` : 'Notifications');
 }
+function setVanillaBadge() { setNotifBadge(notifSources.vanilla); }
 
-async function loadVanillaNotifications() {
-  if (!vanillaPlayer || notifsLoading) return;
-  notifsLoading = true;
+async function loadNotifications(src) {
+  const player = src.player();
+  if (!player || src.loading) return;
+  src.loading = true;
+  const panelOpen = () => !$('vanillaNotifsPanel')?.hidden && panelSource === src;
   try {
-    const account = vanillaPlayer.id;
-    const list = await window.radium.vanillaNotifications();
-    if (vanillaPlayer?.id !== account) return;
-    vanillaNotifs = Array.isArray(list) ? list : [];
-    setVanillaBadge();
-    announceNewNotifs(vanillaNotifs);
-    if (!$('vanillaNotifsPanel')?.hidden) renderNotifPanel();
+    const list = await src.fetch();
+    if (src.player()?.id !== player.id) return;
+    src.items = Array.isArray(list) ? list : [];
+    if (src.net === 'stella') noteStellaInvites(src.items);
+    setNotifBadge(src);
+    announceNewNotifs(src, src.items);
+    if (panelOpen()) renderNotifPanel();
   } catch (e) {
-    if (!$('vanillaNotifsPanel')?.hidden) renderNotifPanel(String(e));
+    if (panelOpen()) renderNotifPanel(String(e));
   } finally {
-    notifsLoading = false;
+    src.loading = false;
   }
+}
+function loadVanillaNotifications() { return loadNotifications(notifSources.vanilla); }
+
+/// A signed-in account changed: its list (and what was announced) is gone.
+function resetNotifs(src) {
+  src.items = [];
+  src.announced = null;
+  setNotifBadge(src);
+  if (panelSource === src) closeNotifPanel();
 }
 
 function formatNotifTime(iso) {
@@ -6011,19 +6221,35 @@ function formatNotifTime(iso) {
   return new Date(t).toLocaleDateString();
 }
 
-/// The message as text nodes, with the sender's name in bold.
+/// A Stella room as the game names it: "^RecCenter", or a dorm as it is.
+function stellaRoomLabel(room) {
+  room = String(room || '');
+  if (!room) return 'their room';
+  return /'s Dorm$/.test(room) ? room : `^${room}`;
+}
+
+/// The message as parts (`{ t, b }`, b for bold), the sender's name in bold.
+/// Inserted as text, never markup, both here and in the desktop pop-up.
+function notifParts(n) {
+  // Stella's invites carry the room's name.
+  const invite = n.type === 6 && n.message;
+  const template = invite ? '{s} invited you to join them in {m}.'
+    : VANILLA_NOTIF_TEXT[n.type] || 'New notification from {s}.';
+  return template.split(/(\{s\}|\{m\})/).filter(Boolean).map(part =>
+    part === '{s}' ? { t: n.senderDisplay || n.senderName || 'A player', b: true }
+      : part === '{m}' ? { t: invite ? stellaRoomLabel(n.message) : (n.message || '') }
+      : { t: part });
+}
+
 function notifMessage(n) {
-  const template = VANILLA_NOTIF_TEXT[n.type] || 'New notification from {s}.';
   const frag = document.createDocumentFragment();
-  for (const part of template.split(/(\{s\}|\{m\})/)) {
-    if (part === '{s}') {
+  for (const part of notifParts(n)) {
+    if (part.b) {
       const b = document.createElement('strong');
-      b.textContent = n.senderName || 'A player';
+      b.textContent = part.t;
       frag.appendChild(b);
-    } else if (part === '{m}') {
-      frag.appendChild(document.createTextNode(n.message || ''));
-    } else if (part) {
-      frag.appendChild(document.createTextNode(part));
+    } else {
+      frag.appendChild(document.createTextNode(part.t));
     }
   }
   return frag;
@@ -6050,10 +6276,17 @@ function notifAvatar(n, size) {
   return img;
 }
 
-function notifRow(n, unread) {
-  const row = document.createElement(n.senderName ? 'button' : 'div');
+/// A Stella invite that can still be used: JOIN on it starts Stella there.
+function joinableStellaInvite(src, n) {
+  return src.net === 'stella' && n.type === 6 && n.senderId && stellaInvitedBy(n.senderId);
+}
+
+function notifRow(src, n, unread) {
+  const join = joinableStellaInvite(src, n);
+  const clickable = join || n.senderName;
+  const row = document.createElement(clickable ? 'button' : 'div');
   row.className = 'notif-item';
-  if (n.senderName) row.type = 'button';
+  if (clickable) row.type = 'button';
   row.classList.toggle('unread', unread);
   row.appendChild(notifAvatar(n, 32));
 
@@ -6068,10 +6301,27 @@ function notifRow(n, unread) {
   body.append(text, time);
   row.appendChild(body);
 
-  if (n.senderName) {
+  if (join) {
+    // The whole row joins; this only says so.
+    const chip = document.createElement('span');
+    chip.className = 'notif-join';
+    chip.textContent = 'JOIN';
+    chip.setAttribute('aria-hidden', 'true');
+    row.appendChild(chip);
+    row.setAttribute('aria-label', `Join ${n.senderDisplay || n.senderName || 'them'} in ${stellaRoomLabel(n.message)}`);
     row.addEventListener('click', () => {
       closeNotifPanel();
-      showCreatorProfile(n.senderName);
+      joinFromStellaInvite(n.senderId);
+    });
+  } else if (n.senderName) {
+    row.addEventListener('click', () => {
+      closeNotifPanel();
+      // Stella opens a profile by id rather than by searching the name.
+      if (src.net === 'stella') {
+        showCreatorProfile(n.senderName, { id: n.senderId, displayName: n.senderDisplay, avatarUrl: n.senderAvatar });
+      } else {
+        showCreatorProfile(n.senderName);
+      }
     });
   }
   return row;
@@ -6092,35 +6342,36 @@ function notifState(message, loading = false) {
 }
 
 function renderNotifPanel(error) {
+  const src = panelSource;
   const list = $('vanillaNotifsList');
   if (!list) return;
-  const unread = unreadNotifs();
+  const unread = unreadNotifs(src);
   const mark = $('vanillaNotifsMarkRead');
   if (mark) mark.disabled = unread.length === 0;
 
-  if (error && !vanillaNotifs.length) {
+  if (error && !src.items.length) {
     list.replaceChildren(notifState(error));
     return;
   }
-  if (!vanillaNotifs.length) {
-    list.replaceChildren(notifsLoading ? notifState('Loading…', true) : notifState('No new notifications'));
+  if (!src.items.length) {
+    list.replaceChildren(src.loading ? notifState('Loading…', true) : notifState('No new notifications'));
     return;
   }
   // Unread first, then newest first, as on the website.
   const unreadIds = new Set(unread.map(n => String(n.id)));
-  const sorted = [...vanillaNotifs].sort((a, b) => {
+  const sorted = [...src.items].sort((a, b) => {
     const au = unreadIds.has(String(a.id)), bu = unreadIds.has(String(b.id));
     if (au !== bu) return au ? -1 : 1;
     return String(b.sentTime || '').localeCompare(String(a.sentTime || ''));
   });
-  list.replaceChildren(...sorted.map(n => notifRow(n, unreadIds.has(String(n.id)))));
+  list.replaceChildren(...sorted.map(n => notifRow(src, n, unreadIds.has(String(n.id)))));
 }
 
 /// Place the panel beside the sidebar, bottom-aligned with the bell, and no
 /// taller than the room above it (the title bar included).
 function positionNotifPanel() {
   const panel = $('vanillaNotifsPanel');
-  const bell = $('vanillaNotifsBtn');
+  const bell = $(panelSource.bell);
   const sidebar = document.querySelector('.sidebar');
   if (!panel || !bell || !sidebar) return;
   const gap = 10;
@@ -6131,39 +6382,46 @@ function positionNotifPanel() {
   panel.style.maxHeight = `${Math.max(200, Math.min(460, Math.round(bellBox.bottom - titlebar - gap)))}px`;
 }
 
-function openNotifPanel() {
+function openNotifPanel(src = panelSource) {
   closeAccountMenu();
+  closeStellaAccountMenu();
+  if (panelSource !== src) closeNotifPanel();
+  panelSource = src;
   const panel = $('vanillaNotifsPanel');
-  const bell = $('vanillaNotifsBtn');
+  const bell = $(src.bell);
   if (!panel) return;
   positionNotifPanel();
   renderNotifPanel();
   showDropdown(panel);
   bell?.setAttribute('aria-expanded', 'true');
   bell?.classList.add('is-open');
-  loadVanillaNotifications();
+  loadNotifications(src);
 }
 
 /// Closing counts everything that was on show as seen, like the website.
 function closeNotifPanel() {
   const panel = $('vanillaNotifsPanel');
   if (!panel || panel.hidden) return;
-  markNotifsRead(vanillaNotifs.map(n => n.id).filter(id => id != null));
-  setVanillaBadge();
+  const src = panelSource;
+  markNotifsRead(src, src.items.map(n => n.id).filter(id => id != null));
+  setNotifBadge(src);
   hideDropdown(panel);
-  const bell = $('vanillaNotifsBtn');
+  const bell = $(src.bell);
   bell?.setAttribute('aria-expanded', 'false');
   bell?.classList.remove('is-open');
 }
 
-$('vanillaNotifsBtn')?.addEventListener('click', () => {
-  const panel = $('vanillaNotifsPanel');
-  if (panel && !panel.hidden) closeNotifPanel(); else openNotifPanel();
-});
+for (const src of Object.values(notifSources)) {
+  $(src.bell)?.addEventListener('click', () => {
+    const panel = $('vanillaNotifsPanel');
+    if (panel && !panel.hidden && panelSource === src) closeNotifPanel(); else openNotifPanel(src);
+  });
+}
 
 $('vanillaNotifsMarkRead')?.addEventListener('click', () => {
-  markNotifsRead(vanillaNotifs.map(n => n.id).filter(id => id != null));
-  setVanillaBadge();
+  const src = panelSource;
+  markNotifsRead(src, src.items.map(n => n.id).filter(id => id != null));
+  setNotifBadge(src);
   renderNotifPanel();
 });
 
@@ -6172,13 +6430,16 @@ window.addEventListener('resize', () => {
 });
 
 // Check for new ones every minute while signed in, so pop-ups arrive close to
-// when the notification did. One small request. While the launcher is
-// minimised it only keeps checking if pop-ups are on.
+// when the notification did. One small request each. While the launcher is
+// minimised it only keeps checking if pop-ups are on. Stella's also come
+// over its live hub the moment they are sent (onStellaMessage).
 setInterval(() => {
-  if (!vanillaPlayer) return;
   if (document.hidden && !notifPrefs().popups) return;
-  loadVanillaNotifications();
+  for (const src of Object.values(notifSources)) {
+    if (src.player()) loadNotifications(src);
+  }
 }, 60 * 1000);
+window.radium?.onStellaMessage?.(() => loadNotifications(notifSources.stella));
 
 // ── Notification pop-ups ─────────────────────────────────────────────────
 // Steam-style cards for notifications that arrive while the launcher is
@@ -6186,30 +6447,29 @@ setInterval(() => {
 // desktop_notify.rs), never inside the launcher. What was already there at
 // sign-in is not announced.
 
-/// Ids already seen for the signed-in account; `null` until its first load,
-/// which only records a baseline.
-let announcedNotifIds = null;
 const NOTIF_POP_MAX = 3;
 
-function announceNewNotifs(list) {
+function announceNewNotifs(src, list) {
   const withIds = list.filter(n => n.id != null);
-  if (!announcedNotifIds) {
-    announcedNotifIds = new Set(withIds.map(n => String(n.id)));
+  if (!src.announced) {
+    src.announced = new Set(withIds.map(n => String(n.id)));
     return;
   }
-  const fresh = withIds.filter(n => !announcedNotifIds.has(String(n.id)));
-  fresh.forEach(n => announcedNotifIds.add(String(n.id)));
+  const fresh = withIds.filter(n => !src.announced.has(String(n.id)));
+  fresh.forEach(n => src.announced.add(String(n.id)));
 
   // Announced whichever network the launcher is showing. These belong to the
-  // signed-in Vanilla account, and while Radium was selected they used to be
-  // marked as announced without ever popping up — and the bell that would
-  // have shown them is hidden on Radium. Opening one switches to Vanilla.
+  // signed-in account, and while another network was selected they used to
+  // be marked as announced without ever popping up — and the bell that would
+  // have shown them is hidden there. Opening one switches to its network.
   if (!fresh.length) return;
-  const seen = readNotifIds();
+  const seen = readNotifIds(src);
   const show = fresh
     .filter(n => !seen.has(String(n.id)))
+    // A Stella invite has popped up already, with its JOIN (showStellaInvite).
+    .filter(n => !(src.net === 'stella' && n.type === 6))
     .sort((a, b) => String(a.sentTime || '').localeCompare(String(b.sentTime || '')));
-  if (show.length) deliverNotifPops(show);
+  if (show.length) deliverNotifPops(src, show);
 }
 
 function notifPrefs() {
@@ -6223,11 +6483,11 @@ function notifPrefs() {
 /// the batch. Skipped while the game is running (a topmost window over a
 /// full-screen game can knock it out of full screen), and while the launcher
 /// is in front with its notification list open, which already shows them.
-function deliverNotifPops(list, { force = false } = {}) {
+function deliverNotifPops(src, list, { force = false } = {}) {
   const prefs = notifPrefs();
   if (!force) {
     if (!prefs.popups || isGameRunning) return;
-    const listOpen = !$('vanillaNotifsPanel')?.hidden;
+    const listOpen = !$('vanillaNotifsPanel')?.hidden && panelSource === src;
     if (listOpen && document.hasFocus()) return;
   }
 
@@ -6237,33 +6497,29 @@ function deliverNotifPops(list, { force = false } = {}) {
     : list;
 
   const style = notifPopStyle();
-  window.radium.desktopNotify(items.map(it => desktopCard(it, style))).catch(() => {});
+  window.radium.desktopNotify(items.map(it => desktopCard(src, it, style))).catch(() => {});
   if (prefs.sound) playNotifChime();
 }
 
-/// A card for the desktop pop-up: plain data, rendered there as text.
-function desktopCard(it, style) {
+/// A card for the desktop pop-up: plain data, rendered there as text. Its id
+/// says whose notification it is (`notif:<network>:<id>`), for when it's clicked.
+function desktopCard(src, it, style) {
   if (it.more) {
-    return { id: null, sender: null, icon: 'bell', app: 'Vanilla', style,
+    return { id: null, sender: null, icon: 'bell', app: src.label, style,
              parts: [{ t: `${it.more} more new notifications` }] };
   }
   const n = it;
   const system = VANILLA_SYSTEM_NOTIFS.has(n.type) || !n.senderId;
-  const template = VANILLA_NOTIF_TEXT[n.type] || 'New notification from {s}.';
-  const parts = template.split(/(\{s\}|\{m\})/).filter(Boolean).map(part =>
-    part === '{s}' ? { t: n.senderName || 'A player', b: true }
-      : part === '{m}' ? { t: n.message || '' }
-      : { t: part });
   return {
-    id: n.id ?? null,
+    id: n.id != null ? `notif:${src.net}:${n.id}` : null,
     sender: n.senderName || null,
     icon: system ? (n.type === 51 ? 'thumb' : 'info') : null,
-    // Always Vanilla's, whichever network is showing, so never Radium's
+    // Always the account's network, whichever is showing, so never Radium's
     // default picture; the placeholder rather than nothing, which the pop-up
     // used to fill with the Radium logo.
     avatar: system ? '' : (n.senderAvatar ? thumbSrc(n.senderAvatar, avatarWidth(40)) : PLACEHOLDER_AVATAR),
-    app: 'Vanilla',
-    parts,
+    app: src.label,
+    parts: notifParts(n),
     style,
   };
 }
@@ -6350,24 +6606,39 @@ function playNotifChime() {
 // A desktop card was clicked: the launcher has already been brought forward.
 window.radium?.onDesktopNotifOpen?.(async (card) => {
   if (card?.id === 'tray-hint') return;
-  if (card?.id != null) {
-    markNotifsRead([card.id]);
-    setVanillaBadge();
+  const invite = /^stella-invite:(\d+)$/.exec(String(card?.id ?? ''));
+  if (invite) {
+    joinFromStellaInvite(invite[1]);
+    return;
   }
-  // Profiles and the notification list are Vanilla's. setNetwork() refuses
-  // (and says why) during a download or while the game runs; the launcher is
-  // already in front, so that is where it stops.
-  if (activeNetwork !== 'vanilla') {
-    await setNetwork('vanilla');
-    if (activeNetwork !== 'vanilla') return;
+  const own = /^notif:(vanilla|stella):(.+)$/.exec(String(card?.id ?? ''));
+  // The pop-up hands back only the id and sender, so an id-less card ("N
+  // more") is taken as Vanilla's.
+  const src = notifSources[own?.[1] || 'vanilla'];
+  if (own) {
+    markNotifsRead(src, [own[2]]);
+    setNotifBadge(src);
   }
-  if (card?.sender) showCreatorProfile(String(card.sender));
-  else if (vanillaPlayer) openNotifPanel();
+  // Profiles and the notification list are the network's own. setNetwork()
+  // refuses (and says why) during a download or while the game runs; the
+  // launcher is already in front, so that is where it stops.
+  if (activeNetwork !== src.net) {
+    await setNetwork(src.net);
+    if (activeNetwork !== src.net) return;
+  }
+  const n = own && src.items.find(x => String(x.id) === own[2]);
+  if (src.net === 'stella' && n?.senderId) {
+    showCreatorProfile(n.senderName, { id: n.senderId, displayName: n.senderDisplay, avatarUrl: n.senderAvatar });
+  } else if (card?.sender) {
+    showCreatorProfile(String(card.sender));
+  } else if (src.player()) {
+    openNotifPanel(src);
+  }
 });
 
 // Settings → Send a test pop-up.
 $('btnTestNotif')?.addEventListener('click', () => {
-  deliverNotifPops([{
+  deliverNotifPops(notifSources.vanilla, [{
     id: null,
     type: 4,
     senderId: vanillaPlayer?.id || 1,
@@ -6392,7 +6663,7 @@ document.addEventListener('click', (e) => {
     closeAccountMenu();
   }
   const panel = $('vanillaNotifsPanel');
-  if (panel && !panel.hidden && !panel.contains(e.target) && !$('vanillaNotifsBtn')?.contains(e.target)) {
+  if (panel && !panel.hidden && !panel.contains(e.target) && !$(panelSource.bell)?.contains(e.target)) {
     closeNotifPanel();
   }
 });
@@ -6404,7 +6675,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (!$('vanillaNotifsPanel')?.hidden) {
     closeNotifPanel();
-    $('vanillaNotifsBtn')?.focus();
+    $(panelSource.bell)?.focus();
   }
 });
 
@@ -8911,10 +9182,12 @@ async function applyStellaPresence(playerId, seq, tries = 0) {
       } catch (e) {}
       if (seq !== playerDetailSeq) return;
     }
-    const friend = stellaFriendsById.get(Number(playerId));
+    const listed = stellaFriendsById.get(Number(playerId));
+    // Where they are comes from this page's presence, fresher than the list's.
+    const friend = listed && { ...listed, private: !!p.private, roomId: p.roomId, roomName: p.roomName };
     if (friend) {
       const name = friend.displayName || friend.userName || 'your friend';
-      joinBtn.setAttribute('aria-label', `Start Stella and join ${name}`);
+      joinBtn.setAttribute('aria-label', friend.private && !stellaInvitedBy(friend.id) ? `Ask ${name} to let you into their private room` : `Start Stella and join ${name}`);
       joinBtn.onclick = () => joinStellaFriend(friend);
       joinBtn.hidden = false;
     }
