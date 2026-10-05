@@ -41,6 +41,14 @@ body:not(.glass-enabled) {
     background: var(--media-bg);
     border-radius: var(--avatar-radius, var(--media-radius));
   }
+  /* The live player count (Stella), on the card's picture and under the room
+     page's name: the skin's badge corner and font like the invention badge,
+     and its own status dot — square where the skin's are, no glow, and on
+     the page the green its friend dots use. 04-modern puts the glow back. */
+  & .room-live-badge { font-family: var(--font-ui); border-radius: var(--badge-radius, 999px); }
+  & .room-live-dot { border-radius: var(--dot-radius); box-shadow: none; }
+  & .room-live-pill { font-family: var(--font-ui); }
+  & .room-live-pill:not(.is-empty) .room-live-dot { background: var(--ok); }
   & .room-card-cheers { font-family: var(--font-ui); color: var(--muted); }
 
   /* ── Player cards ─────────────────────────────────────────────────── */

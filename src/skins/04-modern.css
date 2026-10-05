@@ -495,6 +495,11 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
      read as a different, out-of-place control. */
   & .home-hero-bar #btnManageClient svg { transition: transform 0.25s var(--ease); }
   & .home-hero-bar #btnManageClient[aria-expanded="true"] svg { transform: rotate(90deg); }
+
+  /* The live player count keeps its glowing green dot here (03-content gives
+     the other skins their own). */
+  & .room-live-dot { box-shadow: 0 0 0 2px rgba(61, 220, 132, 0.25); }
+  & .room-live-pill:not(.is-empty) .room-live-dot { background: #3ddc84; }
 }
 
 /* ── Modern Neon Dark ─────────────────────────────────────────────────── */
