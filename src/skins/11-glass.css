@@ -219,12 +219,11 @@
 
 /* ── Glass surfaces ───────────────────────────────────────────── */
 :root body.glass-enabled .sidebar,
-:root body.glass-enabled .qs-card,
+:root body.glass-enabled .home-stats,
+:root body.glass-enabled .home-panel,
+:root body.glass-enabled .settings-nav,
 :root body.glass-enabled .settings-group,
 :root body.glass-enabled .download-section,
-:root body.glass-enabled .native-grid-container,
-:root body.glass-enabled .native-table-container,
-:root body.glass-enabled #roomsSidebar > div,
 :root body.glass-enabled .native-search-bar input,
 :root body.glass-enabled [id$="DetailView"] > .bevel-inset,
 :root body.glass-enabled #tab-photo-detail > .bevel-inset,
@@ -236,9 +235,6 @@
   border-radius: 22px !important;
   box-shadow: var(--lg-shadow) !important;
 }
-:root body.glass-enabled .native-grid-container,
-:root body.glass-enabled .native-table-container,
-:root body.glass-enabled #roomsSidebar > div,
 :root body.glass-enabled [id$="DetailView"] > .bevel-inset,
 :root body.glass-enabled #tab-photo-detail > .bevel-inset,
 :root body.glass-enabled .log-output {
@@ -265,7 +261,9 @@
 /* The specular edge. Positioned only where the element isn't already:
    the two menus are absolutely placed and must stay that way. */
 :root body.glass-enabled .sidebar,
-:root body.glass-enabled .qs-card,
+:root body.glass-enabled .home-stats,
+:root body.glass-enabled .home-panel,
+:root body.glass-enabled .settings-nav,
 :root body.glass-enabled .settings-group,
 :root body.glass-enabled .download-section,
 :root body.glass-enabled .modal-box,
@@ -273,7 +271,9 @@
   position: relative !important;
 }
 :root body.glass-enabled .sidebar::before,
-:root body.glass-enabled .qs-card::before,
+:root body.glass-enabled .home-stats::before,
+:root body.glass-enabled .home-panel::before,
+:root body.glass-enabled .settings-nav::before,
 :root body.glass-enabled .settings-group::before,
 :root body.glass-enabled .download-section::before,
 :root body.glass-enabled .modal-box::before,
@@ -368,13 +368,13 @@
    flickered as the pointer moved over its neighbours. Keyboard focus
    still shows, as the same wash a hover gives. */
 :root body.glass-enabled .nav-btn:focus,
-:root body.glass-enabled .filter-btn:focus,
-:root body.glass-enabled .sort-btn:focus {
+:root body.glass-enabled .settings-nav-btn:focus,
+:root body.glass-enabled .filter-btn:focus {
   outline: none !important;
 }
 :root body.glass-enabled .nav-btn:focus-visible:not(.active),
-:root body.glass-enabled .filter-btn:focus-visible:not(.active),
-:root body.glass-enabled .sort-btn:focus-visible:not(.active) {
+:root body.glass-enabled .settings-nav-btn:focus-visible:not(.active),
+:root body.glass-enabled .filter-btn:focus-visible:not(.active) {
   background: rgba(255, 255, 255, 0.08) !important;
 }
 
@@ -617,22 +617,17 @@
    because on Settings this is the box that clips — on all four sides,
    since the first group sat flush against its top edge too. */
 :root body.glass-enabled .settings-body {
-  margin: -6px -20px 0 -16px !important;
-  padding: 6px 24px 16px 16px !important;
+  margin: -6px -20px 0 -10px !important;
+  padding: 6px 24px 16px 10px !important;
 }
+:root body.glass-enabled .settings-layout { gap: 14px; }
 
-/* The Rooms and People list views, the Rooms sidebar and the two
-   detail views all clipped with overflow, and the glass inside each
-   filled it edge to edge — the Filters and Sort By cards, the room
-   grid, the People table, the detail wells. None of them needs the
-   clip: every child that can outgrow them already scrolls on its own,
-   so they stop clipping and there is no edge left to sit flush on.
-   (Found by walking every view for backdrop-filter surfaces touching
-   an ancestor's clip, rather than one screenshot at a time.) */
-:root body.glass-enabled #roomsListView,
-:root body.glass-enabled #roomsListView > .flex-1,
-:root body.glass-enabled #roomsSidebar,
-:root body.glass-enabled #peopleListView,
+/* The two detail views clipped with overflow, and the glass well inside
+   each filled them edge to edge. Neither needs the clip: the well scrolls
+   on its own, so they stop clipping and there is no edge left for its
+   frost to sit flush on. (Found by walking every view for backdrop-filter
+   surfaces touching an ancestor's clip, rather than one screenshot at a
+   time.) The list views' cards carry no blur, so their scroller may clip. */
 :root body.glass-enabled #roomsDetailView,
 :root body.glass-enabled #peopleDetailView {
   overflow: visible !important;
@@ -737,12 +732,7 @@
   color: rgba(255, 255, 255, 0.35) !important;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
 }
-/* And off that clip edge: 2px either side keeps Previous and Next from
-   touching the edges of the list view that clips them. */
-:root body.glass-enabled .native-pagination {
-  padding-left: 2px !important;
-  padding-right: 2px !important;
-}
+
 
 :root body.glass-enabled .modal-btn-primary {
   background:
@@ -990,47 +980,62 @@
   background: rgba(255, 255, 255, 0.24) !important;
 }
 
-:root body.glass-enabled .quick-stats { gap: 12px !important; }
-:root body.glass-enabled .qs-card {
+/* The status strip: one frosted panel, three stats with their icons in
+   tiles tinted the state's colour, a soft glow while it is good news. */
+:root body.glass-enabled .home-stats { border-radius: 20px !important; }
+:root body.glass-enabled .home-stat {
+  --tone: rgba(235, 235, 245, 0.6);
+  padding: 14px 18px;
+}
+:root body.glass-enabled .home-stat + .home-stat { border-left: 1px solid rgba(255, 255, 255, 0.08); }
+:root body.glass-enabled .home-stat:is(.online, .installed) { --tone: var(--lg-positive); }
+:root body.glass-enabled .home-stat.offline { --tone: var(--lg-danger); }
+:root body.glass-enabled .home-stat:is(.not-installed, .update-available) { --tone: #ffd60a; }
+:root body.glass-enabled .home-stat-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 18%, rgba(255, 255, 255, 0.05));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+:root body.glass-enabled .home-stat:is(.online, .installed, .offline) .home-stat-icon {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 18px -6px var(--tone);
+}
+:root body.glass-enabled .home-stat-value {
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: #ffffff;
+}
+:root body.glass-enabled .home-stat-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Home's sections: an Apple-style heading, and the friends in a frosted
+   panel of their own. */
+:root body.glass-enabled .home-section-title {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.1px;
+  color: #ffffff;
+}
+:root body.glass-enabled .home-section-link {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.62);
+}
+:root body.glass-enabled .home-section-link:hover { color: #ffffff; }
+:root body.glass-enabled .home-panel {
   border-radius: 20px !important;
-  padding: 12px 16px !important;
-  gap: 4px !important;
-  transition: transform 0.4s var(--lg-spring) !important;
-}
-:root body.glass-enabled .qs-label {
-  font-family: var(--font-ui) !important;
-  font-size: 11px !important;
-  font-weight: 500 !important;
-  letter-spacing: 0.1px !important;
-  text-transform: none !important;
-  color: var(--text-muted) !important;
-}
-:root body.glass-enabled .qs-value {
-  font-family: var(--font-ui) !important;
-  font-size: 16px !important;
-  font-weight: 600 !important;
-  letter-spacing: -0.1px !important;
-  color: #ffffff !important;
-}
-:root body.glass-enabled .qs-icon-indicator {
-  width: 8px !important;
-  height: 8px !important;
-  border-radius: 50% !important;
-  background: rgba(255, 255, 255, 0.28) !important;
-  box-shadow: none !important;
-}
-:root body.glass-enabled .qs-card.online .qs-icon-indicator,
-:root body.glass-enabled .qs-card.installed .qs-icon-indicator {
-  background: var(--lg-positive) !important;
-  box-shadow: 0 0 10px rgba(48, 209, 88, 0.8) !important;
-}
-:root body.glass-enabled .qs-card.offline .qs-icon-indicator {
-  background: var(--lg-danger) !important;
-  box-shadow: 0 0 10px rgba(255, 69, 58, 0.8) !important;
-}
-:root body.glass-enabled .qs-card.not-installed .qs-icon-indicator {
-  background: #ffd60a !important;
-  box-shadow: 0 0 10px rgba(255, 214, 10, 0.7) !important;
+  padding: 14px !important;
 }
 
 /* ── Download progress ────────────────────────────────────────── */
@@ -1088,11 +1093,46 @@
 }
 
 /* ── Settings ─────────────────────────────────────────────────── */
-:root body.glass-enabled .settings-group {
-  border-radius: 22px !important;
-  padding: 16px 18px !important;
-  gap: 10px !important;
+/* The section list: a frosted column whose rows light like the
+   sidebar's. */
+:root body.glass-enabled .settings-nav {
+  border-radius: 20px !important;
+  padding: 6px !important;
 }
+:root body.glass-enabled .settings-nav-btn {
+  padding: 8px 12px;
+  border-radius: 13px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.78);
+  background: transparent;
+  transition: background-color 0.25s var(--lg-ease), color 0.2s var(--lg-ease), transform 0.4s var(--lg-spring);
+}
+:root body.glass-enabled .settings-nav-btn:hover { color: #ffffff; background: rgba(255, 255, 255, 0.08); }
+:root body.glass-enabled .settings-nav-btn:active { transform: scale(0.97); }
+:root body.glass-enabled .settings-nav-btn.active {
+  font-weight: 600;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: var(--lg-control-rim), 0 4px 14px -6px rgba(0, 0, 0, 0.45);
+}
+:root body.glass-enabled .settings-page-title {
+  font-family: var(--font-ui);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: #ffffff;
+}
+:root body.glass-enabled .settings-page-desc { font-family: var(--font-ui); color: rgba(235, 235, 245, 0.6); }
+
+:root body.glass-enabled .settings-group {
+  --set-sep: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 22px !important;
+  padding: 2px 18px !important;
+  gap: 0 !important;
+}
+:root body.glass-enabled .settings-group.about-card { padding: 16px 18px !important; }
 :root body.glass-enabled .sg-title {
   font-family: var(--font-ui) !important;
   font-size: 11px !important;
@@ -1100,26 +1140,37 @@
   letter-spacing: 0.6px !important;
   color: var(--text-muted) !important;
   border: none !important;
-  padding: 0 0 2px !important;
+  padding: 14px 0 0 !important;
 }
-:root body.glass-enabled .sg-row label,
-:root body.glass-enabled .sg-toggle-row > span {
-  font-size: 12.5px !important;
-  font-weight: 500 !important;
-  color: #ffffff !important;
+:root body.glass-enabled .sg-label {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  color: #ffffff;
 }
-:root body.glass-enabled .sg-toggle-row + .sg-toggle-row {
-  border-top: 1px solid rgba(255, 255, 255, 0.07) !important;
-  padding-top: 8px !important;
+:root body.glass-enabled .sg-desc {
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  color: rgba(235, 235, 245, 0.55);
 }
+:root body.glass-enabled .sg-desc.test-result.ok { color: var(--lg-positive); }
+:root body.glass-enabled .sg-desc.test-result.error { color: #ff6961; }
 :root body.glass-enabled .sg-hint {
   font-size: 11px !important;
   color: rgba(235, 235, 245, 0.5) !important;
 }
+:root body.glass-enabled .folder-path { color: rgba(235, 235, 245, 0.55); }
+:root body.glass-enabled .banner-preview {
+  border: none;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+:root body.glass-enabled .layout-move { width: 28px; height: 28px; padding: 0 !important; }
+:root body.glass-enabled .about-name { font-family: var(--font-ui); color: #ffffff; }
+:root body.glass-enabled .about-version { color: var(--text-muted); }
 
 :root body.glass-enabled .cfg-input,
 :root body.glass-enabled .cfg-select,
-:root body.glass-enabled .cfg-path-display,
 :root body.glass-enabled select,
 :root body.glass-enabled input[type="text"],
 :root body.glass-enabled input[type="number"],
@@ -1141,11 +1192,6 @@
 :root body.glass-enabled input[type="number"],
 :root body.glass-enabled textarea {
   padding: 6px 12px !important;
-}
-:root body.glass-enabled .cfg-path-display {
-  display: flex !important;
-  align-items: center !important;
-  padding: 0 12px !important;
 }
 :root body.glass-enabled .cfg-input:focus,
 :root body.glass-enabled .cfg-select:focus,
@@ -1199,26 +1245,13 @@
 }
 :root body.glass-enabled .toggle-wrap.on:active .tgl-knob { transform: translateX(13px) !important; }
 
-/* Wider than the base 170px: the roomier glass chip otherwise cut
-   "Glass Tint" down to "Glass ...". */
-:root body.glass-enabled .ct-swatches {
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
-}
-:root body.glass-enabled .ct-swatch {
-  background: rgba(255, 255, 255, 0.06) !important;
-  border: none !important;
-  border-radius: 12px !important;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07) !important;
-  padding: 6px 10px !important;
-}
-
 /* Tint picker. A solid popover like the custom selects, and for the
    same reason: it opens inside a settings group, which is already a
    backdrop-filter, so a blur here would never draw. No blur also
    keeps it clear of the small-element blur artifacts. */
 :root body.glass-enabled .tint-swatch {
-  width: 22px !important;
-  height: 22px !important;
+  width: 26px !important;
+  height: 26px !important;
   border: none !important;
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.28),
@@ -1309,18 +1342,12 @@
 }
 
 /* ── Rooms and People ─────────────────────────────────────────── */
-:root body.glass-enabled #roomsSidebar > div {
-  border-radius: 18px !important;
-  padding: 10px !important;
-}
+/* Search: a clear pill, the magnifier inside its left end. */
 :root body.glass-enabled .native-search-bar input {
   border-radius: 999px !important;
-  padding: 8px 16px !important;
+  padding: 8px 16px 8px 34px !important;
   font-size: 12px !important;
 }
-/* Everything drawn inside the field. The search bars sit in the
-   Rooms and People list views, which clip to their own box, so any
-   shadow or focus ring outside the input was cut off down both sides. */
 /* Even hairline, for the same reason as --lg-shadow-scroll: an
    offset top highlight on a pill is a flat bar between its ends. */
 :root body.glass-enabled .native-search-bar input {
@@ -1331,118 +1358,146 @@
     inset 0 0 0 1px rgba(10, 132, 255, 0.95),
     inset 0 0 0 3px rgba(10, 132, 255, 0.28) !important;
 }
+:root body.glass-enabled .search-field-icon { color: rgba(235, 235, 245, 0.6); left: 12px; }
+:root body.glass-enabled .toolbar-sort .cselect-trigger { border-radius: 999px !important; }
 
-/* Scrollbars are not clipped to border-radius, so in these rounded
-   scrollers the bar ran square into the corners. The track stops
-   short of them; in the People table it also starts below the
-   sticky header instead of running over it. */
-:root body.glass-enabled .native-grid-container::-webkit-scrollbar-track,
-:root body.glass-enabled #roomsSidebar > div::-webkit-scrollbar-track,
-:root body.glass-enabled [id$="DetailView"] > .bevel-inset::-webkit-scrollbar-track,
-:root body.glass-enabled #tab-photo-detail > .bevel-inset::-webkit-scrollbar-track,
-:root body.glass-enabled .log-output::-webkit-scrollbar-track {
-  margin: 14px 0 !important;
+/* Tags: clear pills; the picked one turns solid white, as a selected
+   filter does on Apple's platforms. */
+:root body.glass-enabled .filter-btn {
+  padding: 6px 14px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+  transition: background-color 0.2s var(--lg-ease), color 0.2s var(--lg-ease), transform 0.4s var(--lg-spring);
 }
-:root body.glass-enabled .native-table-container::-webkit-scrollbar-track {
-  margin: 30px 0 14px !important;
+:root body.glass-enabled .filter-btn:hover { color: #ffffff; background: rgba(255, 255, 255, 0.14); }
+:root body.glass-enabled .filter-btn:active { transform: scale(0.96); }
+:root body.glass-enabled .filter-btn.active {
+  font-weight: 600;
+  color: #0b0c14;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.5);
 }
-:root body.glass-enabled .native-grid-container {
-  padding: 10px !important;
+:root body.glass-enabled .tag-scroll {
+  color: #ffffff;
+  background: rgba(30, 32, 46, 0.94);
+  border: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14), 0 4px 12px rgba(0, 0, 0, 0.4);
 }
+:root body.glass-enabled .tag-scroll:hover { background: rgba(48, 50, 66, 0.96); }
 
-:root body.glass-enabled .filter-btn,
-:root body.glass-enabled .sort-btn {
-  width: 100% !important;
-  text-align: left !important;
-  background: transparent !important;
+/* Room and player cards sit straight on the backdrop: the body the
+   unfrosted surfaces use, no blur (cards scroll, and a blur clipped by
+   a radius is what drew stair-stepped corners on the GPU), and the rim
+   on an overlay so the picture doesn't cover its top edge. */
+:root body.glass-enabled :is(.room-card, .player-card) {
+  --card-cut: rgba(20, 22, 36, 0.92);
+  position: relative;
+  background: var(--lg-fill) !important;
   border: none !important;
-  border-radius: 10px !important;
-  box-shadow: none !important;
-  color: rgba(255, 255, 255, 0.75) !important;
-  padding: 6px 10px !important;
-  font-family: var(--font-ui) !important;
-  font-size: 12px !important;
-  font-weight: 500 !important;
-  letter-spacing: 0 !important;
-  text-transform: none !important;
-  transition: background-color 0.2s var(--lg-ease), color 0.2s var(--lg-ease) !important;
-}
-:root body.glass-enabled .filter-btn:hover,
-:root body.glass-enabled .sort-btn:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  color: #ffffff !important;
-}
-:root body.glass-enabled .filter-btn.active,
-:root body.glass-enabled .sort-btn.active {
-  background: rgba(255, 255, 255, 0.16) !important;
-  box-shadow: var(--lg-control-rim) !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
-}
-
-:root body.glass-enabled .room-card {
-  background: rgba(255, 255, 255, 0.06) !important;
-  border: none !important;
-  border-radius: 16px !important;
-  padding: 8px !important;
-  box-shadow:
-    var(--lg-control-rim),
-    0 6px 18px -10px rgba(0, 0, 0, 0.5) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.6) !important;
   transition:
     background-color 0.2s var(--lg-ease),
     transform 0.45s var(--lg-spring),
     box-shadow 0.25s var(--lg-ease) !important;
 }
-/* Doubled class: moderndark's animated hover is itself four classes
-   deep, one more than this sheet's usual prefix. */
-:root body.glass-enabled.glass-enabled .room-card:hover {
-  background: rgba(255, 255, 255, 0.11) !important;
-  transform: translateY(-2px) !important;
-  box-shadow:
-    var(--lg-control-rim),
-    0 12px 26px -12px rgba(0, 0, 0, 0.6) !important;
+:root body.glass-enabled :is(.room-card, .player-card)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  box-shadow: var(--lg-rim-shadow);
+  pointer-events: none;
+}
+:root body.glass-enabled.glass-enabled :is(.room-card, .player-card):not(.is-skeleton):hover {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.05)),
+    var(--lg-fill) !important;
+  transform: translateY(-3px) !important;
+  box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.7) !important;
 }
 :root body.glass-enabled.glass-enabled .nav-btn:hover { transform: none !important; }
-:root body.glass-enabled .room-card-image { border-radius: 12px !important; border: none !important; }
+:root body.glass-enabled .room-card-media { border-radius: 0; }
+:root body.glass-enabled .room-card-image { transition: transform 0.5s var(--lg-ease); }
+:root body.glass-enabled .room-card:hover .room-card-image { transform: scale(1.05); }
 :root body.glass-enabled .room-card-name {
-  font-family: var(--font-ui) !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  color: #ffffff !important;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
 }
-:root body.glass-enabled .room-card-creator,
-:root body.glass-enabled .room-card-stats { color: var(--text-muted) !important; }
+:root body.glass-enabled .room-card-foot { padding: 8px 12px; }
+:root body.glass-enabled :is(.room-card-creator, .room-card-cheers) {
+  font-family: var(--font-ui);
+  color: rgba(235, 235, 245, 0.62);
+}
+:root body.glass-enabled button.room-card-creator:hover .room-card-creator-name { color: #ffffff; }
+:root body.glass-enabled .room-card-avatar { border-radius: 30%; }
 
-/* The header row only spans the table, which stops at the scrollbar
-   gutter — so it ended short of the container's right edge and left a
-   lighter notch over the scrollbar in the top-right corner. The same
-   colour is painted as a band across the whole top of the container,
-   gutter included, at the header's exact height; both are solid so
-   the two meet without a seam. The band is a plain background, which
-   stays put while the rows scroll. */
-:root body.glass-enabled .native-table-container.bevel-inset {
-  background:
-    linear-gradient(#1c1e2c, #1c1e2c) top left / 100% 30px no-repeat,
-    var(--lg-fill) !important;
+:root body.glass-enabled .player-card { padding: 14px !important; }
+:root body.glass-enabled .player-avatar img {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24%;
+  box-sizing: border-box;
 }
-:root body.glass-enabled .native-table th {
-  background: #1c1e2c !important;
-  height: 30px !important;
-  box-sizing: border-box !important;
-  border: none !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-  color: var(--text-muted) !important;
-  font-family: var(--font-ui) !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
+:root body.glass-enabled .player-avatar .status-dot {
+  background: var(--lg-positive);
+  box-shadow: 0 0 0 2.5px var(--card-cut), 0 0 10px rgba(48, 209, 88, 0.6);
 }
-:root body.glass-enabled .native-table td {
-  background: transparent !important;
-  border: none !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+:root body.glass-enabled .player-name { font-family: var(--font-ui); font-weight: 600; color: #ffffff; }
+:root body.glass-enabled :is(.player-handle, .player-bio) { font-family: var(--font-ui); color: rgba(235, 235, 245, 0.6); }
+:root body.glass-enabled .player-level {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.10);
+  border: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+:root body.glass-enabled .player-where { font-family: var(--font-ui); color: var(--lg-positive); }
+
+/* The pager: the glass push buttons, the current page solid white like a
+   picked tag. */
+:root body.glass-enabled .pager-btn {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 9px !important;
   font-size: 12px !important;
 }
-:root body.glass-enabled .native-table tr:hover td { background: rgba(255, 255, 255, 0.06) !important; }
+:root body.glass-enabled .pager-arrow { padding: 0 !important; }
+:root body.glass-enabled .pager-btn.is-current,
+:root body.glass-enabled .pager-btn.is-current:hover,
+:root body.glass-enabled .pager-btn.is-current:active {
+  color: #0b0c14 !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.5) !important;
+  transform: none !important;
+}
+:root body.glass-enabled :is(.pager-gap, .pager-label, .list-message, .list-empty) {
+  font-family: var(--font-ui);
+  color: rgba(235, 235, 245, 0.6);
+}
+
+/* Placeholders while a list loads, shimmering. */
+:root body.glass-enabled :is(.room-card.is-skeleton .room-card-media, .player-card.is-skeleton .player-avatar,
+                             .skel-line, .filter-btn.is-skeleton) {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 30%, rgba(255, 255, 255, 0.13) 50%, rgba(255, 255, 255, 0.06) 70%)
+              0 0 / 300% 100%;
+  box-shadow: none;
+  animation: glassShimmer 1.4s linear infinite;
+}
+@keyframes glassShimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+:root body.glass-enabled.animations-enabled .player-card:not(.is-skeleton) {
+  animation: modernCardFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root body.glass-enabled :is(.room-card.is-skeleton .room-card-media, .player-card.is-skeleton .player-avatar,
+                               .skel-line, .filter-btn.is-skeleton) { animation: none; }
+}
 
 /* The room card's lower half — the stats and the Created bar — paints
    its own --bg-panel. On an opaque skin that is the card's colour and
@@ -1572,9 +1627,6 @@
 :root body.glass-enabled #tab-photo-detail > .bevel-inset {
   background: var(--lg-fill) !important;
   border-radius: 22px !important;
-}
-:root body.glass-enabled .native-grid-container.bevel-inset {
-  background: var(--lg-fill) !important;
 }
 
 :root body.glass-enabled .log-output {
@@ -1777,11 +1829,13 @@
    content in, without the z-index that would override .cselect-host
    lifting a group over its neighbours. */
 :root body.glass-enabled .sidebar { --lg-r: 24px; }
-:root body.glass-enabled .qs-card { --lg-r: 20px; }
+:root body.glass-enabled :is(.home-stats, .home-panel, .settings-nav) { --lg-r: 20px; }
 :root body.glass-enabled .settings-group,
 :root body.glass-enabled .download-section { --lg-r: 22px; }
 :root body.glass-enabled .sidebar,
-:root body.glass-enabled .qs-card,
+:root body.glass-enabled .home-stats,
+:root body.glass-enabled .home-panel,
+:root body.glass-enabled .settings-nav,
 :root body.glass-enabled .settings-group,
 :root body.glass-enabled .download-section {
   background: transparent !important;
@@ -1793,7 +1847,9 @@
    around the frost layer would bring the staircase straight back. */
 :root body.glass-enabled .download-section { overflow: visible !important; }
 :root body.glass-enabled .sidebar::after,
-:root body.glass-enabled .qs-card::after,
+:root body.glass-enabled .home-stats::after,
+:root body.glass-enabled .home-panel::after,
+:root body.glass-enabled .settings-nav::after,
 :root body.glass-enabled .settings-group::after,
 :root body.glass-enabled .download-section::after {
   content: '' !important;
@@ -2009,15 +2065,9 @@
    play-mode track and the gear stay tinted: their radius follows
    their height, which a fixed corner mask cannot. */
 :root body.glass-enabled.glass-full { --lg-blur: blur(24px) saturate(185%); }
-:root body.glass-enabled.glass-full .native-grid-container,
-:root body.glass-enabled.glass-full .native-table-container,
 :root body.glass-enabled.glass-full [id$="DetailView"] > .bevel-inset,
 :root body.glass-enabled.glass-full #tab-photo-detail > .bevel-inset { --lg-r: 22px; }
-:root body.glass-enabled.glass-full #roomsSidebar > div,
 :root body.glass-enabled.glass-full .log-output { --lg-r: 18px; }
-:root body.glass-enabled.glass-full .native-grid-container,
-:root body.glass-enabled.glass-full .native-table-container,
-:root body.glass-enabled.glass-full #roomsSidebar > div,
 :root body.glass-enabled.glass-full [id$="DetailView"] > .bevel-inset,
 :root body.glass-enabled.glass-full #tab-photo-detail > .bevel-inset,
 :root body.glass-enabled.glass-full .log-output {

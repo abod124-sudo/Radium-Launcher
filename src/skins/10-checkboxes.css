@@ -35,6 +35,8 @@ body:is(.theme-steam-green, .theme-steam2010, .theme-win98, .theme-win95,
     position: relative;
     flex-direction: row-reverse;
     justify-content: flex-end;
+    /* The box lines up with the label, the first line of the text. */
+    align-items: flex-start;
     gap: 7px;
     font-weight: 400;
     cursor: pointer;
@@ -51,6 +53,7 @@ body:is(.theme-steam-green, .theme-steam2010, .theme-win98, .theme-win95,
     box-shadow: var(--cb-shadow);
     transition: none;
   }
+  & .sg-toggle-row .toggle-wrap { margin-top: 1px; }
   & .toggle-wrap::before {
     content: '';
     position: absolute;

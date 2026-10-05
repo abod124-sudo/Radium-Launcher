@@ -13,6 +13,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 
 @keyframes sk-tab-in     { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes sk-shimmer    { from { background-position: 100% 0; } to { background-position: 0 0; } }
 @keyframes sk-card-in    { from { opacity: 0; transform: scale(0.96) translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes sk-item-in    { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
 @keyframes sk-overlay-in { from { opacity: 0; } to { opacity: 1; } }
@@ -52,7 +53,7 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
      ~18px on the profile header's. */
   --avatar-radius: 22%;
   --badge-radius:  999px;
-  --card-lift: translateY(-4px) scale(1.02);
+  --card-lift: translateY(-3px);
   --tile-hover-bg: var(--hover);
 
   --header-border: 0;
@@ -155,6 +156,41 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   --row-bg:    transparent;
   --row-hover-bg: var(--hover);
   --row-hover-fg: var(--text);
+
+  /* Rooms' tags: pills, the accent's fill while picked. */
+  --tag-bg:     var(--raised);
+  --tag-fg:     var(--text);
+  --tag-border: 1px solid var(--line-strong);
+  --tag-radius: 999px;
+  --tag-shadow: none;
+  --tag-hover-bg:     var(--raised-hover);
+  --tag-hover-fg:     var(--text);
+  --tag-hover-border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line-strong));
+  --tag-hover-shadow: none;
+  --tag-active-bg:     var(--accent);
+  --tag-active-fg:     var(--on-accent);
+  --tag-active-border: 1px solid transparent;
+  --tag-active-shadow: none;
+
+  /* Home's section titles and Settings' rows. */
+  --section-size:     10.5px;
+  --group-pad:        2px 16px;
+  --group-title-pad:  12px 0 0;
+  --set-row-pad:      12px 0;
+  --set-sep:          1px solid var(--line);
+  --set-label-size:   12.5px;
+  --set-label-weight: 600;
+  --set-desc-size:    11.5px;
+  --setnav-bg:     var(--panel-bg);
+  --setnav-fg:     var(--nav-fg);
+  --setnav-border: var(--panel-border);
+  --setnav-radius: var(--panel-radius);
+  --setnav-shadow: var(--panel-shadow);
+  --setnav-pad:    6px;
+  /* Room cards: the picture runs to the card's edges. */
+  --card-inset:        0px;
+  --card-media-border: 0;
+  --card-media-radius: 0;
 
   --chip-radius: 7px;
   --chip-fg: var(--muted);
@@ -358,17 +394,11 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   & #manageMenu:not([hidden]) .manage-item:nth-of-type(6) { animation-delay: 0.18s; }
   & #manageMenu.is-closing .manage-item { animation: none; }
 
-  /* Status cards and stat tiles rise on hover. Not the friends card: it is
-     a list, and the whole of it moving under the pointer reads as a glitch. */
-  & :is(.qs-card, .room-stat-item) {
+  /* Stat tiles rise on hover. */
+  & .room-stat-item {
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
                 box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
                 border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  & .qs-card:not(.home-friends):hover {
-    transform: translateY(-2px);
-    border: var(--card-hover-border);
-    box-shadow: var(--card-hover-shadow);
   }
   & .room-stat-item:hover {
     transform: translateY(-2px);
@@ -376,21 +406,33 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   }
   & .room-creator-box { transition: background-color 0.2s ease, border-color 0.2s ease; }
 
-  /* Cards arrive with a short cascade each time a page of them renders. */
-  & :is(.room-card, .feed-post-card) {
+  /* Cards arrive with a short cascade each time a page of them renders
+     (not the placeholders, which would cascade twice). */
+  & :is(.room-card, .player-card, .feed-post-card):not(.is-skeleton) {
     animation: sk-card-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
-  & .room-card {
+  & :is(.room-card, .player-card) {
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
                 box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
                 background-color 0.2s ease, border-color 0.2s ease;
   }
-  & :is(.room-card, .feed-post-card):nth-child(2) { animation-delay: 0.03s; }
-  & :is(.room-card, .feed-post-card):nth-child(3) { animation-delay: 0.06s; }
-  & :is(.room-card, .feed-post-card):nth-child(4) { animation-delay: 0.09s; }
-  & :is(.room-card, .feed-post-card):nth-child(5) { animation-delay: 0.12s; }
-  & :is(.room-card, .feed-post-card):nth-child(6) { animation-delay: 0.15s; }
-  & :is(.room-card, .feed-post-card):nth-child(n+7) { animation-delay: 0.18s; }
+  & :is(.room-card, .player-card, .feed-post-card):nth-child(2) { animation-delay: 0.03s; }
+  & :is(.room-card, .player-card, .feed-post-card):nth-child(3) { animation-delay: 0.06s; }
+  & :is(.room-card, .player-card, .feed-post-card):nth-child(4) { animation-delay: 0.09s; }
+  & :is(.room-card, .player-card, .feed-post-card):nth-child(5) { animation-delay: 0.12s; }
+  & :is(.room-card, .player-card, .feed-post-card):nth-child(6) { animation-delay: 0.15s; }
+  & :is(.room-card, .player-card, .feed-post-card):nth-child(n+7) { animation-delay: 0.18s; }
+  /* The picture eases in a little under the pointer; the card lifts. */
+  & .room-card-image { transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
+  & .room-card:hover .room-card-image { transform: scale(1.04); }
+  & .player-card:hover { transform: translateY(-2px); }
+  /* Placeholders shimmer while a list loads. */
+  & :is(.room-card.is-skeleton .room-card-media, .player-card.is-skeleton .player-avatar,
+        .skel-line, .filter-btn.is-skeleton) {
+    background: linear-gradient(90deg, var(--skel) 30%, color-mix(in srgb, var(--text) 14%, transparent) 50%, var(--skel) 70%)
+                0 0 / 300% 100%;
+    animation: sk-shimmer 1.4s linear infinite;
+  }
 
   /* Views that appear inside a tab: room and profile detail, the download
      panel when a download starts. */
@@ -443,11 +485,6 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
     transition: transform 0.24s var(--ease);
   }
 
-  /* Status lights get a soft halo in their own colour. */
-  & .qs-icon-indicator { box-shadow: 0 0 0 3px color-mix(in srgb, var(--line-strong) 35%, transparent); }
-  & .qs-card:is(.online, .installed) .qs-icon-indicator { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
-  & .qs-card.offline .qs-icon-indicator { box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent); }
-  & .qs-card:is(.not-installed, .update-available) .qs-icon-indicator { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
   & .dlp-dot { box-shadow: 0 0 0 3px var(--accent-soft); }
   & .dlp-step-idx { border-radius: 50%; }
   /* The gear is not restyled here: it keeps the skin's push-button look from

@@ -362,10 +362,10 @@ body:not(.glass-enabled) {
 
   /* ── Panels ───────────────────────────────────────────────────────── */
   & .settings-group,
-  & .qs-card,
+  & .home-stats,
+  & .home-panel,
   & .download-section,
   & .status-card,
-  & #roomsSidebar .border,
   & .room-card-container,
   & .profile-card-container,
   & .profile-panel,
@@ -378,7 +378,7 @@ body:not(.glass-enabled) {
     box-shadow: var(--panel-shadow);
   }
   & .download-section::before { display: none; }
-  & .settings-group { padding: var(--panel-pad); gap: 8px; }
+  & .settings-group { padding: var(--group-pad, var(--panel-pad)); gap: 0; }
 
   /* Section titles */
   & .sg-title,
@@ -400,13 +400,10 @@ body:not(.glass-enabled) {
   & #roomsDetailPhotosSection h4 { margin-bottom: 10px; }
 
   /* Sunken wells: grids, tables, logs, notes */
-  & .native-grid-container,
-  & .native-table-container,
   & .log-output,
   & .update-notes,
   & .update-version-row,
-  & .update-status,
-  & .ct-swatch {
+  & .update-status {
     color: var(--well-fg);
     background: var(--well-bg) !important;
     border: var(--well-border);

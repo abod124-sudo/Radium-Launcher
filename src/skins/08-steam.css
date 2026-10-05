@@ -262,7 +262,6 @@ body.theme-steam-green {
   & .profile-side-title,
   & #roomsDetailPhotosSection h4 { box-shadow: 0 1px 0 #6a7661; }
   & .manage-sep { box-shadow: 0 1px 0 #6a7661; }
-  & .native-table-container { padding: 1px; }
   & .dlp-dot { animation: sk-blink 1s steps(1, end) infinite; }
   & .dlp-step-idx { border-radius: 0; }
   /* 1px right and down: padding traded across PLAY's fixed box (see the
@@ -273,10 +272,13 @@ body.theme-steam-green {
   & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
         .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
         .modal-btn):active:not(:disabled) { padding: 5px 13px 3px 15px; }
-  & :is(.sg-row, .ct-swatch) .btn-open-folder:active:not(:disabled) { padding: 4px 9px 2px 11px; }
-  & :is(.native-pagination .btn-refresh, #btnRoomsBack, #btnPeopleBack, #btnPhotoDetailBack):active:not(:disabled) {
+  & :is(.sg-control, .folder-actions) .btn-open-folder:active:not(:disabled) { padding: 5px 11px 3px 13px; }
+  & :is(#btnRoomsBack, #btnPeopleBack, #btnPhotoDetailBack):active:not(:disabled) {
     padding: 4px 11px 2px 13px !important;
   }
+  & .pager-btn:active:not(:disabled):not(.is-current) { padding: 1px 7px 0 9px; }
+  & .pager-arrow:active:not(:disabled) { padding: 1px 0 0 1px; }
+  & .layout-move:active:not(:disabled) { padding: 1px 0 0 1px; }
   & #btnManageClient:active svg { transform: translate(1px, 1px); }
 }
 

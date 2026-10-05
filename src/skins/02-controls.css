@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════════════════════════════
    SKINS — controls: buttons, fields, switches, chips, the play-mode
-   control, the hero, download progress and the status cards.
+   control, the hero, download progress and the status strip.
    Same scope and rules of engagement as 01-components.css.
    ══════════════════════════════════════════════════════════════════════ */
 
@@ -68,13 +68,33 @@ body:not(.glass-enabled) {
   }
 
   /* The small buttons carry inline sizes written for the old 9px face. */
-  & .native-pagination .btn-refresh,
   & #btnRoomsBack, & #btnPeopleBack, & #btnPhotoDetailBack {
     padding: 3px 12px !important;
     font-size: 11px !important;
   }
-  & .sg-row .btn-open-folder,
-  & .ct-swatch .btn-open-folder { padding: 3px 10px; }
+  & :is(.sg-control, .folder-actions) .btn-open-folder { padding: 4px 12px; }
+  /* Settings → Home's move arrows: small square push buttons. */
+  & .layout-move { width: 26px; height: 26px; padding: 0; }
+
+  /* ── Pager ────────────────────────────────────────────────────────── */
+  /* Push buttons, square-ish; the current page wears the selected tag's
+     fill, so "where you are" reads the same in both places. */
+  & .pager-btn {
+    min-width: 30px; height: 30px;
+    padding: 0 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  & .pager-arrow { width: 30px; padding: 0; }
+  & .pager-btn.is-current,
+  & .pager-btn.is-current:hover,
+  & .pager-btn.is-current:active {
+    color: var(--tag-active-fg);
+    background: var(--tag-active-bg);
+    border: var(--tag-active-border);
+    box-shadow: var(--tag-active-shadow);
+    transform: none;
+  }
+  & :is(.pager-gap, .pager-label) { font-family: var(--font-ui); color: var(--muted); }
 
   /* The gear on the hero */
   & #btnManageClient { width: 34px; height: 34px; }
@@ -149,7 +169,7 @@ body:not(.glass-enabled) {
   & .modal-btn.modal-btn-danger:hover { background: var(--danger-hover-bg) !important; }
 
   /* ── Fields ───────────────────────────────────────────────────────── */
-  & :is(.cfg-input, .cfg-path-display) {
+  & .cfg-input {
     padding: var(--field-pad);
     font-family: var(--field-font);
     font-size: var(--field-size);
@@ -161,7 +181,6 @@ body:not(.glass-enabled) {
     outline: none;
     transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
   }
-  & .cfg-path-display { color: var(--muted); }
   & .cfg-input:focus,
   & .cselect-trigger.is-open {
     border: var(--field-focus-border);
@@ -206,37 +225,50 @@ body:not(.glass-enabled) {
     background: var(--knob-on-bg);
     transform: translateX(calc(var(--tgl-w) - 2 * var(--tgl-bw) - 2 * var(--knob-inset) - var(--knob)));
   }
-  & .sg-toggle-row { gap: 12px; font-size: 11px; font-weight: 400; }
+  & .sg-toggle-row { font-size: var(--fs); font-weight: 400; }
 
-  /* ── Filter & sort chips ──────────────────────────────────────────── */
-  & :is(.filter-btn, .sort-btn) {
-    width: 100%;
-    padding: 5px 8px;
+  /* ── Rooms' tag chips ─────────────────────────────────────────────── */
+  /* Toolbar toggles: each skin's push button, and its selection colour
+     while picked (the --tag-* tokens). */
+  & .filter-btn {
+    padding: 5px 12px;
     font-family: var(--font-ui);
     font-size: 11px;
     font-weight: 400;
     text-decoration: none;
     text-transform: none;
     letter-spacing: 0;
-    color: var(--chip-fg);
-    background: var(--chip-bg);
-    border: var(--chip-border);
-    border-radius: var(--chip-radius);
-    box-shadow: var(--chip-shadow);
-    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+    color: var(--tag-fg);
+    background: var(--tag-bg);
+    border: var(--tag-border);
+    border-radius: var(--tag-radius);
+    box-shadow: var(--tag-shadow);
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease),
+                border-color var(--dur) var(--ease);
   }
-  & :is(.filter-btn, .sort-btn):hover {
-    color: var(--chip-hover-fg);
-    background: var(--chip-hover-bg);
-    border: var(--chip-hover-border);
+  & .filter-btn:hover {
+    color: var(--tag-hover-fg);
+    background: var(--tag-hover-bg);
+    border: var(--tag-hover-border);
+    box-shadow: var(--tag-hover-shadow);
   }
-  & :is(.filter-btn, .sort-btn).active {
+  & .filter-btn.active,
+  & .filter-btn.active:hover {
     font-weight: 700;
-    color: var(--chip-active-fg) !important;
-    background: var(--chip-active-bg) !important;
-    border: var(--chip-active-border) !important;
-    box-shadow: var(--chip-active-shadow);
+    color: var(--tag-active-fg);
+    background: var(--tag-active-bg);
+    border: var(--tag-active-border);
+    box-shadow: var(--tag-active-shadow);
   }
+  & .filter-btn.is-skeleton { border-radius: var(--tag-radius); box-shadow: none; }
+  & .tag-scroll {
+    color: var(--btn-fg);
+    background: var(--btn-bg);
+    border: var(--btn-border);
+    border-radius: var(--tag-radius);
+    box-shadow: var(--btn-shadow), 0 2px 8px rgba(0, 0, 0, 0.18);
+  }
+  & .tag-scroll:hover { background: var(--btn-hover-bg); }
 
   /* ── Play mode ────────────────────────────────────────────────────── */
   & .hero-mode-label {
@@ -289,14 +321,8 @@ body:not(.glass-enabled) {
 
   /* ── Hero ─────────────────────────────────────────────────────────── */
   & .home-hero {
-    /* Black, the scrim's own colour, where the art fades out: the art is
-       masked out from 46% down, so this is what shows between the art and the
-       scrim, and a light skin's surface there read as a pale, see-through band
-       between two dark layers. Only from there down, though: the rounded
-       corners' soft edge shows a sliver of this layer, and black at the top
-       corners drew a dark fringe round the art. Keep 40% below the mask's
-       46% start in .home-hero-art. */
-    background: linear-gradient(180deg, var(--surface-sunken) 40%, #000 46%);
+    /* The art covers it; black only shows if the art fails to load. */
+    background: #000;
     border: var(--hero-border);
     border-radius: var(--hero-radius);
     box-shadow: var(--hero-shadow);
@@ -355,29 +381,22 @@ body:not(.glass-enabled) {
   & .dlp-stat-label { font-family: var(--font-ui); font-size: 9px; color: var(--muted); }
   & .dlp-stat-val { font-family: var(--font-ui); font-size: 12px; color: var(--text); }
 
-  /* ── Status cards ─────────────────────────────────────────────────── */
-  & .qs-card { padding: 10px 12px; gap: 6px; }
-  & .qs-label {
-    font-family: var(--title-font);
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: var(--title-case);
-    letter-spacing: var(--title-ls);
-    color: var(--muted);
+  /* ── Status strip ─────────────────────────────────────────────────── */
+  /* The panel is painted with the others in 01-components.css; here the
+     three stats, divided like a toolbar's sections, each with its icon in
+     a tile tinted the state's colour. */
+  & .home-stat { --tone: var(--muted); padding: 12px 16px; }
+  & .home-stat + .home-stat { border-left: var(--stat-divider, 1px solid var(--line)); }
+  & .home-stat:is(.online, .installed) { --tone: var(--ok); }
+  & .home-stat.offline { --tone: var(--err); }
+  & .home-stat:is(.not-installed, .update-available) { --tone: var(--warn); }
+  & .home-stat-icon {
+    color: var(--tone);
+    background: color-mix(in srgb, var(--tone) 15%, transparent);
+    border-radius: var(--tile-radius);
   }
-  & .qs-value { font-family: var(--font-ui); font-size: 13px; font-weight: 700; color: var(--text); }
-  & .qs-icon-indicator {
-    width: 8px; height: 8px;
-    background: var(--line-strong);
-    border-radius: var(--dot-radius);
-    box-shadow: none;
-  }
-  & .qs-card:is(.online, .installed) .qs-icon-indicator { background: var(--ok); }
-  & .qs-card.offline .qs-icon-indicator { background: var(--err); }
-  & .qs-card:is(.not-installed, .update-available) .qs-icon-indicator { background: var(--warn); }
-  & .qs-card.online .qs-value { color: var(--ok); }
-  & .qs-card.offline .qs-value { color: var(--err); }
-  & .qs-card.update-available .qs-value { color: var(--warn); }
+  & .home-stat-value { font-family: var(--font-ui); font-size: 14px; font-weight: 700; color: var(--panel-fg); }
+  & .home-stat-label { font-family: var(--font-ui); font-size: 11px; color: var(--muted); }
 
   & .status-dot { border-radius: var(--dot-radius); }
   & .status-dot.online { background-color: var(--ok); }

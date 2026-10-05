@@ -1,0 +1,124 @@
+/* ══════════════════════════════════════════════════════════════════════
+   SYSTEM ICONS
+
+   On the Windows, Steam and Mac skins the status strip and the Settings
+   list use that system's own icons (assets/icons/<set>) in place of the
+   line-art SVGs, which stay in the markup for every other skin. The Windows
+   sets come from shell32.dll and imageres.dll. 95/98 get the 16-colour
+   images stored in the XP icons; where an icon has none, its 256-colour one.
+   Steam ran on the Windows of its day: XP's icons for the 2003 skin, 7's
+   for 2010. Platinum uses Mac OS 9's icons; Aqua uses early Mac OS X ones
+   (System Preferences, Address Book, Help, the Home house).
+
+   Each set is a list of image-set()s in custom properties, declared here so
+   their relative URLs resolve against this file.
+   ══════════════════════════════════════════════════════════════════════ */
+
+body:is(.theme-winxp, .theme-royalenoir, .theme-steam-green) {
+  --ico-servers: image-set(url("../assets/icons/xp/servers-32.png") 1x, url("../assets/icons/xp/servers-48.png") 1.5x);
+  --ico-players: image-set(url("../assets/icons/xp/players-32.png") 1x, url("../assets/icons/xp/players-48.png") 1.5x);
+  --ico-client: image-set(url("../assets/icons/xp/client-32.png") 1x, url("../assets/icons/xp/client-48.png") 1.5x);
+  --ico-general: image-set(url("../assets/icons/xp/general-16.png") 1x, url("../assets/icons/xp/general-32.png") 2x);
+  --ico-home: image-set(url("../assets/icons/xp/home-16.png") 1x, url("../assets/icons/xp/home-32.png") 2x);
+  --ico-appearance: image-set(url("../assets/icons/xp/appearance-16.png") 1x, url("../assets/icons/xp/appearance-32.png") 2x);
+  --ico-folders: image-set(url("../assets/icons/xp/folders-16.png") 1x, url("../assets/icons/xp/folders-32.png") 2x);
+  --ico-notifications: image-set(url("../assets/icons/xp/notifications-16.png") 1x, url("../assets/icons/xp/notifications-32.png") 2x);
+  --ico-friends: image-set(url("../assets/icons/xp/friends-16.png") 1x, url("../assets/icons/xp/friends-32.png") 2x);
+  --ico-about: image-set(url("../assets/icons/xp/about-16.png") 1x, url("../assets/icons/xp/about-32.png") 2x);
+}
+
+body:is(.theme-win95, .theme-win98) {
+  --ico-servers: image-set(url("../assets/icons/win9x/servers-32.png") 1x, url("../assets/icons/win9x/servers-48.png") 1.5x);
+  --ico-players: image-set(url("../assets/icons/win9x/players-32.png") 1x, url("../assets/icons/win9x/players-48.png") 1.5x);
+  --ico-client: image-set(url("../assets/icons/win9x/client-32.png") 1x, url("../assets/icons/win9x/client-48.png") 1.5x);
+  --ico-general: image-set(url("../assets/icons/win9x/general-16.png") 1x, url("../assets/icons/win9x/general-32.png") 2x);
+  --ico-home: image-set(url("../assets/icons/win9x/home-16.png") 1x, url("../assets/icons/win9x/home-32.png") 2x);
+  --ico-appearance: image-set(url("../assets/icons/win9x/appearance-16.png") 1x, url("../assets/icons/win9x/appearance-32.png") 2x);
+  --ico-folders: image-set(url("../assets/icons/win9x/folders-16.png") 1x, url("../assets/icons/win9x/folders-32.png") 2x);
+  --ico-notifications: image-set(url("../assets/icons/win9x/notifications-16.png") 1x, url("../assets/icons/win9x/notifications-32.png") 2x);
+  --ico-friends: image-set(url("../assets/icons/win9x/friends-16.png") 1x, url("../assets/icons/win9x/friends-32.png") 2x);
+  --ico-about: image-set(url("../assets/icons/win9x/about-16.png") 1x, url("../assets/icons/win9x/about-32.png") 2x);
+}
+
+body:is(.theme-winvista) {
+  --ico-servers: image-set(url("../assets/icons/vista/servers-32.png") 1x, url("../assets/icons/vista/servers-48.png") 1.5x);
+  --ico-players: image-set(url("../assets/icons/vista/players-32.png") 1x, url("../assets/icons/vista/players-48.png") 1.5x);
+  --ico-client: image-set(url("../assets/icons/vista/client-32.png") 1x, url("../assets/icons/vista/client-48.png") 1.5x);
+  --ico-general: image-set(url("../assets/icons/vista/general-16.png") 1x, url("../assets/icons/vista/general-32.png") 2x);
+  --ico-home: image-set(url("../assets/icons/vista/home-16.png") 1x, url("../assets/icons/vista/home-32.png") 2x);
+  --ico-appearance: image-set(url("../assets/icons/vista/appearance-16.png") 1x, url("../assets/icons/vista/appearance-32.png") 2x);
+  --ico-folders: image-set(url("../assets/icons/vista/folders-16.png") 1x, url("../assets/icons/vista/folders-32.png") 2x);
+  --ico-notifications: image-set(url("../assets/icons/vista/notifications-16.png") 1x, url("../assets/icons/vista/notifications-32.png") 2x);
+  --ico-friends: image-set(url("../assets/icons/vista/friends-16.png") 1x, url("../assets/icons/vista/friends-32.png") 2x);
+  --ico-about: image-set(url("../assets/icons/vista/about-16.png") 1x, url("../assets/icons/vista/about-32.png") 2x);
+}
+
+body:is(.theme-win7, .theme-steam2010) {
+  --ico-servers: image-set(url("../assets/icons/win7/servers-32.png") 1x, url("../assets/icons/win7/servers-48.png") 1.5x);
+  --ico-players: image-set(url("../assets/icons/win7/players-32.png") 1x, url("../assets/icons/win7/players-48.png") 1.5x);
+  --ico-client: image-set(url("../assets/icons/win7/client-32.png") 1x, url("../assets/icons/win7/client-48.png") 1.5x);
+  --ico-general: image-set(url("../assets/icons/win7/general-16.png") 1x, url("../assets/icons/win7/general-32.png") 2x);
+  --ico-home: image-set(url("../assets/icons/win7/home-16.png") 1x, url("../assets/icons/win7/home-32.png") 2x);
+  --ico-appearance: image-set(url("../assets/icons/win7/appearance-16.png") 1x, url("../assets/icons/win7/appearance-32.png") 2x);
+  --ico-folders: image-set(url("../assets/icons/win7/folders-16.png") 1x, url("../assets/icons/win7/folders-32.png") 2x);
+  --ico-notifications: image-set(url("../assets/icons/win7/notifications-16.png") 1x, url("../assets/icons/win7/notifications-32.png") 2x);
+  --ico-friends: image-set(url("../assets/icons/win7/friends-16.png") 1x, url("../assets/icons/win7/friends-32.png") 2x);
+  --ico-about: image-set(url("../assets/icons/win7/about-16.png") 1x, url("../assets/icons/win7/about-32.png") 2x);
+}
+
+body:is(.theme-macosclassic) {
+  --ico-servers: image-set(url("../assets/icons/mac9/servers-32.png") 1x, url("../assets/icons/mac9/servers-48.png") 1.5x);
+  --ico-players: image-set(url("../assets/icons/mac9/players-32.png") 1x, url("../assets/icons/mac9/players-48.png") 1.5x);
+  --ico-client: image-set(url("../assets/icons/mac9/client-32.png") 1x, url("../assets/icons/mac9/client-48.png") 1.5x);
+  --ico-general: image-set(url("../assets/icons/mac9/general-16.png") 1x, url("../assets/icons/mac9/general-32.png") 2x);
+  --ico-home: image-set(url("../assets/icons/mac9/home-16.png") 1x, url("../assets/icons/mac9/home-32.png") 2x);
+  --ico-appearance: image-set(url("../assets/icons/mac9/appearance-16.png") 1x, url("../assets/icons/mac9/appearance-32.png") 2x);
+  --ico-folders: image-set(url("../assets/icons/mac9/folders-16.png") 1x, url("../assets/icons/mac9/folders-32.png") 2x);
+  --ico-notifications: image-set(url("../assets/icons/mac9/notifications-16.png") 1x, url("../assets/icons/mac9/notifications-32.png") 2x);
+  --ico-friends: image-set(url("../assets/icons/mac9/friends-16.png") 1x, url("../assets/icons/mac9/friends-32.png") 2x);
+  --ico-about: image-set(url("../assets/icons/mac9/about-16.png") 1x, url("../assets/icons/mac9/about-32.png") 2x);
+}
+
+body:is(.theme-macosaqua) {
+  --ico-servers: image-set(url("../assets/icons/aqua/servers-32.png") 1x, url("../assets/icons/aqua/servers-48.png") 1.5x);
+  --ico-players: image-set(url("../assets/icons/aqua/players-32.png") 1x, url("../assets/icons/aqua/players-48.png") 1.5x);
+  --ico-client: image-set(url("../assets/icons/aqua/client-32.png") 1x, url("../assets/icons/aqua/client-48.png") 1.5x);
+  --ico-general: image-set(url("../assets/icons/aqua/general-16.png") 1x, url("../assets/icons/aqua/general-32.png") 2x);
+  --ico-home: image-set(url("../assets/icons/aqua/home-16.png") 1x, url("../assets/icons/aqua/home-32.png") 2x);
+  --ico-appearance: image-set(url("../assets/icons/aqua/appearance-16.png") 1x, url("../assets/icons/aqua/appearance-32.png") 2x);
+  --ico-folders: image-set(url("../assets/icons/aqua/folders-16.png") 1x, url("../assets/icons/aqua/folders-32.png") 2x);
+  --ico-notifications: image-set(url("../assets/icons/aqua/notifications-16.png") 1x, url("../assets/icons/aqua/notifications-32.png") 2x);
+  --ico-friends: image-set(url("../assets/icons/aqua/friends-16.png") 1x, url("../assets/icons/aqua/friends-32.png") 2x);
+  --ico-about: image-set(url("../assets/icons/aqua/about-16.png") 1x, url("../assets/icons/aqua/about-32.png") 2x);
+}
+
+body:is(.theme-winxp, .theme-royalenoir, .theme-win95, .theme-win98,
+        .theme-winvista, .theme-win7, .theme-steam-green, .theme-steam2010,
+        .theme-macosclassic, .theme-macosaqua) {
+  /* A desktop icon needs no tile. A server that is down or a client that
+     is not there is ghosted, as both systems drew an unavailable item. */
+  & .home-stat-icon {
+    background: var(--ico) center / 32px 32px no-repeat;
+    border-radius: 0;
+  }
+  & .home-stat-icon svg { display: none; }
+  & .home-stat:is(.offline, .not-installed) .home-stat-icon { filter: grayscale(1); opacity: 0.55; }
+  & #qsc-status .home-stat-icon  { --ico: var(--ico-servers); }
+  & #qsc-players .home-stat-icon { --ico: var(--ico-players); }
+  & #qsc-client .home-stat-icon  { --ico: var(--ico-client); }
+
+  & .settings-nav-btn svg { display: none; }
+  & .settings-nav-btn::before {
+    content: "";
+    flex-shrink: 0;
+    width: 16px; height: 16px;
+    background: var(--ico) center / 16px 16px no-repeat;
+  }
+  & .settings-nav-btn[data-section="general"]       { --ico: var(--ico-general); }
+  & .settings-nav-btn[data-section="home"]          { --ico: var(--ico-home); }
+  & .settings-nav-btn[data-section="appearance"]    { --ico: var(--ico-appearance); }
+  & .settings-nav-btn[data-section="folders"]       { --ico: var(--ico-folders); }
+  & .settings-nav-btn[data-section="notifications"] { --ico: var(--ico-notifications); }
+  & .settings-nav-btn[data-section="friends"]       { --ico: var(--ico-friends); }
+  & .settings-nav-btn[data-section="about"]         { --ico: var(--ico-about); }
+}

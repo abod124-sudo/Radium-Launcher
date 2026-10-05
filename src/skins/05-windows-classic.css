@@ -290,29 +290,22 @@ body:is(.theme-win95, .theme-win98) {
   & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
         .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
         .modal-btn):active:not(:disabled) { padding: 6px 13px 4px 15px; }
-  & :is(.sg-row, .ct-swatch) .btn-open-folder:active:not(:disabled) { padding: 4px 9px 2px 11px; }
-  & :is(.native-pagination .btn-refresh, #btnRoomsBack, #btnPeopleBack, #btnPhotoDetailBack):active:not(:disabled) {
+  & :is(.sg-control, .folder-actions) .btn-open-folder:active:not(:disabled) { padding: 5px 11px 3px 13px; }
+  & :is(#btnRoomsBack, #btnPeopleBack, #btnPhotoDetailBack):active:not(:disabled) {
     padding: 4px 11px 2px 13px !important;
   }
+  & .pager-btn:active:not(:disabled):not(.is-current) { padding: 1px 7px 0 9px; }
+  & .pager-arrow:active:not(:disabled) { padding: 1px 0 0 1px; }
+  & .layout-move:active:not(:disabled) { padding: 1px 0 0 1px; }
   & #btnManageClient:active svg { transform: translate(1px, 1px); }
   & .mode-btn:active:not(.active) { padding: 7px 0 5px 2px; }
 
-  /* Wells with a table or grid flush inside need the bevel's 2px back. */
-  & .native-table-container { padding: 2px; }
-  & #roomsSidebar .border {
-    background: #ffffff;
-    border: 0;
-    box-shadow: var(--sunken);
-  }
-  & #roomsSidebar .sg-title { border-bottom: 1px solid #808080; }
   & .home-hero {
     border: 2px solid;
     border-color: #808080 #ffffff #ffffff #808080;
   }
 
-  /* Room cards read as desktop icons: the label takes the selection. */
-  & .room-card:hover .room-card-name { color: #ffffff; background: #000080; }
-  & .room-card:hover { transform: none; }
+  & :is(.room-card, .player-card):hover { transform: none; }
 
   /* Play mode: two toolbar toggles rather than a joined pill. */
   & .mode-toggle-wrap {
@@ -356,6 +349,9 @@ body.theme-win95 {
   --mtb-bg: #000080;
   --content-bg: #008080;
   --header-fg: #ffffff;
+  /* Headings straight on the desktop: Home's sections, Settings' pages. */
+  --page-fg: #ffffff;
+  --page-muted: rgba(255, 255, 255, 0.82);
   --header-border: 0;
   --header-shadow: none;
 

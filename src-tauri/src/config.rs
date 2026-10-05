@@ -109,6 +109,115 @@ impl GlassSettings {
     }
 }
 
+/// Home's sections that can be moved and switched off, by name: the status
+/// strip, the friends list (Stella) and "Popular right now". The hero and the
+/// download panel always lead.
+pub const HOME_SECTIONS: [&str; 3] = ["status", "friends", "rooms"];
+
+/// Largest banner picture kept, as an encoded `data:` URI. The page downscales
+/// a picked file to fit (see `prepareBannerImage` in app.js); the hero is at
+/// most ~1,700 CSS px wide and 248 tall, so this is plenty.
+pub const HOME_BANNER_MAX_BYTES: usize = 1_000_000;
+
+/// What Home shows, in what order, and a picture of the user's own behind
+/// each network's brand. Owned by Settings → Home.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct HomeSettings {
+    /// Home's sections from the top, by [`HOME_SECTIONS`] name.
+    pub order: Vec<String>,
+    /// Sections switched off. Friends is not among them: whether the friends
+    /// list is on Home is `stella.friends_view`.
+    pub hidden: Vec<String>,
+    /// Each network's banner picture.
+    pub banners: HomeBanners,
+}
+
+impl Default for HomeSettings {
+    fn default() -> Self {
+        Self {
+            order: HOME_SECTIONS.iter().map(|s| s.to_string()).collect(),
+            hidden: Vec::new(),
+            banners: HomeBanners::default(),
+        }
+    }
+}
+
+/// A banner picture per network, as a downscaled `data:image/` URI; empty
+/// shows the network's own art. Written only by `cmd_set_home_banner`, never
+/// by a whole-config save (see `preserve_backend_managed_fields`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct HomeBanners {
+    pub radium: String,
+    pub vanilla: String,
+    pub stella: String,
+}
+
+impl HomeBanners {
+    pub fn for_network_mut(&mut self, network: Network) -> &mut String {
+        match network {
+            Network::Radium => &mut self.radium,
+            Network::Vanilla => &mut self.vanilla,
+            Network::Stella => &mut self.stella,
+        }
+    }
+}
+
+/// Whether `s` can be a banner: a stored picture the page can paint (the CSP
+/// loads no remote image, so no addresses), small enough to keep, and with
+/// nothing that could end the `url("...")` it is put into.
+fn is_safe_banner(s: &str) -> bool {
+    s.is_empty()
+        || (s.starts_with("data:image/")
+            && s.len() <= HOME_BANNER_MAX_BYTES
+            && !s.contains(['\'', '"', '(', ')', '{', '}', '\\'])
+            && !s.chars().any(|c| c.is_control()))
+}
+
+impl HomeSettings {
+    /// Repair the order (known names, each once, every one present), the
+    /// hidden list (known names, each once) and any banner that isn't safe to
+    /// paint. Returns true if something changed.
+    pub(crate) fn sanitize(&mut self) -> bool {
+        let before = self.clone();
+        let known = |name: &String| HOME_SECTIONS.contains(&name.as_str());
+
+        let mut order: Vec<String> = Vec::new();
+        for name in self.order.iter().filter(|n| known(n)) {
+            if !order.contains(name) {
+                order.push(name.clone());
+            }
+        }
+        // A section the saved order doesn't name (one added in a later
+        // version, say) goes where the default order has it relative to the
+        // ones before it — in practice, the end.
+        for name in HOME_SECTIONS {
+            if !order.iter().any(|o| o == name) {
+                order.push(name.to_string());
+            }
+        }
+        self.order = order;
+
+        let mut hidden: Vec<String> = Vec::new();
+        for name in self.hidden.iter().filter(|n| known(n)) {
+            if !hidden.contains(name) {
+                hidden.push(name.clone());
+            }
+        }
+        self.hidden = hidden;
+
+        for banner in [&mut self.banners.radium, &mut self.banners.vanilla, &mut self.banners.stella] {
+            if !is_safe_banner(banner) {
+                banner.clear();
+            }
+        }
+        *self != before
+    }
+}
+
 /// Which revival network the launcher is currently pointed at.
 ///
 /// The launcher speaks to one network at a time. Radium is the historical
@@ -231,6 +340,8 @@ pub struct Config {
     pub autostart_initialized: bool,
     /// The Liquid Glass effect, layered over whichever skin is selected.
     pub glass: GlassSettings,
+    /// Home's layout and banner pictures.
+    pub home: HomeSettings,
     /// Read from an older config so glass survives the removal of the custom
     /// theme editor; never written back. See [`LegacyCustomTheme`].
     #[serde(rename = "customTheme", skip_serializing)]
@@ -305,6 +416,9 @@ impl Config {
         // whole-config save rather than shipping it over IPC on each autosave;
         // what arrives here is therefore always blank and must not win.
         self.glass.bg_image = current.glass.bg_image.clone();
+        // Home's banner pictures likewise (`cmd_set_home_banner`): up to a
+        // megabyte each, and never part of a whole-config save.
+        self.home.banners = current.home.banners.clone();
     }
 
     /// The currently selected network.
@@ -464,6 +578,7 @@ impl Default for Config {
             autostart_initialized: false,
             notif_sound: true,
             glass: GlassSettings::default(),
+            home: HomeSettings::default(),
             legacy_custom_theme: None,
             client_build: String::new(),
             client_version: String::new(),
@@ -1144,6 +1259,10 @@ fn load_config(app_handle: &tauri::AppHandle) -> (Config, bool) {
     if config.glass.sanitize() {
         changed = true;
     }
+    // Home's order and banners likewise: the banners go into CSS too.
+    if config.home.sanitize() {
+        changed = true;
+    }
     if drop_relative_install_dirs(&mut config) {
         changed = true;
     }
@@ -1581,6 +1700,72 @@ mod tests {
         // The rest of the glass object is still the frontend's to change.
         assert!(incoming.glass.enabled);
         assert_eq!(incoming.glass.tint, "#123456");
+    }
+
+    #[test]
+    fn a_save_without_the_home_banners_keeps_the_stored_ones() {
+        // Whole-config saves leave the banners out; `cmd_set_home_banner`
+        // writes them. The layout itself is the frontend's to change.
+        let mut on_disk = Config::default();
+        on_disk.home.banners.stella = "data:image/jpeg;base64,/9j/BBBB".to_string();
+
+        let mut incoming = config_from_frontend_json(serde_json::json!({
+            "home": { "order": ["friends", "status", "rooms"], "hidden": ["rooms"] }
+        }));
+        assert_eq!(incoming.home.banners.stella, "");
+
+        incoming.preserve_backend_managed_fields(&on_disk);
+
+        assert_eq!(incoming.home.banners.stella, "data:image/jpeg;base64,/9j/BBBB");
+        assert_eq!(incoming.home.order, ["friends", "status", "rooms"]);
+        assert_eq!(incoming.home.hidden, ["rooms"]);
+    }
+
+    #[test]
+    fn a_config_without_home_gets_the_default_layout() {
+        // Configs from before the Home settings existed.
+        let cfg = config_from_frontend_json(serde_json::json!({ "theme": "win98" }));
+        assert_eq!(cfg.home.order, ["status", "friends", "rooms"]);
+        assert!(cfg.home.hidden.is_empty());
+    }
+
+    #[test]
+    fn home_order_is_repaired_to_known_sections_each_once() {
+        let mut home = HomeSettings {
+            order: vec!["rooms".into(), "bogus".into(), "rooms".into(), "status".into()],
+            hidden: vec!["rooms".into(), "rooms".into(), "<script>".into()],
+            banners: HomeBanners::default(),
+        };
+        assert!(home.sanitize());
+        // Known names in the saved order, then whatever was missing.
+        assert_eq!(home.order, ["rooms", "status", "friends"]);
+        assert_eq!(home.hidden, ["rooms"]);
+        // Already clean: nothing to report.
+        assert!(!home.sanitize());
+    }
+
+    #[test]
+    fn only_paintable_banners_are_kept() {
+        let good = "data:image/jpeg;base64,/9j/AAAA";
+        let mut home = HomeSettings::default();
+        home.banners.radium = good.into();
+        assert!(!home.sanitize());
+        assert_eq!(home.banners.radium, good);
+
+        for bad in [
+            "https://example.invalid/banner.png",
+            "javascript:alert(1)",
+            "data:image/png;base64,AAAA\"); background: red",
+            "data:text/html;base64,AAAA",
+        ] {
+            home.banners.vanilla = bad.into();
+            assert!(home.sanitize(), "{bad:?} should be dropped");
+            assert_eq!(home.banners.vanilla, "");
+        }
+
+        home.banners.stella = format!("data:image/jpeg;base64,{}", "A".repeat(HOME_BANNER_MAX_BYTES));
+        assert!(home.sanitize(), "an oversized banner should be dropped");
+        assert_eq!(home.banners.stella, "");
     }
 
     #[test]

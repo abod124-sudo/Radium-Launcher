@@ -348,6 +348,42 @@ body:not(.glass-enabled) {
   --chip-active-border: var(--chip-border);
   --chip-active-shadow: none;
 
+  /* ── Rooms' tag chips, and the pager's current page ───────────────── */
+  /* Toolbar toggles: the skin's push button, its selection while picked. */
+  --tag-bg:      var(--btn-bg);
+  --tag-fg:      var(--btn-fg);
+  --tag-border:  var(--btn-border);
+  --tag-radius:  var(--btn-radius);
+  --tag-shadow:  var(--btn-shadow);
+  --tag-hover-bg:     var(--btn-hover-bg);
+  --tag-hover-fg:     var(--btn-hover-fg);
+  --tag-hover-border: var(--btn-hover-border);
+  --tag-hover-shadow: var(--btn-hover-shadow);
+  --tag-active-bg:     var(--sel-bg);
+  --tag-active-fg:     var(--sel-fg);
+  --tag-active-border: var(--btn-active-border);
+  --tag-active-shadow: var(--btn-active-shadow);
+
+  /* ── Pages: text straight on the window (Home's section titles,
+     Settings' page headings), and Settings' rows ─────────────────────── */
+  --page-fg:        var(--text);
+  --page-muted:     var(--muted);
+  --section-size:   12px;
+  --set-row-pad:    8px 0;
+  --set-sep:        0;
+  --set-label-size: var(--fs);
+  --set-label-weight: 700;
+  --set-desc-size:  var(--fs);
+  --setnav-bg:      var(--well-bg);
+  --setnav-fg:      var(--well-fg);
+  --setnav-border:  var(--well-border);
+  --setnav-radius:  var(--well-radius);
+  --setnav-shadow:  var(--well-shadow);
+  --setnav-pad:     2px;
+  --card-inset:     4px;
+  --card-media-border: var(--media-border);
+  --card-media-radius: var(--media-radius);
+
   /* ── Segmented control (play mode) ────────────────────────────────── */
   --seg-bg:      var(--btn-bg);
   --seg-border:  var(--btn-border);

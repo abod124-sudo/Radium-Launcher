@@ -271,7 +271,6 @@ body.theme-moderndark .pill-dot:not(.online) {
 body.theme-moderndark .bevel-outset,
 body.theme-moderndark .launch-panel,
 body.theme-moderndark .download-section,
-body.theme-moderndark .qs-card,
 body.theme-moderndark .log-output,
 body.theme-moderndark .settings-group,
 body.theme-moderndark .home-hero,
@@ -360,8 +359,7 @@ body.theme-moderndark .mode-btn {
 }
 body.theme-moderndark .mode-btn.active { background: #7c3aed !important; color: #ffffff !important; }
 /* Text Inputs & Display boxes */
-body.theme-moderndark .cfg-input,
-body.theme-moderndark .cfg-path-display {
+body.theme-moderndark .cfg-input {
   background: var(--bg-dark) !important;
   border: 1px solid var(--border-light) !important;
   border-radius: 6px !important;
@@ -1354,85 +1352,119 @@ body.theme-moderndark .btn-download-big {
 }
 
 /* ── Home: hero ────────────────────────────────────────────────────────
-   Fixed brand art -- deliberately NOT themed, the way a store header image
-   stays on-brand whatever skin is applied. */
+   The network's art, edge to edge, like the header of a game's store page —
+   deliberately NOT themed, so it looks the same whatever skin is applied.
+   The brand sits at the left; the primary action on a scrim along the
+   bottom (.home-hero-bar). */
 .home-hero {
   position: relative;
-  height: 232px;
-  /* What the art fades into (see the mask on .home-hero-art): black from
-     where the fade starts, and nothing above it, so the soft edge of the
-     rounded top corners shows no dark fringe. */
-  background: linear-gradient(180deg, transparent 40%, #000 46%);
+  height: 248px;
+  flex-shrink: 0;
+  /* Only ever seen if the art fails to load. */
+  background: #000;
   border: 2px solid;
   border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
   overflow: hidden;
-  display: flex; align-items: center; justify-content: center;
 }
 .home-hero-art {
   position: absolute; inset: 0;
   background: url('assets/brand-pattern.png') center / cover no-repeat;
-  /* Rounds its own edge instead of relying only on .home-hero's overflow clip,
-     so neither this layer nor the scrim above it paints a square corner for
-     that clip to cut. `inherit` rather than a number, so the retro skins
-     (radius 0) and the modern ones (10px) both stay right. */
+  /* Rounds its own edge instead of relying only on .home-hero's overflow
+     clip, so it never paints a square corner for that clip to cut.
+     `inherit` rather than a number, so the retro skins (radius 0) and the
+     modern ones both stay right. */
   border-radius: inherit;
-
-  /* The artwork stops before the bottom of the banner rather than being hidden
-     there by the scrim on top of it.
-
-     The scrim is a vertical fade, so it is weakest at its top edge — and along
-     that edge the artwork still shows through. Across the middle of the banner
-     that is invisible, because the PLAY button and the mode toggle sit on it,
-     and on the right the gear covers part of it. The only places the fading
-     artwork is left exposed are the two bottom corners, which is why it looked
-     like a corner bug and why several rounds of adjusting the scrim's opacity
-     and colour did not touch it — they were all changing the bottom of the
-     band, and the green was near its top.
-
-     Masking the layer means there is simply no artwork painted in the lower
-     part of the banner, at any opacity, in any corner. What shows there is the
-     hero's own background, black like the scrim from the fade down, so the art
-     fades straight into it. (It was the skin's surface colour, which on the
-     light skins left a pale, see-through-looking band between the art and the
-     scrim.) The 46% here and the hero background's 40% go together. */
-  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,0) 84%);
-  mask-image: linear-gradient(180deg, #000 0%, #000 46%, rgba(0,0,0,0) 84%);
+}
+/* The brand, left of centre in the space above the action bar. */
+.home-hero-brand {
+  position: absolute; left: 28px; right: 28px; top: 0; bottom: 76px;
+  display: flex; align-items: center; gap: 18px;
+  pointer-events: none;
 }
 .home-hero-mark {
-  position: relative;
-  width: 348px; max-width: 62%; height: 68px;
-  margin-bottom: 38px;
+  flex-shrink: 0;
+  width: 300px; max-width: 70%; height: 60px;
   background-color: #0d1410;
-  -webkit-mask: url('assets/wordmark.png') center / contain no-repeat;
-  mask: url('assets/wordmark.png') center / contain no-repeat;
+  -webkit-mask: url('assets/wordmark.png') left center / contain no-repeat;
+  mask: url('assets/wordmark.png') left center / contain no-repeat;
   filter: drop-shadow(0 3px 10px rgba(0,0,0,0.30));
 }
+/* The name beside a square mark. A fixed face and colour per network, like
+   the art: it is the brand, not the skin. */
+.home-hero-name {
+  min-width: 0;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 34px; font-weight: 800; line-height: 1;
+  letter-spacing: 0.04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.home-hero-name:empty { display: none; }
 
-/* Vanilla brand. Their mark is a square icon rather than a wordmark, hence the
-   different box; the fill is their own theme colour (#b08462) darkened enough
-   to hold against the light banner art. */
+/* Vanilla brand. Their mark is a square icon rather than a wordmark; the
+   fill is their own theme colour (#b08462) darkened enough to hold against
+   the light upper half of the art, which is the half shown: the art is
+   pinned to its top, so its brown lower half sits under the action bar. */
 body.network-vanilla .home-hero-art {
   background-image: url('assets/vanilla-hero.png');
+  background-position: center top;
 }
 body.network-vanilla .home-hero-mark {
-  width: 92px; max-width: 30%; height: 100px;
+  width: 78px; max-width: 30%; height: 84px;
   background-color: #3a2418;
   -webkit-mask-image: url('assets/vanilla-mark.svg');
   mask-image: url('assets/vanilla-mark.svg');
+  -webkit-mask-position: center;
+  mask-position: center;
+  filter: none;
 }
+body.network-vanilla .home-hero-name { color: #3a2418; }
 
-/* Stella brand. Its logo is a full-colour app icon rather than a one-colour
-   mark, so it is painted as itself instead of through a mask, on a dark field
-   in its own maroon (#300C08) that the salmon icon stands out from. */
+/* Stella brand. The art is Radium's pattern idea in Stella's colours: rows of
+   its mark, tilted, in salmon on its own deep maroon (#300C08). The logo is a
+   full-colour app icon rather than a one-colour mark, so the one in front is
+   painted as itself instead of through a mask, and the salmon stands out
+   from the muted marks behind it. */
 body.network-stella .home-hero-art {
-  background: radial-gradient(ellipse at 50% 30%, #5a1a13 0%, #300c08 55%, #1a0604 100%);
+  background: url('assets/stella-pattern.jpg') center / cover no-repeat;
 }
 body.network-stella .home-hero-mark {
-  width: 104px; max-width: 30%; height: 104px;
+  width: 88px; max-width: 30%; height: 88px;
   background: url('assets/stella-logo.png') center / contain no-repeat;
   -webkit-mask: none;
   mask: none;
+  filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.45));
 }
+body.network-stella .home-hero-name {
+  color: #ffffff;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+}
+
+/* A banner picture of the user's own (Settings → Home), set per network by
+   applyHomeBanner() and replayed before paint by boot.js. It can be any
+   picture, so the brand turns white over a shade at the left rather than
+   trusting a network's dark-on-bright mark to read on it. */
+body.has-home-banner .home-hero-art {
+  background: var(--home-banner) center / cover no-repeat;
+}
+body.has-home-banner .home-hero-art::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.2) 45%, rgba(0, 0, 0, 0) 70%);
+}
+/* Stella's mark is the full-colour icon, painted as itself; the others are
+   one-colour masks. */
+body.has-home-banner:not(.network-stella) .home-hero-mark {
+  background-color: #ffffff;
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.5));
+}
+body.has-home-banner .home-hero-name {
+  color: #ffffff;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+}
+
+/* A section switched off in Settings → Home (applyHomeLayout). */
+#tab-home > .is-turned-off { display: none !important; }
 
 /* A network with no rooms or people API (Stella) has no ROOMS or PEOPLE. */
 body.network-no-social .network-social-only { display: none !important; }
@@ -1636,40 +1668,97 @@ body.glass-enabled .btn-play.running:is(:active, .is-pressed) {
   transform: scale(0.97) !important;
 }
 
-/* ── Home: status cards ───────────────────────────────────────────────── */
-.quick-stats {
+/* ── Home: status strip ────────────────────────────────────────────────
+   One panel of three: servers, players, the game client. Each is an icon in
+   a tinted tile, the value, and what the value is. `--tone` is the state's
+   colour, set from the classes app.js puts on each (online, offline,
+   installed, not-installed, update-available); each skin paints the panel
+   in 02-controls.css, glass in 11-glass.css. */
+.home-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  align-items: stretch;
-  gap: 10px;
-  margin-top: 10px;
-}
-.qs-card {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   background: var(--bg-panel);
-  border: 2px solid;
-  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  padding: 8px 12px;
-  min-width: 0;
-  display: flex; flex-direction: column; gap: 6px;
+  border: 1px solid var(--border-light);
 }
-.qs-card::before { display: none; } /* Disable top neon lines */
-.qs-header-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.qs-label { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); font-weight: bold; }
-.qs-icon-indicator { width: 6px; height: 6px; background: #555; flex-shrink: 0; }
-.qs-card.online .qs-icon-indicator { background: var(--status-online); }
-.qs-card.offline .qs-icon-indicator { background: #ff4444; }
-.qs-card.installed .qs-icon-indicator { background: var(--status-online); }
-.qs-card.not-installed .qs-icon-indicator { background: #ffaa00; }
-.qs-card.update-available .qs-icon-indicator { background: #ffaa00; }
-.qs-card.mode-vr .qs-icon-indicator { background: #00a2ff; }
-.qs-card.mode-screen .qs-icon-indicator { background: var(--green); }
-.qs-value {
-  font-family: var(--font-mono); font-size: 12px; font-weight: bold; color: var(--text);
+.home-stat {
+  --tone: var(--text-muted);
+  display: flex; align-items: center; gap: 12px;
+  min-width: 0;
+  padding: 12px 16px;
+}
+.home-stat + .home-stat { border-left: 1px solid var(--border-light); }
+.home-stat:is(.online, .installed) { --tone: var(--status-online); }
+.home-stat.offline { --tone: #ff4444; }
+.home-stat:is(.not-installed, .update-available) { --tone: #ffaa00; }
+.home-stat-icon {
+  flex-shrink: 0;
+  display: grid; place-items: center;
+  width: 36px; height: 36px;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+}
+.home-stat-icon svg { width: 18px; height: 18px; fill: currentColor; }
+.home-stat-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.home-stat-value {
+  font-size: 15px; font-weight: 700; line-height: 1.2;
+  color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.qs-card.online .qs-value { color: var(--status-online); text-shadow: none; }
-.qs-card.offline .qs-value { color: #ff6666; text-shadow: none; }
-.qs-card.update-available .qs-value { color: #ffaa00; text-shadow: none; }
+.home-stat-label {
+  font-size: 11px; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Home: sections (Popular right now, Friends) ───────────────────────
+   A heading row — title at the left, a count or a link at the right — over
+   the section's content. */
+.home-section { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.home-section[hidden] { display: none; }
+.home-section-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 22px;
+  padding: 0 2px;
+}
+.home-section-title {
+  margin: 0;
+  font-size: 13px; font-weight: 700;
+  color: var(--text);
+}
+.home-section-link {
+  display: inline-flex; align-items: center; gap: 1px;
+  margin: 0; padding: 2px 2px 2px 6px;
+  background: transparent; border: 0; box-shadow: none;
+  font: inherit; font-size: 11.5px; font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.home-section-link svg { width: 16px; height: 16px; fill: currentColor; transition: transform 0.2s ease; }
+.home-section-link:hover { color: var(--text); }
+.home-section-link:hover svg { transform: translateX(2px); }
+
+/* One row of rooms, as many as the window is wide enough for; HOME_ROOMS_COUNT
+   in app.js fetches the most any row shows. */
+.home-rooms {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.home-rooms > :nth-child(n+5) { display: none; }
+@media (min-width: 1360px) {
+  .home-rooms { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .home-rooms > :nth-child(5) { display: flex; }
+}
+@media (min-width: 1680px) {
+  .home-rooms { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .home-rooms > :nth-child(6) { display: flex; }
+}
+
+/* The panel the friends sit in. */
+.home-panel {
+  padding: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-light);
+}
 
 /* ── Friends (Stella): the Home card and the FRIENDS tab ──────────────────
    One set of pieces for both, built by renderStellaFriendsInto(). A friend
@@ -1677,7 +1766,6 @@ body.glass-enabled .btn-play.running:is(:active, .is-pressed) {
    are, JOIN. Everyone else is a chip on the Home card, or a smaller card on
    the tab. These rules are the shapes and a neutral look; each skin paints
    them in 03-content.css, and glass in 11-glass.css. */
-.home-friends { margin-top: 10px; }
 .friends-summary {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 10px; color: var(--text-muted);
@@ -1843,7 +1931,7 @@ body:not(.friends-view-tab) #nav-friends { display: none !important; }
    a permanent row of the Home tab on buttons most people press once. They now
    hang off a gear in the hero's action bar, the way a store page files its
    install actions behind one. */
-.home-hero-wrap { position: relative; margin-bottom: 10px; }
+.home-hero-wrap { position: relative; }
 
 /* Layout only. The gear wears .nav-btn, so each skin paints it exactly as it
    paints the sidebar's buttons. */
@@ -2347,21 +2435,133 @@ body.animations-enabled.theme-moderndark .hero-gear[aria-expanded="false"]:hover
 .report-box #reportBack[hidden] { display: none; }
 .is-sending .report-box .modal-close-btn { visibility: hidden; }
 
-/* Settings tab view */
-.settings-body { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; }
+/* ── Settings ──────────────────────────────────────────────────────────
+   Two panes: the sections at the left (.settings-nav), the chosen one at
+   the right (.settings-body, which scrolls). A section is a heading and
+   groups (.settings-group) of rows; a row is what the option is and does
+   (.sg-text: .sg-label over .sg-desc) at the left and its control at the
+   right. Layout only: each skin paints these in 01–03 and its own file,
+   glass in 11-glass.css. */
+#tab-settings { overflow: hidden; }
+.settings-layout {
+  flex: 1; min-height: 0;
+  display: flex; align-items: stretch; gap: 16px;
+}
+.settings-nav {
+  flex-shrink: 0;
+  align-self: flex-start;
+  width: 178px;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-light);
+}
+.settings-nav-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  margin: 0; padding: 8px 10px;
+  font-family: var(--font-ui); font-size: 12px; text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.settings-nav-btn svg { flex-shrink: 0; width: 16px; height: 16px; fill: currentColor; }
+.settings-nav-btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-nav-btn.active { color: var(--bg-main); background: var(--text); }
+
+.settings-body {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+}
+.settings-page { display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; }
+.settings-page[hidden] { display: none; }
+.settings-page-head { padding: 2px 2px 2px; }
+.settings-page-title { margin: 0; font-size: 16px; font-weight: 700; color: var(--text); }
+.settings-page-desc { margin: 3px 0 0; font-size: 12px; line-height: 1.45; color: var(--text-muted); }
+
 .settings-group {
   background: var(--bg-panel);
-  border: 2px solid; border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  padding: 12px; display: flex; flex-direction: column; gap: 6px;
+  border: 1px solid var(--border-light);
+  padding: 4px 16px; display: flex; flex-direction: column; gap: 0;
 }
-.sg-title { font-family: var(--font-mono); font-size: 9px; color: var(--green-dim); font-weight: bold; padding-bottom: 4px; border-bottom: 1px dashed var(--border-dark); }
-/* Wraps rather than overflowing: the fixed-width label plus a path field and
-   three buttons cannot fit a narrow window on one line. */
-.sg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.sg-row label { font-size: 11px; font-weight: bold; width: 140px; flex-shrink: 0; }
-/* Explanatory line under a setting. Muted and unbolded so it reads as prose
-   next to the bold labels rather than as another control. */
-.sg-hint { margin: 0; font-size: 10px; line-height: 1.45; color: var(--text-muted); }
+.sg-title { font-size: 11px; font-weight: bold; color: var(--text-muted); padding: 12px 0 4px; }
+/* Rows, ruled off from each other. The glass options (.ct-body) are a
+   block of rows inside their group, ruled the same way. */
+.sg-row,
+.sg-toggle-row,
+.folder-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 0;
+}
+.settings-group > :is(.sg-row, .sg-toggle-row, .folder-row, .ct-body)
+  + :is(.sg-row, .sg-toggle-row, .folder-row, .ct-body),
+.ct-body > :is(.sg-row, .sg-toggle-row) + :is(.sg-row, .sg-toggle-row) {
+  border-top: var(--set-sep, 1px solid var(--border-light));
+}
+#glassOptions { gap: 0; margin-top: 0; }
+#glassOptions > .sg-hint { margin-top: 10px; }
+.sg-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sg-label { font-size: 12px; font-weight: 600; color: var(--text); }
+.sg-desc { font-size: 11px; font-weight: 400; line-height: 1.45; color: var(--text-muted); }
+.sg-control { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.sg-control > .cselect { flex: none; width: 220px; }
+/* A control too wide to share the line (the background picture's field and
+   its buttons) goes under its text instead. */
+.sg-row-stack { flex-direction: column; align-items: stretch; gap: 10px; }
+.sg-row-stack .sg-control { flex-shrink: 1; }
+.sg-row-stack .sg-control > .cfg-input { flex: 1; min-width: 0; }
+/* Explanatory line under a setting. */
+.sg-hint { margin: 2px 0 12px; font-size: 11px; line-height: 1.45; color: var(--text-muted); }
+
+/* Game folders: the network's logo, its name over the folder, and the
+   folder's three buttons. The path wraps rather than being cut short —
+   where a client lives is the point of the row. */
+.folder-logo { flex-shrink: 0; width: 32px; height: 32px; object-fit: contain; }
+.folder-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.folder-path {
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.4;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.folder-actions { flex-shrink: 0; display: flex; gap: 6px; }
+
+/* Home: one row per section, its arrows at the left (a stacking layer of
+   their own, so on the retro skins, where the whole row is the checkbox's
+   hit area, they still take their own clicks). */
+.home-layout-move {
+  position: relative; z-index: 1;
+  flex-shrink: 0;
+  display: flex; gap: 4px;
+}
+.layout-move {
+  display: inline-grid; place-items: center;
+  width: 26px; height: 26px;
+  padding: 0;
+}
+.layout-move svg { width: 16px; height: 16px; fill: currentColor; }
+/* The banner: a little preview of what Home shows (the network's own art
+   until a picture is chosen), what it is, and the two buttons. */
+.banner-row { flex-wrap: wrap; }
+.banner-row .sg-text { min-width: 140px; }
+.banner-preview {
+  flex-shrink: 0;
+  width: 112px; height: 36px;
+  background: var(--bg-dark) center / cover no-repeat;
+  border: 1px solid var(--border-light);
+}
+.banner-preview[data-network="radium"]:not(.is-custom) { background-image: url('assets/brand-pattern.png'); }
+.banner-preview[data-network="vanilla"]:not(.is-custom) { background-image: url('assets/vanilla-hero.png'); background-position: center top; }
+.banner-preview[data-network="stella"]:not(.is-custom) { background-image: url('assets/stella-pattern.jpg'); }
+
+/* About: the launcher's mark, name and version. */
+.settings-group.about-card { flex-direction: row; align-items: center; gap: 14px; padding: 16px; }
+.about-logo { flex-shrink: 0; width: 48px; height: 48px; object-fit: contain; }
+.about-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.about-name { font-size: 15px; font-weight: 700; color: var(--text); }
+.about-version { font-size: 12px; color: var(--text-muted); }
+.about-version:empty { display: none; }
 .cfg-input {
   flex: 1; background: var(--bg-dark);
   border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
@@ -2425,18 +2625,10 @@ body.animations-enabled.theme-moderndark .hero-gear[aria-expanded="false"]:hover
    hanging below one was painted under the next group. The group holding the
    open menu is lifted above its siblings for as long as it is open. */
 .settings-group:is(.cselect-host, .tint-host) { position: relative; z-index: 20; }
-.cfg-path-display {
-  font-family: var(--font-mono); font-size: 9px; color: var(--green-dim);
-  background: var(--bg-dark); border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  padding: 4px 6px; flex: 1;
-  /* A long install path must not set the row's minimum width. */
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 .test-result { font-family: var(--font-mono); font-size: 10px; color: var(--green-dim); }
 .test-result.ok { color: var(--status-online); }
 .test-result.error { color: #ff6666; }
 
-.sg-toggle-row { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: bold; }
 .toggle-wrap {
   width: 32px; height: 16px; background: var(--bg-dark);
   border: 2px solid; border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
@@ -2702,7 +2894,11 @@ body.theme-moderndark .modal-close-btn {
 
 /* Theme Scrollbar Overrides */
 
-/* Native Rooms & People Panels Formatting */
+/* ── Rooms & People: the list views ────────────────────────────────────
+   Title at the left of the page header, search (and Rooms' sort) at its
+   right; under it Rooms' tag strip, then a grid of cards that scrolls, and
+   the pager. Layout only; each skin paints the pieces in 01–03 and its own
+   file, glass in 11-glass.css. */
 .native-panel {
   background: var(--bg-main);
   padding: 8px;
@@ -2712,152 +2908,225 @@ body.theme-moderndark .modal-close-btn {
   flex-direction: column;
 }
 
-.native-search-bar {
-  display: flex;
+.list-header { gap: 16px; }
+.list-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  min-width: 0;
+  margin-left: auto;
 }
+/* Nothing to search while a room or a profile is open. */
+#tab-rooms:has(#roomsDetailView:not(.hidden)) .list-toolbar,
+#tab-people:has(#peopleDetailView:not(.hidden)) .list-toolbar { display: none; }
 
-.native-table-container {
-  background: var(--bg-panel);
-  flex: 1;
-  min-height: 0;
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+.native-search-bar { display: flex; }
+.search-field { position: relative; width: 260px; min-width: 0; }
+.search-field .cfg-input { width: 100%; box-sizing: border-box; padding-left: 32px !important; }
+.search-field-icon {
+  position: absolute; left: 10px; top: 50%;
+  width: 16px; height: 16px;
+  margin-top: -8px;
+  fill: currentColor;
+  color: var(--text-muted);
+  pointer-events: none;
+  z-index: 1;
+}
+.toolbar-sort { display: flex; width: 160px; flex-shrink: 0; }
+.toolbar-sort .cselect-menu { left: auto; min-width: 100%; }
+
+.list-view {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+}
+/* The scroller keeps a few pixels round its cards, so a card lifting on
+   hover or wearing a focus ring is not cut off at the edge. */
+.list-scroll {
+  flex: 1; min-height: 0;
   overflow-y: auto;
+  margin: 0 -6px;
+  padding: 4px 6px 12px;
+  /* The grids below count their columns from this width. */
+  container-type: inline-size;
 }
-
-.native-table {
-  border-collapse: collapse;
-  width: 100%;
-  text-align: left;
+.list-empty, .list-message {
+  grid-column: 1 / -1;
+  padding: 48px 20px;
+  text-align: center;
+  font-size: 12px; line-height: 1.6;
+  color: var(--text-muted);
 }
+.list-message .stella-login-prompt { margin-top: 10px; }
 
-.native-table th {
-  background: var(--bg-main);
-  border: 1px solid var(--border-dark);
-  padding: 6px 8px;
-  font-size: 11px;
-  font-weight: bold;
-  color: var(--text);
-  position: sticky;
-  top: 0;
-  z-index: 10;
+/* Previous, the page numbers, Next — centred under the grid. */
+.list-pager {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding-top: 10px;
 }
-
-.native-table td {
-  border: 1px solid var(--border-dark);
-  padding: 6px 8px;
-  font-size: 11px;
-  color: var(--text);
-  background: var(--bg-panel);
-  vertical-align: middle;
+.list-pager[hidden] { display: none; }
+.pager-pages { display: flex; align-items: center; gap: 4px; }
+.pager-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 30px; height: 30px;
+  padding: 0 8px;
+  font-variant-numeric: tabular-nums;
 }
+.pager-arrow { padding: 0; width: 30px; }
+.pager-arrow svg { width: 18px; height: 18px; fill: currentColor; }
+.pager-btn.is-current { cursor: default; }
+.pager-gap { min-width: 18px; text-align: center; color: var(--text-muted); }
+.pager-label { padding: 0 10px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 
-.native-table tbody tr {
-  cursor: pointer;
+/* ── Rooms: tag strip ──────────────────────────────────────────────────
+   One row of tag chips that scrolls sideways (syncTagStrip in app.js). The
+   arrows, and a fade where chips run under them, show only while there is
+   more that way. */
+.tag-strip {
+  position: relative;
+  flex-shrink: 0;
+  display: flex; align-items: center;
+  margin-bottom: 10px;
 }
-
-.native-table tr:hover td {
-  background: var(--bg-btn);
+.tag-strip.is-empty { display: none; }
+.tag-row {
+  flex: 1; min-width: 0;
+  display: flex; gap: 6px;
+  padding: 2px 1px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-
-.people-avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  object-fit: cover;
-  border: 1px solid var(--border-dark);
-  background: var(--bg-dark);
-  display: block;
+.tag-row::-webkit-scrollbar { display: none; }
+.tag-strip.can-left .tag-row {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 56px);
+  mask-image: linear-gradient(90deg, transparent 0, #000 56px);
 }
-
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 6px;
+.tag-strip.can-right .tag-row {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent 100%);
 }
-
-.status-dot.online {
-  background-color: var(--status-online);
+.tag-strip.can-left.can-right .tag-row {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 56px, #000 calc(100% - 56px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 56px, #000 calc(100% - 56px), transparent 100%);
 }
-
-/* Red, like an OFFLINE status card, so it can't be mistaken for "unknown"
-   (the plain grey dot a network without presence gets). */
-.status-dot.offline {
-  background-color: #ff4444;
-}
-
-.native-pagination {
-  padding-top: 6px;
-  border-top: 1px dashed var(--border-dark);
-}
-
-/* Rooms layout */
-.filter-btn, .sort-btn {
-  text-align: left;
-  padding: 4px 6px;
-  font-size: 10px;
-  background: var(--bg-panel);
-  border: 2px solid;
-  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  color: var(--text);
-  text-decoration: underline;
-  cursor: pointer;
+.filter-btn {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  font-family: var(--font-ui); font-size: 11px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: var(--font-ui);
-}
-
-.filter-btn.active, .sort-btn.active {
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark) !important;
-  background: var(--bg-dark) !important;
-  color: var(--text) !important;
-  text-decoration: none !important;
-}
-
-.native-grid-container {
-  background: var(--bg-dark);
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  overflow-y: auto;
-}
-
-.room-card {
-  background: var(--bg-panel);
-  border: 2px solid;
-  border-color: var(--border-light) var(--border-dark) var(--border-dark) var(--border-light);
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  cursor: pointer;
-  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.room-card:hover {
+  color: var(--text);
   background: var(--bg-btn);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-dark);
+  cursor: pointer;
 }
+.filter-btn.active { color: var(--bg-main); background: var(--text); }
+.filter-btn.is-skeleton { width: 64px; height: 26px; padding: 0; cursor: default; }
+.tag-scroll {
+  position: absolute; top: 50%; z-index: 2;
+  display: none; place-items: center;
+  width: 28px; height: 28px;
+  margin-top: -14px; padding: 0;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dark);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.tag-scroll svg { width: 18px; height: 18px; fill: currentColor; }
+.tag-scroll-left { left: 0; }
+.tag-scroll-right { right: 0; }
+.tag-strip.can-left .tag-scroll-left,
+.tag-strip.can-right .tag-scroll-right { display: grid; }
 
-/* Disable card float behaviors on classic desktop themes to maintain design integrity */
-.room-card-image {
-  width: 100%;
-  aspect-ratio: 16/9;
-  object-fit: cover;
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
+/* ── Room cards ────────────────────────────────────────────────────────
+   buildRoomCard(): the picture with the room's name over a shade along its
+   bottom, the live count in its corner, then a foot with who made it and
+   its cheers. Used by the Rooms grid, Home's Popular row and a profile's
+   ROOMS tab. */
+/* A page refreshed in place (see loadRooms / loadPeople) skips the cards'
+   entrance, which is for a new page. */
+:is(.room-grid, .people-grid).is-quiet > * { animation: none !important; }
+/* Columns step 2 → 3 → 4 → 6 with the width, never 5 or 7: a page of
+   either list (roomsTake, peopleTake: 24) then always fills its last row. */
+.room-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+@container (min-width: 600px)  { .room-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (min-width: 1000px) { .room-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container (min-width: 1440px) { .room-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.room-card {
+  position: relative;
+  display: flex; flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dark);
+  cursor: pointer;
+}
+.room-card-media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
   background: var(--bg-dark);
 }
+.room-card-image {
+  position: absolute; inset: 0;
+  display: block;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border: 0;
+}
+/* The shade the name sits on. Over the picture rather than under the name
+   alone, so it reads on any picture. */
+.room-card-media::after {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: 0; height: 58%;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 50%, rgba(0, 0, 0, 0.82) 100%);
+  pointer-events: none;
+}
+.room-card-name {
+  position: absolute; left: 10px; right: 10px; bottom: 8px; z-index: 1;
+  font-family: var(--font-ui); font-size: 13px; font-weight: 700; line-height: 1.25;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.room-card-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+.room-card-creator {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-width: 0;
+  margin: 0; padding: 0;
+  background: transparent; border: 0; box-shadow: none;
+  font: inherit; font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.room-card-creator.is-unknown { cursor: inherit; }
+.room-card-avatar {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg-dark);
+}
+.room-card-creator-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.room-card-creator:hover .room-card-creator-name { color: var(--text); text-decoration: underline; }
+.room-card-cheers {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.room-card-cheers[hidden] { display: none; }
+.room-card-cheers .vn-icon { width: 12px; height: 12px; }
 
-/* Live player count over the thumbnail's corner (Stella). Placed against the
-   card, which is why .room-card is positioned: 6px padding + 2px border, plus
-   the image's own 2px border and a little air. */
-.room-card { position: relative; }
+/* Live player count over the picture's corner (Stella). */
 .room-live-badge {
-  position: absolute; top: 14px; right: 14px;
+  position: absolute; top: 8px; right: 8px; z-index: 1;
   display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 7px;
   border-radius: 9px;
@@ -2883,32 +3152,128 @@ body.theme-moderndark .modal-close-btn {
 .room-live-pill.is-empty { color: var(--text-muted); font-weight: normal; }
 .room-live-pill.is-empty .room-live-dot { background: var(--text-muted); box-shadow: none; }
 
-.room-card-name {
-  font-weight: bold;
-  font-size: 11px;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* ── Player cards ──────────────────────────────────────────────────────
+   buildPlayerCard(): picture (with a dot while online), name, @handle and
+   badges, then level and — on Stella — the room they're in, and the start
+   of the bio where the network sends one. */
+.people-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
-
-.room-card-creator {
-  font-size: 9px;
-  color: var(--text-muted);
-  text-decoration: underline;
+@container (min-width: 700px)  { .people-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (min-width: 1000px) { .people-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container (min-width: 1480px) { .people-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.player-card {
+  display: flex; align-items: flex-start; gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-dark);
   cursor: pointer;
-  width: fit-content;
 }
-
-.room-card-creator:hover {
+.player-avatar {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px; height: 48px;
+}
+.player-avatar img {
+  display: block;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg-dark);
+}
+/* Cut out of the card it sits on: --card-cut is that card's colour. */
+.player-avatar .status-dot {
+  position: absolute; right: -3px; bottom: -3px;
+  width: 13px; height: 13px;
+  margin: 0;
+  box-shadow: 0 0 0 2.5px var(--card-cut, var(--bg-panel));
+}
+.player-info {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  padding-top: 2px;
+}
+.player-name {
+  font-size: 13px; font-weight: 700; line-height: 1.25;
   color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.player-handle {
+  display: flex; align-items: center; gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.player-handle-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-handle .inline-roles { flex-shrink: 0; }
+.player-meta {
+  display: flex; align-items: center; gap: 8px;
+  min-width: 0;
+  margin-top: 5px;
+  font-size: 11px;
+}
+.player-level {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--bg-dark);
+  border: 1px solid var(--border-dark);
+  border-radius: 999px;
+}
+.player-where {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-width: 0;
+  color: var(--status-online);
+}
+.player-where .friend-lock svg { width: 10px; height: 10px; display: block; }
+.player-where-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-bio {
+  margin-top: 5px;
+  font-size: 11px; line-height: 1.4;
+  color: var(--text-muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
-.room-card-stats {
-  font-size: 9px;
-  color: var(--text-muted);
-  display: flex;
-  justify-content: space-between;
+/* ── Placeholders while a list loads ─────────────────────────────────── */
+.is-skeleton { pointer-events: none; cursor: default; }
+:is(.room-card.is-skeleton .room-card-media, .player-card.is-skeleton .player-avatar,
+    .skel-line, .filter-btn.is-skeleton) {
+  --skel: color-mix(in srgb, var(--text) 8%, transparent);
+  background: var(--skel);
+  border-color: transparent;
+  color: transparent;
+}
+.room-card.is-skeleton .room-card-media::after { display: none; }
+.skel-line { display: block; width: 64%; height: 10px; margin: 3px 0; border-radius: 5px; }
+.skel-line.is-short { width: 40%; }
+.player-card.is-skeleton .player-avatar { border-radius: 6px; }
+.player-card.is-skeleton .player-info { gap: 6px; padding-top: 8px; }
+
+/* ── Presence dots ───────────────────────────────────────────────────── */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-dot.online {
+  background-color: var(--status-online);
+}
+
+/* Red, like an OFFLINE status card, so it can't be mistaken for "unknown"
+   (the plain grey dot a network without presence gets). */
+.status-dot.offline {
+  background-color: #ff4444;
 }
 
 /* Layout utility styles to support native Rooms/People layouts */
@@ -2923,7 +3288,6 @@ body.theme-moderndark .modal-close-btn {
 .gap-2 { gap: 8px; }
 .gap-2\.5 { gap: 10px; }
 .gap-3\.75 { gap: 15px; }
-.w-50 { width: 140px; } /* Set rooms sidebar filter/sort panel width */
 .w-full { width: 100%; }
 .p-2 { padding: 8px; }
 .p-4 { padding: 16px; }
@@ -2992,9 +3356,8 @@ body.theme-moderndark .modal-close-btn {
 /* Modern Themes Override for Bevels, Containers, and Borders to prevent retro boxes */
 body.theme-moderndark .bevel-inset,
 body.theme-moderndark .border,
-body.theme-moderndark .native-grid-container,
-body.theme-moderndark .native-table-container,
 body.theme-moderndark .photo-card,
+
 body.theme-moderndark .photo-detail-img-wrap,
 body.theme-moderndark #roomsDetailImage,
 body.theme-moderndark #photoDetailImage,
@@ -4348,78 +4711,6 @@ body.theme-moderndark .btn-play:is(:active, .is-pressed) {
   box-shadow: 0 2px 10px rgba(255, 0, 127, 0.3) !important;
 }
 
-/* 7. Quick Stats Cards (.qs-card) */
-body.theme-moderndark .qs-card {
-  border-radius: 8px !important;
-  border: 1px solid var(--border-light) !important;
-  border-left: 4px solid var(--border-light) !important;
-  background: var(--bg-panel) !important;
-  padding: 8px 12px !important;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
-}
-
-/* Glassmorphism stats for Modern Light */
-body.theme-moderndark .qs-card:hover {
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25) !important;
-}
-
-/* Status specific left-borders */
-body.theme-moderndark .qs-card.online {
-  border-left-color: var(--status-online) !important;
-}
-body.theme-moderndark .qs-card.offline {
-  border-left-color: #ef4444 !important;
-}
-body.theme-moderndark .qs-card.installed {
-  border-left-color: var(--status-online) !important;
-}
-body.theme-moderndark .qs-card.not-installed {
-  border-left-color: #f59e0b !important;
-}
-body.theme-moderndark .qs-card.mode-vr {
-  border-left-color: #3b82f6 !important;
-}
-body.theme-moderndark .qs-card.mode-screen {
-  border-left-color: var(--green) !important;
-}
-
-/* 8. Glowing Circular Status Indicator Dots */
-body.theme-moderndark .qs-icon-indicator,
-body.theme-moderndark .running-dot {
-  border-radius: 50% !important;
-  width: 8px !important;
-  height: 8px !important;
-  transition: all 0.2s ease !important;
-}
-
-body.theme-moderndark .qs-card.online .qs-icon-indicator,
-body.theme-moderndark .running-dot {
-  background: var(--status-online) !important;
-  box-shadow: 0 0 10px var(--status-online) !important;
-}
-
-body.theme-moderndark .qs-card.offline .qs-icon-indicator {
-  background: #ef4444 !important;
-  box-shadow: 0 0 10px #ef4444 !important;
-}
-
-body.theme-moderndark .qs-card.installed .qs-icon-indicator {
-  background: var(--status-online) !important;
-  box-shadow: 0 0 10px var(--status-online) !important;
-}
-
-body.theme-moderndark .qs-card.not-installed .qs-icon-indicator {
-  background: #f59e0b !important;
-  box-shadow: 0 0 10px #f59e0b !important;
-}
-
-/* 9. Text Value Labels inside Stats cards */
-body.theme-moderndark .qs-value {
-  font-size: 13px !important;
-  letter-spacing: 0.5px !important;
-}
-
 /* ==========================================================================
    Redesigned Rooms/People Tab Layout - ONLY for Modern Themes
    ========================================================================== */
@@ -4442,91 +4733,6 @@ body.theme-moderndark .native-search-bar input:focus {
   border-color: var(--green) !important;
   box-shadow: 0 0 10px rgba(255, 0, 127, 0.2) !important;
 }
-/* 2. Modern Tag Button Filters & Sort Buttons (.filter-btn, .sort-btn) */
-body.theme-moderndark .filter-btn,
-body.theme-moderndark .sort-btn {
-  border: 1px solid var(--border-light) !important;
-  border-radius: 8px !important;
-  background: var(--bg-panel) !important;
-  color: var(--text-muted) !important;
-  padding: 6px 12px !important;
-  text-decoration: none !important;
-  font-size: 11px !important;
-  font-weight: 700 !important;
-  transition: all 0.2s ease !important;
-  box-shadow: none !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.5px !important;
-  font-family: var(--font-ui) !important;
-}
-
-body.theme-moderndark .filter-btn:hover,
-body.theme-moderndark .sort-btn:hover {
-  background: var(--bg-dark) !important;
-  color: var(--text) !important;
-  border-color: var(--green) !important;
-}
-
-body.theme-moderndark .filter-btn.active,
-body.theme-moderndark .sort-btn.active {
-  background: var(--green) !important;
-  color: #ffffff !important;
-  border-color: var(--green) !important;
-  text-decoration: none !important;
-}
-
-body.theme-moderndark .filter-btn.active,
-body.theme-moderndark .sort-btn.active {
-  box-shadow: 0 4px 12px rgba(255, 0, 127, 0.3) !important;
-}
-/* 3. Sleek Rounded Room Cards (.room-card) */
-body.theme-moderndark .room-card {
-  border: 1px solid var(--border-light) !important;
-  border-radius: 12px !important;
-  background: var(--bg-panel) !important;
-  padding: 10px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06) !important;
-}
-
-body.theme-moderndark .room-card-image {
-  border-radius: 8px !important;
-  border: none !important;
-}
-
-/* Same accent-fill problem as .room-creator-box, one click away: the base
-   `.room-card:hover` fills with --bg-btn, which put the room name at 1.00
-   contrast in both black-and-white skins. Tint instead, and let the accent
-   show as the border. */
-body.theme-moderndark .room-card:hover {
-  background: rgba(255, 255, 255, 0.10) !important;
-  border-color: var(--green) !important;
-}
-body.theme-moderndark .room-card-name {
-  font-family: var(--font-ui) !important;
-  font-size: 13px !important;
-  font-weight: 700 !important;
-  color: var(--text) !important;
-  margin-top: 6px !important;
-}
-
-body.theme-moderndark .room-card-creator {
-  font-family: var(--font-ui) !important;
-  font-size: 11px !important;
-  color: var(--text-muted) !important;
-  text-decoration: none !important;
-}
-
-body.theme-moderndark .room-card-creator:hover {
-  color: var(--green) !important;
-}
-
-body.theme-moderndark .room-card-stats {
-  font-size: 11px !important;
-  font-family: var(--font-ui) !important;
-  color: var(--text-muted) !important;
-  margin-top: 4px !important;
-}
-
 /* ==========================================================================
    Modern UI Animations System
    ========================================================================== */
@@ -4556,11 +4762,6 @@ body.animations-enabled.theme-moderndark .nav-btn:hover {
   transform: translateX(4px) !important;
 }
 
-/* Room Card hover lifts and shadows */
-body.animations-enabled.theme-moderndark .room-card:hover {
-  transform: translateY(-4px) scale(1.02) !important;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2) !important;
-}
 /* ── Network switcher motion ──────────────────────────────────────────────
    The switcher changes what every other tab is showing, so it earns more
    feedback than a plain button: the caret turns to face the open menu, the
@@ -4665,42 +4866,6 @@ body.animations-enabled.theme-moderndark .modal-btn:active,
 body.animations-enabled.theme-moderndark .btn-exclude-av:active,
 body.animations-enabled.theme-moderndark .launch-secondary-actions button:active {
   transform: scale(0.96) !important;
-}
-
-/* Modern Theme overrides for Rooms tab inner containers and headers */
-body.theme-moderndark #roomsListView .border {
-  background: var(--bg-panel) !important;
-  border: 1px solid var(--border-light) !important;
-  border-radius: 12px !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
-}
-
-body.theme-moderndark #roomsListView .sg-title {
-  border-bottom: 1px solid var(--border-light) !important;
-  color: var(--green) !important;
-  font-family: var(--font-ui) !important;
-  text-transform: uppercase !important;
-  font-weight: 700 !important;
-  font-size: 11px !important;
-  letter-spacing: 1px !important;
-}
-
-body.theme-moderndark .native-grid-container {
-  background: var(--bg-dark) !important;
-  border: 1px solid var(--border-light) !important;
-  border-radius: 12px !important;
-  padding: 12px !important;
-}
-
-body.theme-moderndark .native-pagination {
-  border-top: 1px solid var(--border-light) !important;
-}
-
-body.theme-moderndark #txtRoomsPage,
-body.theme-moderndark #txtPeoplePage {
-  font-family: var(--font-ui) !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
 }
 
 body.theme-moderndark .btn-refresh:disabled {
@@ -4892,10 +5057,8 @@ body img.image-unavailable[src] {
 /* Modern User Avatar placeholder SVG (Dark version) */
 body.theme-moderndark .creator-avatar[src="./logo.png"],
 body.theme-moderndark .feed-post-avatar[src="./logo.png"],
-body.theme-moderndark .people-avatar[src="./logo.png"],
 body.theme-moderndark .creator-avatar[src="logo.png"],
-body.theme-moderndark .feed-post-avatar[src="logo.png"],
-body.theme-moderndark .people-avatar[src="logo.png"] {
+body.theme-moderndark .feed-post-avatar[src="logo.png"] {
   content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%231e293b'/%3E%3Cstop offset='100%25' stop-color='%230f172a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)'/%3E%3Ccircle cx='48' cy='38' r='18' fill='rgba(255,255,255,0.4)'/%3E%3Cpath d='M48 62c-15 0-26 8-26 14v4h52v-4c0-6-11-14-26-14z' fill='rgba(255,255,255,0.4)'/%3E%3C/svg%3E") !important;
 }
 
@@ -4916,7 +5079,6 @@ body.theme-moderndark .people-avatar[src="logo.png"] {
    it on will give you — but they are dimmed and their controls disabled, the
    same "say why" treatment the note above them carries. */
 .ct-body.is-off { opacity: 0.5; }
-.ct-body.is-off .ct-swatch,
 .ct-body.is-off .sg-row,
 .ct-body.is-off .sg-toggle-row { pointer-events: none; }
 
@@ -4924,25 +5086,9 @@ body.theme-moderndark .people-avatar[src="logo.png"] {
    Active Skin dims this way while Liquid Glass has taken over from it. */
 .sg-row.is-off { opacity: 0.5; pointer-events: none; }
 
-/* auto-fill rather than a fixed column count: the chips reflow to one
-   column in a narrow window instead of crushing their labels, and a
-   section with an odd number of colors no longer leaves a ragged hole. */
-.ct-swatches {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px;
-}
-.ct-swatch {
-  display: flex; align-items: center; gap: 8px; min-width: 0;
-  background: var(--bg-dark);
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  padding: 4px 6px; font-size: 11px; color: var(--text);
-}
-.ct-swatch > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ct-swatch .ct-note { margin-left: auto; font-size: 9px; color: var(--text-muted); }
 /* Off-screen, not display:none — a hidden file input still has to be
    clickable for btnBrowseBgFile to forward a click to it. */
 .ct-file-input { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
-.ct-grow { flex: 1; }
 
 /* Round chips, so a color reads as a color and not as one more button.
    Bordered with the theme's own line color rather than a fixed white, which
@@ -4963,7 +5109,11 @@ body.theme-moderndark .people-avatar[src="logo.png"] {
 
 /* ── Glass tint picker ── (glassCss() gives it the glass look; the tint is
    only editable while glass is on, so this is the fallback layout.) */
-.tint-picker-host { position: relative; }
+.tint-picker-host { position: relative; display: flex; }
+/* The swatch sits at the right of its row, so the picker opens leftward
+   from it rather than running off the edge. */
+.sg-control .tint-picker { left: auto; right: 0; }
+.sg-control .tint-swatch { width: 26px; height: 26px; }
 .tint-picker {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
   width: 236px; box-sizing: border-box; padding: 10px;

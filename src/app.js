@@ -320,9 +320,19 @@ function overlappingInstallDir(network, dir) {
 
 /// `cfg` without `glass.bgImage`. See saveConfig in the shim below.
 function withoutBackdrop(cfg) {
-  if (!cfg || !cfg.glass || !('bgImage' in cfg.glass)) return cfg;
-  const { bgImage, ...glass } = cfg.glass;
-  return { ...cfg, glass };
+  if (!cfg) return cfg;
+  let out = cfg;
+  if (out.glass && 'bgImage' in out.glass) {
+    const { bgImage, ...glass } = out.glass;
+    out = { ...out, glass };
+  }
+  // Home's banner pictures likewise: up to a megabyte each, written only by
+  // setHomeBanner (cmd_set_home_banner), and kept by the backend on a save.
+  if (out.home && 'banners' in out.home) {
+    const { banners, ...home } = out.home;
+    out = { ...out, home };
+  }
+  return out;
 }
 
 (function setupTauriShim() {
@@ -353,6 +363,7 @@ function withoutBackdrop(cfg) {
     getConfig:  ()    => invoke('cmd_get_config'),
     saveConfig: (cfg) => invoke('cmd_save_config', { config: withoutBackdrop(cfg) }),
     setGlassBackdrop: (value) => invoke('cmd_set_glass_backdrop', { value: String(value || '') }),
+    setHomeBanner: (network, value) => invoke('cmd_set_home_banner', { network: String(network || ''), value: String(value || '') }),
     // The picture at a typed address, as an ArrayBuffer. The CSP lets the
     // page load no remote image itself; see setGlassBackdropFromUrl().
     fetchGlassBackdrop: (url) => invoke('cmd_fetch_glass_backdrop', { url: String(url || '') }),
@@ -700,6 +711,12 @@ function roomThumbUrl(room, width) {
 /// Format a count the way the room cards and detail view show it.
 function formatCount(n) {
   return Number(n).toLocaleString();
+}
+
+/// A count short enough for a card's corner: 1,234 → "1.2K".
+const compactCountFormat = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+function compactCount(n) {
+  return compactCountFormat.format(Number(n) || 0);
 }
 
 /// Cheers / favourites / visits already present on a room row, or null.
@@ -1423,14 +1440,13 @@ document.querySelectorAll('.sidebar-nav .nav-btn').forEach(btn => {
     // Coming back to a tab you were just on now shows what was there, which is
     // both instant and where you left off; a page older than LIST_STALE_MS is
     // refreshed underneath the rows rather than in place of them.
-    if (tabName === 'rooms') {
+    if (tabName === 'home') {
+      loadHomeRooms();
+    } else if (tabName === 'rooms') {
       loadFilters();
       if (!listIsFresh(roomsKey(), roomsRenderKey, roomsRenderAt)) loadRooms();
     } else if (tabName === 'people') {
       if (!listIsFresh(peopleKey(), peopleRenderKey, peopleRenderAt, peopleFreshMs)) loadPeople();
-      // The table is already rendered, but its height is measured against a
-      // panel that was display:none until a moment ago.
-      else snapTableRows($('peopleTableContainer'));
     } else if (tabName === 'feed') {
       // Only reload an empty feed, so returning to the tab keeps your place
       // in the list instead of jumping back to the top.
@@ -1470,6 +1486,8 @@ let launcherVersion = '';
 async function loadVersion() {
   const v = await window.radium?.getVersion();
   if (v) launcherVersion = v;
+  const about = $('aboutVersion');
+  if (about) about.textContent = v ? `Version ${v}` : '';
 }
 
 async function loadConfig() {
@@ -1503,6 +1521,9 @@ async function loadConfig() {
 
   // Where Stella's friends list shows.
   applyFriendsView();
+  // Home's section order, and the banner picture.
+  applyHomeLayout();
+  applyHomeBanner();
 
   // Liquid Glass, which is now an effect over that skin rather than a mode of
   // a custom theme.
@@ -1871,12 +1892,287 @@ window.radium?.onLauncherHidden?.(() => {
 /// With tray mode on, closing only hides the window, so the launch option
 /// says what it will actually do.
 function syncLaunchOptionLabel() {
+  const tray = getToggle('tgl-runInBackground');
   const label = $('lblCloseOnLaunch');
-  if (!label) return;
-  label.textContent = getToggle('tgl-runInBackground')
-    ? 'Hide launcher when game starts'
-    : 'Close launcher when game starts';
+  if (label) label.textContent = tray ? 'Hide the launcher' : 'Close the launcher';
+  const desc = $('descCloseOnLaunch');
+  if (desc) {
+    desc.textContent = tray
+      ? 'Tucks it into the tray once the game is running.'
+      : 'Quits the launcher once the game is running.';
+  }
 }
+
+// ── Settings sections ───────────────────────────────────────────────────
+// One section at a time, picked from the list at the left. Notifications
+// (Vanilla) and Friends (Stella) exist on their own network only; on another
+// one the section falls back to General.
+
+let settingsSection = 'general';
+
+function settingsSectionAvailable(btn) {
+  if (btn.classList.contains('network-only-vanilla')) return activeNetwork === 'vanilla';
+  if (btn.classList.contains('network-only-stella')) return activeNetwork === 'stella';
+  return true;
+}
+
+function showSettingsSection(name, { focus = false } = {}) {
+  const btns = [...document.querySelectorAll('.settings-nav-btn')];
+  if (!btns.length) return;
+  const btn = btns.find(b => b.dataset.section === name && settingsSectionAvailable(b)) || btns[0];
+  const changed = btn.dataset.section !== settingsSection;
+  settingsSection = btn.dataset.section;
+  for (const b of btns) {
+    const on = b === btn;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+  }
+  document.querySelectorAll('.settings-page').forEach(page => {
+    const on = page.id === `setpage-${settingsSection}`;
+    page.hidden = !on;
+    page.classList.toggle('active', on);
+  });
+  if (changed) {
+    // A menu or the tint picker open on the page being left goes with it.
+    closeCselect();
+    closeTintPicker();
+    const body = document.querySelector('#tab-settings .settings-body');
+    if (body) body.scrollTop = 0;
+  }
+  if (focus) btn.focus();
+}
+
+document.querySelectorAll('.settings-nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => showSettingsSection(btn.dataset.section));
+});
+
+// ── Home layout and banner (Settings → Home) ────────────────────────────
+// config.home: `order` (Home's sections from the top) and `hidden` (the ones
+// switched off) are saved with the rest of the settings; `banners` holds a
+// picture of the user's own per network and is written only through
+// setHomeBanner (see withoutBackdrop in the shim). The backend repairs both
+// (config::HomeSettings::sanitize); the same rules are applied here so the
+// page never acts on a name it doesn't know.
+
+const HOME_SECTIONS = ['status', 'friends', 'rooms'];
+const HOME_SECTION_INFO = {
+  status:  { label: 'Status',            desc: 'Servers, players online and the game client.' },
+  friends: { label: 'Friends',           desc: 'Who is online, with JOIN. Off puts them in a tab of their own.' },
+  rooms:   { label: 'Popular right now', desc: "The network's busiest rooms at the moment." },
+};
+
+/// Home's order and hidden list, cleaned up: known names, each once, every
+/// section in the order.
+function homeLayout() {
+  const raw = config?.home || {};
+  const order = [];
+  for (const name of Array.isArray(raw.order) ? raw.order : []) {
+    if (HOME_SECTIONS.includes(name) && !order.includes(name)) order.push(name);
+  }
+  for (const name of HOME_SECTIONS) if (!order.includes(name)) order.push(name);
+  const hidden = (Array.isArray(raw.hidden) ? raw.hidden : []).filter(n => HOME_SECTIONS.includes(n));
+  return { order, hidden };
+}
+
+/// Whether a section appears in Settings' list on the network in use:
+/// Friends exists on Stella only.
+function homeSectionAvailable(name) {
+  return name !== 'friends' || activeNetwork === 'stella';
+}
+
+/// Put Home's sections in the saved order and hide the ones switched off.
+/// The hero and the download panel always lead. Moved rather than reordered
+/// with CSS `order`, so keyboard focus follows what is on screen.
+function applyHomeLayout() {
+  const tab = $('tab-home');
+  if (!tab) return;
+  const nodes = {
+    status: tab.querySelector('.home-stats'),
+    friends: $('stellaFriendsCard'),
+    rooms: $('homeRoomsSection'),
+  };
+  const { order, hidden } = homeLayout();
+  for (const name of order) if (nodes[name]) tab.appendChild(nodes[name]);
+  // Friends' place on Home is friendsView's to decide (body.friends-view-*).
+  nodes.status?.classList.toggle('is-turned-off', hidden.includes('status'));
+  nodes.rooms?.classList.toggle('is-turned-off', hidden.includes('rooms'));
+  renderHomeLayoutList();
+}
+
+/// Settings' list of Home's sections: arrows to move each one, and its
+/// switch. Rebuilt from config whenever either changes.
+function renderHomeLayoutList() {
+  const list = $('homeLayoutList');
+  if (!list) return;
+  const { order, hidden } = homeLayout();
+  const shown = order.filter(homeSectionAvailable);
+  list.textContent = '';
+  shown.forEach((name, i) => {
+    const info = HOME_SECTION_INFO[name];
+    const on = name === 'friends' ? friendsView() === 'home' : !hidden.includes(name);
+    const row = document.createElement('div');
+    row.className = 'sg-toggle-row home-layout-row';
+    row.dataset.section = name;
+    row.innerHTML = `
+      <span class="home-layout-move">
+        <button type="button" class="btn-open-folder layout-move" data-dir="-1" aria-label="Move ${escapeHtml(info.label)} up"${i === 0 ? ' disabled' : ''}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+        </button>
+        <button type="button" class="btn-open-folder layout-move" data-dir="1" aria-label="Move ${escapeHtml(info.label)} down"${i === shown.length - 1 ? ' disabled' : ''}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+        </button>
+      </span>
+      <span class="sg-text">
+        <span class="sg-label">${escapeHtml(info.label)}</span>
+        <span class="sg-desc">${escapeHtml(info.desc)}</span>
+      </span>
+      <div class="toggle-wrap${on ? ' on' : ''}" role="switch" tabindex="0" aria-checked="${on}" aria-label="Show ${escapeHtml(info.label)} on Home"><div class="tgl-knob"></div></div>
+    `;
+    row.querySelectorAll('.layout-move').forEach(btn => btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      moveHomeSection(name, Number(btn.dataset.dir));
+    }));
+    const toggle = row.querySelector('.toggle-wrap');
+    const flip = () => setHomeSectionShown(name, !toggle.classList.contains('on'));
+    toggle.addEventListener('click', flip);
+    toggle.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); }
+    });
+    list.appendChild(row);
+  });
+}
+
+/// Move a section one place up (-1) or down (1) among the ones this network
+/// shows — past a section that is only on another network, never just onto it.
+function moveHomeSection(name, dir) {
+  const { order, hidden } = homeLayout();
+  const shown = order.filter(homeSectionAvailable);
+  const i = shown.indexOf(name);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= shown.length) return;
+  const a = order.indexOf(shown[i]);
+  const b = order.indexOf(shown[j]);
+  [order[a], order[b]] = [order[b], order[a]];
+  config.home = { ...(config.home || {}), order, hidden };
+  applyHomeLayout();
+  // Keep the moved row's arrow under the keyboard.
+  const btn = document.querySelector(`.home-layout-row[data-section="${name}"] .layout-move[data-dir="${dir}"]`);
+  (btn && !btn.disabled ? btn : document.querySelector(`.home-layout-row[data-section="${name}"] .layout-move:not(:disabled)`))?.focus();
+  autoSaveSettings();
+}
+
+/// Show or hide a section. Friends' switch is where the friends list goes:
+/// on Home, or a tab of its own (Settings → Friends can also hide it).
+function setHomeSectionShown(name, show) {
+  if (name === 'friends') {
+    config.stella = { ...(config.stella || {}), friendsView: show ? 'home' : 'tab' };
+    applyFriendsView();
+    autoSaveSettings();
+    return;
+  }
+  const { order, hidden } = homeLayout();
+  const next = show ? hidden.filter(n => n !== name) : [...new Set([...hidden, name])];
+  config.home = { ...(config.home || {}), order, hidden: next };
+  applyHomeLayout();
+  document.querySelector(`.home-layout-row[data-section="${name}"] .toggle-wrap`)?.focus();
+  if (name === 'rooms' && show) loadHomeRooms();
+  autoSaveSettings();
+}
+
+/// Longest edge, and size, a banner picture is stored at. The hero is at
+/// most ~1,700 CSS px wide; 1,920 keeps it sharp. Matches
+/// config::HOME_BANNER_MAX_BYTES (a little under, for the backend's check).
+const BANNER_MAX_EDGE = 1920;
+const BANNER_MAX_STORED_BYTES = 950_000;
+
+/// The picture the network in use shows at the top of Home, if the user set
+/// one and it is safe to paint.
+function homeBannerFor(network = activeNetwork) {
+  return paintableBackdrop(config?.home?.banners?.[network] || '');
+}
+
+/// Paint the network in use's banner (or its own art), mirror it for the
+/// pre-paint bootstrap, and bring Settings' preview up to date.
+function applyHomeBanner() {
+  const image = homeBannerFor();
+  const body = document.body;
+  body.classList.toggle('has-home-banner', !!image);
+  if (image) body.style.setProperty('--home-banner', `url("${image}")`);
+  else body.style.removeProperty('--home-banner');
+  // One picture, the active network's: boot.js shows it before the config
+  // arrives instead of flashing the network's art first.
+  try {
+    if (image) localStorage.setItem('radium-home-banner', JSON.stringify({ network: activeNetwork, image }));
+    else localStorage.removeItem('radium-home-banner');
+  } catch (e) {}
+
+  const label = networkInfo().label;
+  const name = label.charAt(0) + label.slice(1).toLowerCase();
+  const desc = $('bannerDesc');
+  if (desc) {
+    desc.textContent = image
+      ? `Your own picture, behind the logo on ${name}.`
+      : `${name}'s own art. Each network can have a picture of your own.`;
+  }
+  const preview = $('bannerPreview');
+  if (preview) {
+    preview.dataset.network = activeNetwork;
+    preview.classList.toggle('is-custom', !!image);
+    preview.style.backgroundImage = image ? `url("${image}")` : '';
+    preview.setAttribute('aria-label', image ? `Your banner on ${name}` : `${name}'s own banner art`);
+  }
+  const reset = $('btnResetBanner');
+  if (reset) reset.disabled = !image;
+}
+
+/// Store `value` as the network in use's banner (empty for its own art).
+async function setHomeBanner(value) {
+  const network = activeNetwork;
+  const before = config.home?.banners?.[network] || '';
+  config.home = { ...(config.home || {}), banners: { ...(config.home?.banners || {}), [network]: value } };
+  applyHomeBanner();
+  try {
+    const stored = await window.radium?.setHomeBanner(network, value);
+    if (value && stored !== value) throw new Error('That picture could not be used.');
+    addLog(value ? `Home banner set for ${networkInfo().label} (${formatBytes(value.length)}).` : `Home banner for ${networkInfo().label} back to its own art.`, 'ok');
+  } catch (e) {
+    config.home = { ...(config.home || {}), banners: { ...(config.home?.banners || {}), [network]: before } };
+    if (network === activeNetwork) applyHomeBanner();
+    toast(`Could not save the banner: ${e.message || e}`, 'error', 5000);
+    addLog(`Home banner not saved: ${e.message || e}`, 'error');
+  }
+}
+
+$('btnChooseBanner')?.addEventListener('click', () => {
+  const picker = $('bannerFilePicker');
+  if (!picker) return;
+  picker.value = '';
+  picker.click();
+});
+$('bannerFilePicker')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    const encoded = await prepareBackgroundImage(file, { maxEdge: BANNER_MAX_EDGE, maxBytes: BANNER_MAX_STORED_BYTES });
+    await setHomeBanner(encoded);
+  } catch (err) {
+    toast(err.message || 'Could not use that picture.', 'error', 5000);
+  }
+});
+$('btnResetBanner')?.addEventListener('click', () => setHomeBanner(''));
+// Up and Down move through the list, as in any vertical tab list.
+document.querySelector('.settings-nav')?.addEventListener('keydown', (e) => {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  const btns = [...document.querySelectorAll('.settings-nav-btn')].filter(settingsSectionAvailable);
+  if (!btns.length) return;
+  e.preventDefault();
+  const i = Math.max(0, btns.findIndex(b => b.dataset.section === settingsSection));
+  const j = e.key === 'Home' ? 0
+    : e.key === 'End' ? btns.length - 1
+    : (i + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length;
+  showSettingsSection(btns[j].dataset.section, { focus: true });
+});
 
 /// Persist the theme and glass settings without touching anything else.
 ///
@@ -2325,7 +2621,7 @@ async function decodeImageFile(file) {
 /// Resolves to a JPEG data URI inside [`BG_IMAGE_MAX_STORED_BYTES`], stepping
 /// the quality down until it fits. Rejects rather than storing something that
 /// cannot be made small enough.
-async function prepareBackgroundImage(file) {
+async function prepareBackgroundImage(file, { maxEdge = BG_IMAGE_MAX_EDGE, maxBytes = BG_IMAGE_MAX_STORED_BYTES } = {}) {
   if (file.size > BG_IMAGE_MAX_INPUT_BYTES) {
     throw new Error(`That image is ${formatBytes(file.size)}. Pick one under ${formatBytes(BG_IMAGE_MAX_INPUT_BYTES)}.`);
   }
@@ -2342,7 +2638,7 @@ async function prepareBackgroundImage(file) {
     const height = source.height;
     if (!width || !height) throw new Error('That file could not be read as an image.');
 
-    const scale = Math.min(1, BG_IMAGE_MAX_EDGE / Math.max(width, height));
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(width * scale));
     canvas.height = Math.max(1, Math.round(height * scale));
@@ -2354,7 +2650,7 @@ async function prepareBackgroundImage(file) {
     // transparency to preserve, and PNG at this size is several times larger.
     for (const quality of [0.82, 0.7, 0.6, 0.5, 0.4]) {
       const encoded = canvas.toDataURL('image/jpeg', quality);
-      if (encoded.length <= BG_IMAGE_MAX_STORED_BYTES) return encoded;
+      if (encoded.length <= maxBytes) return encoded;
     }
     throw new Error('That image is too detailed to store. Try a smaller one.');
   } finally {
@@ -2572,7 +2868,7 @@ async function checkInstall() {
     // Show launch panel, hide download section
     const ds = $('downloadSection'); if (ds) ds.style.display = 'none';
     document.body.classList.add('client-installed');
-    const qi = $('qsInstalled'); if (qi) qi.textContent = 'INSTALLED';
+    const qi = $('qsInstalled'); if (qi) qi.textContent = 'Installed';
     // Reapply the last known update result (if any) instead of flashing back
     // to "Check for Updates" and re-fetching — checkInstall() re-runs on
     // every settings autosave, so re-checking every time would spam requests
@@ -2582,7 +2878,7 @@ async function checkInstall() {
       qscC.classList.remove('not-installed', 'update-available');
       if (clientUpdateInfo?.hasUpdate) {
         qscC.classList.add('update-available');
-        const qi2 = $('qsInstalled'); if (qi2) qi2.textContent = `v${clientUpdateInfo.latestVersion}`;
+        const qi2 = $('qsInstalled'); if (qi2) qi2.textContent = `Update to v${clientUpdateInfo.latestVersion}`;
       }
     }
     setClientUpdateButton(clientUpdateInfo?.hasUpdate ? 'update' : 'check', clientUpdateInfo);
@@ -2626,7 +2922,7 @@ async function checkInstall() {
   // The gear that opens it lives in the installed-only bar and has just
   // disappeared; an open menu would be left hanging over the download CTA.
   closeManageMenu();
-    const qi = $('qsInstalled'); if (qi) qi.textContent = 'NOT INSTALLED';
+    const qi = $('qsInstalled'); if (qi) qi.textContent = 'Not installed';
     if (qscC) {
       qscC.classList.add('not-installed');
       qscC.classList.remove('installed', 'update-available');
@@ -2644,7 +2940,7 @@ async function checkInstall() {
       if (qi) qi.textContent = 'NEEDS REPAIR';
       logInstallState('client', `${networkInfo().label} is installed but missing files, including the game itself. Press REPAIR to check every file and get the missing ones back.`, 'warn');
     } else if (!clientDownloadAvailable()) {
-      if (qi) qi.textContent = 'NOT RELEASED';
+      if (qi) qi.textContent = 'Not released yet';
       logInstallState('client', `${networkInfo().label} has not published a client yet.`, 'info');
     } else if (result?.incomplete) {
       // The launcher closed (or the PC went off) partway through unpacking.
@@ -3247,7 +3543,7 @@ function showClientVersionUpdateModal(info) {
 
   const qscC = $('qsc-client');
   if (qscC) qscC.classList.add('update-available');
-  const qi = $('qsInstalled'); if (qi) qi.textContent = `v${info.latestVersion}`;
+  const qi = $('qsInstalled'); if (qi) qi.textContent = `Update to v${info.latestVersion}`;
   setClientUpdateButton('update', info);
 }
 
@@ -4139,7 +4435,7 @@ async function checkServerStatus(silent = false) {
 
   // Immediately show CHECKING... in quick stats while pings are in-flight
   const qsS = $('qsStatus');
-  if (qsS) qsS.textContent = 'CHECKING...';
+  if (qsS) qsS.textContent = 'Checking…';
 
   if (!silent) addLog('Checking server status...', 'info', 'server');
 
@@ -4161,7 +4457,7 @@ async function checkServerStatus(silent = false) {
   lastServerStatus = { apiOnline, cdnOnline };
 
   // Quick stats card on home tab
-  if (qsS) qsS.textContent = apiOnline ? 'ONLINE' : 'OFFLINE';
+  if (qsS) qsS.textContent = apiOnline ? 'Online' : 'Offline';
   const qscS = $('qsc-status');
   if (qscS) {
     qscS.classList.toggle('online',  apiOnline);
@@ -4194,7 +4490,7 @@ async function updatePlayerCount(silent = false) {
   clearTimeout(playerCountRetry);
   const seq = ++playerCountSeq;
   if (!silent) {
-    qsPlayers.textContent = 'LOADING...';
+    qsPlayers.textContent = 'Loading…';
     addLog('Fetching online player count...', 'info', 'server');
   }
 
@@ -4212,33 +4508,33 @@ async function updatePlayerCount(silent = false) {
         // A floor that rises as players are heard from; settled after a
         // minute, when the "+" goes. Stella reports each player every half
         // minute or so.
-        qsPlayers.textContent = result.soFar > 0 ? `${result.soFar}+` : 'COUNTING...';
+        qsPlayers.textContent = result.soFar > 0 ? `${result.soFar}+` : 'Counting…';
         // Not while hidden: the count isn't kept then, and coming back on
         // screen asks again anyway.
         playerCountRetry = setTimeout(() => { if (!document.hidden) updatePlayerCount(true); }, 10000);
       } else if (result.paused) {
         // One sign-in at a time can listen for players, and the game is
         // using it; this comes back when the game closes.
-        qsPlayers.textContent = 'PAUSED';
+        qsPlayers.textContent = 'Paused';
       } else {
-        qsPlayers.textContent = 'LOG IN';
+        qsPlayers.textContent = 'Signed out';
       }
       return;
     }
     if (result?.unsupported) {
       // Stella publishes no player count: say so, rather than OFFLINE.
-      qsPlayers.textContent = 'N/A';
+      qsPlayers.textContent = 'Not published';
       qscPlayers?.classList.remove('online', 'offline');
       if (!silent) addLog(`${networkInfo().label} doesn't publish a player count.`, 'info', 'server');
     } else if (result && result.success) {
-      qsPlayers.textContent = result.count;
+      qsPlayers.textContent = Number.isFinite(Number(result.count)) ? formatCount(result.count) : result.count;
       if (qscPlayers) {
         qscPlayers.classList.add('online');
         qscPlayers.classList.remove('offline');
       }
       if (!silent) addLog(`Players online: ${result.count}`, 'ok', 'server');
     } else {
-      qsPlayers.textContent = 'OFFLINE';
+      qsPlayers.textContent = 'Unavailable';
       if (qscPlayers) {
         qscPlayers.classList.add('offline');
         qscPlayers.classList.remove('online');
@@ -4247,7 +4543,7 @@ async function updatePlayerCount(silent = false) {
     }
   } catch (err) {
     if (seq !== playerCountSeq) return;
-    qsPlayers.textContent = 'OFFLINE';
+    qsPlayers.textContent = 'Unavailable';
     if (qscPlayers) {
       qscPlayers.classList.add('offline');
       qscPlayers.classList.remove('online');
@@ -5073,8 +5369,8 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
   btn.disabled = true;
   const resultEl = $('updateCheckResult');
   if (resultEl) {
-    resultEl.textContent = 'Checking...';
-    resultEl.className = 'test-result';
+    resultEl.textContent = 'Checking…';
+    resultEl.className = 'sg-desc test-result';
   }
   addLog('Manual launcher update check initiated.', 'info', 'update');
   toast('Checking for updates...', 'info', 2000);
@@ -5083,16 +5379,16 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     const info = await window.radium?.checkForUpdate();
     if (!info) {
       if (resultEl) {
-        resultEl.textContent = '✕ No response';
-        resultEl.className = 'test-result error';
+        resultEl.textContent = 'No answer from GitHub. Try again in a minute.';
+        resultEl.className = 'sg-desc test-result error';
       }
       toast('Update check failed.', 'error');
       return;
     }
     if (info.error) {
       if (resultEl) {
-        resultEl.textContent = '✕ Error';
-        resultEl.className = 'test-result error';
+        resultEl.textContent = "Couldn’t check right now. Try again in a minute.";
+        resultEl.className = 'sg-desc test-result error';
       }
       addLog(`Update check failed: ${info.error}`, 'info', 'update');
       toast('Update check failed.', 'error');
@@ -5100,8 +5396,8 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
     }
     if (info.hasUpdate) {
       if (resultEl) {
-        resultEl.textContent = '✓ Update available!';
-        resultEl.className = 'test-result ok';
+        resultEl.textContent = `Version ${info.latestVersion} is out.`;
+        resultEl.className = 'sg-desc test-result ok';
       }
       offeredLauncherVersion = info.latestVersion;
       addLog(`New version available: ${info.latestVersion} (current: v${info.currentVersion})`, 'ok', 'update');
@@ -5109,16 +5405,16 @@ $('btnCheckUpdates')?.addEventListener('click', async () => {
       showUpdateModal(info);
     } else {
       if (resultEl) {
-        resultEl.textContent = '✓ Up to date';
-        resultEl.className = 'test-result ok';
+        resultEl.textContent = `You have the latest version (${info.currentVersion}).`;
+        resultEl.className = 'sg-desc test-result ok';
       }
       addLog(`Launcher is up to date (v${info.currentVersion}).`, 'info', 'update');
       toast('Launcher is up to date.', 'ok');
     }
   } catch (e) {
     if (resultEl) {
-      resultEl.textContent = '✕ Error';
-      resultEl.className = 'test-result error';
+      resultEl.textContent = "Couldn’t check right now. Try again in a minute.";
+      resultEl.className = 'sg-desc test-result error';
     }
     addLog(`Update check error: ${e.message}`, 'info', 'update');
     toast('Update check error.', 'error');
@@ -5159,6 +5455,18 @@ function applyNetworkUI(name) {
 
   const nameEl = $('networkName');
   if (nameEl) nameEl.textContent = info.label;
+
+  // The hero's brand: Radium's mark is its wordmark; the square marks get
+  // the name beside them.
+  const heroName = $('heroName');
+  if (heroName) heroName.textContent = activeNetwork === 'radium' ? '' : info.label;
+  document.querySelector('.home-hero-mark')?.setAttribute('aria-label', info.label);
+  // Settings' Notifications and Friends belong to one network each.
+  showSettingsSection(settingsSection);
+  // Each network has its own Home banner, and Friends is in Home's list on
+  // Stella only.
+  applyHomeBanner();
+  renderHomeLayoutList();
 
   const logoEl = $('sidebarLogo');
   if (logoEl) logoEl.src = info.logo;
@@ -5268,9 +5576,9 @@ async function setNetwork(name) {
   peopleSkip = 0;
   activeRoomsTag = '';
   activeRoomsSort = 0;
-  // The highlight follows, or the old network's sort stays lit (and Most
-  // Players, which is Stella's, would be lit while hidden).
-  document.querySelectorAll('#roomsSortList .sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === '0'));
+  // The dropdown follows, or it keeps naming the old network's sort (and Most
+  // Players, which is Stella's, would stay picked while hidden).
+  setValue('roomsSort', '0');
   roomsSearchQuery = '';
   peopleSearchQuery = '';
   setValue('roomsSearch', '');
@@ -5291,12 +5599,14 @@ async function setNetwork(name) {
     delete roomsGridEl.dataset.listPlaceholder;
     endListLoad(roomsGridEl);
   }
-  const peopleBodyEl = $('peopleListBody');
-  if (peopleBodyEl) {
-    peopleBodyEl.innerHTML = '';
-    delete peopleBodyEl.dataset.listPlaceholder;
-    endListLoad(peopleBodyEl);
+  const peopleGridEl = $('peopleGrid');
+  if (peopleGridEl) {
+    peopleGridEl.innerHTML = '';
+    delete peopleGridEl.dataset.listPlaceholder;
+    endListLoad(peopleGridEl);
   }
+  // Home's Popular row is the old network's rooms too.
+  resetHomeRooms();
 
   // Cached client-update state belongs to the old network's client.
   clientUpdateInfo = null;
@@ -5333,6 +5643,8 @@ async function setNetwork(name) {
   } else if (openTab === 'tab-friends' && activeNetwork !== 'stella') {
     // Likewise FRIENDS, which is Stella's.
     switchTab('home');
+  } else if (openTab === 'tab-home') {
+    loadHomeRooms();
   }
 
   // Warm the new network's bulk sets now, while the user is reading whatever
@@ -5828,8 +6140,11 @@ function reloadStellaLists() {
   peopleRenderKey = '';
   filtersRenderKey = '';
   userWebDetailsCache.clear();
+  resetHomeRooms();
   const openTab = document.querySelector('.tab-panel.active')?.id;
-  if (openTab === 'tab-rooms') {
+  if (openTab === 'tab-home') {
+    loadHomeRooms();
+  } else if (openTab === 'tab-rooms') {
     hideRoomDetails();
     loadFilters();
     loadRooms();
@@ -6011,6 +6326,8 @@ function applyFriendsView() {
     document.body.classList.toggle(`friends-view-${v}`, view === v);
   }
   setValue('cfgFriendsView', view);
+  // Settings → Home has a switch for it too.
+  renderHomeLayoutList();
   // Its nav button just went away: don't leave the user on a tab they can't
   // see the button for.
   if (view !== 'tab' && document.getElementById('tab-friends')?.classList.contains('active')) {
@@ -7536,8 +7853,10 @@ function enhanceSelect(select) {
   for (const opt of select.options) {
     const item = document.createElement('button');
     item.type = 'button';
-    // .nav-btn so every skin paints the rows as it paints its nav rows.
-    item.className = 'nav-btn cselect-option';
+    // .nav-btn so every skin paints the rows as it paints its nav rows. The
+    // option's own classes come along, so one marked network-only-stella
+    // (Rooms' Most Players) hides with its network.
+    item.className = 'nav-btn cselect-option' + (opt.className ? ` ${opt.className}` : '');
     item.setAttribute('role', 'option');
     item.dataset.value = opt.value;
     item.textContent = opt.textContent;
@@ -7698,6 +8017,10 @@ async function init() {
   // If a download was interrupted last session, offer to resume it.
   await offerResumeIfAny();
 
+  // Home's Popular row. Not awaited; it fills in when the rooms arrive (and
+  // waits for the window to be shown when the launcher started in the tray).
+  loadHomeRooms();
+
   // Check server on startup (show results in log), then silently every 60s —
   // but only while the window is on screen. Both of these paint the Home tab's
   // quick-stats card and nothing else, so polling them behind a hidden window
@@ -7766,14 +8089,16 @@ init().catch(err => {
 
 // Native Rooms & People Loading Controller
 let roomsSkip = 0;
-const roomsTake = 12;
+// Fills whole rows of the card grid at 2, 3, 4 or 6 across.
+const roomsTake = 24;
 let activeRoomsTag = '';
 let activeRoomsSort = 0;
 let roomsSearchQuery = '';
 let roomsSequenceId = 0;
 
 let peopleSkip = 0;
-const peopleTake = 15;
+// Fills whole rows of the card grid at 2, 3, 4 or 6 across.
+const peopleTake = 24;
 let peopleSearchQuery = '';
 let peopleSequenceId = 0;
 
@@ -7836,19 +8161,242 @@ function endListLoad(el) {
   el?.classList.remove('is-refreshing');
 }
 
-/// Text for a pagination readout.
+/// The page numbers between a list's Previous and Next: every page when there
+/// are few, otherwise the first, the last and the ones either side of the
+/// current one, with a gap ("…") for what is left out — never more than seven
+/// slots, so the row keeps its width as you page.
+function pagerSlots(page, pages) {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+  if (page <= 4) return [1, 2, 3, 4, 5, '…', pages];
+  if (page >= pages - 3) return [1, '…', pages - 4, pages - 3, pages - 2, pages - 1, pages];
+  return [1, '…', page - 1, page, page + 1, '…', pages];
+}
+
+/// Fill a list's pager (`nav.list-pager`: Previous, `pagesEl`, Next) for the
+/// page starting at `skip`, and call `onPage(n)` when a number is picked.
 ///
 /// `totalKnown === false` means the backend is paging a source that never
 /// reports its size (Vanilla enumerates its player roster, and its list
-/// endpoints cap rows without saying how many were withheld). Printing
-/// "of N" there produces a total that grows every time you press Next, so the
-/// page number is shown on its own instead of quoting a number that moves.
-function pageLabel(skip, take, total, totalKnown) {
-  const currentPage = Math.floor(skip / take) + 1;
-  if (totalKnown === false) return `Page ${currentPage}`;
-  const totalPages = Math.ceil(total / take);
-  return `Page ${currentPage} of ${Math.max(1, totalPages)}`;
+/// endpoints cap rows without saying how many were withheld). Numbering up to
+/// a last page there would quote a total that grows every time you press
+/// Next, so only the current page is shown, between the arrows.
+///
+/// A list that fits on one page has no pager at all.
+function renderPager(pagesEl, prevBtn, nextBtn, { skip, take, total, totalKnown, onPage }) {
+  if (!pagesEl) return;
+  const page = Math.floor(skip / take) + 1;
+  const known = totalKnown !== false;
+  const pages = Math.max(1, Math.ceil((total || 0) / take));
+  if (prevBtn) prevBtn.disabled = skip === 0;
+  if (nextBtn) nextBtn.disabled = skip + take >= (total || 0);
+
+  pagesEl.textContent = '';
+  if (known) {
+    for (const slot of pagerSlots(page, pages)) {
+      if (slot === '…') {
+        const gap = document.createElement('span');
+        gap.className = 'pager-gap';
+        gap.setAttribute('aria-hidden', 'true');
+        gap.textContent = '…';
+        pagesEl.appendChild(gap);
+        continue;
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn-refresh pager-btn pager-num';
+      btn.textContent = formatCount(slot);
+      btn.setAttribute('aria-label', `Page ${slot}`);
+      if (slot === page) {
+        btn.classList.add('is-current');
+        btn.setAttribute('aria-current', 'page');
+      } else {
+        btn.addEventListener('click', () => onPage(slot));
+      }
+      pagesEl.appendChild(btn);
+    }
+  } else {
+    const label = document.createElement('span');
+    label.className = 'pager-label';
+    label.textContent = `Page ${formatCount(page)}`;
+    pagesEl.appendChild(label);
+  }
+
+  const nav = pagesEl.closest('.list-pager');
+  if (nav) nav.hidden = known && pages <= 1 && skip === 0;
 }
+
+/// Placeholder cards for a list's first load, the shape of what is coming:
+/// `n` copies of `html`.
+function skeletonCards(html, n) {
+  return html.repeat(n);
+}
+const ROOM_SKELETON = '<div class="room-card is-skeleton" aria-hidden="true"><div class="room-card-media"></div><div class="room-card-foot"><span class="skel-line"></span></div></div>';
+const PLAYER_SKELETON = '<div class="player-card is-skeleton" aria-hidden="true"><span class="player-avatar"></span><span class="player-info"><span class="skel-line"></span><span class="skel-line is-short"></span></span></div>';
+
+/// A message in place of a list's cards — loading trouble, nothing found —
+/// across the whole grid. `html` is trusted markup (listErrorHtml escapes).
+function listMessageHtml(html) {
+  return `<div class="list-message">${html}</div>`;
+}
+
+/// A room as a card: its picture with the name over the bottom edge, the
+/// live count in the corner (Stella), and under it who made it and its
+/// cheers. The Rooms grid, Home's Popular row and a profile's ROOMS tab all
+/// draw rooms with this, so a room looks the same wherever it appears.
+///
+/// `onOpen(room)` runs on a click, Enter or Space; the creator opens their
+/// profile instead. `scrapeMissing` looks the cheers up when the row came
+/// without them (a profile's rooms, on a network whose list leaves them out).
+function buildRoomCard(room, { width = 560, onOpen, scrapeMissing = false } = {}) {
+  const roomName = room.Name || room.name || 'Unknown Room';
+  const creatorUsername = room.CreatorUsername || room.creatorUsername || '';
+  const cheersRaw = room.CheerCount ?? room.cheerCount;
+  const cheers = cheersRaw != null && cheersRaw !== '' && Number.isFinite(Number(cheersRaw)) ? Number(cheersRaw) : null;
+  const avatar = room.CreatorAvatarUrl
+    ? thumbSrc(room.CreatorAvatarUrl, avatarWidth(20))
+    : defaultAvatarUrl(20);
+
+  const card = document.createElement('div');
+  card.className = 'room-card';
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', roomName);
+  card.innerHTML = `
+    <div class="room-card-media">
+      <img class="room-card-image image-loading-placeholder" loading="lazy" decoding="async" data-fallback="./images.png" src="${escapeHtml(roomThumbUrl(room, width))}" alt="" />
+      ${liveBadgeHtml(room)}
+      <div class="room-card-name">${escapeHtml(roomName)}</div>
+    </div>
+    <div class="room-card-foot">
+      ${creatorUsername ? `<button type="button" class="room-card-creator" tabindex="-1">
+        <img class="room-card-avatar image-loading-placeholder" loading="lazy" decoding="async" data-fallback="${escapeHtml(PLACEHOLDER_AVATAR)}" src="${escapeHtml(avatar)}" alt="" />
+        <span class="room-card-creator-name">${escapeHtml(creatorUsername)}</span>
+      </button>` : '<span class="room-card-creator is-unknown">Unknown creator</span>'}
+      <span class="room-card-cheers" role="img"${cheers == null ? ' hidden' : ''}><span class="vn-icon vn-icon-thumb" aria-hidden="true"></span><span class="room-card-cheers-n"></span></span>
+    </div>
+  `;
+
+  const cheersEl = card.querySelector('.room-card-cheers');
+  const paintCheers = (n) => {
+    cheersEl.querySelector('.room-card-cheers-n').textContent = compactCount(n);
+    cheersEl.setAttribute('aria-label', `${formatCount(n)} ${Number(n) === 1 ? 'cheer' : 'cheers'}`);
+    cheersEl.hidden = false;
+  };
+  if (cheers != null) paintCheers(cheers);
+  else if (scrapeMissing) {
+    // The scrape is a fallback for a row that genuinely carries no counts;
+    // every network's list sends them, so this is rare.
+    getRoomWebDetails(roomName).then(d => {
+      const n = Number(String(d?.cheers ?? '').replace(/[^\d]/g, ''));
+      if (d?.success && d.cheers != null && Number.isFinite(n)) paintCheers(n);
+    }).catch(() => {});
+  }
+
+  // Attached as closures rather than inline handlers so a username or room
+  // name containing quotes can't break out of a JS-string context.
+  card.querySelector('button.room-card-creator')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showCreatorProfile(creatorUsername, {
+      id: room.CreatorPlayerId ?? room.CreatorAccountId ?? null,
+      displayName: creatorUsername,
+      avatarUrl: room.CreatorAvatarUrl
+    });
+  });
+  const open = () => onOpen?.(room);
+  card.addEventListener('click', open);
+  card.addEventListener('keydown', (e) => {
+    if (e.target !== card) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      open();
+    }
+  });
+  return card;
+}
+
+/// Open a room from outside the Rooms tab (Home, a profile): the room page
+/// lives on that tab.
+function openRoomFromElsewhere(room) {
+  switchTab('rooms');
+  showRoomDetails(room);
+}
+
+// ── Home: Popular right now ─────────────────────────────────────────────
+// The first rooms of the network's Hot list, drawn as the Rooms grid draws
+// them. Asked for when Home is on screen and what it shows is another
+// network's or older than HOME_ROOMS_STALE_MS (the live counts move), never
+// while the window is hidden. A network that can't list rooms right now —
+// signed out of Stella, its API down — gets no section rather than an error
+// on the front page.
+
+/// As many as the widest row shows; the stylesheet shows fewer on a narrower
+/// window.
+const HOME_ROOMS_COUNT = 6;
+const HOME_ROOMS_STALE_MS = 2 * 60 * 1000;
+let homeRoomsNetwork = '';
+let homeRoomsAt = 0;
+let homeRoomsSeq = 0;
+
+/// Forget what the row shows (another network's rooms, another account's).
+function resetHomeRooms() {
+  homeRoomsSeq++;
+  homeRoomsNetwork = '';
+  homeRoomsAt = 0;
+  const section = $('homeRoomsSection');
+  if (section) section.hidden = true;
+  const grid = $('homeRoomsGrid');
+  if (grid) grid.textContent = '';
+}
+
+async function loadHomeRooms() {
+  const section = $('homeRoomsSection');
+  const grid = $('homeRoomsGrid');
+  if (!section || !grid || document.hidden) return;
+  // Switched off in Settings → Home: nothing to fetch it for.
+  if (homeLayout().hidden.includes('rooms')) return;
+  if (networkInfo().hasSocial === false) {
+    section.hidden = true;
+    return;
+  }
+  const network = activeNetwork;
+  if (homeRoomsNetwork === network && Date.now() - homeRoomsAt < HOME_ROOMS_STALE_MS) return;
+
+  const seq = ++homeRoomsSeq;
+  // A first look gets placeholders; a refresh keeps the cards until the new
+  // ones land.
+  if (homeRoomsNetwork !== network) {
+    grid.innerHTML = skeletonCards(ROOM_SKELETON, HOME_ROOMS_COUNT);
+    section.hidden = false;
+  }
+
+  let res = null;
+  try {
+    res = await window.radium?.fetchRooms({ skip: 0, take: HOME_ROOMS_COUNT, sortBy: 0, query: '', tag: '' });
+  } catch (e) { /* treated as no rooms below */ }
+  if (seq !== homeRoomsSeq || network !== activeNetwork) return;
+
+  const rooms = res?.success ? (res.data?.Results || []) : [];
+  if (!rooms.length) {
+    // Asked again the next time Home is opened.
+    homeRoomsNetwork = '';
+    section.hidden = true;
+    grid.textContent = '';
+    return;
+  }
+  grid.textContent = '';
+  rooms.slice(0, HOME_ROOMS_COUNT).forEach(room =>
+    grid.appendChild(buildRoomCard(room, { width: 400, onOpen: openRoomFromElsewhere })));
+  section.hidden = false;
+  homeRoomsNetwork = network;
+  homeRoomsAt = Date.now();
+}
+
+$('homeRoomsAll')?.addEventListener('click', () => switchTab('rooms'));
+
+// Back on screen from the tray or a minimise: the counts may have moved.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && $('tab-home')?.classList.contains('active')) loadHomeRooms();
+});
 
 function escapeHtml(str) {
   if (str == null) return '';
@@ -7869,31 +8417,41 @@ async function loadFilters() {
   // tab has nothing to learn by building it again.
   if (filtersRenderKey === activeNetwork && listEl.children.length) return;
 
-  listEl.innerHTML = '<div style="font-size: 10px; color: var(--text-muted); padding: 4px;">Loading filters...</div>';
-  
+  // Chip-shaped placeholders while the tags load, so the strip keeps its
+  // height and the grid under it doesn't jump when they arrive.
+  listEl.innerHTML = '<span class="filter-btn is-skeleton" aria-hidden="true"></span>'.repeat(6);
+  syncTagStrip();
+
   const res = await window.radium?.fetchFilters();
   if (res && res.success && res.data) {
     const pinned = res.data.PinnedFilters || [];
     const popular = res.data.PopularFilters || [];
-    
+
     // De-duplicate tags
     const allTags = Array.from(new Set(['all', ...pinned, ...popular]));
-    
+
     listEl.innerHTML = '';
     allTags.forEach(tag => {
       const btn = document.createElement('button');
+      btn.type = 'button';
       btn.className = 'filter-btn';
       if (tag === 'all') {
-        btn.textContent = 'All Rooms';
+        btn.textContent = 'All rooms';
         if (!activeRoomsTag) btn.classList.add('active');
       } else {
         btn.textContent = tag;
         if (activeRoomsTag === tag) btn.classList.add('active');
       }
-      
+      btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
+
       btn.addEventListener('click', () => {
-        document.querySelectorAll('#roomsFiltersList .filter-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#roomsFiltersList .filter-btn').forEach(b => {
+          b.classList.remove('active');
+          b.setAttribute('aria-pressed', 'false');
+        });
         btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
+        btn.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
         activeRoomsTag = (tag === 'all') ? '' : tag;
         // Mirror of the search handler: on Vanilla the two share one field, so
         // picking a tag clears whatever was typed.
@@ -7910,10 +8468,41 @@ async function loadFilters() {
   } else {
     // Left unset so the next visit retries rather than caching the failure.
     filtersRenderKey = '';
-    // Signed out of Stella, or no Steam: the rooms list beside this says so.
-    listEl.innerHTML = res?.error === STELLA_SIGNED_OUT || res?.error === STEAM_NOT_RUNNING
-      ? ''
-      : '<div style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 4px;">Error loading filters</div>';
+    // No strip at all: signed out of Stella or no Steam, the rooms list under
+    // it says so, and a failed tag list is not worth a line of its own.
+    listEl.innerHTML = '';
+  }
+  $('roomsTagStrip')?.classList.toggle('is-empty', !listEl.children.length);
+  syncTagStrip();
+}
+
+/// The tag strip scrolls sideways. Its arrows show only while there is more
+/// that way (`can-left` / `can-right` on the strip), and the mouse wheel
+/// scrolls it too, since most mice have no sideways wheel.
+function syncTagStrip() {
+  const row = $('roomsFiltersList');
+  const strip = $('roomsTagStrip');
+  if (!row || !strip) return;
+  const max = row.scrollWidth - row.clientWidth;
+  strip.classList.toggle('can-left', row.scrollLeft > 1);
+  strip.classList.toggle('can-right', row.scrollLeft < max - 1);
+}
+
+{
+  const row = $('roomsFiltersList');
+  const strip = $('roomsTagStrip');
+  if (row && strip) {
+    row.addEventListener('scroll', syncTagStrip, { passive: true });
+    row.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || row.scrollWidth <= row.clientWidth) return;
+      e.preventDefault();
+      row.scrollLeft += e.deltaY;
+    }, { passive: false });
+    const step = (dir) => row.scrollBy({ left: dir * Math.max(120, row.clientWidth * 0.7), behavior: 'smooth' });
+    strip.querySelector('.tag-scroll-left')?.addEventListener('click', () => step(-1));
+    strip.querySelector('.tag-scroll-right')?.addEventListener('click', () => step(1));
+    // Also catches the tab being shown: the row measures 0 wide while hidden.
+    new ResizeObserver(syncTagStrip).observe(row);
   }
 }
 
@@ -7938,14 +8527,14 @@ async function loadRooms() {
   const gridEl = $('roomsGrid');
   const emptyEl = $('roomsEmptyMsg');
   if (!gridEl) return;
-  
+
   roomsSequenceId++;
   const currentSeq = roomsSequenceId;
   const key = roomsKey();
-  
-  beginListLoad(gridEl, '<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading rooms...</div>');
+
+  beginListLoad(gridEl, skeletonCards(ROOM_SKELETON, roomsTake));
   emptyEl?.classList.add('hidden');
-  
+
   const res = await window.radium?.fetchRooms({
     skip: roomsSkip,
     take: roomsTake,
@@ -7953,18 +8542,21 @@ async function loadRooms() {
     query: roomsSearchQuery,
     tag: activeRoomsTag
   });
-  
+
   if (currentSeq !== roomsSequenceId) return;
   endListLoad(gridEl);
-  
+
   if (res && res.success && res.data) {
     // Signed in on the way (Steam was started after the startup check).
     if (activeNetwork === 'stella' && !stellaPlayer) refreshStellaAuth();
     const rooms = res.data.Results || [];
     const total = res.data.TotalResults || 0;
+    // The same page again (a stale one refreshed) swaps its cards in place:
+    // only a new page plays the cards' entrance.
+    gridEl.classList.toggle('is-quiet', roomsRenderKey === key);
     roomsRenderKey = key;
     roomsRenderAt = Date.now();
-    
+
     gridEl.innerHTML = '';
     if (rooms.length === 0) {
       gridEl.dataset.listPlaceholder = '1';
@@ -7978,52 +8570,19 @@ async function loadRooms() {
       emptyEl?.classList.remove('hidden');
     } else {
       delete gridEl.dataset.listPlaceholder;
-      rooms.forEach(room => {
-        // The grid is 2 columns, 3 on a wide window, so a card reaches about
-        // 550 CSS px maximised — 480 was an upscale before the pixel ratio was
-        // even applied.
-        const thumbUrl = roomThumbUrl(room, 560);
-        
-        const card = document.createElement('div');
-        card.className = 'room-card';
-        card.onclick = () => {
-          showRoomDetails(room);
-        };
-        const roomName = room.Name || room.name || 'Unknown Room';
-        const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
-        card.innerHTML = `
-          <img class="room-card-image image-loading-placeholder" loading="lazy" decoding="async" data-fallback="./images.png" src="${escapeHtml(thumbUrl)}" alt="${escapeHtml(roomName)}" />
-          ${liveBadgeHtml(room)}
-          <div class="room-card-name">${escapeHtml(roomName)}</div>
-          <div class="room-card-creator">by ${escapeHtml(creatorUsername)}</div>
-        `;
-        // Attach the creator click via a closure rather than inline onclick so a
-        // username containing quotes can't break out of the JS-string context.
-        const creatorEl = card.querySelector('.room-card-creator');
-        if (creatorEl) {
-          creatorEl.addEventListener('click', (e) => {
-            e.stopPropagation();
-            showCreatorProfile(creatorUsername, {
-              id: room.CreatorPlayerId ?? room.CreatorAccountId ?? null,
-              displayName: room.CreatorUsername,
-              avatarUrl: room.CreatorAvatarUrl
-            });
-          });
-        }
-        gridEl.appendChild(card);
-      });
+      // The grid is 3 columns, more on a wide window, so a card reaches about
+      // 550 CSS px maximised — 480 was an upscale before the pixel ratio was
+      // even applied.
+      rooms.forEach(room => gridEl.appendChild(buildRoomCard(room, { width: 560, onOpen: showRoomDetails })));
     }
-    
-    // Pagination text & buttons state
-    const txtPage = $('txtRoomsPage');
-    if (txtPage) {
-      txtPage.textContent = pageLabel(roomsSkip, roomsTake, total, res.data.TotalKnown);
-    }
-    
-    const btnPrev = $('btnRoomsPrev');
-    const btnNext = $('btnRoomsNext');
-    if (btnPrev) btnPrev.disabled = (roomsSkip === 0);
-    if (btnNext) btnNext.disabled = (roomsSkip + roomsTake >= total);
+    // A new page starts at the top, not wherever the last one was scrolled to.
+    const scroller = $('roomsScroll');
+    if (scroller) scroller.scrollTop = 0;
+
+    renderPager($('txtRoomsPage'), $('btnRoomsPrev'), $('btnRoomsNext'), {
+      skip: roomsSkip, take: roomsTake, total, totalKnown: res.data.TotalKnown,
+      onPage: (n) => { roomsSkip = (n - 1) * roomsTake; loadRooms(); }
+    });
   } else {
     // Escaped: this string can carry text straight from a remote API (an error
     // object's message, or a prefix of an unparseable response body), and
@@ -8033,84 +8592,65 @@ async function loadRooms() {
     // rendered page.
     roomsRenderKey = '';
     gridEl.dataset.listPlaceholder = '1';
-    gridEl.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">${listErrorHtml(res, 'rooms')}</div>`;
-    const txtPage = $('txtRoomsPage');
-    if (txtPage) txtPage.textContent = 'Page 1 of 1';
-    const btnPrev = $('btnRoomsPrev');
-    const btnNext = $('btnRoomsNext');
-    if (btnPrev) btnPrev.disabled = true;
-    if (btnNext) btnNext.disabled = true;
+    gridEl.innerHTML = listMessageHtml(listErrorHtml(res, 'rooms'));
+    renderPager($('txtRoomsPage'), $('btnRoomsPrev'), $('btnRoomsNext'), {
+      skip: 0, take: roomsTake, total: 0, totalKnown: true, onPage: () => {}
+    });
   }
 }
 
-/// Snap a scrollable table's visible height to a whole number of rows.
-///
-/// `#peopleTableContainer` is `flex: 1`, so its height is whatever the window
-/// leaves over after the search bar and pagination row — never a clean
-/// multiple of one table row's height. At most window sizes that lands the
-/// container boundary in the middle of the last row: neither fully shown nor
-/// fully hidden, which reads as a rendering bug rather than "scroll for more."
-/// Capping the container just below its natural height, at the nearest whole
-/// row, leaves a little blank space beneath the table instead — normal for a
-/// native list view, and a row is never shown chopped in half.
-///
-/// Safe to call with zero or one rows: with nothing to measure it leaves the
-/// container's height alone.
-function snapTableRows(container) {
-  if (!container) return;
-  const thead = container.querySelector('thead');
-  const firstRow = container.querySelector('tbody tr');
-  if (!thead || !firstRow) return;
-
-  // Clear any earlier cap first, so a page with fewer rows (or a window that
-  // just grew) is measured against the container's real available space
-  // rather than a stale, shorter one from the last snap.
-  container.style.maxHeight = '';
-  const available = container.clientHeight;
-
-  const headH = thead.getBoundingClientRect().height;
-  const rowH = firstRow.getBoundingClientRect().height;
-  if (!(rowH > 0) || available <= headH) return;
-
-  const rows = Math.floor((available - headH) / rowH);
-  // An oddly short window should still show whatever partial content it can
-  // rather than the list collapsing to nothing.
-  if (rows < 1) return;
-
-  // `max-height` constrains the border box (the global reset puts every
-  // element on box-sizing: border-box), while `clientHeight` above measured
-  // the content box. Several skins redraw this container with their own
-  // border, so the gap between the two is read back from the element rather
-  // than assumed — a hardcoded border width would have undercounted on any
-  // skin that draws it thicker, clipping the last row by the difference
-  // instead of the many rows' worth this was meant to fix.
-  const cs = getComputedStyle(container);
-  const frame = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
-              + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-
-  container.style.maxHeight = Math.ceil(headH + rows * rowH + frame) + 'px';
+/// Where a Stella player is: blank unless online. `private` is whether the
+/// room is a private copy, which the card marks with a lock.
+function stellaWhere(person) {
+  if (person.isOnline !== true) return null;
+  const isPrivate = person.roomPrivate === true;
+  if (person.roomName) return { text: person.roomName, isPrivate };
+  return isPrivate ? { text: 'A private room', isPrivate } : null;
 }
 
-// Re-snap on resize, not just on load: the row count is fixed once rendered,
-// but the available height changes as the window does. Only while People is
-// the visible tab — recomputing against a `display:none` panel would measure
-// zero and clear the cap for no reason, and the People tab re-snaps itself
-// anyway the next time it is opened.
-let _peopleResizeTimer = null;
-window.addEventListener('resize', () => {
-  clearTimeout(_peopleResizeTimer);
-  _peopleResizeTimer = setTimeout(() => {
-    if (document.getElementById('tab-people')?.classList.contains('active')) {
-      snapTableRows($('peopleTableContainer'));
-    }
-  }, 150);
-});
+/// A player as a card: picture (with a green dot while they're online), name,
+/// @handle and staff badges, level and — on Stella — the room they're in, and
+/// the first lines of their bio where the network sends one. Opens the
+/// profile on a click, Enter or Space.
+function buildPlayerCard(person) {
+  const name = person.displayName || person.userName || 'Unknown';
+  const online = person.isOnline === true;
+  const where = activeNetwork === 'stella' ? stellaWhere(person) : null;
+  const bio = String(person.bio || '').trim();
 
-/// Where a Stella player is, for People's Room column: blank unless online.
-function stellaWhere(person) {
-  if (person.isOnline !== true) return '';
-  if (person.roomName) return person.roomPrivate ? `${person.roomName} · private` : person.roomName;
-  return person.roomPrivate ? 'A private room' : '';
+  const card = document.createElement('div');
+  card.className = 'player-card' + (online ? ' is-online' : '');
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', online ? `${name}, online` : name);
+  card.innerHTML = `
+    <span class="player-avatar">
+      <img class="image-loading-placeholder" loading="lazy" decoding="async" data-fallback="${escapeHtml(defaultAvatarUrl(48))}" src="${escapeHtml(personAvatarUrl(person, 48))}" alt="" />
+      ${online ? '<span class="status-dot online" aria-hidden="true"></span>' : ''}
+    </span>
+    <span class="player-info">
+      <span class="player-name">${escapeHtml(name)}</span>
+      <span class="player-handle"><span class="player-handle-text">@${escapeHtml(person.userName || '')}</span><span class="profile-roles inline-roles"></span></span>
+      ${(person.level != null || where) ? `<span class="player-meta">
+        ${person.level != null ? `<span class="player-level">Lv ${escapeHtml(String(person.level))}</span>` : ''}
+        ${where ? `<span class="player-where">${where.isPrivate ? `<span class="friend-lock" role="img" aria-label="Private room">${FRIEND_LOCK_SVG}</span>` : ''}<span class="player-where-text">${escapeHtml(where.text)}</span></span>` : ''}
+      </span>` : ''}
+      ${bio ? `<span class="player-bio">${escapeHtml(bio)}</span>` : ''}
+    </span>
+  `;
+  // Built after innerHTML so the pills are real elements rather than
+  // interpolated markup.
+  renderPlayerRoles(card.querySelector('.inline-roles'), person);
+
+  const open = () => showPlayerDetails(person);
+  card.addEventListener('click', open);
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      open();
+    }
+  });
+  return card;
 }
 
 /// Asks again while Stella's online list is still filling in (see
@@ -8118,34 +8658,38 @@ function stellaWhere(person) {
 let peopleRefill = null;
 
 async function loadPeople() {
-  const bodyEl = $('peopleListBody');
-  if (!bodyEl) return;
+  const gridEl = $('peopleGrid');
+  if (!gridEl) return;
   clearTimeout(peopleRefill);
 
   peopleSequenceId++;
   const currentSeq = peopleSequenceId;
   const key = peopleKey();
-  
-  beginListLoad(bodyEl, '<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">Loading players...</td></tr>');
-  
+
+  beginListLoad(gridEl, skeletonCards(PLAYER_SKELETON, 9));
+
   const res = await window.radium?.fetchPeople({
     skip: peopleSkip,
     take: peopleTake,
     query: peopleSearchQuery
   });
-  
+
   if (currentSeq !== peopleSequenceId) return;
-  endListLoad(bodyEl);
-  
+  endListLoad(gridEl);
+
   if (res && res.success && res.data) {
     // Signed in on the way (Steam was started after the startup check).
     if (activeNetwork === 'stella' && !stellaPlayer) refreshStellaAuth();
     const people = res.data.Results || [];
     const total = res.data.TotalResults || 0;
+    // Stella's online list asks again every few seconds while it fills in;
+    // the same page coming back swaps its cards in place rather than playing
+    // their entrance each time.
+    gridEl.classList.toggle('is-quiet', peopleRenderKey === key);
     peopleRenderKey = key;
     peopleRenderAt = Date.now();
     peopleFreshMs = activeNetwork === 'stella' && !peopleSearchQuery ? ONLINE_LIST_STALE_MS : LIST_STALE_MS;
-    
+
     // Stella's online list is still filling in: ask again shortly, unless the
     // user has moved on to a search, another page or another tab by then.
     if (res.partial && !peopleSearchQuery && peopleSkip === 0) {
@@ -8157,9 +8701,9 @@ async function loadPeople() {
       }, 10000);
     }
 
-    bodyEl.innerHTML = '';
+    gridEl.innerHTML = '';
     if (people.length === 0) {
-      bodyEl.dataset.listPlaceholder = '1';
+      gridEl.dataset.listPlaceholder = '1';
       // The backend's reason when it gave one (Stella's online list); an empty
       // box on a network with no browse list isn't a failed search either.
       const message = res.note
@@ -8167,72 +8711,27 @@ async function loadPeople() {
         : (!peopleSearchQuery && networkInfo().hasPeopleBrowse === false
           ? 'Search for a player by name.'
           : 'No players found.');
-      bodyEl.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">${message}</td></tr>`;
+      gridEl.innerHTML = listMessageHtml(message);
     } else {
-      delete bodyEl.dataset.listPlaceholder;
-      people.forEach(person => {
-        const avatarUrl = personAvatarUrl(person, 24);
-        const fallbackAvatar = defaultAvatarUrl(24);
-        // Vanilla publishes no presence, so `isOnline` arrives as null and the
-        // dot stays neutral rather than asserting a definite "offline".
-        const presence = person.isOnline == null
-          ? { cls: 'unknown', title: 'Presence unknown' }
-          : (person.isOnline ? { cls: 'online', title: 'Online' } : { cls: 'offline', title: 'Offline' });
-        
-        const row = document.createElement('tr');
-        row.onclick = () => {
-          showPlayerDetails(person);
-        };
-        row.innerHTML = `
-          <td>
-            <img class="people-avatar image-loading-placeholder" loading="lazy" decoding="async" data-fallback="${escapeHtml(fallbackAvatar)}" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(person.userName)}" />
-          </td>
-          <td class="people-name-cell">
-            <span class="status-dot ${presence.cls}" role="img" aria-label="${presence.title}"></span>
-            ${escapeHtml(person.displayName || person.userName)}
-          </td>
-          <td class="people-username-cell">
-            <span class="username-row"><span class="text-link">@${escapeHtml(person.userName)}</span><span class="profile-roles inline-roles"></span></span>
-          </td>
-          <td class="people-level-col">${person.level != null ? escapeHtml(String(person.level)) : ''}</td>
-          <td class="network-only-stella people-room-cell">${escapeHtml(stellaWhere(person))}</td>
-          <td class="people-bio-col" style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            ${escapeHtml(person.bio || '')}
-          </td>
-        `;
-        // Built after innerHTML so the pills are real elements rather than
-        // interpolated markup.
-        renderPlayerRoles(row.querySelector('.inline-roles'), person);
-        bodyEl.appendChild(row);
-      });
+      delete gridEl.dataset.listPlaceholder;
+      people.forEach(person => gridEl.appendChild(buildPlayerCard(person)));
     }
+    const scroller = $('peopleScroll');
+    if (scroller) scroller.scrollTop = 0;
 
-    // Pagination text & buttons state
-    const txtPage = $('txtPeoplePage');
-    if (txtPage) {
-      txtPage.textContent = pageLabel(peopleSkip, peopleTake, total, res.data.TotalKnown);
-    }
-    
-    const btnPrev = $('btnPeoplePrev');
-    const btnNext = $('btnPeopleNext');
-    if (btnPrev) btnPrev.disabled = (peopleSkip === 0);
-    if (btnNext) btnNext.disabled = (peopleSkip + peopleTake >= total);
+    renderPager($('txtPeoplePage'), $('btnPeoplePrev'), $('btnPeopleNext'), {
+      skip: peopleSkip, take: peopleTake, total, totalKnown: res.data.TotalKnown,
+      onPage: (n) => { peopleSkip = (n - 1) * peopleTake; loadPeople(); }
+    });
   } else {
     // Escaped for the same reason as the rooms error above.
     peopleRenderKey = '';
-    bodyEl.dataset.listPlaceholder = '1';
-    bodyEl.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);">${listErrorHtml(res, 'players')}</td></tr>`;
-    const txtPage = $('txtPeoplePage');
-    if (txtPage) txtPage.textContent = 'Page 1 of 1';
-    const btnPrev = $('btnPeoplePrev');
-    const btnNext = $('btnPeopleNext');
-    if (btnPrev) btnPrev.disabled = true;
-    if (btnNext) btnNext.disabled = true;
+    gridEl.dataset.listPlaceholder = '1';
+    gridEl.innerHTML = listMessageHtml(listErrorHtml(res, 'players'));
+    renderPager($('txtPeoplePage'), $('btnPeoplePrev'), $('btnPeopleNext'), {
+      skip: 0, take: peopleTake, total: 0, totalKnown: true, onPage: () => {}
+    });
   }
-
-  // The row count just changed (a new page, a search, a first load), so the
-  // last row's fit against the container's height needs rechecking every time.
-  snapTableRows($('peopleTableContainer'));
 }
 
 // Wired here rather than beside loadFeed(): the `$` helper is declared further
@@ -8274,14 +8773,10 @@ $('btnRoomsNext')?.addEventListener('click', () => {
   loadRooms();
 });
 
-document.querySelectorAll('#roomsSortList .sort-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#roomsSortList .sort-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    activeRoomsSort = parseInt(btn.dataset.sort) || 0;
-    roomsSkip = 0;
-    loadRooms();
-  });
+$('roomsSort')?.addEventListener('change', (e) => {
+  activeRoomsSort = parseInt(e.target.value) || 0;
+  roomsSkip = 0;
+  loadRooms();
 });
 
 // Event listeners for People search / pagination
@@ -9778,58 +10273,12 @@ async function loadPlayerRooms(userId, append = false) {
     
     if (!append) grid.innerHTML = '';
     
-    rooms.forEach(room => {
-      const roomCard = document.createElement('div');
-      roomCard.className = 'room-card';
-      const imgUrl = roomThumbUrl(room, 400);
-      const roomName = room.Name || room.name || 'Unknown Room';
-      const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Unknown';
-      roomCard.innerHTML = `
-        <img class="room-card-image image-loading-placeholder" loading="lazy" decoding="async" src="${escapeHtml(imgUrl)}" data-fallback="./images.png" alt="${escapeHtml(roomName)}" />
-        ${liveBadgeHtml(room)}
-        <div class="room-card-name">${escapeHtml(roomName)}</div>
-        <div class="room-card-creator">by ${escapeHtml(creatorUsername)}</div>
-        <div class="room-card-stats">
-          <span>Cheers: <span class="room-card-cheers">...</span></span>
-          <span>Visits: <span class="room-card-visits">...</span></span>
-        </div>
-      `;
-      // Attach the creator click via a closure rather than inline onclick so a
-      // username containing quotes can't break out of the JS-string context.
-      const creatorEl = roomCard.querySelector('.room-card-creator');
-      if (creatorEl) {
-        creatorEl.addEventListener('click', (e) => {
-          e.stopPropagation();
-          showCreatorProfile(creatorUsername);
-        });
-      }
-      roomCard.onclick = () => {
-        switchTab('rooms');
-        showRoomDetails(room);
-      };
-      grid.appendChild(roomCard);
-
-      // Stats come off the row when the API sent them, which it does for both
-      // networks. Every card used to fire fetchRoomWebDetails instead — on
-      // Radium that is a GET of the full room page plus five regexes, so a
-      // page of twelve cards was twelve HTML documents fetched for two numbers
-      // that had already arrived with the list. The scrape is still here as a
-      // fallback for a row that genuinely carries no counts.
-      const cheerEl = roomCard.querySelector('.room-card-cheers');
-      const visitEl = roomCard.querySelector('.room-card-visits');
-      const known = roomStatsFromRow(room);
-      if (known) {
-        if (cheerEl) cheerEl.textContent = known.cheers;
-        if (visitEl) visitEl.textContent = known.visits;
-      } else {
-        (async () => {
-          const details = await getRoomWebDetails(roomName);
-          const ok = details && details.success;
-          if (cheerEl) cheerEl.textContent = ok ? (details.cheers || '0') : '—';
-          if (visitEl) visitEl.textContent = ok ? (details.visits || '0') : '—';
-        })();
-      }
-    });
+    // The cheers come off the row when the API sent them, which every
+    // network does. Each card used to fetch the room's web page for them
+    // instead — on Radium a full HTML page plus five regexes per card — so
+    // that lookup is only a fallback for a row that genuinely has no counts.
+    rooms.forEach(room => grid.appendChild(
+      buildRoomCard(room, { width: 400, onOpen: openRoomFromElsewhere, scrapeMissing: true })));
     
     const totalInGrid = grid.querySelectorAll('.room-card').length;
     if (totalInGrid === 0 && !append) {

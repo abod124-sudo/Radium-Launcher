@@ -336,15 +336,15 @@ body:is(.theme-winvista, .theme-win7) {
   & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
         .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
         .modal-btn:not(.modal-btn-danger), .sidebar-nav .nav-btn:not(.active),
-        .filter-btn:not(.active), .sort-btn:not(.active)),
+        .filter-btn:not(.active)),
   & #btnManageClient {
     position: relative;
     isolation: isolate;
     transition: border-color 0.5s ease, box-shadow 0.5s ease, color 0.2s ease;
   }
-  & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
+  & :is(.btn-refresh:not(.is-current), .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
         .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
-        .modal-btn:not(.modal-btn-danger))::after,
+        .modal-btn:not(.modal-btn-danger), .filter-btn:not(.active))::after,
   & #btnManageClient::after {
     content: '';
     position: absolute;
@@ -356,7 +356,7 @@ body:is(.theme-winvista, .theme-win7) {
     opacity: 0;
     transition: opacity 0.5s ease;
   }
-  & :is(.sidebar-nav .nav-btn:not(.active), .filter-btn:not(.active), .sort-btn:not(.active))::after {
+  & .sidebar-nav .nav-btn:not(.active)::after {
     content: '';
     position: absolute;
     inset: 0;
@@ -370,12 +370,12 @@ body:is(.theme-winvista, .theme-win7) {
   & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
         .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
         .modal-btn:not(.modal-btn-danger), .sidebar-nav .nav-btn:not(.active),
-        .filter-btn:not(.active), .sort-btn:not(.active)):hover,
+        .filter-btn:not(.active)):hover,
   & #btnManageClient:hover { transition-duration: 0.15s; }
   & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
         .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
         .modal-btn:not(.modal-btn-danger), .sidebar-nav .nav-btn:not(.active),
-        .filter-btn:not(.active), .sort-btn:not(.active)):hover::after,
+        .filter-btn:not(.active)):hover::after,
   & #btnManageClient:hover::after {
     opacity: 1;
     transition-duration: 0.15s;
@@ -383,7 +383,7 @@ body:is(.theme-winvista, .theme-win7) {
   & :is(.btn-refresh, .btn-save, .btn-test-server, .btn-cancel-dl, .btn-kill,
         .btn-open-folder, .btn-reinstall, .btn-uninstall, .btn-exclude-av,
         .modal-btn:not(.modal-btn-danger), .sidebar-nav .nav-btn:not(.active),
-        .filter-btn:not(.active), .sort-btn:not(.active)):is(:active, :disabled)::after,
+        .filter-btn:not(.active)):is(:active, :disabled)::after,
   & #btnManageClient:is(:active, [aria-expanded="true"])::after {
     opacity: 0;
     transition: none;

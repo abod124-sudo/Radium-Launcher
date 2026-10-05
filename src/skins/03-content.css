@@ -6,44 +6,11 @@
 
 body:not(.glass-enabled) {
 
-  /* ── Tables ───────────────────────────────────────────────────────── */
-  & .native-table th {
-    padding: 6px 8px;
-    font-family: var(--font-ui);
-    font-size: var(--th-size);
-    font-weight: var(--th-weight);
-    text-transform: var(--th-case);
-    letter-spacing: var(--th-ls);
-    color: var(--th-fg);
-    /* The rule under the header is painted, not bordered: with collapsed
-       borders a sticky header's border stays behind when the body scrolls. */
-    background: linear-gradient(var(--th-line), var(--th-line)) left bottom / 100% 1px no-repeat, var(--th-bg);
-    border: 0;
-    border-right: 1px solid var(--th-sep);
-    box-shadow: var(--th-shadow);
-  }
-  & .native-table th:last-child { border-right: 0; }
-  & .native-table td {
-    padding: 6px 8px;
-    font-size: 11px;
-    color: var(--well-fg);
-    background: var(--row-bg);
-    border: 0;
-    border-bottom: 1px solid var(--td-line);
-  }
-  & .native-table tbody tr:nth-child(even) td { background: var(--row-alt); }
-  & .native-table tbody tr:hover td { color: var(--row-hover-fg); background: var(--row-hover-bg); }
-  & .native-table tbody tr:hover td .text-link { color: inherit; }
-  & .people-avatar {
-    background: var(--media-bg);
-    border: var(--media-border);
-    border-radius: var(--avatar-radius, var(--media-radius));
-  }
-
-  /* ── Cards ────────────────────────────────────────────────────────── */
+  /* ── Room cards ───────────────────────────────────────────────────── */
+  /* A card of the skin's, its picture set into it (--card-inset; flush on
+     the modern skins, where the card's radius clips it). */
   & .room-card {
-    padding: 6px;
-    gap: 3px;
+    padding: var(--card-inset);
     color: var(--panel-fg);
     background: var(--card-bg);
     border: var(--card-border);
@@ -58,16 +25,72 @@ body:not(.glass-enabled) {
     box-shadow: var(--card-hover-shadow);
     transform: var(--card-lift);
   }
-  & .room-card-image {
-    margin-bottom: 3px;
+  & .room-card-media {
+    background: var(--media-bg);
+    border: var(--card-media-border);
+    border-radius: var(--card-media-radius);
+  }
+  & .room-card-name { font-family: var(--font-ui); }
+  & .room-card-foot { padding: 7px calc(10px - var(--card-inset)) 3px; }
+  & .room-card-creator { font-family: var(--font-ui); color: var(--muted); }
+  & button.room-card-creator:hover .room-card-creator-name { color: var(--link); }
+  & .room-card-avatar {
+    background: var(--media-bg);
+    border-radius: var(--avatar-radius, var(--media-radius));
+  }
+  & .room-card-cheers { font-family: var(--font-ui); color: var(--muted); }
+
+  /* ── Player cards ─────────────────────────────────────────────────── */
+  & .player-card {
+    --card-cut: var(--card-bg);
+    color: var(--panel-fg);
+    background: var(--card-bg);
+    border: var(--card-border);
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+                background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  & .player-card:hover {
+    background: var(--card-hover-bg);
+    border: var(--card-hover-border);
+    box-shadow: var(--card-hover-shadow);
+  }
+  & .player-avatar img {
+    box-sizing: border-box;
     background: var(--media-bg);
     border: var(--media-border);
-    border-radius: var(--media-radius);
+    border-radius: var(--avatar-radius, var(--media-radius));
   }
-  & .room-card-name { font-family: var(--font-ui); font-size: 12px; font-weight: 700; color: var(--panel-fg); }
-  & .room-card-creator { font-size: 10px; color: var(--muted); text-decoration: none; }
-  & .room-card-creator:hover { color: var(--link); text-decoration: underline; }
-  & .room-card-stats { font-size: 10px; color: var(--muted); }
+  & .player-avatar .status-dot { border-radius: var(--dot-radius); }
+  & :is(.player-name, .player-handle, .player-meta, .player-bio) { font-family: var(--font-ui); }
+  & .player-name { color: var(--panel-fg); }
+  & :is(.player-handle, .player-bio) { color: var(--muted); }
+  & .player-level {
+    color: var(--well-fg);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--badge-radius, 999px);
+    box-shadow: var(--tile-shadow);
+  }
+  & .player-where { color: var(--ok); }
+
+  /* ── Lists: messages in place of the cards ────────────────────────── */
+  & :is(.list-message, .list-empty) { font-family: var(--font-ui); color: var(--muted); }
+
+  /* ── Home's sections ──────────────────────────────────────────────── */
+  & .home-section-title {
+    font-family: var(--title-font);
+    font-size: var(--section-size);
+    font-weight: var(--title-weight);
+    text-transform: var(--title-case);
+    letter-spacing: var(--title-ls);
+    color: var(--page-fg);
+  }
+  & .home-section-link { font-family: var(--font-ui); color: var(--page-muted); }
+  & .home-section-link:hover { color: var(--page-fg); }
+  & .home-section .friends-summary { color: var(--page-muted); }
+  & .home-panel { padding: 12px; }
 
   & .photo-card {
     background: var(--media-bg);
@@ -447,14 +470,60 @@ body:not(.glass-enabled) {
   & .report-done-title { color: var(--panel-fg); }
   & .report-done-text { color: var(--muted); }
 
-  /* ── Settings extras ──────────────────────────────────────────────── */
-  & .sg-row label { font-size: 11px; font-weight: 400; color: var(--panel-fg); }
+  /* ── Settings ─────────────────────────────────────────────────────── */
+  /* The section list is a list box (a well, on the classic skins) whose
+     rows are drawn like the sidebar's; each page a heading on the window
+     over groups of rows. */
+  & .settings-nav {
+    padding: var(--setnav-pad);
+    background: var(--setnav-bg);
+    border: var(--setnav-border);
+    border-radius: var(--setnav-radius);
+    box-shadow: var(--setnav-shadow);
+  }
+  & .settings-nav-btn {
+    font-family: var(--nav-font);
+    font-size: var(--nav-size);
+    font-weight: var(--nav-weight);
+    color: var(--setnav-fg);
+    background: transparent;
+    border: var(--nav-border);
+    border-radius: var(--nav-radius);
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+  }
+  & .settings-nav-btn:hover { color: var(--nav-hover-fg); background: var(--nav-hover-bg); }
+  & .settings-nav-btn.active,
+  & .settings-nav-btn.active:hover {
+    color: var(--nav-active-fg);
+    background: var(--nav-active-bg);
+    border: var(--nav-active-border);
+    box-shadow: var(--nav-active-shadow);
+  }
+  & .settings-group > .sg-title { padding: var(--group-title-pad, 0 0 4px); margin-bottom: 6px; }
+  & .settings-page-title { font-family: var(--heading-font); color: var(--page-fg); }
+  & .settings-page-desc { font-family: var(--font-ui); color: var(--page-muted); }
+  & :is(.sg-row, .sg-toggle-row, .folder-row) { padding: var(--set-row-pad); }
+  & .settings-group > :is(.sg-row, .sg-toggle-row, .folder-row, .ct-body)
+      + :is(.sg-row, .sg-toggle-row, .folder-row, .ct-body),
+  & .ct-body > :is(.sg-row, .sg-toggle-row) + :is(.sg-row, .sg-toggle-row) { border-top: var(--set-sep); }
+  & .sg-label {
+    font-family: var(--font-ui);
+    font-size: var(--set-label-size);
+    font-weight: var(--set-label-weight);
+    color: var(--panel-fg);
+  }
+  & .sg-desc { font-family: var(--font-ui); font-size: var(--set-desc-size); color: var(--muted); }
+  & .sg-desc.test-result.ok { color: var(--ok); }
+  & .sg-desc.test-result.error { color: var(--err); }
   & :is(.sg-hint, .sg-note) { color: var(--muted); }
-  /* One swatch (Glass Tint): give it the width for its label, note and Reset
-     instead of style.css's 170px column, which ellipsized all three. */
-  & .ct-swatches { grid-template-columns: minmax(0, 360px); }
-  & .ct-swatch { gap: 10px; padding: 5px 6px 5px 8px; font-size: 11px; }
-  & .ct-swatch .ct-note { color: var(--muted); }
+  & .folder-path { color: var(--muted); }
+  & .banner-preview {
+    border: var(--media-border);
+    border-radius: var(--media-radius);
+    box-shadow: var(--well-shadow);
+  }
+  & .about-name { font-family: var(--heading-font); color: var(--panel-fg); }
+  & .about-version { font-family: var(--font-ui); color: var(--muted); }
   & :is(.tint-swatch, .tint-preset) { border-color: var(--line-strong); }
   & input[type="checkbox"] { accent-color: var(--accent); }
 

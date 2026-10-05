@@ -82,6 +82,7 @@ pub fn run() {
             cmd_save_config,
             cmd_set_glass_backdrop,
             cmd_fetch_glass_backdrop,
+            cmd_set_home_banner,
             // Server / Data
             server::ping_server,
             server::get_player_count,
@@ -422,6 +423,8 @@ fn cmd_save_config(app: tauri::AppHandle, config: serde_json::Value) -> bool {
             // stylesheet, so anything that isn't one is repaired on the way in
             // rather than stored and handed back to the renderer next load.
             cfg.glass.sanitize();
+            // Home's section order and hidden list: known names only.
+            cfg.home.sanitize();
 
             // Only skins that actually ship. Without this a save could pin the
             // window to a class with no rules behind it.
@@ -476,6 +479,23 @@ fn cmd_set_glass_backdrop(app: tauri::AppHandle, value: String) -> Result<String
         cfg.glass.bg_image = value;
         cfg.glass.sanitize();
         cfg.glass.bg_image.clone()
+    })
+}
+
+/// Set `network`'s Home banner picture, and nothing else.
+///
+/// Its own command for the same reason as the glass backdrop: a banner is a
+/// data URI of up to a megabyte that whole-config saves leave out. Returns
+/// the value as stored, blank if it was not a picture that is safe to paint
+/// (see `config::HomeSettings::sanitize`); blank also means "the network's
+/// own art".
+#[tauri::command(async)]
+fn cmd_set_home_banner(app: tauri::AppHandle, network: String, value: String) -> Result<String, String> {
+    let network = config::Network::parse(Some(&network));
+    config::update(&app, |cfg| {
+        *cfg.home.banners.for_network_mut(network) = value;
+        cfg.home.sanitize();
+        cfg.home.banners.for_network_mut(network).clone()
     })
 }
 

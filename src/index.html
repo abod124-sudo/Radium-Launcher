@@ -28,6 +28,7 @@
   <link rel="stylesheet" href="skins/08-steam.css" />
   <link rel="stylesheet" href="skins/09-mac.css" />
   <link rel="stylesheet" href="skins/10-checkboxes.css" />
+  <link rel="stylesheet" href="skins/12-system-icons.css" />
   <!-- Last, so a tie between a glass rule and the moderndark layout it is
        layered over lands on glass. Inert until applyTheme() (or boot.js)
        puts `glass-enabled` on <body>. -->
@@ -194,16 +195,21 @@
       <section class="tab-panel active" id="tab-home">
 
         <!-- ── Hero ────────────────────────────────────────────────
-             Fixed brand art (creator-kit pattern + wordmark). It stays green
-             in every theme the way a store header image would. The primary
-             action sits on a scrim across its lower edge. -->
+             The network's own art, edge to edge, the way a store page heads a
+             game: unthemed, so it looks the same in every skin. The brand sits
+             at the left, the primary action on a scrim across the lower edge. -->
         <!-- Wrapped so the manage menu has somewhere unclipped to hang from:
              .home-hero clips to its own rounded corners, so a dropdown opened
              inside it would be cut off at the edge. -->
         <div class="home-hero-wrap">
         <div class="home-hero">
           <div class="home-hero-art" aria-hidden="true"></div>
-          <div class="home-hero-mark" role="img" aria-label="Radium"></div>
+          <div class="home-hero-brand">
+            <div class="home-hero-mark" role="img" aria-label="Radium"></div>
+            <!-- The name beside a square mark (Vanilla, Stella); Radium's mark
+                 is its wordmark, so this is hidden there. -->
+            <div class="home-hero-name" id="heroName" aria-hidden="true"></div>
+          </div>
           <div class="home-hero-bar installed-only">
             <!-- Stella's patch update, drawn like Steam's game UPDATE button so
                  it reads as "this game has an update", never as a launcher
@@ -330,41 +336,61 @@
         </div>
 
         <!-- ── Status ──────────────────────────────────────────────
-             Meaningful whether or not a client is installed, so never gated. -->
-        <div class="quick-stats">
-          <div class="qs-card" id="qsc-status">
-            <div class="qs-header-row">
-              <span class="qs-label">Server Status</span>
-              <span class="qs-icon-indicator"></span>
-            </div>
-            <div class="qs-value" id="qsStatus">—</div>
+             One strip of three, each an icon, a value and what it is.
+             Meaningful whether or not a client is installed, so never gated.
+             app.js marks each with online / offline / installed /
+             not-installed / update-available. -->
+        <div class="home-stats">
+          <div class="home-stat" id="qsc-status">
+            <span class="home-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 3h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm0 10h16a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1zm3-7.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm0 10a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></svg></span>
+            <span class="home-stat-text">
+              <span class="home-stat-value" id="qsStatus">—</span>
+              <span class="home-stat-label">Servers</span>
+            </span>
           </div>
-          <div class="qs-card" id="qsc-players">
-            <div class="qs-header-row">
-              <span class="qs-label">Players Online</span>
-              <span class="qs-icon-indicator"></span>
-            </div>
-            <div class="qs-value" id="qsPlayers">—</div>
+          <div class="home-stat" id="qsc-players">
+            <span class="home-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></span>
+            <span class="home-stat-text">
+              <span class="home-stat-value" id="qsPlayers">—</span>
+              <span class="home-stat-label">Players online</span>
+            </span>
           </div>
-          <div class="qs-card" id="qsc-client">
-            <div class="qs-header-row">
-              <span class="qs-label">Client Status</span>
-              <span class="qs-icon-indicator"></span>
-            </div>
-            <div class="qs-value" id="qsInstalled">—</div>
+          <div class="home-stat" id="qsc-client">
+            <span class="home-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5v2h8v-2h5a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 14H3V5h18v12zm-5.5-8.5L11 13l-2.5-2.5L7 12l4 4 6-6-1.5-1.5z"/></svg></span>
+            <span class="home-stat-text">
+              <span class="home-stat-value" id="qsInstalled">—</span>
+              <span class="home-stat-label">Game client</span>
+            </span>
           </div>
         </div>
 
         <!-- Stella only: your friends, from Stella's live presence
              (stella_hub.rs). Online friends are cards with JOIN, everyone
              else a chip underneath; any of them opens their profile. -->
-        <div class="qs-card home-friends network-only-stella" id="stellaFriendsCard">
-          <div class="qs-header-row">
-            <span class="qs-label">Friends</span>
+        <section class="home-section home-friends network-only-stella" id="stellaFriendsCard">
+          <div class="home-section-head">
+            <h3 class="home-section-title">Friends</h3>
             <span class="friends-summary" id="stellaFriendsCount"></span>
           </div>
-          <div class="home-friends-list" id="stellaFriendsList"></div>
-        </div>
+          <div class="home-panel">
+            <div class="home-friends-list" id="stellaFriendsList"></div>
+          </div>
+        </section>
+
+        <!-- ── Popular right now ───────────────────────────────────
+             The network's hottest rooms, as the Rooms grid draws them
+             (buildRoomCard). Hidden until a page of them arrives, and on a
+             network with no rooms at all. See loadHomeRooms(). -->
+        <section class="home-section network-social-only" id="homeRoomsSection" hidden>
+          <div class="home-section-head">
+            <h3 class="home-section-title">Popular right now</h3>
+            <button type="button" class="home-section-link" id="homeRoomsAll">
+              <span>All rooms</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+            </button>
+          </div>
+          <div class="home-rooms" id="homeRoomsGrid"></div>
+        </section>
 
       </section>
 
@@ -405,56 +431,59 @@
       </section>
 
       <section class="tab-panel" id="tab-rooms">
-        <div class="panel-header">
+        <!-- Title at the left, search and sort at the right. The toolbar
+             hides while a room is open (see .list-toolbar in style.css). -->
+        <div class="panel-header list-header">
           <h2>ROOMS</h2>
+          <div class="list-toolbar">
+            <div class="native-search-bar search-field">
+              <svg class="search-field-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+              <input type="text" id="roomsSearch" class="cfg-input" placeholder="Search rooms" aria-label="Search rooms" autocomplete="off" spellcheck="false" />
+            </div>
+            <!-- A themed dropdown once enhanceSelects() has run. Most Players
+                 is Stella's: the option carries network-only-stella, which
+                 the dropdown's row inherits. -->
+            <div class="toolbar-sort">
+              <select id="roomsSort" class="cfg-input" aria-label="Sort rooms">
+                <option value="0">Hot</option>
+                <option value="1">Newest</option>
+                <option value="2">Most visited</option>
+                <option value="3">Most cheered</option>
+                <option value="4">Most favorited</option>
+                <option value="5" class="network-only-stella">Most players</option>
+              </select>
+            </div>
+          </div>
         </div>
         <div class="native-panel flex-1 flex flex-col">
           <!-- Rooms List View -->
-          <div id="roomsListView" class="flex gap-3.75 flex-1 overflow-hidden" style="min-height: 0;">
-            <!-- Sidebar Filters & Sorting -->
-            <div class="w-50 flex flex-col gap-2.5 overflow-auto flex-shrink-0" id="roomsSidebar">
-              <!-- Filters Card -->
-              <div class="border p-2 flex-1 overflow-auto flex flex-col" style="height: 150px;">
-                <div class="sg-title font-bold text-[10px] mb-1.5">Filters</div>
-                <div id="roomsFiltersList" class="flex flex-col gap-1">
-                  <!-- Dynamically populated tags -->
-                </div>
-              </div>
-              <!-- Sort By Card -->
-              <div class="border p-2 flex-shrink-0 flex flex-col">
-                <div class="sg-title font-bold text-[10px] mb-1.5">Sort By</div>
-                <div id="roomsSortList" class="flex flex-col gap-1">
-                  <button class="sort-btn active" data-sort="0">Hot</button>
-                  <button class="sort-btn" data-sort="1">Newest</button>
-                  <button class="sort-btn" data-sort="2">Most Visited</button>
-                  <button class="sort-btn" data-sort="3">Most Cheered</button>
-                  <button class="sort-btn" data-sort="4">Most Favorited</button>
-                  <!-- Stella only: where the players are right now. -->
-                  <button class="sort-btn network-only-stella" data-sort="5">Most Players</button>
-                </div>
-              </div>
+          <div id="roomsListView" class="list-view">
+            <!-- Tags, one row of chips that scrolls sideways (the wheel works
+                 on it too); the arrows show only while there is more that
+                 way. Filled by loadFilters(). -->
+            <div class="tag-strip" id="roomsTagStrip">
+              <button type="button" class="tag-scroll tag-scroll-left" tabindex="-1" aria-label="Earlier tags">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+              </button>
+              <div class="tag-row" id="roomsFiltersList" role="group" aria-label="Room tags"></div>
+              <button type="button" class="tag-scroll tag-scroll-right" tabindex="-1" aria-label="More tags">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+              </button>
             </div>
-            
-            <!-- Main Content Area -->
-            <div class="flex-1 flex flex-col overflow-hidden">
-              <!-- Search Bar -->
-              <div class="native-search-bar mb-2">
-                <input type="text" id="roomsSearch" class="cfg-input w-full" placeholder="Search rooms..." style="font-size: 11px;" autocomplete="off" />
-              </div>
-              <!-- Rooms Grid Container -->
-              <div class="native-grid-container flex-1 overflow-auto bevel-inset p-2">
-                <div id="roomsGrid" class="grid gap-2 grid-cols-2 lg:grid-cols-3">
-                  <!-- Dynamically populated cards -->
-                </div>
-                <div id="roomsEmptyMsg" class="hidden text-center p-4 text-sm" style="color: var(--text-muted);">No rooms matched your search.</div>
-              </div>
-              <!-- Pagination -->
-              <div class="native-pagination flex justify-between items-center mt-2 flex-shrink-0">
-                <button id="btnRoomsPrev" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">Previous</button>
-                <span id="txtRoomsPage" class="font-mono" style="font-size: 10px; color: var(--text-muted);">Page 1 of 1</span>
-                <button id="btnRoomsNext" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">Next</button>
-              </div>
+            <div class="list-scroll" id="roomsScroll">
+              <div id="roomsGrid" class="room-grid"></div>
+              <div id="roomsEmptyMsg" class="list-empty hidden">No rooms matched your search.</div>
             </div>
+            <!-- Previous, the page numbers (renderPager), Next. -->
+            <nav class="list-pager" aria-label="Room pages">
+              <button type="button" id="btnRoomsPrev" class="btn-refresh pager-btn pager-arrow" aria-label="Previous page">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+              </button>
+              <div class="pager-pages" id="txtRoomsPage"></div>
+              <button type="button" id="btnRoomsNext" class="btn-refresh pager-btn pager-arrow" aria-label="Next page">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+              </button>
+            </nav>
           </div>
           <!-- Rooms Detail View (native) -->
           <div id="roomsDetailView" class="hidden flex-1 flex flex-col" style="min-height: 0; flex: 1; overflow: hidden;">
@@ -549,47 +578,30 @@
 
       <!-- ───────── PEOPLE TAB ───────────────────────── -->
       <section class="tab-panel" id="tab-people">
-        <div class="panel-header">
+        <div class="panel-header list-header">
           <h2>PEOPLE</h2>
+          <div class="list-toolbar">
+            <div class="native-search-bar search-field">
+              <svg class="search-field-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+              <input type="text" id="peopleSearch" class="cfg-input" placeholder="Search people" aria-label="Search people" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
         </div>
         <div class="native-panel flex-1 flex flex-col">
-          <!-- People List View -->
-          <div id="peopleListView" class="flex-1 flex flex-col overflow-hidden" style="min-height: 0;">
-            <!-- Search Bar -->
-            <div class="native-search-bar mb-2">
-              <input type="text" id="peopleSearch" class="cfg-input w-full" placeholder="Search people..." style="font-size: 11px;" autocomplete="off" />
+          <!-- People List View: a grid of player cards (buildPlayerCard). -->
+          <div id="peopleListView" class="list-view">
+            <div class="list-scroll" id="peopleScroll">
+              <div id="peopleGrid" class="people-grid"></div>
             </div>
-            <!-- Table Container. Given an id rather than only `.native-table-container`
-                 (there is only one on this tab) so app.js can size it precisely
-                 to a whole number of rows — see snapTableRows(). -->
-            <div class="native-table-container flex-1 overflow-auto bevel-inset" id="peopleTableContainer" style="background: var(--bg-panel);">
-              <table class="native-table">
-                <thead>
-                  <tr>
-                    <th style="width: 38px;"></th>
-                    <th style="width: 140px;">Display Name</th>
-                    <!-- Wider than Display Name: this column carries the role
-                         badges as well as the handle. -->
-                    <th style="width: 210px;">Username</th>
-                    <!-- Vanilla and Stella; Radium's roster carries no level. -->
-                    <th class="people-level-col" style="width: 52px;">Level</th>
-                    <!-- Stella only: where an online player is, from the live hub. -->
-                    <th class="network-only-stella">Room</th>
-                    <!-- Hidden on Stella, whose player rows carry no bio. -->
-                    <th class="people-bio-col">Bio</th>
-                  </tr>
-                </thead>
-                <tbody id="peopleListBody">
-                  <!-- Dynamically populated -->
-                </tbody>
-              </table>
-            </div>
-            <!-- Pagination -->
-            <div class="native-pagination flex justify-between items-center mt-2 flex-shrink-0">
-              <button id="btnPeoplePrev" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">Previous</button>
-              <span id="txtPeoplePage" class="font-mono" style="font-size: 10px; color: var(--text-muted);">Page 1 of 1</span>
-              <button id="btnPeopleNext" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">Next</button>
-            </div>
+            <nav class="list-pager" aria-label="People pages">
+              <button type="button" id="btnPeoplePrev" class="btn-refresh pager-btn pager-arrow" aria-label="Previous page">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+              </button>
+              <div class="pager-pages" id="txtPeoplePage"></div>
+              <button type="button" id="btnPeopleNext" class="btn-refresh pager-btn pager-arrow" aria-label="Next page">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+              </button>
+            </nav>
           </div>
           <!-- People Detail View (native) -->
           <div id="peopleDetailView" class="hidden flex-1 flex flex-col" style="min-height: 0; flex: 1; overflow: hidden;">
@@ -826,222 +838,399 @@
       </section>
 
       <!-- ───────── SETTINGS TAB ─────────────────────────── -->
+      <!-- Two panes: the sections at the left, the chosen one at the right
+           (showSettingsSection in app.js). Every option is a row: what it
+           is and what it does at the left, its control at the right.
+           Notifications and Friends belong to one network each and hide on
+           the others. -->
       <section class="tab-panel" id="tab-settings">
         <div class="panel-header">
           <h2>SETTINGS</h2>
           <span class="autosave-indicator" id="autosaveIndicator" style="display:none"></span>
         </div>
 
-        <div class="settings-body">
+        <div class="settings-layout">
+          <nav class="settings-nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+            <button type="button" class="settings-nav-btn active" role="tab" aria-selected="true" data-section="general" id="setnav-general" aria-controls="setpage-general">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+              <span>General</span>
+            </button>
+            <button type="button" class="settings-nav-btn" role="tab" aria-selected="false" data-section="home" id="setnav-home" aria-controls="setpage-home" tabindex="-1">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+              <span>Home</span>
+            </button>
+            <button type="button" class="settings-nav-btn" role="tab" aria-selected="false" data-section="appearance" id="setnav-appearance" aria-controls="setpage-appearance" tabindex="-1">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
+              <span>Appearance</span>
+            </button>
+            <button type="button" class="settings-nav-btn" role="tab" aria-selected="false" data-section="folders" id="setnav-folders" aria-controls="setpage-folders" tabindex="-1">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
+              <span>Game folders</span>
+            </button>
+            <button type="button" class="settings-nav-btn network-only-vanilla" role="tab" aria-selected="false" data-section="notifications" id="setnav-notifications" aria-controls="setpage-notifications" tabindex="-1">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+              <span>Notifications</span>
+            </button>
+            <button type="button" class="settings-nav-btn network-only-stella" role="tab" aria-selected="false" data-section="friends" id="setnav-friends" aria-controls="setpage-friends" tabindex="-1">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+              <span>Friends</span>
+            </button>
+            <button type="button" class="settings-nav-btn" role="tab" aria-selected="false" data-section="about" id="setnav-about" aria-controls="setpage-about" tabindex="-1">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+              <span>About</span>
+            </button>
+          </nav>
 
-          <!-- Install locations. Both networks are listed together on purpose:
-               each installs into its own folder, and when only the active
-               network had a row here, pointing Vanilla somewhere else meant
-               switching networks first and switching back afterwards. -->
-          <div class="settings-group">
-            <div class="sg-title">INSTALL LOCATIONS</div>
-            <div class="sg-row">
-              <label>Radium Client</label>
-              <span class="cfg-path-display" id="cfgInstallDirRadium">%APPDATA%\com.radium.launcher\client</span>
-              <button class="btn-open-folder" data-change-folder="radium">Change</button>
-              <button class="btn-open-folder" data-reset-folder="radium">Reset</button>
-              <button class="btn-open-folder" data-open-folder="radium">Open</button>
-            </div>
-            <div class="sg-row">
-              <label>Vanilla Client</label>
-              <span class="cfg-path-display" id="cfgInstallDirVanilla">%APPDATA%\com.radium.launcher\client-vanilla</span>
-              <button class="btn-open-folder" data-change-folder="vanilla">Change</button>
-              <button class="btn-open-folder" data-reset-folder="vanilla">Reset</button>
-              <button class="btn-open-folder" data-open-folder="vanilla">Open</button>
-            </div>
-            <div class="sg-row">
-              <label>Stella Client</label>
-              <span class="cfg-path-display" id="cfgInstallDirStella">%APPDATA%\com.radium.launcher\client-stella</span>
-              <button class="btn-open-folder" data-change-folder="stella">Change</button>
-              <button class="btn-open-folder" data-reset-folder="stella">Reset</button>
-              <button class="btn-open-folder" data-open-folder="stella">Open</button>
-            </div>
-          </div>
+          <div class="settings-body">
 
-          <!-- Theme -->
-          <div class="settings-group">
-            <div class="sg-title">THEME</div>
-            <!-- Dimmed by JS while Liquid Glass is on: glass repaints every
-                 surface itself and stands in for whichever skin is picked
-                 here, so changing this selection would have no visible
-                 effect until glass is switched off again. -->
-            <p class="sg-hint" id="activeSkinLockNote" hidden>Liquid Glass paints its own surfaces and takes over from the skin below while it's on. Switch it off above to change skins again.</p>
-            <div class="sg-row" id="activeSkinRow">
-              <label for="cfgTheme">Active Skin</label>
-              <select id="cfgTheme" class="cfg-input">
-                <option value="steam-green">Steam 2003 Green</option>
-                <option value="steam2010">Steam 2010</option>
-                <option value="win98">Windows 98 Gray</option>
-                <option value="win95">Windows 95 Teal</option>
-                <option value="winxp">Windows XP Blue</option>
-                <option value="royalenoir">Windows XP Royale Noir</option>
-                <option value="winvista">Windows Vista Aero</option>
-                <option value="win7">Windows 7 Aero</option>
-                <option value="macosclassic">Mac OS Classic</option>
-                <option value="macosaqua">Mac OS X Aqua</option>
-                <option value="moderndark">Modern Neon Dark</option>
-                <option value="modernlight">Modern Glass Light</option>
-                <option value="moderngreen">Modern Forest Green</option>
-                <option value="blackandwhite">Black & White</option>
-                <option value="blackandwhite-inverted">Black & White (Inverted)</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- ── Liquid Glass ─────────────────────────────────────────────
-               Its own group rather than a tail on THEME, because it is not one
-               more skin: it repaints every surface and brings its own layout,
-               so while it is on it stands in for whichever skin is selected
-               above. That skin is remembered for when it is switched off. -->
-          <div class="settings-group">
-            <div class="sg-title">LIQUID GLASS</div>
-
-            <div class="sg-toggle-row">
-              <span>Liquid Glass effect</span>
-              <div class="toggle-wrap" id="tgl-glassEnabled">
-                <div class="tgl-knob"></div>
+            <!-- ── General ── -->
+            <div class="settings-page active" id="setpage-general" role="tabpanel" aria-labelledby="setnav-general">
+              <div class="settings-page-head">
+                <h3 class="settings-page-title">General</h3>
+                <p class="settings-page-desc">How the launcher starts, closes and gets out of the way while you play.</p>
               </div>
-            </div>
-            <p class="sg-hint">Frosted, translucent surfaces over a tint or an image of your choosing. It takes over from Active Skin above while it is on.</p>
 
-            <div id="glassOptions" class="ct-body is-open">
-              <p class="sg-hint" id="glassOffNote" hidden>These apply once Liquid Glass is switched on.</p>
-
-              <div class="sg-toggle-row">
-                <span>Full glass effects</span>
-                <div class="toggle-wrap" id="tgl-glassFull">
-                  <div class="tgl-knob"></div>
+              <div class="settings-group">
+                <div class="sg-title">Startup and closing</div>
+                <div class="sg-toggle-row">
+                  <span class="sg-text">
+                    <span class="sg-label">Keep running in the tray</span>
+                    <span class="sg-desc">Closing the window hides the launcher next to the clock instead of quitting it.</span>
+                  </span>
+                  <div class="toggle-wrap" id="tgl-runInBackground"><div class="tgl-knob"></div></div>
+                </div>
+                <div class="sg-toggle-row">
+                  <span class="sg-text">
+                    <span class="sg-label">Start with Windows</span>
+                    <span class="sg-desc">Opens quietly in the tray when you sign in to Windows.</span>
+                  </span>
+                  <div class="toggle-wrap" id="tgl-launchAtStartup"><div class="tgl-knob"></div></div>
                 </div>
               </div>
-              <p class="sg-hint">Frosts every panel and blurs behind popups. Turn it off for a lighter version that stays smooth on older or integrated graphics.</p>
 
-              <div class="ct-swatches">
-                <div class="ct-swatch tint-picker-host">
-                  <!-- Our own picker, not <input type="color">: that opens
-                       Chromium's white system popup. See the tint picker in app.js. -->
-                  <button type="button" id="theme-glassBg" class="tint-swatch" aria-label="Glass tint colour" aria-haspopup="dialog" aria-expanded="false" aria-controls="tintPicker"></button>
-                  <span>Glass Tint</span>
-                  <span class="ct-note">used when no image</span>
-                  <button class="btn-open-folder" id="btnResetGlassTint">Reset</button>
-                  <div class="tint-picker" id="tintPicker" role="dialog" aria-label="Glass tint" hidden>
-                    <div class="tint-sv" id="tintSv" tabindex="0" role="slider" aria-label="Saturation and brightness">
-                      <div class="tint-sv-thumb" id="tintSvThumb"></div>
-                    </div>
-                    <div class="tint-hue" id="tintHue" tabindex="0" role="slider" aria-label="Hue" aria-valuemin="0" aria-valuemax="360">
-                      <div class="tint-hue-thumb" id="tintHueThumb"></div>
-                    </div>
-                    <div class="tint-row">
-                      <input type="text" id="tintHex" class="cfg-input tint-hex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Hex colour">
-                    </div>
-                    <div class="tint-presets" id="tintPresets"></div>
+              <div class="settings-group">
+                <div class="sg-title">When the game starts</div>
+                <div class="sg-toggle-row">
+                  <span class="sg-text">
+                    <span class="sg-label">Minimize the launcher</span>
+                    <span class="sg-desc">Drops the window to the taskbar while you play.</span>
+                  </span>
+                  <div class="toggle-wrap" id="tgl-minimizeOnLaunch"><div class="tgl-knob"></div></div>
+                </div>
+                <div class="sg-toggle-row">
+                  <!-- Reads "Hide" or "Close" depending on tray mode; see
+                       syncLaunchOptionLabel() in app.js. -->
+                  <span class="sg-text">
+                    <span class="sg-label" id="lblCloseOnLaunch">Close the launcher</span>
+                    <span class="sg-desc" id="descCloseOnLaunch">Quits the launcher once the game is running.</span>
+                  </span>
+                  <div class="toggle-wrap" id="tgl-closeOnLaunch"><div class="tgl-knob"></div></div>
+                </div>
+                <div class="sg-toggle-row" id="row-disableWarnings">
+                  <span class="sg-text">
+                    <span class="sg-label">Skip the checks before playing</span>
+                    <span class="sg-desc">No antivirus, Smart App Control or Steam warnings when you press PLAY.</span>
+                  </span>
+                  <div class="toggle-wrap" id="tgl-disableWarnings"><div class="tgl-knob"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ── Home ── -->
+            <!-- What Home shows and in what order (config.home, rows built by
+                 renderHomeLayoutList), and the picture at the top of it for
+                 the network in use (setHomeBanner). -->
+            <div class="settings-page" id="setpage-home" role="tabpanel" aria-labelledby="setnav-home" hidden>
+              <div class="settings-page-head">
+                <h3 class="settings-page-title">Home</h3>
+                <p class="settings-page-desc">What Home shows, in what order, and the picture at the top of it.</p>
+              </div>
+
+              <div class="settings-group">
+                <div class="sg-title">Sections</div>
+                <div class="home-layout-list" id="homeLayoutList"></div>
+              </div>
+
+              <div class="settings-group">
+                <div class="sg-title">Banner</div>
+                <div class="sg-row banner-row">
+                  <span class="banner-preview" id="bannerPreview" role="img" aria-label="Current banner"></span>
+                  <span class="sg-text">
+                    <span class="sg-label" id="bannerLabel">Banner picture</span>
+                    <span class="sg-desc" id="bannerDesc">Behind the logo at the top of Home. Each network keeps its own.</span>
+                  </span>
+                  <div class="sg-control">
+                    <!-- Off-screen rather than display:none so the forwarded
+                         click still opens the picker. -->
+                    <input type="file" id="bannerFilePicker" class="ct-file-input" accept="image/*" />
+                    <button type="button" class="btn-open-folder" id="btnChooseBanner">Choose picture</button>
+                    <button type="button" class="btn-open-folder" id="btnResetBanner">Use network art</button>
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div class="sg-row">
-                <label for="theme-bgImage">Background image URL</label>
-                <input type="text" id="theme-bgImage" class="cfg-input" placeholder="https://… then press Enter" spellcheck="false" autocomplete="off" />
+            <!-- ── Appearance ── -->
+            <div class="settings-page" id="setpage-appearance" role="tabpanel" aria-labelledby="setnav-appearance" hidden>
+              <div class="settings-page-head">
+                <h3 class="settings-page-title">Appearance</h3>
+                <p class="settings-page-desc">Pick a skin from another era, or lay Liquid Glass over all of it.</p>
               </div>
-              <div class="sg-row">
-                <label>Or a local file</label>
-                <span class="ct-grow"></span>
-                <!-- Off-screen rather than display:none so the click that
-                     btnBrowseBgFile forwards still opens the picker. -->
-                <input type="file" id="theme-bgFilePicker" class="ct-file-input" accept="image/*" />
-                <button class="btn-open-folder" id="btnBrowseBgFile">Choose File</button>
-                <button class="btn-open-folder" id="btnClearBgImage">Clear</button>
-              </div>
-            </div>
-          </div>
 
-          <!-- Options -->
-          <div class="settings-group">
-            <div class="sg-title">OPTIONS</div>
-            <div class="sg-toggle-row">
-              <span>Keep running in the tray when the window is closed</span>
-              <div class="toggle-wrap" id="tgl-runInBackground">
-                <div class="tgl-knob"></div>
+              <div class="settings-group">
+                <div class="sg-title">Skin</div>
+                <!-- Dimmed by JS while Liquid Glass is on: glass repaints every
+                     surface itself and stands in for whichever skin is picked
+                     here, so changing this selection would have no visible
+                     effect until glass is switched off again. -->
+                <div class="sg-row" id="activeSkinRow">
+                  <span class="sg-text">
+                    <label class="sg-label" for="cfgTheme">Active skin</label>
+                    <span class="sg-desc">Fifteen looks, from Windows 95 to today.</span>
+                  </span>
+                  <div class="sg-control">
+                    <select id="cfgTheme" class="cfg-input">
+                      <option value="steam-green">Steam 2003 Green</option>
+                      <option value="steam2010">Steam 2010</option>
+                      <option value="win98">Windows 98 Gray</option>
+                      <option value="win95">Windows 95 Teal</option>
+                      <option value="winxp">Windows XP Blue</option>
+                      <option value="royalenoir">Windows XP Royale Noir</option>
+                      <option value="winvista">Windows Vista Aero</option>
+                      <option value="win7">Windows 7 Aero</option>
+                      <option value="macosclassic">Mac OS Classic</option>
+                      <option value="macosaqua">Mac OS X Aqua</option>
+                      <option value="moderndark">Modern Neon Dark</option>
+                      <option value="modernlight">Modern Glass Light</option>
+                      <option value="moderngreen">Modern Forest Green</option>
+                      <option value="blackandwhite">Black & White</option>
+                      <option value="blackandwhite-inverted">Black & White (Inverted)</option>
+                    </select>
+                  </div>
+                </div>
+                <p class="sg-hint" id="activeSkinLockNote" hidden>Liquid Glass paints its own surfaces while it's on. Switch it off below to change skins again.</p>
               </div>
-            </div>
-            <div class="sg-toggle-row">
-              <span>Start Radium Launcher when Windows starts</span>
-              <div class="toggle-wrap" id="tgl-launchAtStartup">
-                <div class="tgl-knob"></div>
-              </div>
-            </div>
-            <div class="sg-toggle-row">
-              <span>Minimize launcher when game starts</span>
-              <div class="toggle-wrap" id="tgl-minimizeOnLaunch">
-                <div class="tgl-knob"></div>
-              </div>
-            </div>
-            <div class="sg-toggle-row">
-              <!-- Reads "Hide" or "Close" depending on tray mode; see
-                   syncLaunchOptionLabel() in app.js. -->
-              <span id="lblCloseOnLaunch">Close launcher when game starts</span>
-              <div class="toggle-wrap" id="tgl-closeOnLaunch">
-                <div class="tgl-knob"></div>
-              </div>
-            </div>
-            <div class="sg-toggle-row">
-              <span>Auto-update launcher on startup</span>
-              <div class="toggle-wrap" id="tgl-autoUpdate">
-                <div class="tgl-knob"></div>
-              </div>
-            </div>
-            <div class="sg-toggle-row" id="row-disableWarnings">
-              <span>Disable warning popups</span>
-              <div class="toggle-wrap" id="tgl-disableWarnings">
-                <div class="tgl-knob"></div>
-              </div>
-            </div>
-            <div class="sg-row" style="margin-top: 12px; margin-bottom: 4px;">
-              <button class="btn-test-server" id="btnCheckUpdates">CHECK FOR LAUNCHER UPDATES</button>
-              <span class="test-result" id="updateCheckResult" style="margin-left: 10px; font-weight: bold; font-size: 12px; line-height: 24px; vertical-align: middle;"></span>
-            </div>
-          </div>
 
-          <!-- Vanilla notification pop-ups. Vanilla only: they come from the
-               signed-in Vanilla account. -->
-          <div class="settings-group network-only-vanilla">
-            <div class="sg-title">NOTIFICATIONS</div>
-            <div class="sg-toggle-row">
-              <span>Show a pop-up in the corner of the screen for new Vanilla notifications</span>
-              <div class="toggle-wrap" id="tgl-notifPopups">
-                <div class="tgl-knob"></div>
+              <!-- Its own group rather than a tail on Skin, because it is not
+                   one more skin: it repaints every surface and brings its own
+                   layout, so while it is on it stands in for whichever skin is
+                   selected above. That skin is remembered for when it is
+                   switched off. -->
+              <div class="settings-group">
+                <div class="sg-title">Liquid Glass</div>
+                <div class="sg-toggle-row">
+                  <span class="sg-text">
+                    <span class="sg-label">Liquid Glass</span>
+                    <span class="sg-desc">Frosted, see-through surfaces over a tint or a picture. Takes over from the skin while it's on.</span>
+                  </span>
+                  <div class="toggle-wrap" id="tgl-glassEnabled"><div class="tgl-knob"></div></div>
+                </div>
+
+                <div id="glassOptions" class="ct-body is-open">
+                  <p class="sg-hint" id="glassOffNote" hidden>These apply once Liquid Glass is switched on.</p>
+
+                  <div class="sg-toggle-row">
+                    <span class="sg-text">
+                      <span class="sg-label">Full glass effects</span>
+                      <span class="sg-desc">Frosts every panel and blurs behind pop-ups. Turn it off on older or integrated graphics.</span>
+                    </span>
+                    <div class="toggle-wrap" id="tgl-glassFull"><div class="tgl-knob"></div></div>
+                  </div>
+
+                  <div class="sg-row">
+                    <span class="sg-text">
+                      <span class="sg-label">Glass tint</span>
+                      <span class="sg-desc">The colour behind the glass when no picture is set.</span>
+                    </span>
+                    <div class="sg-control">
+                      <div class="tint-picker-host">
+                        <!-- Our own picker, not <input type="color">: that opens
+                             Chromium's white system popup. See the tint picker in app.js. -->
+                        <button type="button" id="theme-glassBg" class="tint-swatch" aria-label="Glass tint colour" aria-haspopup="dialog" aria-expanded="false" aria-controls="tintPicker"></button>
+                        <div class="tint-picker" id="tintPicker" role="dialog" aria-label="Glass tint" hidden>
+                          <div class="tint-sv" id="tintSv" tabindex="0" role="slider" aria-label="Saturation and brightness">
+                            <div class="tint-sv-thumb" id="tintSvThumb"></div>
+                          </div>
+                          <div class="tint-hue" id="tintHue" tabindex="0" role="slider" aria-label="Hue" aria-valuemin="0" aria-valuemax="360">
+                            <div class="tint-hue-thumb" id="tintHueThumb"></div>
+                          </div>
+                          <div class="tint-row">
+                            <input type="text" id="tintHex" class="cfg-input tint-hex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="Hex colour">
+                          </div>
+                          <div class="tint-presets" id="tintPresets"></div>
+                        </div>
+                      </div>
+                      <button type="button" class="btn-open-folder" id="btnResetGlassTint">Reset</button>
+                    </div>
+                  </div>
+
+                  <div class="sg-row sg-row-stack">
+                    <span class="sg-text">
+                      <label class="sg-label" for="theme-bgImage">Background picture</label>
+                      <span class="sg-desc">Paste an https link and press Enter, or choose a picture on this PC.</span>
+                    </span>
+                    <div class="sg-control">
+                      <input type="text" id="theme-bgImage" class="cfg-input" placeholder="https://…" spellcheck="false" autocomplete="off" />
+                      <!-- Off-screen rather than display:none so the click that
+                           btnBrowseBgFile forwards still opens the picker. -->
+                      <input type="file" id="theme-bgFilePicker" class="ct-file-input" accept="image/*" />
+                      <button type="button" class="btn-open-folder" id="btnBrowseBgFile">Choose file</button>
+                      <button type="button" class="btn-open-folder" id="btnClearBgImage">Clear</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="sg-toggle-row">
-              <span>Play a sound</span>
-              <div class="toggle-wrap" id="tgl-notifSound">
-                <div class="tgl-knob"></div>
+
+            <!-- ── Game folders ── -->
+            <!-- Every network's folder is listed together on purpose: each
+                 installs into its own folder, and when only the active network
+                 had a row here, pointing Vanilla somewhere else meant switching
+                 networks first and switching back afterwards. -->
+            <div class="settings-page" id="setpage-folders" role="tabpanel" aria-labelledby="setnav-folders" hidden>
+              <div class="settings-page-head">
+                <h3 class="settings-page-title">Game folders</h3>
+                <p class="settings-page-desc">Where each network's game client lives. Every network keeps a folder of its own.</p>
+              </div>
+
+              <div class="settings-group">
+                <div class="folder-row">
+                  <img class="folder-logo" src="logo.png" alt="" />
+                  <span class="folder-text">
+                    <span class="sg-label">Radium</span>
+                    <span class="folder-path" id="cfgInstallDirRadium">%APPDATA%\com.radium.launcher\client</span>
+                  </span>
+                  <span class="folder-actions">
+                    <button type="button" class="btn-open-folder" data-change-folder="radium">Change</button>
+                    <button type="button" class="btn-open-folder" data-reset-folder="radium">Reset</button>
+                    <button type="button" class="btn-open-folder" data-open-folder="radium">Open</button>
+                  </span>
+                </div>
+                <div class="folder-row">
+                  <img class="folder-logo" src="assets/vanilla-logo.png" alt="" />
+                  <span class="folder-text">
+                    <span class="sg-label">Vanilla</span>
+                    <span class="folder-path" id="cfgInstallDirVanilla">%APPDATA%\com.radium.launcher\client-vanilla</span>
+                  </span>
+                  <span class="folder-actions">
+                    <button type="button" class="btn-open-folder" data-change-folder="vanilla">Change</button>
+                    <button type="button" class="btn-open-folder" data-reset-folder="vanilla">Reset</button>
+                    <button type="button" class="btn-open-folder" data-open-folder="vanilla">Open</button>
+                  </span>
+                </div>
+                <div class="folder-row">
+                  <img class="folder-logo" src="assets/stella-logo.png" alt="" />
+                  <span class="folder-text">
+                    <span class="sg-label">Stella</span>
+                    <span class="folder-path" id="cfgInstallDirStella">%APPDATA%\com.radium.launcher\client-stella</span>
+                  </span>
+                  <span class="folder-actions">
+                    <button type="button" class="btn-open-folder" data-change-folder="stella">Change</button>
+                    <button type="button" class="btn-open-folder" data-reset-folder="stella">Reset</button>
+                    <button type="button" class="btn-open-folder" data-open-folder="stella">Open</button>
+                  </span>
+                </div>
               </div>
             </div>
-            <div class="sg-row" style="margin-top: 12px; margin-bottom: 4px;">
-              <button class="btn-test-server" id="btnTestNotif">SEND A TEST POP-UP</button>
-            </div>
-          </div>
 
-          <!-- Stella friends: where the list shows. Stella only. -->
-          <div class="settings-group network-only-stella">
-            <div class="sg-title">FRIENDS</div>
-            <div class="sg-row">
-              <label for="cfgFriendsView">Show friends</label>
-              <select id="cfgFriendsView" class="cfg-input">
-                <option value="home">On Home</option>
-                <option value="tab">In their own tab</option>
-                <option value="hidden">Hidden</option>
-              </select>
+            <!-- ── Notifications (Vanilla) ── -->
+            <!-- They come from the signed-in Vanilla account. -->
+            <div class="settings-page network-only-vanilla" id="setpage-notifications" role="tabpanel" aria-labelledby="setnav-notifications" hidden>
+              <div class="settings-page-head">
+                <h3 class="settings-page-title">Notifications</h3>
+                <p class="settings-page-desc">Pop-ups for your Vanilla account's notifications, shown outside the launcher.</p>
+              </div>
+
+              <div class="settings-group">
+                <div class="sg-toggle-row">
+                  <span class="sg-text">
+                    <span class="sg-label">Show pop-ups</span>
+                    <span class="sg-desc">A card in the corner of the screen for each new Vanilla notification.</span>
+                  </span>
+                  <div class="toggle-wrap" id="tgl-notifPopups"><div class="tgl-knob"></div></div>
+                </div>
+                <div class="sg-toggle-row">
+                  <span class="sg-text">
+                    <span class="sg-label">Play a sound</span>
+                    <span class="sg-desc">A short chime with each pop-up.</span>
+                  </span>
+                  <div class="toggle-wrap" id="tgl-notifSound"><div class="tgl-knob"></div></div>
+                </div>
+                <div class="sg-row">
+                  <span class="sg-text">
+                    <span class="sg-label">Test pop-up</span>
+                    <span class="sg-desc">See what one looks like.</span>
+                  </span>
+                  <div class="sg-control">
+                    <button type="button" class="btn-test-server" id="btnTestNotif">Send a test</button>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+
+            <!-- ── Friends (Stella) ── -->
+            <div class="settings-page network-only-stella" id="setpage-friends" role="tabpanel" aria-labelledby="setnav-friends" hidden>
+              <div class="settings-page-head">
+                <h3 class="settings-page-title">Friends</h3>
+                <p class="settings-page-desc">Your Stella friends, and where the launcher shows them.</p>
+              </div>
+
+              <div class="settings-group">
+                <div class="sg-row">
+                  <span class="sg-text">
+                    <label class="sg-label" for="cfgFriendsView">Show friends</label>
+                    <span class="sg-desc">On Home, in a FRIENDS tab of their own, or not at all.</span>
+                  </span>
+                  <div class="sg-control">
+                    <select id="cfgFriendsView" class="cfg-input">
+                      <option value="home">On Home</option>
+                      <option value="tab">In their own tab</option>
+                      <option value="hidden">Hidden</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ── About ── -->
+            <div class="settings-page" id="setpage-about" role="tabpanel" aria-labelledby="setnav-about" hidden>
+              <div class="settings-page-head">
+                <h3 class="settings-page-title">About</h3>
+                <p class="settings-page-desc">This launcher, and keeping it up to date.</p>
+              </div>
+
+              <div class="settings-group about-card">
+                <img class="about-logo" src="logo.png" alt="" />
+                <span class="about-text">
+                  <span class="about-name">Radium Launcher</span>
+                  <span class="about-version" id="aboutVersion"></span>
+                </span>
+              </div>
+
+              <div class="settings-group">
+                <div class="sg-title">Updates</div>
+                <div class="sg-toggle-row">
+                  <span class="sg-text">
+                    <span class="sg-label">Update automatically</span>
+                    <span class="sg-desc">Looks for a new version of the launcher every time it starts.</span>
+                  </span>
+                  <div class="toggle-wrap" id="tgl-autoUpdate"><div class="tgl-knob"></div></div>
+                </div>
+                <div class="sg-row">
+                  <span class="sg-text">
+                    <span class="sg-label">Check now</span>
+                    <span class="sg-desc test-result" id="updateCheckResult">See whether a newer launcher is out.</span>
+                  </span>
+                  <div class="sg-control">
+                    <button type="button" class="btn-test-server" id="btnCheckUpdates">Check for updates</button>
+                  </div>
+                </div>
+              </div>
+            </div>
 
           </div>
-        </section>
+        </div>
+      </section>
 
       <!-- ───────── PHOTO DETAIL TAB (NATIVE) ────────── -->
       <section class="tab-panel" id="tab-photo-detail">

@@ -57,6 +57,17 @@ try {
   var savedNetwork = localStorage.getItem('radium-network');
   var network = (savedNetwork === 'vanilla' || savedNetwork === 'stella') ? savedNetwork : 'radium';
   document.body.classList.add('network-' + network);
+  // That network's Home banner, when the user picked a picture for it.
+  // Checked like the glass backdrop: a stored picture only, nothing that could
+  // end the url(). Mirrors applyHomeBanner() in app.js, which wrote it.
+  try {
+    var banner = JSON.parse(localStorage.getItem('radium-home-banner') || 'null');
+    var image = banner && banner.network === network ? String(banner.image || '') : '';
+    if (image.indexOf('data:image/') === 0 && !/['"(){}\\]|[\x00-\x1f\x7f]/.test(image)) {
+      document.body.style.setProperty('--home-banner', 'url("' + image + '")');
+      document.body.classList.add('has-home-banner');
+    }
+  } catch (e) {}
   // Every network now has a rooms/people API, so none start socially hidden.
   // (applyNetworkUI still toggles `network-no-social` from NETWORKS[*].hasSocial
   // if a future network opts out.)
