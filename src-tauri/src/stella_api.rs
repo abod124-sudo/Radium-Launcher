@@ -48,9 +48,11 @@ const IMG_BASE: &str = "https://api.stellaonline.org/img";
 /// The name-server key for each first path segment used here, and where it
 /// pointed when last measured (2026-10-05) — used until the name server
 /// answers. Stella moved auth, accounts, rooms and matchmaking off
-/// `api.stellaonline.org` that day; the old paths there are 404s.
+/// `api.stellaonline.org` that day, and the notification hub later the same
+/// day; the old paths there are 404s.
 const SERVICES: &[(&str, &str, &str)] = &[
     ("auth", "Auth", "https://auth.stellaonline.org/auth"),
+    ("notify", "Notifications", "https://notify.stellaonline.org/notify"),
     ("account", "Accounts", "https://accounts.stellaonline.org/"),
     ("roomserver", "Rooms", "https://rooms.stellaonline.org/roomserver"),
     ("match", "Matchmaking", "https://match.stellaonline.org/match"),
@@ -122,6 +124,15 @@ async fn url(path: &str) -> String {
         .unwrap_or(("API", "https://api.stellaonline.org/"));
     let map = service_urls().await;
     join_service(map.get(key).map(String::as_str).unwrap_or(fallback), seg, path)
+}
+
+/// The notification hub's websocket URL (see `stella_hub`).
+pub(crate) async fn hub_url() -> String {
+    let url = url("/notify/hub/v1").await;
+    match url.strip_prefix("https://") {
+        Some(rest) => format!("wss://{rest}"),
+        None => url,
+    }
 }
 
 fn join_service(base: &str, seg: &str, path: &str) -> String {
@@ -2437,6 +2448,10 @@ mod tests {
         assert_eq!(
             join_service("https://match.stellaonline.org/match", "match", "/match/room/1/instances"),
             "https://match.stellaonline.org/match/room/1/instances"
+        );
+        assert_eq!(
+            join_service("https://notify.stellaonline.org/notify", "notify", "/notify/hub/v1"),
+            "https://notify.stellaonline.org/notify/hub/v1"
         );
     }
 

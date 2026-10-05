@@ -2,8 +2,9 @@
 //!
 //! Stella has no REST call for "is my friend online" (every presence path is a
 //! 404). The game learns it from the notification hub, a SignalR websocket at
-//! `/notify/hub/v1`, and so does this. Measured against the live server and the
-//! game's own traffic (2026-10-01):
+//! `/notify/hub/v1` on the name server's `Notifications` host (moved off
+//! `api.stellaonline.org` 2026-10-05), and so does this. Measured against the
+//! live server and the game's own traffic (2026-10-01):
 //!
 //! - The socket opens with just the session's bearer token and the `BestHTTP`
 //!   User-Agent: no negotiate step, no request signature. Opening it does not
@@ -62,7 +63,6 @@ use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
 use crate::stella_api;
 
-const HUB_URL: &str = "wss://api.stellaonline.org/notify/hub/v1";
 /// Tells the frontend to ask again with [`stella_friends`].
 const CHANGED_EVENT: &str = "stella-friends-changed";
 const INVITE_EVENT: &str = "stella-invite";
@@ -385,7 +385,7 @@ async fn run_connection(app: &AppHandle, gen: u64) -> Result<(), String> {
     load_friends(gen).await?;
     let _ = app.emit(CHANGED_EVENT, ());
 
-    let mut req = HUB_URL.into_client_request().map_err(|e| e.to_string())?;
+    let mut req = stella_api::hub_url().await.into_client_request().map_err(|e| e.to_string())?;
     let headers = req.headers_mut();
     headers.insert("User-Agent", stella_api::USER_AGENT.parse().map_err(|_| "bad header")?);
     headers.insert(
