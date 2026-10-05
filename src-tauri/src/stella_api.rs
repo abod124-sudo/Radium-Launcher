@@ -1,8 +1,9 @@
 //! Stella's live game API — rooms, people and profiles — reached the way the
 //! game client reaches it.
 //!
-//! Stella runs the stock Rec Room backend behind Cloudflare on
-//! `api.stellaonline.org`. Three things, and only these three, get a request
+//! Stella runs the stock Rec Room backend behind Cloudflare, its services
+//! (auth, accounts, rooms, matchmaking, the rest) on hosts named by the name
+//! server at `api.stellaonline.org/` — see [`url`]. Three things, and only these three, get a request
 //! through and answered (measured against the real client, 2026-10-01):
 //!
 //! 1. **`User-Agent: BestHTTP`.** Cloudflare's rule is purely on this string —
@@ -39,8 +40,98 @@ use serde_json::{json, Value};
 
 use crate::server::{http_client_besthttp, read_capped, MAX_API_BYTES};
 
-const BASE: &str = "https://api.stellaonline.org";
+/// Stella's name server: the API root answers with each service's base URL, as
+/// it does for the game (`{"Auth":"https://auth.stellaonline.org/auth", …}`).
+const NAME_SERVER: &str = "https://api.stellaonline.org/";
 const IMG_BASE: &str = "https://api.stellaonline.org/img";
+
+/// The name-server key for each first path segment used here, and where it
+/// pointed when last measured (2026-10-05) — used until the name server
+/// answers. Stella moved auth, accounts, rooms and matchmaking off
+/// `api.stellaonline.org` that day; the old paths there are 404s.
+const SERVICES: &[(&str, &str, &str)] = &[
+    ("auth", "Auth", "https://auth.stellaonline.org/auth"),
+    ("account", "Accounts", "https://accounts.stellaonline.org/"),
+    ("roomserver", "Rooms", "https://rooms.stellaonline.org/roomserver"),
+    ("match", "Matchmaking", "https://match.stellaonline.org/match"),
+    ("api", "API", "https://api.stellaonline.org/"),
+];
+
+/// How long a name-server answer is trusted, and how long to wait before asking
+/// again after it failed (the built-in map is used meanwhile).
+const NAME_SERVER_TTL: Duration = Duration::from_secs(60 * 60);
+const NAME_SERVER_RETRY: Duration = Duration::from_secs(60);
+
+/// The last name-server answer (service key → base URL), and when it lapses.
+static SERVICE_URLS: Mutex<Option<(Arc<std::collections::HashMap<String, String>>, std::time::Instant)>> =
+    Mutex::new(None);
+
+/// The name server's map, fetched at most once per [`NAME_SERVER_TTL`]. Only
+/// https URLs on Stella's own domain are taken from it, since the session token
+/// goes wherever it points; anything else falls back to [`SERVICES`].
+async fn service_urls() -> Arc<std::collections::HashMap<String, String>> {
+    if let Some((map, until)) = SERVICE_URLS.lock().ok().and_then(|g| g.clone()) {
+        if std::time::Instant::now() < until {
+            return map;
+        }
+    }
+    let fetched = async {
+        let resp = http_client_besthttp().get(NAME_SERVER).timeout(Duration::from_secs(10)).send().await.ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let body = read_capped(resp, MAX_API_BYTES).await.ok()?;
+        let v: Value = serde_json::from_slice(&body).ok()?;
+        let map: std::collections::HashMap<String, String> = v
+            .as_object()?
+            .iter()
+            .filter_map(|(k, url)| Some((k.clone(), url.as_str()?.to_string())))
+            .filter(|(_, url)| on_stella(url))
+            .collect();
+        (!map.is_empty()).then_some(map)
+    }
+    .await;
+    let (map, ttl) = match fetched {
+        Some(map) => (map, NAME_SERVER_TTL),
+        None => (Default::default(), NAME_SERVER_RETRY),
+    };
+    let map = Arc::new(map);
+    if let Ok(mut g) = SERVICE_URLS.lock() {
+        *g = Some((map.clone(), std::time::Instant::now() + ttl));
+    }
+    map
+}
+
+/// Whether `url` is https on `stellaonline.org` or one of its subdomains.
+fn on_stella(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("").to_ascii_lowercase();
+    host == "stellaonline.org" || host.ends_with(".stellaonline.org")
+}
+
+/// Absolute URL for an API `path` such as `/account/bulk?id=1`: its first
+/// segment picks the service, whose base URL (from the name server) replaces
+/// that segment when the base already ends in it (`…/auth` + `/auth/x` →
+/// `…/auth/x`), and is prefixed to the whole path otherwise.
+async fn url(path: &str) -> String {
+    let seg = path.trim_start_matches('/').split(['/', '?']).next().unwrap_or("");
+    let (key, fallback) = SERVICES
+        .iter()
+        .find(|(s, _, _)| *s == seg)
+        .map(|(_, k, f)| (*k, *f))
+        .unwrap_or(("API", "https://api.stellaonline.org/"));
+    let map = service_urls().await;
+    join_service(map.get(key).map(String::as_str).unwrap_or(fallback), seg, path)
+}
+
+fn join_service(base: &str, seg: &str, path: &str) -> String {
+    let base = base.trim_end_matches('/');
+    let path = format!("/{}", path.trim_start_matches('/'));
+    match path.strip_prefix(&format!("/{seg}")) {
+        Some(rest) if !seg.is_empty() && base.ends_with(&format!("/{seg}")) => format!("{base}{rest}"),
+        _ => format!("{base}{path}"),
+    }
+}
 
 /// Stella's Cloudflare answers the API only for this User-Agent.
 pub const USER_AGENT: &str = "BestHTTP";
@@ -671,7 +762,7 @@ async fn login_as(device: &str) -> Result<Session, String> {
     // account id for the signed-in Steam id (also tells us the account exists)
     let lookup = send_with_retry(
         client
-            .get(format!("{BASE}/auth/cachedlogin/forplatformid/0/{steam_id}"))
+            .get(url(&format!("/auth/cachedlogin/forplatformid/0/{steam_id}")).await)
             .timeout(Duration::from_secs(15)),
     )
     .await?;
@@ -688,7 +779,7 @@ async fn login_as(device: &str) -> Result<Session, String> {
 
     // eac challenge (the server wants the value echoed back; it isn't verified)
     let eac = client
-        .get(format!("{BASE}/auth/eac/challenge"))
+        .get(url("/auth/eac/challenge").await)
         .timeout(Duration::from_secs(15))
         .send()
         .await
@@ -724,7 +815,7 @@ async fn login_as(device: &str) -> Result<Session, String> {
     ];
 
     let resp = client
-        .post(format!("{BASE}/auth/connect/token"))
+        .post(url("/auth/connect/token").await)
         .form(&form)
         .timeout(Duration::from_secs(20))
         .send()
@@ -846,7 +937,7 @@ async fn api_request_with(method: reqwest::Method, path: &str, body: Body<'_>) -
     for attempt in 0..2 {
         let (token, _account) = ensure_session().await?;
         let mut req = http_client_besthttp()
-            .request(method.clone(), format!("{BASE}{path}"))
+            .request(method.clone(), url(path).await)
             .bearer_auth(&token);
         match body {
             Body::Json(v) => req = req.json(v),
@@ -2327,6 +2418,37 @@ fn urlenc(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn service_urls_join_without_doubling_the_segment() {
+        use super::join_service;
+        assert_eq!(
+            join_service("https://auth.stellaonline.org/auth", "auth", "/auth/connect/token"),
+            "https://auth.stellaonline.org/auth/connect/token"
+        );
+        assert_eq!(
+            join_service("https://accounts.stellaonline.org/", "account", "/account/bulk?id=1"),
+            "https://accounts.stellaonline.org/account/bulk?id=1"
+        );
+        assert_eq!(
+            join_service("https://api.stellaonline.org/", "api", "/api/relationships/v2/get"),
+            "https://api.stellaonline.org/api/relationships/v2/get"
+        );
+        assert_eq!(
+            join_service("https://match.stellaonline.org/match", "match", "/match/room/1/instances"),
+            "https://match.stellaonline.org/match/room/1/instances"
+        );
+    }
+
+    #[test]
+    fn only_stella_hosts_come_from_the_name_server() {
+        use super::on_stella;
+        assert!(on_stella("https://auth.stellaonline.org/auth"));
+        assert!(on_stella("https://stellaonline.org"));
+        assert!(!on_stella("http://auth.stellaonline.org/auth"));
+        assert!(!on_stella("https://stellaonline.org.evil.com/"));
+        assert!(!on_stella("https://google.com/generate_204"));
+    }
 
     #[test]
     fn notification_rows_name_the_sender_and_an_invites_room() {
