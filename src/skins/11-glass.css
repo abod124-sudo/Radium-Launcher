@@ -1405,6 +1405,7 @@
   transition:
     background-color 0.2s var(--lg-ease),
     transform 0.45s var(--lg-spring),
+    top 0.45s var(--lg-spring),
     box-shadow 0.25s var(--lg-ease) !important;
 }
 :root body.glass-enabled :is(.room-card, .player-card)::after {
@@ -1422,6 +1423,12 @@
     var(--lg-fill) !important;
   transform: translateY(-3px) !important;
   box-shadow: 0 16px 32px -14px rgba(0, 0, 0, 0.7) !important;
+}
+/* A room card rises with `top` instead: sliding on the GPU while its picture
+   zooms let the picture's bottom row show past the shade (see 03-content). */
+:root body.glass-enabled.glass-enabled .room-card:not(.is-skeleton):hover {
+  transform: none !important;
+  top: -3px;
 }
 :root body.glass-enabled.glass-enabled .nav-btn:hover { transform: none !important; }
 :root body.glass-enabled .room-card-media { border-radius: 0; }

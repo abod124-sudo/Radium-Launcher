@@ -3056,6 +3056,8 @@ body.theme-moderndark .modal-close-btn {
 @container (min-width: 1440px) { .room-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 .room-card {
   position: relative;
+  /* Set, not auto, so the skins' hover lift (`top`) can ease from it. */
+  top: 0;
   display: flex; flex-direction: column;
   min-width: 0;
   overflow: hidden;

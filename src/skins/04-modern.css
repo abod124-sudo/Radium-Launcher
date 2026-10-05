@@ -53,7 +53,7 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
      ~18px on the profile header's. */
   --avatar-radius: 22%;
   --badge-radius:  999px;
-  --card-lift: translateY(-3px);
+  --card-lift: -3px;
   --tile-hover-bg: var(--hover);
 
   --header-border: 0;
@@ -413,6 +413,7 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   }
   & :is(.room-card, .player-card) {
     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                top 0.25s cubic-bezier(0.16, 1, 0.3, 1),
                 box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
                 background-color 0.2s ease, border-color 0.2s ease;
   }

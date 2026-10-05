@@ -93,7 +93,8 @@ body:not(.glass-enabled) {
   --card-hover-bg:     var(--card-bg);
   --card-hover-border: var(--card-border);
   --card-hover-shadow: var(--card-shadow);
-  --card-lift:         none;
+  /* How far a room card rises under the pointer, as `top` (see 03-content). */
+  --card-lift:         0px;
 
   --tile-bg:     var(--well-bg);
   --tile-border: var(--well-border);

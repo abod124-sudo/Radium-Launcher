@@ -16,14 +16,17 @@ body:not(.glass-enabled) {
     border: var(--card-border);
     border-radius: var(--card-radius);
     box-shadow: var(--card-shadow);
-    transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+    transition: top var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
                 background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
   }
+  /* Lifted with `top`, not a transform: a card sliding on the GPU by
+     fractions of a pixel while its picture zooms (04-modern) let the
+     picture's bottom row show past the shade for the length of the lift. */
   & .room-card:hover {
     background: var(--card-hover-bg);
     border: var(--card-hover-border);
     box-shadow: var(--card-hover-shadow);
-    transform: var(--card-lift);
+    top: var(--card-lift);
   }
   & .room-card-media {
     background: var(--media-bg);
