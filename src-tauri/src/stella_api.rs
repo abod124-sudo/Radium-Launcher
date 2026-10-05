@@ -38,6 +38,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
+use crate::applog;
 use crate::server::{http_client_besthttp, read_capped, MAX_API_BYTES};
 
 /// Stella's name server: the API root answers with each service's base URL, as
@@ -78,30 +79,118 @@ async fn service_urls() -> Arc<std::collections::HashMap<String, String>> {
         }
     }
     let fetched = async {
-        let resp = http_client_besthttp().get(NAME_SERVER).timeout(Duration::from_secs(10)).send().await.ok()?;
-        if !resp.status().is_success() {
-            return None;
+        let resp = http_client_besthttp()
+            .get(NAME_SERVER)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| unreachable_cause(&e))?;
+        let status = resp.status();
+        let body = read_capped(resp, MAX_API_BYTES).await?;
+        if !status.is_success() {
+            return Err(format!("HTTP {}{}", status_text(status), quoted_reply(&body)));
         }
-        let body = read_capped(resp, MAX_API_BYTES).await.ok()?;
-        let v: Value = serde_json::from_slice(&body).ok()?;
-        let map: std::collections::HashMap<String, String> = v
-            .as_object()?
-            .iter()
-            .filter_map(|(k, url)| Some((k.clone(), url.as_str()?.to_string())))
-            .filter(|(_, url)| on_stella(url))
-            .collect();
-        (!map.is_empty()).then_some(map)
+        let v: Value = serde_json::from_slice(&body)
+            .map_err(|_| format!("not JSON: {}", applog::snippet(&body, 300)))?;
+        let mut map = std::collections::HashMap::new();
+        for (k, url) in v.as_object().ok_or("not a JSON object")? {
+            let Some(url) = url.as_str() else { continue };
+            if on_stella(url) {
+                map.insert(k.clone(), url.to_string());
+            } else if SERVICES.iter().any(|(_, key, _)| key == k) {
+                applog::backend_once(
+                    &format!("ns-off-stella-{k}-{url}"),
+                    Duration::from_secs(24 * 60 * 60),
+                    "warn",
+                    "server",
+                    format!("Stella's name server sends {k} to {url}, which isn't on stellaonline.org, so the built-in address is used instead."),
+                );
+            }
+        }
+        if map.is_empty() {
+            return Err("it listed no services".into());
+        }
+        Ok(map)
     }
     .await;
     let (map, ttl) = match fetched {
-        Some(map) => (map, NAME_SERVER_TTL),
-        None => (Default::default(), NAME_SERVER_RETRY),
+        Ok(map) => {
+            log_moved_services(&map);
+            (map, NAME_SERVER_TTL)
+        }
+        Err(reason) => {
+            applog::backend_once(
+                "ns-failed",
+                Duration::from_secs(10 * 60),
+                "warn",
+                "server",
+                format!("Couldn't read Stella's name server (GET {NAME_SERVER}): {reason}. Using the built-in addresses for now."),
+            );
+            (Default::default(), NAME_SERVER_RETRY)
+        }
     };
     let map = Arc::new(map);
     if let Ok(mut g) = SERVICE_URLS.lock() {
         *g = Some((map.clone(), std::time::Instant::now() + ttl));
     }
     map
+}
+
+/// Note in the log each service the name server puts somewhere other than its
+/// built-in address, or no longer lists: when Stella moves a service, the log
+/// says where to.
+fn log_moved_services(map: &std::collections::HashMap<String, String>) {
+    for (_, key, built_in) in SERVICES {
+        let msg = match map.get(*key) {
+            Some(now) if now.trim_end_matches('/') == built_in.trim_end_matches('/') => continue,
+            Some(now) => format!("Stella's name server puts {key} at {now} (built in: {built_in})."),
+            None => format!("Stella's name server no longer lists {key}; using the built-in {built_in}."),
+        };
+        let at = map.get(*key).map(String::as_str).unwrap_or("");
+        applog::backend_once(&format!("ns-moved-{key}-{at}"), Duration::from_secs(24 * 60 * 60), "info", "server", msg);
+    }
+}
+
+/// "404 Not Found": the status code with its name.
+fn status_text(status: reqwest::StatusCode) -> String {
+    match status.canonical_reason() {
+        Some(reason) => format!("{} {reason}", status.as_u16()),
+        None => status.as_u16().to_string(),
+    }
+}
+
+/// Log a request Stella answered with an error status: the address, the
+/// status and the start of the reply, which is what tells a moved service
+/// (404) from an outage (5xx) or a block page. Repeats of the same failure
+/// within a minute are left out.
+fn log_http_failure(source: &'static str, method: &str, url: &str, status: reqwest::StatusCode, body: &[u8]) {
+    let url = &for_log(url);
+    let without_query = url.split('?').next().unwrap_or(url);
+    applog::backend_once(
+        &format!("http-{method}-{without_query}-{}", status.as_u16()),
+        Duration::from_secs(60),
+        if status.is_server_error() { "error" } else { "warn" },
+        source,
+        format!("Stella answered {method} {url} with HTTP {}{}", status_text(status), quoted_reply(body)),
+    );
+}
+
+/// `url` as written to the log: the sign-in lookup's Steam id left out, since
+/// logs go into bug reports.
+fn for_log(url: &str) -> String {
+    const LOOKUP: &str = "/forplatformid/0/";
+    match url.find(LOOKUP) {
+        Some(at) => format!("{}{LOOKUP}<steam id>", &url[..at]),
+        None => url.to_string(),
+    }
+}
+
+/// ": <the start of the reply>", or nothing for an empty one.
+pub(crate) fn quoted_reply(body: &[u8]) -> String {
+    match applog::snippet(body, 300) {
+        s if s.is_empty() => String::new(),
+        s => format!(": {s}"),
+    }
 }
 
 /// Whether `url` is https on `stellaonline.org` or one of its subdomains.
@@ -771,16 +860,15 @@ async fn login_as(device: &str) -> Result<Session, String> {
     let client = http_client_besthttp();
 
     // account id for the signed-in Steam id (also tells us the account exists)
-    let lookup = send_with_retry(
-        client
-            .get(url(&format!("/auth/cachedlogin/forplatformid/0/{steam_id}")).await)
-            .timeout(Duration::from_secs(15)),
-    )
-    .await?;
+    let lookup_url = url(&format!("/auth/cachedlogin/forplatformid/0/{steam_id}")).await;
+    let lookup = send_with_retry(client.get(&lookup_url).timeout(Duration::from_secs(15))).await?;
     // Checked before the body is read as an account list, or a Cloudflare
     // block page or an outage would read as "no Stella account".
     if !lookup.status().is_success() {
-        return Err(format!("Stella sign-in failed (HTTP {}). Try again later.", lookup.status().as_u16()));
+        let status = lookup.status();
+        let body = read_capped(lookup, 64 * 1024).await.unwrap_or_default();
+        log_http_failure("account", "GET", &lookup_url, status, &body);
+        return Err(format!("Stella sign-in failed (HTTP {}). Try again later.", status.as_u16()));
     }
     let lookup_body = read_capped(lookup, MAX_API_BYTES).await?;
     let account_id = serde_json::from_slice::<Value>(&lookup_body)
@@ -789,18 +877,24 @@ async fn login_as(device: &str) -> Result<Session, String> {
         .ok_or("This Steam account has no Stella account yet. Launch the game once to create one.")?;
 
     // eac challenge (the server wants the value echoed back; it isn't verified)
-    let eac = client
-        .get(url("/auth/eac/challenge").await)
-        .timeout(Duration::from_secs(15))
-        .send()
-        .await
-        .ok();
+    let eac_url = url("/auth/eac/challenge").await;
+    let eac = client.get(&eac_url).timeout(Duration::from_secs(15)).send().await;
     let eac = match eac {
-        Some(r) => {
+        Ok(r) if r.status().is_success() => {
             let b = read_capped(r, MAX_API_BYTES).await.unwrap_or_default();
             String::from_utf8_lossy(&b).trim().trim_matches('"').to_string()
         }
-        None => String::new(),
+        // Signed in without one before; noted in case the sign-in fails.
+        Ok(r) => {
+            let status = r.status();
+            let b = read_capped(r, 64 * 1024).await.unwrap_or_default();
+            log_http_failure("account", "GET", &eac_url, status, &b);
+            String::new()
+        }
+        Err(e) => {
+            unreachable_message(&e);
+            String::new()
+        }
     };
 
     let asid = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis().to_string();
@@ -825,31 +919,58 @@ async fn login_as(device: &str) -> Result<Session, String> {
         ("platform_auth", &platform_auth),
     ];
 
+    let token_url = url("/auth/connect/token").await;
     let resp = client
-        .post(url("/auth/connect/token").await)
+        .post(&token_url)
         .form(&form)
         .timeout(Duration::from_secs(20))
         .send()
         .await
-        .map_err(|e| format!("Stella sign-in failed: {e}"))?;
+        .map_err(|e| {
+            unreachable_message(&e);
+            format!("Stella sign-in failed: {e}")
+        })?;
     let status = resp.status();
     let body = read_capped(resp, MAX_API_BYTES).await?;
     // Looked at whatever the status: Stella turns a device id down with a
     // 200 that carries no token, not with an error status.
     if is_device_rejection(&body) {
+        applog::backend("warn", "account", format!("Stella turned down this PC's device id (POST {token_url}, HTTP {})", status_text(status)));
         return Err(DEVICE_REJECTED.into());
     }
+    // The body is quoted only for a failure: a successful one holds the token.
     if !status.is_success() {
+        log_http_failure("account", "POST", &token_url, status, &body);
         return Err(format!("Stella sign-in was refused (HTTP {}).", status.as_u16()));
     }
-    let token: Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+    let token: Value = serde_json::from_slice(&body).map_err(|e| {
+        applog::backend(
+            "error",
+            "account",
+            format!("Stella's sign-in reply (POST {token_url}) wasn't JSON ({e}): {}", applog::snippet(&body, 300)),
+        );
+        e.to_string()
+    })?;
     let access_token = token
         .get("access_token")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
+            // Only the reply's field names: whatever else it holds may be a
+            // credential.
+            let fields = token.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>().join(", ")).unwrap_or_default();
             // Stella's own reason, when it gives one (OAuth's error fields).
-            match ["error_description", "error"].iter().find_map(|k| token.get(*k).and_then(Value::as_str)) {
+            let reason = ["error_description", "error"].iter().find_map(|k| token.get(*k).and_then(Value::as_str));
+            applog::backend(
+                "error",
+                "account",
+                format!(
+                    "Stella's sign-in (POST {token_url}) answered HTTP {} without a token; reason: {}; fields: {fields}",
+                    status_text(status),
+                    reason.unwrap_or("none given"),
+                ),
+            );
+            match reason {
                 Some(reason) => format!("Stella sign-in was refused ({}).", reason.chars().take(200).collect::<String>()),
                 None => "Stella sign-in returned no token.".to_string(),
             }
@@ -947,8 +1068,9 @@ enum Body<'a> {
 async fn api_request_with(method: reqwest::Method, path: &str, body: Body<'_>) -> Result<Value, String> {
     for attempt in 0..2 {
         let (token, _account) = ensure_session().await?;
+        let full_url = url(path).await;
         let mut req = http_client_besthttp()
-            .request(method.clone(), url(path).await)
+            .request(method.clone(), &full_url)
             .bearer_auth(&token);
         match body {
             Body::Json(v) => req = req.json(v),
@@ -967,11 +1089,27 @@ async fn api_request_with(method: reqwest::Method, path: &str, body: Body<'_>) -
             continue;
         }
         if !status.is_success() {
+            let body = read_capped(resp, 64 * 1024).await.unwrap_or_default();
+            log_http_failure("server", method.as_str(), &full_url, status, &body);
             return Err(format!("Stella API error: HTTP {}", status.as_u16()));
         }
         let body = read_capped(resp, MAX_API_BYTES).await?;
-        return serde_json::from_slice(&body).map_err(|e| e.to_string());
+        return serde_json::from_slice(&body).map_err(|e| {
+            applog::backend_once(
+                &format!("not-json-{}", full_url.split('?').next().unwrap_or("")),
+                Duration::from_secs(60),
+                "error",
+                "server",
+                format!("Stella's reply to {method} {full_url} wasn't readable ({e}): {}", applog::snippet(&body, 300)),
+            );
+            e.to_string()
+        });
     }
+    applog::backend(
+        "error",
+        "account",
+        format!("Stella turned the session down twice (HTTP 401 for {method} {path}), even after a fresh sign-in."),
+    );
     Err("Stella rejected the session twice.".into())
 }
 
@@ -1004,12 +1142,28 @@ async fn send_with_retry(req: reqwest::RequestBuilder) -> Result<reqwest::Respon
 /// request for url (…)"; the reason — refused, reset, closed early, DNS — is
 /// at the bottom of its source chain.
 pub(crate) fn unreachable_message(e: &reqwest::Error) -> String {
+    let reason = unreachable_cause(e);
+    if let Some(url) = e.url() {
+        let host = url.host_str().unwrap_or("");
+        applog::backend_once(
+            &format!("unreachable-{host}-{reason}"),
+            Duration::from_secs(60),
+            "error",
+            "server",
+            format!("Couldn't reach Stella at {}: {reason}", for_log(url.as_str())),
+        );
+    }
+    format!("Couldn't reach Stella ({reason}). Check your internet connection and try again.")
+}
+
+/// The root cause of a failed request: "timed out", "connection refused",
+/// "dns error: …".
+fn unreachable_cause(e: &reqwest::Error) -> String {
     let mut cause: &dyn std::error::Error = e;
     while let Some(next) = cause.source() {
         cause = next;
     }
-    let reason = if e.is_timeout() { "timed out".to_string() } else { cause.to_string() };
-    format!("Couldn't reach Stella ({reason}). Check your internet connection and try again.")
+    if e.is_timeout() { "timed out".to_string() } else { cause.to_string() }
 }
 
 /// `account_id` of the signed-in user (used for "my rooms" etc.).
@@ -2429,6 +2583,15 @@ fn urlenc(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn logged_addresses_leave_out_the_steam_id() {
+        assert_eq!(
+            super::for_log("https://auth.stellaonline.org/auth/cachedlogin/forplatformid/0/76561198000000000"),
+            "https://auth.stellaonline.org/auth/cachedlogin/forplatformid/0/<steam id>"
+        );
+        assert_eq!(super::for_log("https://x.stellaonline.org/a?b=1"), "https://x.stellaonline.org/a?b=1");
+    }
 
     #[test]
     fn service_urls_join_without_doubling_the_segment() {

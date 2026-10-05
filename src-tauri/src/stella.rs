@@ -127,6 +127,12 @@ async fn fetch_patch(mut on_progress: impl FnMut(u64, u64)) -> Result<Vec<u8>, S
         .map_err(|e| crate::stella_api::unreachable_message(&e))?;
     let status = response.status();
     if !status.is_success() {
+        let body = crate::server::read_capped(response, 64 * 1024).await.unwrap_or_default();
+        crate::applog::backend(
+            "error",
+            "install",
+            format!("Stella's patch server answered GET {PATCH_URL} with HTTP {status}{}", crate::stella_api::quoted_reply(&body)),
+        );
         return Err(format!("Stella's patch server answered HTTP {}.", status.as_u16()));
     }
     let total = response.content_length().unwrap_or(0);

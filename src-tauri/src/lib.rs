@@ -181,6 +181,7 @@ pub fn run() {
             updater::get_version,
             // Logs and bug reports
             applog::log_append,
+            applog::log_backend_ready,
             applog::log_previous,
             applog::log_open_folder,
             applog::log_save,
@@ -196,6 +197,7 @@ pub fn run() {
             if let Ok(dir) = app.path().app_local_data_dir() {
                 applog::init(dir.join("logs"));
             }
+            applog::set_app(app_handle.clone());
 
             // The scheme handler above runs without an app handle, so the
             // thumbnail directory has to be resolved here and handed over.

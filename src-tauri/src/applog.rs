@@ -245,7 +245,127 @@ pub fn previous_session() -> Option<(String, Ending)> {
     Some((tail(&text, MAX_READ_BYTES).to_string(), ending))
 }
 
+// ─── Lines from the backend ─────────────────────────────────────────────────
+//
+// The page owns the log, so a line the backend wants to add goes to it as a
+// `backend-log` event and is logged there like any other (shown on the Logs
+// page and written to this file). Lines from before the page is listening
+// wait in `pending` until it asks for them with [`log_backend_ready`].
+
+const BACKEND_EVENT: &str = "backend-log";
+
+/// The most lines kept for a page that hasn't started listening yet.
+const MAX_PENDING: usize = 200;
+
+/// A line for the page's `addLog(msg, level, source)`.
+#[derive(Clone, serde::Serialize)]
+pub struct BackendLine {
+    level: &'static str,
+    source: &'static str,
+    msg: String,
+}
+
+struct Backend {
+    app: Option<tauri::AppHandle>,
+    ready: bool,
+    pending: Vec<BackendLine>,
+    /// When each [`backend_once`] key was last logged.
+    seen: std::collections::BTreeMap<String, std::time::Instant>,
+}
+
+static BACKEND: Mutex<Backend> = Mutex::new(Backend {
+    app: None,
+    ready: false,
+    pending: Vec::new(),
+    seen: std::collections::BTreeMap::new(),
+});
+
+fn backend_state() -> MutexGuard<'static, Backend> {
+    BACKEND.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Where backend lines go. Called from `setup`.
+pub fn set_app(app: tauri::AppHandle) {
+    backend_state().app = Some(app);
+}
+
+/// Log a line from the backend. `level` and `source` are keys of the page's
+/// LOG_LEVELS and LOG_SOURCES ("warn", "server", …).
+pub fn backend(level: &'static str, source: &'static str, msg: impl Into<String>) {
+    let line = BackendLine { level, source, msg: msg.into() };
+    {
+        let mut state = backend_state();
+        if !state.ready {
+            if state.pending.len() >= MAX_PENDING {
+                state.pending.remove(0);
+            }
+            state.pending.push(line);
+            return;
+        }
+    }
+    send_to_page(line);
+}
+
+#[cfg(not(test))]
+fn send_to_page(line: BackendLine) {
+    use tauri::Emitter;
+    let app = backend_state().app.clone();
+    if let Some(app) = app {
+        let _ = app.emit(BACKEND_EVENT, line);
+    }
+}
+
+/// Tests have no page. Linking Tauri's event code into the test exe would
+/// also stop it starting on Windows (see `stella_api::window_on_screen`).
+#[cfg(test)]
+fn send_to_page(_line: BackendLine) {}
+
+/// [`backend`], unless the same `key` was logged less than `quiet` ago: for a
+/// failure that repeats on every poll or reconnect, which would otherwise
+/// bury the lines around it.
+pub fn backend_once(
+    key: &str,
+    quiet: std::time::Duration,
+    level: &'static str,
+    source: &'static str,
+    msg: impl Into<String>,
+) {
+    {
+        let mut state = backend_state();
+        let now = std::time::Instant::now();
+        if state.seen.get(key).is_some_and(|at| now.duration_since(*at) < quiet) {
+            return;
+        }
+        if state.seen.len() > 200 {
+            state.seen.clear();
+        }
+        state.seen.insert(key.to_string(), now);
+    }
+    backend(level, source, msg);
+}
+
+/// Up to `max` characters of a server's reply, on one line, for quoting in a
+/// log line.
+pub fn snippet(body: &[u8], max: usize) -> String {
+    let text = String::from_utf8_lossy(body);
+    let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one_line.chars().count() > max {
+        format!("{}…", one_line.chars().take(max).collect::<String>())
+    } else {
+        one_line
+    }
+}
+
 // ─── Commands ───────────────────────────────────────────────────────────────
+
+/// The page is listening for backend lines: hand it the ones that came
+/// before, and send the rest as events from now on.
+#[tauri::command]
+pub fn log_backend_ready() -> Vec<BackendLine> {
+    let mut state = backend_state();
+    state.ready = true;
+    std::mem::take(&mut state.pending)
+}
 
 #[tauri::command]
 pub async fn log_append(lines: Vec<String>) {
@@ -373,5 +493,23 @@ mod tests {
         assert_eq!(safe_file_name("x.exe"), None);
         assert_eq!(safe_file_name(".txt"), None);
         assert_eq!(safe_file_name(""), None);
+    }
+
+    #[test]
+    fn a_quoted_reply_is_one_short_line() {
+        assert_eq!(snippet(b"<html>\r\n  <h1>404</h1>\n</html>", 100), "<html> <h1>404</h1> </html>");
+        assert_eq!(snippet("ééééé".as_bytes(), 3), "ééé…");
+    }
+
+    #[test]
+    fn backend_lines_wait_for_the_page_and_repeats_are_left_out() {
+        let quiet = std::time::Duration::from_secs(60);
+        backend_once("test-repeat", quiet, "warn", "server", "first");
+        backend_once("test-repeat", quiet, "warn", "server", "again");
+        backend_once("test-other", quiet, "warn", "server", "other");
+        let lines: Vec<String> = log_backend_ready().into_iter().map(|l| l.msg).collect();
+        assert!(lines.contains(&"first".to_string()));
+        assert!(lines.contains(&"other".to_string()));
+        assert!(!lines.contains(&"again".to_string()));
     }
 }

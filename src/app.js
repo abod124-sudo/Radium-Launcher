@@ -81,6 +81,19 @@ function flushLogToDisk() {
 logDiskQueue.push(`===== Session started ${logDate(logSessionStart)} ${logClock(logSessionStart)} =====`);
 window.addEventListener('pagehide', flushLogToDisk);
 
+/// Lines the backend logs (applog::backend): the address and server answer
+/// behind a failed Stella request, a moved service, a dropped connection.
+/// The ones from before this page was listening come from log_backend_ready.
+(async function listenForBackendLog() {
+  const tauri = window.__TAURI__;
+  if (!tauri || !tauri.event || !tauri.core) return;
+  const take = (line) => { if (line && line.msg) addLog(line.msg, line.level, line.source); };
+  try {
+    await tauri.event.listen('backend-log', (e) => take(e.payload));
+    for (const line of (await tauri.core.invoke('log_backend_ready')) || []) take(line);
+  } catch (e) { /* the page's own lines are still logged */ }
+})();
+
 // ─── Uncaught fault capture ──────────────────────────────────────────────────
 var seenFaults = new Set();
 
@@ -8008,7 +8021,8 @@ async function init() {
   checkForLauncherUpdate();
 
   addLog(`Network: ${networkInfo().label} (${networkInfo().site})`, 'info');
-  addLog(`API: ${config.apiUrl}`, 'info');
+  // Radium's own setting; the server check logs every network's address.
+  if (activeNetwork === 'radium') addLog(`API: ${config.apiUrl}`, 'info');
   addLog(`Install dir: ${shownInstallDir()}`, 'info');
 
   // Check install first (determines which panel to show)

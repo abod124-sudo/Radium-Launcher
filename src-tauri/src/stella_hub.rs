@@ -61,7 +61,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
-use crate::stella_api;
+use crate::{applog, stella_api};
 
 /// Tells the frontend to ask again with [`stella_friends`].
 const CHANGED_EVENT: &str = "stella-friends-changed";
@@ -126,6 +126,8 @@ struct Hub {
     /// Whether the friends list has been read at least once this run.
     loaded: bool,
     error: String,
+    /// Connection attempts that have failed in a row, for the log.
+    failures: u32,
     /// Friends whose next presence is expected to be Stella's push of the
     /// list, until when (see [`FRIENDS_SYNC`]).
     syncing: HashMap<i64, Instant>,
@@ -155,6 +157,7 @@ pub fn stop() {
         h.paused = false;
         h.loaded = false;
         h.error.clear();
+        h.failures = 0;
         h.syncing.clear();
         h.invites.clear();
     });
@@ -385,7 +388,8 @@ async fn run_connection(app: &AppHandle, gen: u64) -> Result<(), String> {
     load_friends(gen).await?;
     let _ = app.emit(CHANGED_EVENT, ());
 
-    let mut req = stella_api::hub_url().await.into_client_request().map_err(|e| e.to_string())?;
+    let url = stella_api::hub_url().await;
+    let mut req = url.as_str().into_client_request().map_err(|e| format!("Bad address {url}: {e}"))?;
     let headers = req.headers_mut();
     headers.insert("User-Agent", stella_api::USER_AGENT.parse().map_err(|_| "bad header")?);
     headers.insert(
@@ -394,15 +398,35 @@ async fn run_connection(app: &AppHandle, gen: u64) -> Result<(), String> {
     );
     let (ws, _) = tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req))
         .await
-        .map_err(|_| "Timed out connecting to Stella.".to_string())?
+        .map_err(|_| format!("Timed out connecting to Stella's friends service at {url}."))?
         .map_err(|e| {
-            if let tokio_tungstenite::tungstenite::Error::Http(r) = &e {
-                if r.status().as_u16() == 401 {
-                    stella_api::forget_session_if(&token);
+            use tokio_tungstenite::tungstenite::Error;
+            let why = match &e {
+                // The server's answer, which says what went wrong: a 404 for
+                // a moved hub, a 401 for a token it turned down, a block page.
+                Error::Http(r) => {
+                    if r.status().as_u16() == 401 {
+                        stella_api::forget_session_if(&token);
+                    }
+                    let body = r.body().as_deref().map(|b| applog::snippet(b, 300)).unwrap_or_default();
+                    let status = r.status();
+                    format!(
+                        "HTTP {} {}{}",
+                        status.as_u16(),
+                        status.canonical_reason().unwrap_or(""),
+                        if body.is_empty() { String::new() } else { format!(": {body}") }
+                    )
                 }
-            }
-            format!("Couldn't connect to Stella's friends service: {e}")
+                other => other.to_string(),
+            };
+            format!("Couldn't connect to Stella's friends service at {url} ({why})")
         })?;
+    let failed = with_hub(|h| std::mem::take(&mut h.failures));
+    if failed > 0 {
+        applog::backend("ok", "server", format!("Connected to Stella's friends service at {url} after {failed} failed tries."));
+    } else {
+        applog::backend_once(&format!("hub-connected-{url}"), Duration::from_secs(60 * 60), "info", "server", format!("Connected to Stella's friends service at {url}."));
+    }
     let (mut tx, mut rx) = ws.split();
     tx.send(Message::Text(format!("{{\"protocol\":\"json\",\"version\":1}}{RS}")))
         .await
@@ -496,6 +520,25 @@ async fn run_connection(app: &AppHandle, gen: u64) -> Result<(), String> {
     }
 }
 
+/// Note a lost or failed connection in the log. The same failure repeating on
+/// every retry is logged once every few minutes, with how many tries it has
+/// been; signing out or leaving Stella isn't a failure.
+fn log_connection_error(gen: u64, e: &str, was_connected: bool, lasted: Duration, retry_in: Duration) {
+    if e == stella_api::SIGNED_OUT_ERROR || e == stella_api::NOT_IN_USE || !current(gen) {
+        return;
+    }
+    let failures = with_hub(|h| {
+        h.failures += 1;
+        h.failures
+    });
+    let msg = if was_connected {
+        format!("Stella's friends connection dropped after {}s: {e}. Reconnecting in {}s.", lasted.as_secs(), retry_in.as_secs())
+    } else {
+        format!("Stella's friends connection failed (try {failures}): {e}. Trying again in {}s.", retry_in.as_secs())
+    };
+    applog::backend_once(&format!("hub-{e}"), Duration::from_secs(5 * 60), if was_connected { "warn" } else { "error" }, "server", msg);
+}
+
 /// Keep a connection up until stopped, reconnecting with a growing pause.
 async fn run(app: AppHandle, gen: u64) {
     let mut backoff = Duration::from_secs(5);
@@ -531,14 +574,19 @@ async fn run(app: AppHandle, gen: u64) {
         }
         let started = Instant::now();
         let result = run_connection(&app, gen).await;
-        with_hub(|h| {
+        let was_connected = with_hub(|h| {
+            let was = h.connected_at.is_some();
             if h.generation == gen {
                 h.connected_at = None;
                 if let Err(e) = &result {
                     h.error = e.clone();
                 }
             }
+            was
         });
+        if let Err(e) = &result {
+            log_connection_error(gen, e, was_connected, started.elapsed(), backoff);
+        }
         let _ = app.emit(CHANGED_EVENT, ());
         if !current(gen) {
             break;
