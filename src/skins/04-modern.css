@@ -455,8 +455,8 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
      frame and the settled dialog; with this, none. Hidden popups are
      display:none, so no layer is held while they are closed. */
   & :is(.modal-box, .network-menu, .manage-menu, .cselect-menu) { will-change: transform; }
-  /* And back out. hideModal() in app.js adds .is-closing and waits
-     MODAL_EXIT_MS (180ms) before hiding — keep the two in step. */
+  /* And back out. hideModal() in app.js adds .is-closing and waits for
+     the overlay's exit to finish before hiding. */
   & .modal-overlay.is-closing { animation: sk-overlay-out 0.18s ease-in forwards; }
   & .modal-overlay.is-closing .modal-box { animation: sk-modal-out 0.18s ease-in forwards; }
 

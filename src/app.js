@@ -522,6 +522,8 @@ function withoutBackdrop(cfg) {
       return inUseSent;
     },
     stellaPresence:     (playerId) => invoke('stella_presence', { playerId: Number(playerId) }),
+    stellaSetFriendFavorite: (playerId, on) => invoke('stella_set_friend_favorite', { playerId: Number(playerId), on: !!on }),
+    stellaAcceptFriendRequest: (playerId) => invoke('stella_accept_friend_request', { playerId: Number(playerId) }),
     onStellaFriends: async (cb) => {
       if (unlistenMap['stella-friends-changed']) unlistenMap['stella-friends-changed']();
       unlistenMap['stella-friends-changed'] = await listen('stella-friends-changed', () => cb());
@@ -1918,14 +1920,15 @@ function syncLaunchOptionLabel() {
 
 // ── Settings sections ───────────────────────────────────────────────────
 // One section at a time, picked from the list at the left. Notifications
-// (Vanilla) and Friends (Stella) exist on their own network only; on another
-// one the section falls back to General.
+// (Vanilla and Stella, the networks with accounts) and Friends (Stella) exist
+// on those networks only; on another one the section falls back to General.
 
 let settingsSection = 'general';
 
 function settingsSectionAvailable(btn) {
   if (btn.classList.contains('network-only-vanilla')) return activeNetwork === 'vanilla';
   if (btn.classList.contains('network-only-stella')) return activeNetwork === 'stella';
+  if (btn.classList.contains('network-only-accounts')) return activeNetwork === 'vanilla' || activeNetwork === 'stella';
   return true;
 }
 
@@ -3047,6 +3050,8 @@ function updateDlButtons() {
                       :                 '⬇ DOWNLOAD';
   }
   if (pauseBtn) pauseBtn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
+  // For skins that draw a paused bar differently (Vista/7's yellow one).
+  $('dlProgressBlock')?.classList.toggle('is-paused', isPaused);
 }
 
 // `opts.resuming` keeps the current bar position instead of snapping back to 0%,
@@ -5156,9 +5161,14 @@ function trayMenuStyle() {
     'sel-weight': token('--item-sel-weight', '700'),
     'sel-bg': token('--item-sel-bg', 'transparent'),
     'sel-fg': token('--item-sel-fg', fg),
-    // Opens the way the skin's own menus do: the retro skins set no
-    // entrance (`--menu-in: none`) and pop their menus up instantly.
-    motion: document.body.classList.contains('animations-enabled') && token('--menu-in', '') !== 'none',
+    // Opens the way the skin's own menus do: most retro skins set no
+    // entrance (`--menu-in: none`) and pop their menus up instantly, and XP
+    // to 7 fade theirs in. Windows 98's unroll is left out: it unrolls from
+    // the edge a menu hangs off, and the tray menu hangs off no edge.
+    motion: document.body.classList.contains('animations-enabled')
+      && !/^(none|sk-fade-in|sk-unroll)\b/.test(token('--menu-in', '')),
+    fade: document.body.classList.contains('animations-enabled')
+      && token('--menu-in', '').startsWith('sk-fade-in'),
     glass: document.body.classList.contains('glass-enabled'),
   };
   if (sep) {
@@ -5683,8 +5693,10 @@ document.querySelectorAll('#networkMenu .network-option').forEach(opt => {
 // Shared by the two dropdowns in the launcher: the gear on the hero and the
 // network switcher in the sidebar.
 
-/// How long a menu's exit animation is given before the element is hidden.
-/// Must match the `manageMenuOut` / `networkMenuLift` durations in style.css.
+/// How long a menu's exit animation is given before the element is hidden,
+/// when the animation cannot say how long it runs. Most skins exit in 140ms;
+/// the retro ones that let a chosen item fade or blink take longer, and
+/// hideDropdown() reads their length off the animation itself.
 const MENU_EXIT_MS = 140;
 
 /// Per-menu counter, bumped by every show and every hide, so a hide that is
@@ -5697,9 +5709,10 @@ const menuCloseTokens = new WeakMap();
 /// `hidden` removes the element outright, so a close cannot be animated by CSS
 /// alone — the element has to stay in the layout until the animation is done.
 /// It is marked `.is-closing`, which is what the exit keyframes hang off, and
-/// hidden once that has had its time.
+/// hidden once that has had its time. Returns that time in ms (0 when it is
+/// hidden at once), for callers that have their own tidying to do after it.
 function hideDropdown(menu) {
-  if (!menu || menu.hidden) return;
+  if (!menu || menu.hidden) return 0;
 
   const token = (menuCloseTokens.get(menu) || 0) + 1;
   menuCloseTokens.set(menu, token);
@@ -5709,26 +5722,37 @@ function hideDropdown(menu) {
     // close the user has already undone and must not hide anything.
     if (menuCloseTokens.get(menu) !== token) return;
     menu.classList.remove('is-closing');
+    menu.querySelector('.is-picked')?.classList.remove('is-picked');
     menu.hidden = true;
   };
 
+  // The item under the pointer is the one just chosen. Marked rather than
+  // left to :hover, since the closing menu stops taking the pointer; the
+  // retro skins that fade or blink a chosen item hang that off the mark.
+  menu.querySelector('.is-picked')?.classList.remove('is-picked');
+  menu.querySelector(':is(.network-option, .manage-item):hover')?.classList.add('is-picked');
   menu.classList.add('is-closing');
 
-  // The retro skins have no exit animation, and neither does anyone whose
-  // system asks for reduced motion; waiting on a timer for them would only make
-  // dismissal feel sluggish. getAnimations() flushes pending style, so the
+  // Most retro skins have no exit animation (only a chosen item's fade or
+  // blink on some), and neither does anyone whose system asks for reduced
+  // motion; waiting on a timer for them would only make dismissal feel
+  // sluggish. getAnimations() flushes pending style, so the
   // class added a line above is already accounted for.
-  const animating =
-    typeof menu.getAnimations === 'function' && menu.getAnimations().length > 0;
-  if (!animating) {
+  const animations = typeof menu.getAnimations === 'function' ? menu.getAnimations() : [];
+  if (animations.length === 0) {
     finish();
-    return;
+    return 0;
   }
 
   // A timer rather than an `animationend` listener: a minimised or hidden
   // window pauses animations, and that event would never arrive — leaving the
   // menu stuck open on screen the next time the window was restored.
-  setTimeout(finish, MENU_EXIT_MS);
+  const wait = Math.min(1000, Math.max(...animations.map((a) => {
+    const end = a.effect?.getComputedTiming?.().endTime;
+    return Number.isFinite(end) ? end - (Number(a.currentTime) || 0) : MENU_EXIT_MS;
+  })));
+  setTimeout(finish, wait);
+  return wait;
 }
 
 /// Show a dropdown, cancelling any exit still in flight.
@@ -5736,6 +5760,7 @@ function showDropdown(menu) {
   if (!menu) return;
   menuCloseTokens.set(menu, (menuCloseTokens.get(menu) || 0) + 1);
   menu.classList.remove('is-closing');
+  menu.querySelector('.is-picked')?.classList.remove('is-picked');
   menu.hidden = false;
 }
 
@@ -5744,8 +5769,9 @@ function showDropdown(menu) {
 // that animates dialogs out (the modern family, Liquid Glass) gets to play
 // the exit, and the rest close instantly as they always did.
 
-/// How long a dialog's exit animation is given before it is hidden. Must match
-/// the exit durations in skins/04-modern.css and skins/11-glass.css.
+/// How long a dialog's exit animation is given before it is hidden, when the
+/// animation cannot say how long it runs; hideModal() reads it off the
+/// overlay's exit (180ms on the modern skins and glass, as on Vista/7).
 const MODAL_EXIT_MS = 180;
 
 /// Per-dialog counter, bumped by every show and hide, so a close still waiting
@@ -5787,11 +5813,14 @@ function hideModal(modal, onHidden) {
   if (getComputedStyle(modal).display === 'none') { finish(); return; }
 
   modal.classList.add('is-closing');
-  const animating =
-    typeof modal.getAnimations === 'function' && modal.getAnimations().length > 0;
-  if (!animating) { finish(); return; }
-  // A timer, not animationend: see hideDropdown() for why.
-  setTimeout(finish, MODAL_EXIT_MS);
+  const animations = typeof modal.getAnimations === 'function' ? modal.getAnimations() : [];
+  if (animations.length === 0) { finish(); return; }
+  // A timer, not animationend: see hideDropdown() for why. As long as the
+  // skin's exit runs, read off the animation itself.
+  setTimeout(finish, Math.min(1000, Math.max(...animations.map((a) => {
+    const end = a.effect?.getComputedTiming?.().endTime;
+    return Number.isFinite(end) ? end - (Number(a.currentTime) || 0) : MODAL_EXIT_MS;
+  }))));
 }
 
 // ── Manage-client menu ───────────────────────────────────────────────────
@@ -6413,16 +6442,88 @@ const FRIEND_LOCK_SVG = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3
 /// can redraw it without asking again.
 let stellaFriendsRes = null;
 
+/// Players who have sent a friend request, by id (from the last friends list),
+/// and their ids as last drawn in the notifications list.
+let stellaRequestsById = new Map();
+let stellaRequestsKey = '';
+
 /// Fill both places the list can show: the Home card and the FRIENDS tab.
 /// Only one is visible at a time, and keeping both current means switching
 /// the setting shows a full list straight away.
 function renderStellaFriends(res) {
   if (res?.success && res.loaded) {
     stellaFriendsById = new Map((res.friends || []).map(f => [Number(f.id), f]));
+    stellaRequestsById = new Map((res.requests || []).map(r => [Number(r.id), r]));
   }
   stellaFriendsRes = res;
+  // Redrawing replaces the buttons, so keyboard focus on a star or ACCEPT is
+  // put back on the same one afterwards.
+  const focused = document.activeElement?.closest?.('[data-friend-action]');
+  const refocus = focused && `[data-friend-action="${focused.dataset.friendAction}"]`;
   renderStellaFriendsInto($('stellaFriendsList'), $('stellaFriendsCount'), res, false);
   renderStellaFriendsInto($('stellaFriendsTabList'), $('stellaFriendsTabCount'), res, true);
+  if (refocus) focused.closest('#stellaFriendsList, #stellaFriendsTabList')?.querySelector(refocus)?.focus();
+  // The notifications list offers ACCEPT on a request still waiting, so it
+  // is redrawn when those change.
+  const requestsKey = [...stellaRequestsById.keys()].join(',');
+  if (requestsKey !== stellaRequestsKey) {
+    stellaRequestsKey = requestsKey;
+    if (!$('vanillaNotifsPanel')?.hidden && panelSource === notifSources.stella) renderNotifPanel();
+  }
+}
+
+/// Star or unstar a friend on Stella. Drawn at once, and put back if Stella
+/// turns it down.
+async function setStellaFavorite(f, on) {
+  const id = Number(f.id);
+  const name = f.displayName || f.userName || 'your friend';
+  const mark = (value) => {
+    const row = (stellaFriendsRes?.friends || []).find(x => Number(x.id) === id);
+    if (row) row.favorite = value;
+    const known = stellaFriendsById.get(id);
+    if (known) known.favorite = value;
+    if (stellaFriendsRes) renderStellaFriends(stellaFriendsRes);
+    paintProfileFavorite(id);
+  };
+  mark(on);
+  try {
+    await window.radium.stellaSetFriendFavorite(id, on);
+  } catch (e) {
+    mark(!on);
+    const why = String(e).trim().replace(/([^.!?])$/, '$1.');
+    addLog(`Couldn't ${on ? 'favorite' : 'unfavorite'} ${name}: ${why}`, 'error', 'account');
+    toast(`Couldn't ${on ? 'favorite' : 'unfavorite'} ${name}: ${why}`, 'error');
+    return;
+  }
+  addLog(on ? `Added ${name} to your Stella favorites.` : `Removed ${name} from your Stella favorites.`, 'ok', 'account');
+}
+
+/// Accept a friend request. `btn` shows it working.
+async function acceptStellaRequest(r, btn) {
+  const id = Number(r.id);
+  const name = r.displayName || r.userName || 'them';
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset.label = btn.textContent;
+    btn.textContent = 'ACCEPTING…';
+  }
+  try {
+    await window.radium.stellaAcceptFriendRequest(id);
+  } catch (e) {
+    if (btn?.isConnected) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.label || 'ACCEPT';
+    }
+    const why = String(e).trim().replace(/([^.!?])$/, '$1.');
+    addLog(`Couldn't accept ${name}'s friend request: ${why}`, 'error', 'account');
+    toast(`Couldn't accept ${name}'s friend request: ${why}`, 'error');
+    return;
+  }
+  stellaRequestsById.delete(id);
+  addLog(`You and ${name} are now friends on Stella.`, 'ok', 'account');
+  toast(`You and ${name} are now friends.`, 'ok');
+  await refreshStellaFriends();
+  paintStellaFriendActions(id, playerDetailSeq);
 }
 
 function openFriendProfile(f) {
@@ -6456,8 +6557,10 @@ function friendAvatar(f, size) {
 }
 
 /// One friend as a card: picture, name, where they are, and JOIN for someone
-/// online. The tab's cards are bigger and carry the @handle too.
-function buildFriendCard(f, size, withHandle) {
+/// online. The tab's cards are bigger, carry the @handle too, and have the
+/// star (`starToggle`); Home's narrower ones only mark a favorite, as its
+/// chips do, and leave starring to the profile.
+function buildFriendCard(f, size, withHandle, starToggle = false) {
   const name = f.displayName || f.userName || 'Player';
   const card = document.createElement('div');
   card.className = `friend-card is-${f.status}`;
@@ -6467,7 +6570,15 @@ function buildFriendCard(f, size, withHandle) {
   main.className = 'friend-card-main';
   const text = document.createElement('span');
   text.className = 'friend-text';
-  text.append(friendSpan('friend-name', name));
+  const nameEl = friendSpan('friend-name-row', '');
+  nameEl.append(friendSpan('friend-name', name));
+  if (f.favorite && !starToggle) {
+    const mark = friendSpan('vn-icon vn-icon-star friend-chip-fav', '');
+    mark.setAttribute('role', 'img');
+    mark.setAttribute('aria-label', 'Favorite');
+    nameEl.append(mark);
+  }
+  text.append(nameEl);
   if (withHandle && f.userName) text.append(friendSpan('friend-handle', `@${f.userName}`));
   const where = friendWhere(f);
   const whereEl = friendSpan('friend-where', '');
@@ -6483,6 +6594,7 @@ function buildFriendCard(f, size, withHandle) {
   main.append(friendAvatar(f, size), text);
   main.addEventListener('click', () => openFriendProfile(f));
   card.append(main);
+  if (starToggle) card.append(buildFriendStar(f, name));
 
   // Only someone online can be joined.
   if (f.status === 'online') {
@@ -6497,16 +6609,66 @@ function buildFriendCard(f, size, withHandle) {
   return card;
 }
 
-/// A friend who isn't online, on the Home card: a small picture and the name.
+/// The star on a friend's card: starred friends come first, here and in the
+/// game (it is saved on Stella).
+function buildFriendStar(f, name) {
+  const star = document.createElement('button');
+  star.type = 'button';
+  star.className = 'friend-fav';
+  star.dataset.friendAction = `fav-${f.id}`;
+  star.setAttribute('aria-pressed', String(!!f.favorite));
+  star.setAttribute('aria-label', `Favorite ${name}`);
+  const icon = document.createElement('span');
+  icon.className = `vn-icon ${f.favorite ? 'vn-icon-star' : 'vn-icon-star-outline'}`;
+  icon.setAttribute('aria-hidden', 'true');
+  star.append(icon);
+  star.addEventListener('click', () => setStellaFavorite(f, !f.favorite));
+  return star;
+}
+
+/// A friend who isn't online, on the Home card: a small picture and the name,
+/// and a star for a favorite. Starring is done on their card or profile.
 function buildFriendChip(f) {
   const name = f.displayName || f.userName || 'Player';
   const chip = document.createElement('button');
   chip.type = 'button';
   chip.className = `friend-chip is-${f.status}`;
-  chip.setAttribute('aria-label', `${name}, ${friendStatusText(f)}`);
+  chip.setAttribute('aria-label', `${name}, ${f.favorite ? 'favorite, ' : ''}${friendStatusText(f)}`);
   chip.append(friendAvatar(f, 22), friendSpan('friend-chip-name', name));
+  if (f.favorite) {
+    const star = friendSpan('vn-icon vn-icon-star friend-chip-fav', '');
+    star.setAttribute('aria-hidden', 'true');
+    chip.append(star);
+  }
   chip.addEventListener('click', () => openFriendProfile(f));
   return chip;
+}
+
+/// Someone who has sent the player a friend request: their card, with ACCEPT.
+function buildRequestCard(r, size) {
+  const name = r.displayName || r.userName || 'Player';
+  const card = document.createElement('div');
+  card.className = 'friend-card friend-request is-request';
+  const main = document.createElement('button');
+  main.type = 'button';
+  main.className = 'friend-card-main';
+  const text = document.createElement('span');
+  text.className = 'friend-text';
+  text.append(friendSpan('friend-name', name));
+  const where = friendSpan('friend-where', '');
+  where.append(friendSpan('friend-where-text', 'Wants to be your friend'));
+  text.append(where);
+  main.append(friendAvatar(r, size), text);
+  main.addEventListener('click', () => openFriendProfile(r));
+  const accept = document.createElement('button');
+  accept.type = 'button';
+  accept.className = 'modal-btn modal-btn-primary friend-join friend-accept';
+  accept.dataset.friendAction = `accept-${r.id}`;
+  accept.textContent = 'ACCEPT';
+  accept.setAttribute('aria-label', `Accept ${name}'s friend request`);
+  accept.addEventListener('click', () => acceptStellaRequest(r, accept));
+  card.append(main, accept);
+  return card;
 }
 
 /// A titled group: "OFFLINE 5", then its cards or chips.
@@ -6556,7 +6718,8 @@ function renderStellaFriendsInto(list, count, res, isTab) {
     return;
   }
   const friends = res.friends || [];
-  if (friends.length === 0) {
+  const requests = res.requests || [];
+  if (friends.length === 0 && requests.length === 0) {
     count.textContent = '';
     note("No friends yet. Add some in game and they'll show up here.");
     return;
@@ -6574,27 +6737,50 @@ function renderStellaFriendsInto(list, count, res, isTab) {
   }
 
   let shown = friends;
+  let asking = requests;
   if (isTab) {
     const query = ($('stellaFriendsSearch')?.value || '').trim();
     const q = query.toLowerCase();
-    if (q) shown = friends.filter(f => `${f.displayName || ''}\n${f.userName || ''}`.toLowerCase().includes(q));
-    if (!shown.length) {
+    const match = f => `${f.displayName || ''}\n${f.userName || ''}`.toLowerCase().includes(q);
+    if (q) {
+      shown = friends.filter(match);
+      asking = requests.filter(match);
+    }
+    if (!shown.length && !asking.length) {
       note(`No friends match "${query}".`);
       return;
     }
   }
-  const online = shown.filter(f => f.status === 'online');
-  const others = shown.filter(f => f.status !== 'online');
+  // Requests waiting for an answer come first, in both places.
   const parts = [];
+  if (asking.length) {
+    parts.push(friendsSection('Friend requests', asking.length,
+      friendsGroup('friends-grid', asking.map(r => buildRequestCard(r, isTab ? 44 : 40)))));
+  }
+  if (!shown.length) {
+    list.replaceChildren(...parts);
+    return;
+  }
+
+  // The tab gathers the starred friends at the top. On Home they come first
+  // among the online cards and among the chips (the list arrives so sorted).
+  const favorites = isTab ? shown.filter(f => f.favorite) : [];
+  const rest = isTab ? shown.filter(f => !f.favorite) : shown;
+  const online = rest.filter(f => f.status === 'online');
+  const others = rest.filter(f => f.status !== 'online');
 
   if (isTab) {
+    if (favorites.length) {
+      parts.push(friendsSection('Favorites', favorites.length,
+        friendsGroup('friends-grid friends-grid-online', favorites.map(f => buildFriendCard(f, 52, true, true)))));
+    }
     if (online.length) {
       parts.push(friendsSection('Online', online.length,
-        friendsGroup('friends-grid friends-grid-online', online.map(f => buildFriendCard(f, 52, true)))));
+        friendsGroup('friends-grid friends-grid-online', online.map(f => buildFriendCard(f, 52, true, true)))));
     }
     if (others.length) {
       parts.push(friendsSection(friendsOthersLabel(others), others.length,
-        friendsGroup('friends-grid friends-grid-others', others.map(f => buildFriendCard(f, 36, false)))));
+        friendsGroup('friends-grid friends-grid-others', others.map(f => buildFriendCard(f, 36, false, true)))));
     }
   } else {
     if (online.length) {
@@ -6808,10 +6994,12 @@ function stellaRoomLabel(room) {
 
 /// The message as parts (`{ t, b }`, b for bold), the sender's name in bold.
 /// Inserted as text, never markup, both here and in the desktop pop-up.
-function notifParts(n) {
+function notifParts(n, net) {
   // Stella's invites carry the room's name.
   const invite = n.type === 6 && n.message;
   const template = invite ? '{s} invited you to join them in {m}.'
+    // Stella's friend requests are accepted here (ACCEPT on the row).
+    : n.type === 4 && net === 'stella' ? '{s} sent you a friend request.'
     : VANILLA_NOTIF_TEXT[n.type] || 'New notification from {s}.';
   return template.split(/(\{s\}|\{m\})/).filter(Boolean).map(part =>
     part === '{s}' ? { t: n.senderDisplay || n.senderName || 'A player', b: true }
@@ -6819,9 +7007,9 @@ function notifParts(n) {
       : { t: part });
 }
 
-function notifMessage(n) {
+function notifMessage(n, net) {
   const frag = document.createDocumentFragment();
-  for (const part of notifParts(n)) {
+  for (const part of notifParts(n, net)) {
     if (part.b) {
       const b = document.createElement('strong');
       b.textContent = part.t;
@@ -6859,25 +7047,58 @@ function joinableStellaInvite(src, n) {
   return src.net === 'stella' && n.type === 6 && n.senderId && stellaInvitedBy(n.senderId);
 }
 
+/// A row's words and when it came.
+function notifBody(n, net) {
+  const body = document.createElement('span');
+  body.className = 'notif-body';
+  const text = document.createElement('span');
+  text.className = 'notif-text';
+  text.appendChild(notifMessage(n, net));
+  const time = document.createElement('span');
+  time.className = 'notif-time';
+  time.textContent = formatNotifTime(n.sentTime);
+  body.append(text, time);
+  return body;
+}
+
+/// A Stella friend request still waiting for an answer: ACCEPT on it.
+function acceptableStellaRequest(src, n) {
+  return src.net === 'stella' && n.type === 4 && n.senderId ? stellaRequestsById.get(Number(n.senderId)) : null;
+}
+
 function notifRow(src, n, unread) {
   const join = joinableStellaInvite(src, n);
+  const request = !join && acceptableStellaRequest(src, n);
+  if (request) {
+    // Two buttons side by side rather than one: the row opens their profile,
+    // ACCEPT accepts, so a stray click on the row never accepts anyone.
+    const wrap = document.createElement('div');
+    wrap.className = 'notif-item notif-item-split';
+    wrap.classList.toggle('unread', unread);
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'notif-item-open';
+    open.append(notifAvatar(n, 32), notifBody(n, src.net));
+    open.addEventListener('click', () => {
+      closeNotifPanel();
+      showCreatorProfile(n.senderName, { id: n.senderId, displayName: n.senderDisplay, avatarUrl: n.senderAvatar });
+    });
+    const accept = document.createElement('button');
+    accept.type = 'button';
+    accept.className = 'notif-join notif-accept';
+    accept.dataset.friendAction = `accept-${request.id}`;
+    accept.textContent = 'ACCEPT';
+    accept.setAttribute('aria-label', `Accept ${n.senderDisplay || n.senderName || 'their'} friend request`);
+    accept.addEventListener('click', () => acceptStellaRequest(request, accept));
+    wrap.append(open, accept);
+    return wrap;
+  }
   const clickable = join || n.senderName;
   const row = document.createElement(clickable ? 'button' : 'div');
   row.className = 'notif-item';
   if (clickable) row.type = 'button';
   row.classList.toggle('unread', unread);
-  row.appendChild(notifAvatar(n, 32));
-
-  const body = document.createElement('span');
-  body.className = 'notif-body';
-  const text = document.createElement('span');
-  text.className = 'notif-text';
-  text.appendChild(notifMessage(n));
-  const time = document.createElement('span');
-  time.className = 'notif-time';
-  time.textContent = formatNotifTime(n.sentTime);
-  body.append(text, time);
-  row.appendChild(body);
+  row.append(notifAvatar(n, 32), notifBody(n, src.net));
 
   if (join) {
     // The whole row joins; this only says so.
@@ -7097,7 +7318,7 @@ function desktopCard(src, it, style) {
     // used to fill with the Radium logo.
     avatar: system ? '' : (n.senderAvatar ? thumbSrc(n.senderAvatar, avatarWidth(40)) : PLACEHOLDER_AVATAR),
     app: src.label,
-    parts: notifParts(n),
+    parts: notifParts(n, src.net),
     style,
   };
 }
@@ -7136,6 +7357,8 @@ function notifPopStyle() {
     'avatar-radius': getComputedStyle(avatar).borderTopLeftRadius,
     motion: document.body.classList.contains('animations-enabled'),
     retro: isRetroSkin(),
+    // How a retro skin's pop-up comes and goes (see --pop-motion in skins/).
+    'retro-motion': getComputedStyle(document.body).getPropertyValue('--pop-motion').trim() || 'rise',
     // Liquid Glass: the pop-up window asks Windows for real blur behind it.
     glass: document.body.classList.contains('glass-enabled'),
   };
@@ -7215,13 +7438,16 @@ window.radium?.onDesktopNotifOpen?.(async (card) => {
 });
 
 // Settings → Send a test pop-up.
+// From the network the page is open on, so the card says Vanilla or Stella.
 $('btnTestNotif')?.addEventListener('click', () => {
-  deliverNotifPops(notifSources.vanilla, [{
+  const src = notifSources[activeNetwork] || notifSources.vanilla;
+  const player = src.player();
+  deliverNotifPops(src, [{
     id: null,
     type: 4,
-    senderId: vanillaPlayer?.id || 1,
-    senderName: vanillaPlayer?.userName || 'Coach',
-    senderAvatar: vanillaPlayer?.AvatarUrl || '',
+    senderId: player?.id || 1,
+    senderName: player?.userName || 'Coach',
+    senderAvatar: player?.AvatarUrl || '',
     sentTime: new Date().toISOString(),
   }], { force: true });
 });
@@ -7971,14 +8197,14 @@ function closeCselect(refocus = false) {
   if (!select) return;
   openCselect = null;
   const parts = cselectParts.get(select);
-  hideDropdown(parts.menu);
+  const exitMs = hideDropdown(parts.menu);
   parts.trigger.setAttribute('aria-expanded', 'false');
   parts.trigger.classList.remove('is-open');
   // Held until the exit animation is over, so the closing menu is not dropped
   // under the next group mid-fade. Skipped if it reopened in the meantime.
   setTimeout(() => {
     if (openCselect !== select) parts.wrap.closest('.settings-group')?.classList.remove('cselect-host');
-  }, MENU_EXIT_MS);
+  }, exitMs);
   if (refocus) parts.trigger.focus();
 }
 
@@ -9910,6 +10136,12 @@ async function showPlayerDetails(person) {
   // Shown by applyStellaPresence() for a friend who is online.
   const joinBtn = $('peopleDetailJoinBtn');
   if (joinBtn) joinBtn.hidden = true;
+  // And these by paintStellaFriendActions(), for a friend or a request.
+  stellaProfileId = activeNetwork === 'stella' ? Number(person.id) || 0 : 0;
+  for (const id of ['peopleDetailAcceptBtn', 'peopleDetailFavoriteBtn']) {
+    const btn = $(id);
+    if (btn) btn.hidden = true;
+  }
 
   const dotEl = $('peopleDetailStatusDot');
   const labelEl = $('peopleDetailStatusLabel');
@@ -10022,7 +10254,10 @@ async function showPlayerDetails(person) {
   }
 
   // Stella's presence comes from its live hub, not the profile lookup.
-  if (activeNetwork === 'stella' && person.id != null) applyStellaPresence(person.id, seq);
+  if (activeNetwork === 'stella' && person.id != null) {
+    applyStellaPresence(person.id, seq);
+    paintStellaFriendActions(person.id, seq);
+  }
 
   // Disconnect existing observers and reset pagination states
   if (playerPhotoObserver) playerPhotoObserver.disconnect();
@@ -10121,6 +10356,54 @@ async function showPlayerDetails(person) {
 /// Online / offline, and the room, on a Stella profile — what the game shows
 /// for that player. Right after the hub connects a player not yet heard from
 /// is still "checking", so it asks again a few times before settling.
+/// The Stella profile on screen (0 for none, or another network's).
+let stellaProfileId = 0;
+
+/// FAVORITE for a friend's profile, ACCEPT REQUEST for someone who has sent
+/// the player one. The friends list may not have loaded yet (or be set to
+/// hidden), so it is asked for once.
+async function paintStellaFriendActions(playerId, seq) {
+  const id = Number(playerId);
+  if (!id || id !== stellaProfileId || seq !== playerDetailSeq) return;
+  if (!stellaFriendsRes?.success || !stellaFriendsRes.loaded) {
+    try {
+      const res = await window.radium.stellaFriends();
+      if (res?.success && res.loaded) {
+        stellaFriendsById = new Map((res.friends || []).map(f => [Number(f.id), f]));
+        stellaRequestsById = new Map((res.requests || []).map(r => [Number(r.id), r]));
+      }
+    } catch (e) {}
+    if (id !== stellaProfileId || seq !== playerDetailSeq) return;
+  }
+  const accept = $('peopleDetailAcceptBtn');
+  const request = stellaRequestsById.get(id);
+  if (accept) {
+    accept.hidden = !request;
+    accept.disabled = false;
+    accept.textContent = 'ACCEPT REQUEST';
+    if (request) {
+      const name = request.displayName || request.userName || 'them';
+      accept.setAttribute('aria-label', `Accept ${name}'s friend request`);
+      accept.onclick = () => acceptStellaRequest(request, accept);
+    }
+  }
+  paintProfileFavorite(id);
+}
+
+/// The profile's FAVORITE toggle, for a friend only.
+function paintProfileFavorite(playerId) {
+  const btn = $('peopleDetailFavoriteBtn');
+  if (!btn || Number(playerId) !== stellaProfileId) return;
+  const friend = stellaFriendsById.get(Number(playerId));
+  btn.hidden = !friend;
+  if (!friend) return;
+  const on = !!friend.favorite;
+  btn.setAttribute('aria-pressed', String(on));
+  btn.querySelector('.profile-fav-label').textContent = on ? 'FAVORITED' : 'FAVORITE';
+  btn.setAttribute('aria-label', `Favorite ${friend.displayName || friend.userName || 'this friend'}`);
+  btn.onclick = () => setStellaFavorite(friend, !friend.favorite);
+}
+
 async function applyStellaPresence(playerId, seq, tries = 0) {
   let p;
   try {

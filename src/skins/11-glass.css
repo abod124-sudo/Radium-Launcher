@@ -1686,8 +1686,8 @@
 /* Dialogs spring in and ease out. Only the dimmer fades, and the box
    is a solid popover fill with no blur of its own, so nothing
    frosted is ever faded or scaled (the thing that broke into
-   artefacts on the user's GPU). The exit is timed by MODAL_EXIT_MS
-   in hideModal(), which adds .is-closing. */
+   artefacts on the user's GPU). hideModal() adds .is-closing and
+   waits for the overlay's exit to finish. */
 :root body.glass-enabled .modal-overlay { animation: glassOverlayIn 0.22s var(--lg-ease) !important; }
 :root body.glass-enabled .modal-box { animation: glassModalIn 0.42s var(--lg-spring) !important; }
 :root body.glass-enabled .modal-overlay.is-closing { animation: glassOverlayOut 0.18s ease-in forwards !important; }

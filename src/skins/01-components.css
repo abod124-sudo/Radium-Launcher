@@ -240,10 +240,16 @@ body:not(.glass-enabled) {
   }
   & .network-menu { top: calc(100% - 4px); }
   & .manage-menu { margin-top: 4px; }
+  & .network-menu,
+  & .manage-menu,
+  & .cselect-menu { --unroll-from: inset(0 -24px 100% -24px); }
+  & .cselect-menu.opens-up { --unroll-from: inset(100% -24px 0 -24px); }
   & .network-menu:not([hidden]),
-  & .manage-menu:not([hidden]),
-  & .cselect-menu:not([hidden]) {
+  & .manage-menu:not([hidden]) {
     animation: var(--menu-in);
+  }
+  & .cselect-menu:not([hidden]) {
+    animation: var(--combo-in);
   }
   /* hideDropdown() waits out an exit animation only when there is one, so a
      skin with `--menu-out: none` closes instantly. */
@@ -251,6 +257,21 @@ body:not(.glass-enabled) {
   & .manage-menu.is-closing,
   & .cselect-menu.is-closing {
     animation: var(--menu-out);
+  }
+  /* Closed by choosing an item: hideDropdown() in app.js marks the one under
+     the pointer .is-picked. A skin can animate it with --pick (Windows XP to
+     7 leave it fading out after the menu has gone; Mac OS blinks it) and run
+     --pick-menu on the menu instead of --menu-out, which also keeps the menu
+     up that long. The menu takes no clicks meanwhile, so a quick second
+     click cannot choose the item again; the item keeps its hover face
+     through the rules below that name .is-picked alongside :hover.
+     #manageMenu by id, to outrank the `animation: none` on its items above. */
+  & :is(.network-menu, #manageMenu).is-closing:has(.is-picked) {
+    pointer-events: none;
+    animation: var(--pick-menu);
+  }
+  & :is(.network-menu, #manageMenu).is-closing .is-picked {
+    animation: var(--pick);
   }
 
   & .network-menu .network-option,
@@ -287,15 +308,15 @@ body:not(.glass-enabled) {
     background: var(--item-sel-bg);
   }
   & .network-menu .network-option-check { display: none; }
-  & .network-menu .network-option:hover,
-  & #manageMenu .manage-item:hover,
+  & .network-menu .network-option:is(:hover, .is-picked),
+  & #manageMenu .manage-item:is(:hover, .is-picked),
   & .cselect-menu .cselect-option:hover {
     color: var(--item-hover-fg);
     background: var(--item-hover-bg);
     border: 0;
     box-shadow: none;
   }
-  & #manageMenu .manage-item.danger:hover,
+  & #manageMenu .manage-item.danger:is(:hover, .is-picked),
   & #manageMenu .manage-item.danger:focus-visible {
     color: var(--danger-fg) !important;
     background: var(--danger-bg) !important;

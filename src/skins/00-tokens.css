@@ -28,6 +28,20 @@
 @keyframes sk-menu-out  { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-4px) scale(0.985); } }
 @keyframes sk-pulse     { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @keyframes sk-blink     { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.2; } }
+@keyframes sk-fade-in   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sk-fade-out  { from { opacity: 1; } to { opacity: 0; } }
+/* A menu or list unrolling from the edge it hangs off: --unroll-from (set on
+   the menus in 01-components.css) clips it to that edge. It ends a little
+   outside the box so the shadow is not cut off on the last frame. */
+@keyframes sk-unroll    { from { clip-path: var(--unroll-from); } to { clip-path: inset(-24px); } }
+/* Changes nothing. It keeps a closing menu on screen for its length, because
+   hideDropdown() in app.js waits out whatever animation the menu runs. */
+@keyframes sk-hold      { to { visibility: visible; } }
+/* Windows XP to 7, "Fade out menu items after clicking": the menu goes at
+   once and only the chosen item is left, fading. The menu is hidden for the
+   length of the fade and the item, overriding that, fades on its own. */
+@keyframes sk-pick-gone { from, to { visibility: hidden; } }
+@keyframes sk-pick-fade { from { opacity: 1; visibility: visible; } to { opacity: 0; visibility: visible; } }
 
 body:not(.glass-enabled) {
   /* ── Type ─────────────────────────────────────────────────────────── */
@@ -479,6 +493,14 @@ body:not(.glass-enabled) {
   --tab-anim: none;
   --menu-in:  none;
   --menu-out: none;
+  --combo-in: var(--menu-in); /* the Settings drop-down lists */
+  --pick:      none;          /* the chosen item as its menu closes */
+  --pick-menu: var(--menu-out);
+  /* How the desktop pop-up (popup.html) comes and goes on a retro skin:
+     rise (Steam's, out of its slot), fade (XP and 7's balloon tips, Growl),
+     unroll (98's scroll effect) or none (95 and Mac OS 9 drew theirs in one
+     go). Read by notifPopStyle() in app.js. */
+  --pop-motion: rise;
 
   /* ── Legacy tokens ────────────────────────────────────────────────── */
   /* Still read by style.css's shared layout rules, by inline styles in

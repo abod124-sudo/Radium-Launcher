@@ -10,8 +10,7 @@
   // A card with something to do (an invite's JOIN) stays up longer.
   const ACTION_SHOW_MS = 20000;
   const MAX_CARDS = 3;
-  const LEAVE_MS = 220;
-  const RETRO_LEAVE_MS = 300;
+  const LEAVE_MS = 220;   // a fallback; dismiss() reads the real length
   const stack = document.getElementById('stack');
   const timers = new WeakMap();
 
@@ -29,6 +28,8 @@
     }
     document.body.classList.toggle('no-motion', style.motion === false);
     document.body.classList.toggle('retro', style.retro === true);
+    const retroMotion = ['fade', 'unroll', 'none'].includes(style['retro-motion']) ? style['retro-motion'] : 'rise';
+    for (const m of ['fade', 'unroll', 'none']) document.body.classList.toggle(`pop-${m}`, m === retroMotion);
     // Liquid Glass: let the desktop show through the card.
     document.body.classList.toggle('glass', style.glass === true);
   }
@@ -120,8 +121,15 @@
     if (!card || card.classList.contains('leaving')) return;
     clearTimeout(timers.get(card));
     card.classList.add('leaving');
-    const ms = document.body.classList.contains('retro') ? RETRO_LEAVE_MS : LEAVE_MS;
-    setTimeout(() => removeCard(card), motionOn() ? ms : 0);
+    // As long as the skin's exit runs, read off the animation itself (none
+    // on the skins whose pop-up just goes). A timer, not animationend, so a
+    // card cannot be left behind if animations stop ticking.
+    const anims = motionOn() ? card.getAnimations() : [];
+    const ms = Math.min(1000, Math.max(0, ...anims.map((a) => {
+      const end = a.effect?.getComputedTiming?.().endTime;
+      return Number.isFinite(end) ? end : LEAVE_MS;
+    })));
+    setTimeout(() => removeCard(card), ms);
   }
 
   function arm(card) {

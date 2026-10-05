@@ -18,6 +18,26 @@
   from { transform: translateX(-100%); }
   to   { transform: translateX(334%); }
 }
+/* The glint that runs along a filled bar while it is working: across the
+   fill, then a rest before the next one. */
+@keyframes sk-aero-glint {
+  0%        { left: -70px; }
+  60%, 100% { left: 100%; }
+}
+/* The desktop compositor's window animation: a window grows into place as
+   it fades in, and shrinks a little as it fades out. */
+@keyframes sk-aero-win-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes sk-aero-win-out {
+  to { opacity: 0; transform: scale(0.93); }
+}
+/* A dialog's default button breathing its blue hover face in and out. */
+@keyframes sk-aero-pulse {
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 0.85; }
+}
 
 body:is(.theme-winvista, .theme-win7) {
   --font-ui:   'Segoe UI', Tahoma, sans-serif;
@@ -267,6 +287,15 @@ body:is(.theme-winvista, .theme-win7) {
   --hero-radius: 3px;
   --dur: 0.12s;
 
+  /* The menu effects carried over from XP: menus fade in, drop-down lists
+     slide open, and a chosen item is left behind fading out. The pop-up
+     fades like a notification-area balloon. */
+  --menu-in:   sk-fade-in 0.2s linear;
+  --combo-in:  sk-unroll 0.15s ease-out;
+  --pick-menu: sk-pick-gone 0.3s;
+  --pick:      sk-pick-fade 0.3s linear forwards;
+  --pop-motion: fade;
+
   /* Caption buttons are one joined strip hanging from the top edge. */
   & .titlebar-controls { align-self: flex-start; }
   & .tb-ctrl { border-top-width: 0; }
@@ -282,8 +311,8 @@ body:is(.theme-winvista, .theme-win7) {
   & .modal-close-btn:hover { border-radius: 0 0 4px 4px; margin-top: -6px; }
 
   & .nav-btn.active { font-weight: 400; }
-  & #manageMenu .manage-item:hover,
-  & .network-menu .network-option:hover,
+  & #manageMenu .manage-item:is(:hover, .is-picked),
+  & .network-menu .network-option:is(:hover, .is-picked),
   & .cselect-menu .cselect-option:hover { box-shadow: inset 0 0 0 1px #aecff7; }
 
   & .modal-btn.modal-btn-primary {
@@ -326,6 +355,46 @@ body:is(.theme-winvista, .theme-win7) {
     -webkit-mask: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
             mask: linear-gradient(90deg, transparent, #000 30%, #000 70%, transparent);
     animation: sk-aero-marquee 2s linear infinite;
+  }
+
+  /* Dialogs open and close as Vista and 7 animate a window. The rest of the
+     retro skins' systems drew dialogs in one go, and so do they. The box
+     keeps its layer while open, as the modern skins' does (04-modern.css),
+     so its text does not jump half a pixel when the animation ends. */
+  & .modal-overlay { animation: sk-fade-in 0.22s ease-out; }
+  & .modal-box {
+    animation: sk-aero-win-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+    will-change: transform;
+  }
+  & .modal-overlay.is-closing { animation: sk-fade-out 0.18s ease-in forwards; }
+  & .modal-overlay.is-closing .modal-box { animation: sk-aero-win-out 0.18s ease-in forwards; }
+
+  /* A bar of known size glints while it fills. Paused, it turns the yellow
+     of a paused Windows bar and stands still. */
+  & .dlp-bar-fill:not(.indeterminate) {
+    position: relative;
+    overflow: hidden;
+  }
+  & .dl-progress-block.is-paused .dlp-bar-fill {
+    background: linear-gradient(180deg, #fdf7b5 0%, #f2df3c 45%, #dcc300 50%, #ecd630 80%, #f8ea8a 100%);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    & .dl-progress-block:not(.is-paused) .dlp-bar-fill:not(.indeterminate)::after {
+      content: '';
+      display: block;
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -70px;
+      width: 70px;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.75) 50%, rgba(255, 255, 255, 0));
+      animation: sk-aero-glint 2.4s linear infinite;
+    }
+
+    /* The default button of a dialog pulses until the pointer is on it. */
+    & .modal-btn.modal-btn-primary:not(:hover, :active, :disabled)::after {
+      animation: sk-aero-pulse 2s ease-in-out infinite;
+    }
   }
 
   /* Aero fades: a button's blue glow and a pane item's highlight fade in

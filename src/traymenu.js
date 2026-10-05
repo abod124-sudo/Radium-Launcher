@@ -24,6 +24,7 @@
       }
     }
     document.body.classList.toggle('motion', style.motion !== false);
+    document.body.classList.toggle('fade', style.fade === true);
     document.body.classList.toggle('glass', style.glass === true);
   }
 

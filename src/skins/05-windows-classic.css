@@ -341,10 +341,15 @@ body:is(.theme-win95, .theme-win98) {
 body.theme-win98 {
   --tb-bg: linear-gradient(90deg, #000080, #1084d0);
   --mtb-bg: linear-gradient(90deg, #000080, #1084d0);
+  /* 98's "Animate windows, menus and lists": menus and drop-down lists
+     scroll open from the edge they hang off. 95 drew them in one go. */
+  --menu-in: sk-unroll 0.15s ease-out;
+  --pop-motion: unroll;
 }
 
 /* ── Windows 95 ───────────────────────────────────────────────────────── */
 body.theme-win95 {
+  --pop-motion: none;
   --tb-bg: #000080;
   --mtb-bg: #000080;
   --content-bg: #008080;

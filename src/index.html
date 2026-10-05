@@ -650,6 +650,14 @@
                          from the friends card. -->
                     <button type="button" class="modal-btn modal-btn-primary profile-join-btn network-only-stella"
                             id="peopleDetailJoinBtn" hidden>JOIN</button>
+                    <!-- Stella only: accept their friend request, or star a
+                         friend (paintStellaFriendActions). -->
+                    <button type="button" class="modal-btn modal-btn-primary network-only-stella"
+                            id="peopleDetailAcceptBtn" hidden>ACCEPT REQUEST</button>
+                    <button type="button" class="modal-btn modal-btn-secondary profile-fav-btn network-only-stella"
+                            id="peopleDetailFavoriteBtn" aria-pressed="false" hidden>
+                      <span class="vn-icon vn-icon-star" aria-hidden="true"></span><span class="profile-fav-label">FAVORITE</span>
+                    </button>
                     <!-- Vanilla only. Vanilla has no friends API; subscribing is
                          what its website offers. Hidden on your own profile. -->
                     <button type="button" class="modal-btn modal-btn-primary subscribe-btn network-only-vanilla"
@@ -867,7 +875,7 @@
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>
               <span>Game folders</span>
             </button>
-            <button type="button" class="settings-nav-btn network-only-vanilla" role="tab" aria-selected="false" data-section="notifications" id="setnav-notifications" aria-controls="setpage-notifications" tabindex="-1">
+            <button type="button" class="settings-nav-btn network-only-accounts" role="tab" aria-selected="false" data-section="notifications" id="setnav-notifications" aria-controls="setpage-notifications" tabindex="-1">
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
               <span>Notifications</span>
             </button>
@@ -1133,19 +1141,19 @@
               </div>
             </div>
 
-            <!-- ── Notifications (Vanilla) ── -->
+            <!-- ── Notifications (Vanilla and Stella) ── -->
             <!-- They come from the signed-in Vanilla account. -->
-            <div class="settings-page network-only-vanilla" id="setpage-notifications" role="tabpanel" aria-labelledby="setnav-notifications" hidden>
+            <div class="settings-page network-only-accounts" id="setpage-notifications" role="tabpanel" aria-labelledby="setnav-notifications" hidden>
               <div class="settings-page-head">
                 <h3 class="settings-page-title">Notifications</h3>
-                <p class="settings-page-desc">Pop-ups for your Vanilla account's notifications, shown outside the launcher.</p>
+                <p class="settings-page-desc">Pop-ups for your Vanilla and Stella notifications and invites, shown outside the launcher.</p>
               </div>
 
               <div class="settings-group">
                 <div class="sg-toggle-row">
                   <span class="sg-text">
                     <span class="sg-label">Show pop-ups</span>
-                    <span class="sg-desc">A card in the corner of the screen for each new Vanilla notification.</span>
+                    <span class="sg-desc">A card in the corner of the screen for each new notification or invite.</span>
                   </span>
                   <div class="toggle-wrap" id="tgl-notifPopups"><div class="tgl-knob"></div></div>
                 </div>

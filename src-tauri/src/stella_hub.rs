@@ -52,7 +52,7 @@
 //! go within a couple of seconds of the game starting, well before the game
 //! reaches its own hub connection.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -117,6 +117,13 @@ struct Hub {
     generation: u64,
     running: bool,
     friend_ids: Vec<i64>,
+    /// Friends the player has starred (`Favorited` in the friends list).
+    favorites: HashSet<i64>,
+    /// Players who have sent the player a friend request, not yet answered.
+    request_ids: Vec<i64>,
+    /// The friends list has changed on Stella's side (a request came in, or
+    /// one was accepted), so it is read again on the next pass.
+    relations_dirty: bool,
     /// Person rows, by account id.
     accounts: HashMap<i64, Value>,
     presence: HashMap<i64, Presence>,
@@ -151,6 +158,9 @@ pub fn stop() {
         h.generation += 1;
         h.running = false;
         h.friend_ids.clear();
+        h.favorites.clear();
+        h.request_ids.clear();
+        h.relations_dirty = false;
         h.accounts.clear();
         h.presence.clear();
         h.connected_at = None;
@@ -187,30 +197,60 @@ fn current(gen: u64) -> bool {
     with_hub(|h| h.generation == gen) && !stella_api::signed_out() && stella_api::in_use()
 }
 
-/// Read the friends list (accepted friends only, not pending requests) and
-/// their account rows. `RelationshipType` 3 is a mutual friend.
+/// `RelationshipType` of a mutual friend, and of a request someone has sent
+/// the player (1 is one the player sent, which isn't shown).
+const FRIEND: i64 = 3;
+const REQUEST_RECEIVED: i64 = 2;
+
+/// What the friends list says: friends, the starred ones among them, and
+/// requests waiting for the player's answer.
+#[derive(Debug, Default, PartialEq)]
+struct Relationships {
+    friends: Vec<i64>,
+    favorites: HashSet<i64>,
+    requests: Vec<i64>,
+}
+
+fn read_relationships(rels: &Value) -> Relationships {
+    let mut out = Relationships::default();
+    for r in rels.as_array().map(Vec::as_slice).unwrap_or_default() {
+        let Some(id) = r.get("PlayerID").and_then(Value::as_i64).filter(|&id| id > 0) else {
+            continue;
+        };
+        match r.get("RelationshipType").and_then(Value::as_i64) {
+            Some(FRIEND) => {
+                out.friends.push(id);
+                // A number (0/1) as measured; a bool is taken too.
+                let fav = &r["Favorited"];
+                if fav.as_i64().is_some_and(|n| n != 0) || fav.as_bool() == Some(true) {
+                    out.favorites.insert(id);
+                }
+            }
+            Some(REQUEST_RECEIVED) => out.requests.push(id),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Read the friends list — friends, which are starred, and requests waiting
+/// for an answer — and the account rows of everyone in it.
 async fn load_friends(gen: u64) -> Result<(), String> {
     let rels = stella_api::api_get("/api/relationships/v2/get").await?;
-    let ids: Vec<i64> = rels
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter(|r| r.get("RelationshipType").and_then(Value::as_i64) == Some(3))
-                .filter_map(|r| r.get("PlayerID").and_then(Value::as_i64))
-                .filter(|&id| id > 0)
-                .collect()
-        })
-        .unwrap_or_default();
-    let accounts = stella_api::resolve_accounts(&ids).await;
+    let Relationships { friends, favorites, requests } = read_relationships(&rels);
+    let everyone: Vec<i64> = friends.iter().chain(&requests).copied().collect();
+    let accounts = stella_api::resolve_accounts(&everyone).await;
     with_hub(|h| {
         if h.generation != gen {
             return;
         }
-        h.accounts = ids
+        h.accounts = everyone
             .iter()
             .filter_map(|id| accounts.get(id).map(|a| (*id, stella_api::person_row(a))))
             .collect();
-        h.friend_ids = ids;
+        h.friend_ids = friends;
+        h.favorites = favorites;
+        h.request_ids = requests;
         h.loaded = true;
     });
     Ok(())
@@ -257,10 +297,15 @@ fn invite_of(inner: &Value) -> Option<Value> {
 /// an invite.
 fn note_message(inner: &Value, gen: u64) {
     let invite = invite_of(inner);
+    // A friend request (4), or one of the player's accepted (40): the
+    // friends list has changed, so it is read again straight away rather
+    // than at the next FRIENDS_REFRESH.
+    let relations = matches!(inner["Msg"].get("Type").and_then(Value::as_i64), Some(4 | 40));
     with_hub(|h| {
         if h.generation == gen {
             h.new_message = true;
             h.invites.extend(invite);
+            h.relations_dirty |= relations;
         }
     });
 }
@@ -455,7 +500,7 @@ async fn run_connection(app: &AppHandle, gen: u64) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
             last_ping = Instant::now();
         }
-        if last_friends.elapsed() >= FRIENDS_REFRESH {
+        if last_friends.elapsed() >= FRIENDS_REFRESH || with_hub(|h| std::mem::take(&mut h.relations_dirty)) {
             subscribed = false;
         }
         // Once connected, and again every FRIENDS_REFRESH: read the friends
@@ -633,6 +678,7 @@ pub async fn stella_friends(app: AppHandle) -> Value {
                 row["roomId"] = json!(live.map_or(0, |p| p.room_id));
                 row["roomName"] = json!(live.map_or("", |p| p.room_name.as_str()));
                 row["private"] = json!(live.is_some_and(|p| p.private));
+                row["favorite"] = json!(h.favorites.contains(id));
                 row
             })
             .collect();
@@ -641,12 +687,17 @@ pub async fn stella_friends(app: AppHandle) -> Value {
             "checking" | "paused" | "unknown" => 1,
             _ => 2,
         };
+        let name = |v: &Value| v["displayName"].as_str().unwrap_or("").to_lowercase();
+        // Online first, as before; within that, starred friends first (the
+        // game's "online, then favorites"), then by name.
         friends.sort_by(|a, b| {
-            rank(a["status"].as_str().unwrap_or("")).cmp(&rank(b["status"].as_str().unwrap_or(""))).then_with(|| {
-                let name = |v: &Value| v["displayName"].as_str().unwrap_or("").to_lowercase();
-                name(a).cmp(&name(b))
-            })
+            rank(a["status"].as_str().unwrap_or(""))
+                .cmp(&rank(b["status"].as_str().unwrap_or("")))
+                .then_with(|| b["favorite"].as_bool().cmp(&a["favorite"].as_bool()))
+                .then_with(|| name(a).cmp(&name(b)))
         });
+        let mut requests: Vec<Value> = h.request_ids.iter().filter_map(|id| h.accounts.get(id).cloned()).collect();
+        requests.sort_by_key(|r| name(r));
         json!({
             "success": true,
             "loaded": h.loaded,
@@ -654,6 +705,7 @@ pub async fn stella_friends(app: AppHandle) -> Value {
             "paused": h.paused,
             "error": h.error,
             "friends": friends,
+            "requests": requests,
         })
     })
 }
@@ -878,6 +930,63 @@ pub fn stella_friends_stop() {
     stop();
 }
 
+/// Star a friend (`on`) or unstar them, on Stella itself, so the game shows
+/// the same. Answers `{ favorite }`.
+#[tauri::command]
+pub async fn stella_set_friend_favorite(app: AppHandle, player_id: i64, on: bool) -> Result<Value, String> {
+    let path = if on { "/api/relationships/v1/favorite" } else { "/api/relationships/v1/unfavorite" };
+    let row = stella_api::relationship_call(path, player_id).await?;
+    // Stella answers the row as it now stands; go by that.
+    let now = row_favorited(&row).unwrap_or(on);
+    if now != on {
+        return Err(if on { "Stella didn't star them." } else { "Stella didn't unstar them." }.into());
+    }
+    with_hub(|h| {
+        if now {
+            h.favorites.insert(player_id);
+        } else {
+            h.favorites.remove(&player_id);
+        }
+    });
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(json!({ "favorite": now }))
+}
+
+/// Whether a relationship row says the friend is starred (`Favorited` 0/1, or
+/// `IsFavorited`), if it says at all.
+fn row_favorited(row: &Value) -> Option<bool> {
+    ["Favorited", "IsFavorited"].iter().find_map(|k| {
+        let v = row.get(*k)?;
+        v.as_i64().map(|n| n != 0).or_else(|| v.as_bool())
+    })
+}
+
+/// Accept a friend request. The friends list is read again before answering,
+/// so the new friend is in it (and the request gone) when the page redraws.
+#[tauri::command]
+pub async fn stella_accept_friend_request(app: AppHandle, player_id: i64) -> Result<Value, String> {
+    let row = stella_api::relationship_call("/api/relationships/v2/acceptfriendrequest", player_id).await?;
+    // The row as it now stands, if Stella answers one (untested: see
+    // stella_api). Anything but "friends" means it didn't take.
+    let friends = row.get("IsFriend").and_then(Value::as_bool)
+        .or_else(|| row.get("RelationshipType").and_then(Value::as_i64).map(|t| t == FRIEND));
+    if friends == Some(false) {
+        return Err("Stella didn't accept it. The request may have been withdrawn.".into());
+    }
+    let gen = with_hub(|h| {
+        h.request_ids.retain(|&id| id != player_id);
+        // Also re-subscribes the connection, so the new friend's presence
+        // comes too.
+        h.relations_dirty = true;
+        h.generation
+    });
+    if let Err(e) = load_friends(gen).await {
+        applog::backend("warn", "account", format!("Accepted a Stella friend request, but couldn't re-read the friends list: {e}"));
+    }
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(json!({ "accepted": true }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -912,6 +1021,41 @@ mod tests {
         assert_eq!(status_of(&h, 7).0, "checking");
         h.connected_at = Instant::now().checked_sub(SETTLE + Duration::from_secs(1));
         assert_eq!(status_of(&h, 7).0, "offline");
+    }
+
+    /// Rows as Stella sent them on 2026-10-05: friends (3), starred or not,
+    /// requests the player sent (1, not shown), a cleared row (0), and a
+    /// request received (2).
+    #[test]
+    fn reads_friends_favorites_and_requests() {
+        let rels = json!([
+            { "Favorited": 0, "Ignored": 0, "Muted": 0, "PlayerID": 47484, "RelationshipType": 1 },
+            { "Favorited": 1, "Ignored": 0, "Muted": 0, "PlayerID": 4034, "RelationshipType": 3 },
+            { "Favorited": 0, "Ignored": 0, "Muted": 0, "PlayerID": 71838, "RelationshipType": 3 },
+            { "Favorited": 0, "Ignored": 0, "Muted": 0, "PlayerID": 21661, "RelationshipType": 0 },
+            { "Favorited": 0, "Ignored": 0, "Muted": 0, "PlayerID": 555, "RelationshipType": 2 },
+            { "Favorited": 0, "PlayerID": 0, "RelationshipType": 3 },
+        ]);
+        assert_eq!(
+            read_relationships(&rels),
+            Relationships {
+                friends: vec![4034, 71838],
+                favorites: HashSet::from([4034]),
+                requests: vec![555],
+            }
+        );
+        assert_eq!(read_relationships(&json!(null)), Relationships::default());
+    }
+
+    /// The answer to `/api/relationships/v1/favorite`, as measured.
+    #[test]
+    fn reads_the_star_off_a_relationship_row() {
+        let starred = json!({ "Favorited": 1, "Ignored": 0, "IsBlocked": false, "IsFavorited": 1,
+            "IsFriend": true, "IsFriendOrPendingFriend": true, "Muted": 0, "PlayerID": 39543, "RelationshipType": 3 });
+        assert_eq!(row_favorited(&starred), Some(true));
+        assert_eq!(row_favorited(&json!({ "Favorited": 0, "IsFavorited": 0 })), Some(false));
+        assert_eq!(row_favorited(&json!({ "IsFavorited": true })), Some(true));
+        assert_eq!(row_favorited(&json!({})), None);
     }
 
     #[test]

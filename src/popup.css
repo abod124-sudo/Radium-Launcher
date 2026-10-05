@@ -68,9 +68,11 @@ html, body {
               inset 0 0 0 1px rgba(255, 255, 255, 0.09);
 }
 
-/* Retro skins: Steam's old pop-up, rising out of its own slot (moved down by
-   its height and clipped by the same amount) with no fade, and sinking back.
-   popup.js's RETRO_LEAVE_MS matches the exit. */
+/* Retro skins, each the way its own system showed a notice (the skin picks
+   with --pop-motion; popup.js sets the class).
+   Steam, the default: its old pop-up, rising out of its own slot (moved down
+   by its height and clipped by the same amount) with no fade, and sinking
+   back. */
 .retro .pop { animation: pop-rise 0.3s ease-out; }
 .retro .pop.leaving { animation: pop-sink 0.3s ease-in forwards; }
 @keyframes pop-rise {
@@ -81,9 +83,27 @@ html, body {
   from { transform: none; clip-path: inset(0 0 0 0); }
   to   { transform: translateY(100%); clip-path: inset(0 0 100% 0); }
 }
-.no-motion .pop, .no-motion.retro .pop, .no-motion .pop.leaving { animation: none; }
+/* XP and 7's balloon tips, and Growl on Aqua: fade in, fade out. */
+.retro.pop-fade .pop { animation: pop-fade-in 0.25s linear; }
+.retro.pop-fade .pop.leaving { animation: pop-fade-out 0.4s linear forwards; }
+@keyframes pop-fade-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-fade-out { from { opacity: 1; } to { opacity: 0; } }
+/* Windows 98: scrolls open upwards from the taskbar side, as its menus
+   scroll open, and goes at once. */
+.retro.pop-unroll .pop { animation: pop-unroll 0.15s ease-out; }
+.retro.pop-unroll .pop.leaving { animation: none; visibility: hidden; }
+@keyframes pop-unroll {
+  from { clip-path: inset(100% 0 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+/* Windows 95 and Mac OS 9: there, and then gone. */
+.retro.pop-none .pop,
+.retro.pop-none .pop.leaving { animation: none; }
+.retro.pop-none .pop.leaving { visibility: hidden; }
+/* Important, so no skin's own rule above can outrank the opt-out. */
+.no-motion .pop { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {
-  .pop, .retro .pop, .pop.leaving, .retro .pop.leaving { animation: none; }
+  .pop { animation: none !important; }
 }
 @keyframes pop-in {
   from { opacity: 0; transform: translateY(18px); }

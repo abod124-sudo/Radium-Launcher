@@ -134,6 +134,15 @@ body:is(.theme-winxp, .theme-royalenoir) {
   --toast-radius: 6px;
   --toast-shadow: 2px 2px 4px rgba(0, 0, 0, 0.35);
 
+  /* XP's menu effects: menus fade in, drop-down lists slide open, and a
+     chosen item is left behind fading out. The pop-up fades like a balloon
+     tip. */
+  --menu-in:   sk-fade-in 0.2s linear;
+  --combo-in:  sk-unroll 0.15s ease-out;
+  --pick-menu: sk-pick-gone 0.3s;
+  --pick:      sk-pick-fade 0.3s linear forwards;
+  --pop-motion: fade;
+
   /* Explorer's task pane: a header strip over a rounded-bottom box. */
   & .sidebar-logo { padding: 0; margin: 0; border: 0; }
   & .sidebar-logo .logo-combo,

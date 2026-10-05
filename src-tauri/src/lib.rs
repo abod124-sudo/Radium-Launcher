@@ -167,10 +167,11 @@ pub fn run() {
             stella_api::stella_cheered_photos,
             stella_api::stella_set_photo_cheer,
             stella_api::stella_room_interaction,
-            stella_api::stella_set_room_interaction,
-            stella_hub::stella_friends,
+            stella_api::stella_set_room_interaction,            stella_hub::stella_friends,
             stella_hub::stella_friends_stop,
             stella_hub::stella_presence,
+            stella_hub::stella_set_friend_favorite,
+            stella_hub::stella_accept_friend_request,
             // Defender
             defender::add_defender_exclusion,
             defender::remove_defender_exclusion,

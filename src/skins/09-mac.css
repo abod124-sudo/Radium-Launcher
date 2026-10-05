@@ -14,6 +14,20 @@
 
 @keyframes sk-aqua-throb   { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.12); } }
 @keyframes sk-aqua-stripes { to { background-position: 0 0, 16px 0; } }
+/* A chosen menu item blinks before its menu goes: twice on Platinum, once on
+   Aqua, whose menu then fades away. Run with step-end, so each frame holds. */
+@keyframes sk-mac-blink2 {
+  0%, 50%        { color: var(--item-fg); background: transparent; }
+  25%, 75%, 100% { color: var(--item-hover-fg); background: var(--item-hover-bg); }
+}
+@keyframes sk-mac-blink1 {
+  0%        { color: var(--item-fg); background: transparent; }
+  25%, 100% { color: var(--item-hover-fg); background: var(--item-hover-bg); }
+}
+@keyframes sk-aqua-menu-out {
+  0%, 30% { opacity: 1; }
+  100%    { opacity: 0; }
+}
 
 body:is(.theme-macosclassic, .theme-macosaqua) {
   /* The window buttons stay on the right in Windows order — minimise,
@@ -200,6 +214,9 @@ body.theme-macosclassic {
   --item-hover-bg: #444499;
   --item-hover-fg: #ffffff;
   --sep: 1px dotted #777777;
+  --pick-menu: sk-hold 0.24s;
+  --pick:      sk-mac-blink2 0.24s step-end;
+  --pop-motion: none; /* Balloon Help just appears */
 
   --th-bg: linear-gradient(180deg, #eeeeee 0%, #cccccc 100%);
   --th-fg: #000000;
@@ -530,6 +547,9 @@ body.theme-macosaqua {
   --item-hover-bg: var(--source-sel);
   --item-hover-fg: #ffffff;
   --sep: 1px solid #dcdcdc;
+  --menu-out: sk-aqua-menu-out 0.3s linear forwards;
+  --pick:     sk-mac-blink1 0.3s step-end forwards;
+  --pop-motion: fade; /* Growl's notices */
 
   --th-bg: linear-gradient(180deg, #fdfdfd 0%, #ececec 50%, #dedede 51%, #eaeaea 100%);
   --th-fg: #000000;

@@ -185,12 +185,33 @@ fn for_log(url: &str) -> String {
     }
 }
 
-/// ": <the start of the reply>", or nothing for an empty one.
+/// ": <the start of the reply>", or nothing for an empty one. A web page (a
+/// Cloudflare error or block page) is given by its title, which says what
+/// happened ("stellaonline.org | 520: Web server is returning an unknown
+/// error"), where its first 300 characters were only markup.
 pub(crate) fn quoted_reply(body: &[u8]) -> String {
+    if let Some(title) = html_title(body) {
+        return format!(": a web page, \"{title}\"");
+    }
     match applog::snippet(body, 300) {
         s if s.is_empty() => String::new(),
         s => format!(": {s}"),
     }
+}
+
+/// The `<title>` of an HTML reply, if it is one and has one.
+fn html_title(body: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(body);
+    let start = text.trim_start().get(..15)?.to_ascii_lowercase();
+    if !start.starts_with("<!doctype html") && !start.starts_with("<html") {
+        return None;
+    }
+    let lower = text.to_ascii_lowercase();
+    let open = lower.find("<title")?;
+    let from = open + lower[open..].find('>')? + 1;
+    let to = from + lower[from..].find("</title>")?;
+    let title = applog::snippet(text[from..to].as_bytes(), 200);
+    (!title.is_empty()).then_some(title)
 }
 
 /// Whether `url` is https on `stellaonline.org` or one of its subdomains.
@@ -1064,9 +1085,26 @@ enum Body<'a> {
     Form(&'a [(&'a str, String)]),
 }
 
+/// How many more times a GET is sent after Stella's edge (Cloudflare) said
+/// its server failed (see [`edge_failure`]), and how long before each.
+const EDGE_RETRY_DELAYS: [Duration; 2] = [Duration::from_millis(1500), Duration::from_millis(4000)];
+
+/// Whether `status` is Cloudflare reporting that Stella's own server failed or
+/// couldn't be reached — usually a moment's trouble behind it, gone on the
+/// next try (a 520 on the rooms list at sign-in, 2026-10-05, while the same
+/// server was also dropping the friends connection).
+fn edge_failure(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 502 | 503 | 504 | 520..=527)
+}
+
 /// [`api_request`] with a body.
 async fn api_request_with(method: reqwest::Method, path: &str, body: Body<'_>) -> Result<Value, String> {
-    for attempt in 0..2 {
+    // A GET is asked again after an edge failure: every one used here only
+    // reads, or sets a state rather than toggling one (a relationship call).
+    let mut edge_retries = if method == reqwest::Method::GET { EDGE_RETRY_DELAYS.len() } else { 0 };
+    let mut edge_failed: Option<reqwest::StatusCode> = None;
+    let mut attempt = 0;
+    while attempt < 2 {
         let (token, _account) = ensure_session().await?;
         let full_url = url(path).await;
         let mut req = http_client_besthttp()
@@ -1086,12 +1124,33 @@ async fn api_request_with(method: reqwest::Method, path: &str, body: Body<'_>) -
         if status == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
             // Token rejected: drop it and sign in fresh once.
             forget_session_if(&token);
+            attempt += 1;
+            continue;
+        }
+        if edge_failure(status) && edge_retries > 0 {
+            let wait = EDGE_RETRY_DELAYS[EDGE_RETRY_DELAYS.len() - edge_retries];
+            edge_retries -= 1;
+            edge_failed.get_or_insert(status);
+            tokio::time::sleep(wait).await;
             continue;
         }
         if !status.is_success() {
             let body = read_capped(resp, 64 * 1024).await.unwrap_or_default();
             log_http_failure("server", method.as_str(), &full_url, status, &body);
             return Err(format!("Stella API error: HTTP {}", status.as_u16()));
+        }
+        if let Some(first) = edge_failed {
+            applog::backend_once(
+                &format!("edge-recovered-{}", full_url.split('?').next().unwrap_or("")),
+                Duration::from_secs(60),
+                "info",
+                "server",
+                format!(
+                    "Stella answered {method} {} with HTTP {}, then worked when asked again.",
+                    for_log(&full_url),
+                    status_text(first)
+                ),
+            );
         }
         let body = read_capped(resp, MAX_API_BYTES).await?;
         return serde_json::from_slice(&body).map_err(|e| {
@@ -1117,8 +1176,9 @@ async fn api_request_with(method: reqwest::Method, path: &str, body: Body<'_>) -
 /// any answer arrives: a pooled connection Stella's edge had already closed,
 /// or a blip in the network. Every request through here is safe to repeat
 /// (reads, PUT/DELETE of a room's cheer or favorite, and a photo's cheer, which
-/// sets a state rather than toggling one; a join request sent twice only asks
-/// twice). A timeout isn't retried —
+/// sets a state rather than toggling one, as starring a friend does; a join
+/// request sent twice only asks twice, and a friend request accepted twice is
+/// still one friend). A timeout isn't retried —
 /// that has already waited its full 20 seconds.
 async fn send_with_retry(req: reqwest::RequestBuilder) -> Result<reqwest::Response, String> {
     let mut last = None;
@@ -2481,6 +2541,29 @@ pub async fn account_id_for_name(name: &str) -> Option<i64> {
         .filter(|&id| id != 0)
 }
 
+// ─── Friends: favorites and requests ────────────────────────────────────────
+//
+// The game's own calls (paths from its metadata):
+// `/api/relationships/v1/favorite` and `…/v1/unfavorite` star and unstar a
+// friend, and `/api/relationships/v2/acceptfriendrequest` accepts a request,
+// each naming the player as `?id=`. They are GETs: POST and PUT are a 405.
+// Each answers the player's relationship row as it now stands, e.g.
+// `{Favorited: 1, IsFavorited: 1, IsFriend: true, RelationshipType: 3, …}`
+// (measured 2026-10-05 on one of the user's friends, with their go-ahead:
+// starred and unstarred again). In the friends list
+// (`/api/relationships/v2/get`) `RelationshipType` 2 is a request someone
+// sent the player, 1 one the player sent (the player confirmed which way 1
+// goes), 3 a friend. Accepting is untested: there was no request to accept.
+
+/// Make a relationship call about one player, answering their row as it now
+/// stands.
+pub(crate) async fn relationship_call(path: &str, player_id: i64) -> Result<Value, String> {
+    if player_id <= 0 {
+        return Err("No such player.".into());
+    }
+    api_get(&format!("{path}?id={player_id}")).await
+}
+
 // ─── Room cheer and favorite ────────────────────────────────────────────────
 //
 // `/roomserver/rooms/{id}/interactionby/me` answers `{Cheered, Favorited,
@@ -2583,6 +2666,34 @@ fn urlenc(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// Cloudflare's error page, as the start of it was logged on 2026-10-05,
+    /// is logged by its title rather than its markup.
+    #[test]
+    fn a_web_page_reply_is_logged_by_its_title() {
+        let page = b"<!DOCTYPE html>\n<!--[if lt IE 7]> <html class=\"no-js ie6 oldie\" lang=\"en-US\"> <![endif]-->\n\
+            <html class=\"no-js\" lang=\"en-US\"> <head>\n<title>stellaonline.org | 520: Web server is returning an unknown error</title>\n\
+            <meta charset=\"UTF-8\" /></head><body>...</body></html>";
+        assert_eq!(
+            super::quoted_reply(page),
+            ": a web page, \"stellaonline.org | 520: Web server is returning an unknown error\""
+        );
+        // Anything else is quoted as before.
+        assert_eq!(super::quoted_reply(br#"{"error":"nope"}"#), r#": {"error":"nope"}"#);
+        assert_eq!(super::quoted_reply(b"<html><body>no title</body></html>"), ": <html><body>no title</body></html>");
+        assert_eq!(super::quoted_reply(b""), "");
+    }
+
+    #[test]
+    fn only_the_edge_reporting_a_failed_server_is_retried() {
+        use reqwest::StatusCode;
+        for code in [502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527] {
+            assert!(super::edge_failure(StatusCode::from_u16(code).unwrap()), "{code}");
+        }
+        for code in [400, 401, 403, 404, 405, 429, 500, 501, 530] {
+            assert!(!super::edge_failure(StatusCode::from_u16(code).unwrap()), "{code}");
+        }
+    }
 
     #[test]
     fn logged_addresses_leave_out_the_steam_id() {
