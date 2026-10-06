@@ -9483,11 +9483,12 @@ async function loadRoomPhotos(roomId, append = false) {
     roomPhotosFeedSkip = 0;
     currentRoomPhotosCount = 0;
     roomPhotosHasMore = false;
-    photosGrid.innerHTML = '<div id="roomPhotosLoading" style="text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);">Loading photos...</div>';
+    photosGrid.innerHTML = '<div id="roomPhotosLoading" class="profile-grid-note" style="text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);">Loading photos...</div>';
     if (photosEmpty) photosEmpty.style.display = 'none';
   } else {
     const loadingEl = document.createElement('div');
     loadingEl.id = 'roomPhotosLoading';
+    loadingEl.className = 'profile-grid-note';
     loadingEl.style.cssText = 'text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);';
     loadingEl.textContent = 'Loading more...';
     photosGrid.appendChild(loadingEl);
@@ -9507,7 +9508,7 @@ async function loadRoomPhotos(roomId, append = false) {
       if (!append && currentRoomPhotosCount === 0) photosGrid.innerHTML = '';
       const loadEl = $('roomPhotosLoading');
       if (loadEl) loadEl.remove();
-      results.forEach(photo => { currentRoomPhotosCount++; photosGrid.appendChild(buildPhotoCard(photo, 'rooms-detail')); });
+      results.forEach(photo => { currentRoomPhotosCount++; photosGrid.appendChild(buildPhotoTile(photo, 'rooms-detail')); });
       roomPhotosFeedSkip = directSkip + roomPhotosFeedTake;
       roomPhotosHasMore = results.length >= roomPhotosFeedTake;
       roomPhotosLoading = false;
@@ -9547,7 +9548,7 @@ async function loadRoomPhotos(roomId, append = false) {
           currentRoomPhotosCount++;
           matchedInBatch++;
           
-          photosGrid.appendChild(buildPhotoCard(photo, 'rooms-detail'));
+          photosGrid.appendChild(buildPhotoTile(photo, 'rooms-detail'));
         });
       }
       
@@ -9944,6 +9945,12 @@ async function showRoomDetails(room) {
     imgEl.src = thumbUrl;
     imgEl.onerror = () => { imgEl.src = './images.png'; imgEl.classList.remove('image-loading-placeholder'); imgEl.onerror = null; };
   }
+  // The header's blurred backdrop is the same picture (one fetch, cached).
+  const backdropEl = $('roomsDetailBackdrop');
+  if (backdropEl) {
+    backdropEl.src = thumbUrl;
+    backdropEl.onerror = () => { backdropEl.src = './images.png'; backdropEl.onerror = null; };
+  }
   
   const roomName = room.Name || room.name || 'Unknown Room';
   const nameEl = $('roomsDetailName');
@@ -9952,9 +9959,6 @@ async function showRoomDetails(room) {
   const creatorUsername = room.CreatorUsername || room.creatorUsername || 'Coach';
   const creatorNameEl = $('roomsDetailCreatorName');
   if (creatorNameEl) creatorNameEl.textContent = creatorUsername;
-  
-  const creatorHandleEl = $('roomsDetailCreatorHandle');
-  if (creatorHandleEl) creatorHandleEl.textContent = `@${creatorUsername}`;
   
   const creatorLinkEl = $('roomsDetailCreatorLink');
   if (creatorLinkEl) {
@@ -9983,22 +9987,14 @@ async function showRoomDetails(room) {
       : defaultAvatarUrl(32);
   }
 
-  const roomId = room.RoomId || room.roomId || '—';
-  const idEl = $('roomsDetailId');
-  if (idEl) idEl.textContent = roomId;
-  
+  // The day only, in the strip with the other numbers: "Mar 14, 2025".
   const createdAt = room.CreatedAt || room.createdAt;
   const createdEl = $('roomsDetailCreatedAt');
   if (createdEl) {
-    if (createdAt) {
-      try {
-        createdEl.textContent = new Date(createdAt).toLocaleString();
-      } catch (e) {
-        createdEl.textContent = createdAt;
-      }
-    } else {
-      createdEl.textContent = '—';
-    }
+    const when = createdAt ? new Date(createdAt) : null;
+    createdEl.textContent = when && !isNaN(when)
+      ? when.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+      : '—';
   }
 
   // Paint whatever the row already carried, so the stats are correct on the

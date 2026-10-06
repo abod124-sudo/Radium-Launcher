@@ -491,85 +491,99 @@
               <button id="btnRoomsBack" class="btn-refresh" style="font-size: 10px; padding: 2px 8px;">← Back to List</button>
             </div>
             <div class="bevel-inset flex-1 p-4 overflow-y-auto" style="background: var(--bg-dark); min-height: 0;">
-              <!-- Redesigned Room Header Container -->
+              <!-- Room: a header card (the room's picture over a blurred,
+                   darkened copy of itself, with the name, who made it, how
+                   many are in it now and PLAY beside it; under that one
+                   strip of numbers), then two columns like a profile: About
+                   at the left, the photos taken there at the right. Layout
+                   in style.css; each skin's paint in 03-content.css, glass
+                   in 11-glass.css. -->
               <div class="room-card-container bevel-inset">
-                <div class="room-card-main">
-                  <!-- Left Column: Thumbnail -->
-                  <div class="room-thumbnail-wrapper">
-                    <img id="roomsDetailImage" class="room-thumbnail-image image-loading-placeholder" src="data:," alt="Room Thumbnail" />
-                  </div>
-
-                  <!-- Right Column: Details info -->
-                  <div class="room-details-content">
-                    <h3 id="roomsDetailName" class="room-title">Room Name</h3>
-                    <!-- Stella only: players in the room right now. -->
-                    <div id="roomsDetailLive" class="room-live-pill" hidden><span class="room-live-dot" aria-hidden="true"></span><span></span></div>
-                    
-                    <!-- Creator Signature Box -->
-                    <div id="roomsDetailCreatorLink" class="room-creator-box bevel-inset">
-                      <img id="roomsDetailCreatorAvatar" src="data:," alt="Creator Avatar" class="room-creator-avatar image-loading-placeholder" />
-                      <div class="room-creator-info">
-                        <span id="roomsDetailCreatorName" class="room-creator-name">Coach</span>
-                        <span id="roomsDetailCreatorHandle" class="room-creator-handle">@Coach</span>
-                      </div>
+                <div class="room-hero">
+                  <!-- The same picture, blurred, as the header's backdrop.
+                       Drawn in a fixed dark scrim on every skin, so the
+                       text over it is white on all of them. -->
+                  <img id="roomsDetailBackdrop" class="room-hero-backdrop" src="data:," alt="" aria-hidden="true" />
+                  <div class="room-hero-inner">
+                    <div class="room-thumbnail-wrapper">
+                      <img id="roomsDetailImage" class="room-thumbnail-image image-loading-placeholder" src="data:," alt="" />
                     </div>
 
-                    <!-- Description -->
-                    <p id="roomsDetailDescription" class="room-description">Room description goes here...</p>
+                    <div class="room-details-content">
+                      <!-- Stella only: players in the room right now. -->
+                      <div id="roomsDetailLive" class="room-live-pill" hidden><span class="room-live-dot" aria-hidden="true"></span><span></span></div>
+                      <h3 id="roomsDetailName" class="room-title">Room Name</h3>
+                      <!-- Who made it; opens their profile. -->
+                      <button type="button" id="roomsDetailCreatorLink" class="room-creator-box">
+                        <img id="roomsDetailCreatorAvatar" src="data:," alt="" class="room-creator-avatar image-loading-placeholder" />
+                        <span class="room-creator-by">by</span>
+                        <span id="roomsDetailCreatorName" class="room-creator-name">Coach</span>
+                      </button>
 
-                    <!-- Vanilla: sends the running game into this room.
-                         Stella: starts the game in this room (+roomname:). -->
-                    <button type="button" class="modal-btn modal-btn-primary room-play-btn room-play-net"
-                            id="roomsDetailPlay">
-                      <span class="room-play-label">&#9654; PLAY</span>
-                    </button>
+                      <!-- Vanilla: sends the running game into this room.
+                           Stella: starts the game in this room (+roomname:). -->
+                      <button type="button" class="modal-btn modal-btn-primary room-play-btn room-play-net"
+                              id="roomsDetailPlay">
+                        <span class="room-play-label">&#9654; PLAY</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <!-- Footer Stats & Meta -->
+                <!-- The numbers, in one strip under the header. -->
                 <div class="room-card-footer">
                   <div class="room-stats-grid">
                     <!-- A button so that, on Vanilla, the tile itself cheers the
                          room, as on vanillarec.net. Disabled on other networks. -->
-                    <button type="button" class="room-stat-item bevel-inset cheer-stat" id="roomsDetailCheerBtn"
+                    <button type="button" class="room-stat-item cheer-stat" id="roomsDetailCheerBtn"
                             aria-pressed="false" disabled>
                       <div class="room-stat-val">
                         <span class="vn-icon vn-icon-thumb cheer-icon" aria-hidden="true"></span>
                         <span id="roomsDetailCheers">0</span>
                       </div>
-                      <div class="room-stat-lbl">CHEERS</div>
+                      <div class="room-stat-lbl">Cheers</div>
                     </button>
                     <!-- A button for the same reason as CHEERS: on Stella the
                          tile favorites the room. It only wears .cheer-stat
                          (the pill and pressed look) there; see paintRoomCheer. -->
-                    <button type="button" class="room-stat-item bevel-inset stat-btn" id="roomsDetailFavoriteBtn"
+                    <button type="button" class="room-stat-item stat-btn" id="roomsDetailFavoriteBtn"
                             aria-pressed="false" disabled>
                       <div class="room-stat-val">
                         <span class="vn-icon vn-icon-star cheer-icon fav-icon" aria-hidden="true"></span>
                         <span id="roomsDetailFavorites">0</span>
                       </div>
-                      <div class="room-stat-lbl">FAVORITES</div>
+                      <div class="room-stat-lbl">Favorites</div>
                     </button>
-                    <div class="room-stat-item bevel-inset">
+                    <div class="room-stat-item">
                       <div id="roomsDetailVisits" class="room-stat-val">0</div>
-                      <div class="room-stat-lbl">VISITS</div>
+                      <div class="room-stat-lbl">Visits</div>
                     </div>
-                  </div>
-                  
-                  <div class="room-meta-bar font-mono">
-                    Created: <span id="roomsDetailCreatedAt">—</span>
+                    <div class="room-stat-item">
+                      <div id="roomsDetailCreatedAt" class="room-stat-val">—</div>
+                      <div class="room-stat-lbl">Created</div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Room Photos Section -->
-              <div id="roomsDetailPhotosSection" class="mt-6 border-t pt-4" style="border-color: var(--border-dark); width: 100%;">
-                <h4>RECENT PHOTOS</h4>
-                <div id="roomsDetailPhotosGrid" class="photo-list-vertical">
-                  <!-- Room photos loaded here -->
-                </div>
-                <div id="roomsDetailPhotosEmpty" class="photo-empty-msg" style="display: none;">No recent photos taken in this room.</div>
-                <div id="roomsDetailPhotosSentinel" style="height: 1px; width: 100%;"></div>
+              <div class="profile-columns room-columns">
+                <aside class="profile-side">
+                  <section class="profile-panel profile-about bevel-inset">
+                    <div class="profile-side-title">About</div>
+                    <p id="roomsDetailDescription" class="room-description">Room description goes here...</p>
+                  </section>
+                </aside>
+
+                <!-- Photos taken in the room: square thumbnails, as on a
+                     profile; each opens the photo page. -->
+                <section id="roomsDetailPhotosSection" class="profile-panel profile-main bevel-inset">
+                  <div class="profile-side-title">Photos</div>
+                  <div id="roomsDetailPhotosGrid" class="profile-photo-grid">
+                    <!-- Room photos loaded here -->
+                  </div>
+                  <div id="roomsDetailPhotosEmpty" class="photo-empty-msg" style="display: none;">No recent photos taken in this room.</div>
+                  <div id="roomsDetailPhotosSentinel" style="height: 1px; width: 100%;"></div>
+                </section>
               </div>
             </div>
           </div>

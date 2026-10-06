@@ -209,29 +209,29 @@ body:not(.glass-enabled) {
     border: var(--media-border);
     border-radius: var(--media-radius);
   }
-  & :is(.room-title, .profile-display-name) { font-family: var(--heading-font); color: var(--panel-fg); }
+  & .profile-display-name { font-family: var(--heading-font); color: var(--panel-fg); }
+  /* On the header's dark scrim: the skin's face, but always white. */
+  & .room-title { font-family: var(--heading-font); }
   & .room-description { font-family: var(--font-ui); color: var(--panel-fg); }
-  & :is(.room-creator-box, .room-stat-item, .room-meta-bar, .photo-detail-box,
-        .photo-detail-stats) {
+  & :is(.photo-detail-box, .photo-detail-stats) {
     color: var(--well-fg);
     background: var(--tile-bg);
     border: var(--tile-border);
     border-radius: var(--tile-radius);
     box-shadow: var(--tile-shadow);
   }
-  & .room-creator-box:hover { background: var(--tile-hover-bg, var(--tile-bg)); border: var(--card-hover-border); }
-  & .room-stat-val { font-family: var(--font-ui); color: var(--tile-value); }
+  & .room-stat-item + .room-stat-item { border-left: var(--sep); }
+  & .room-stat-val { font-family: var(--font-ui); color: var(--panel-fg); }
   & :is(.room-stat-lbl, .profile-stat-lbl, .photo-detail-stat-label, .photo-detail-room-label) {
     font-family: var(--font-ui);
     color: var(--muted);
   }
-  & :is(.room-creator-name, #photoDetailCreatorName, .photo-detail-stat-value) { color: var(--well-fg); }
-  & :is(.room-creator-handle, #photoDetailCreatorHandle) { color: var(--muted); }
-  & :is(.room-creator-avatar, .photo-detail-creator img) {
+  & :is(#photoDetailCreatorName, .photo-detail-stat-value) { color: var(--well-fg); }
+  & #photoDetailCreatorHandle { color: var(--muted); }
+  & .photo-detail-creator img {
     border: var(--media-border);
     border-radius: var(--avatar-radius, var(--media-radius));
   }
-  & .room-meta-bar span { color: var(--well-fg); }
   & .profile-bio-text { font-family: var(--font-ui); color: var(--panel-fg); }
   & .profile-bio-more { font-family: var(--font-ui); color: var(--link); }
   & .profile-bio-more:hover { color: var(--link-hover); }

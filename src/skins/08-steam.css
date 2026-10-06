@@ -259,8 +259,7 @@ body.theme-steam-green {
   & .sidebar-footer { box-shadow: inset 0 1px 0 #6a7661; }
   & .sg-title,
   & .caption-header,
-  & .profile-side-title,
-  & #roomsDetailPhotosSection h4 { box-shadow: 0 1px 0 #6a7661; }
+  & .profile-side-title { box-shadow: 0 1px 0 #6a7661; }
   & .manage-sep { box-shadow: 0 1px 0 #6a7661; }
   & .dlp-dot { animation: sk-blink 1s steps(1, end) infinite; }
   & .dlp-step-idx { border-radius: 0; }

@@ -364,9 +364,9 @@ body.theme-win95 {
   --panel-border: 0;
   --panel-shadow: var(--window);
 
-  & :is(.feed-subtitle, .photo-empty-msg, .feed-loading, #roomsDetailPhotosSection h4,
-        .autosave-indicator) { color: #ffffff; }
-  & #roomsDetailPhotosSection h4 { border-bottom: 1px solid rgba(255, 255, 255, 0.5); }
+  & :is(.feed-subtitle, .photo-empty-msg, .feed-loading, .autosave-indicator) { color: #ffffff; }
+  /* Inside a window, not on the desktop. */
+  & .profile-panel .photo-empty-msg { color: var(--muted); }
 
   & .native-panel {
     padding: 8px;

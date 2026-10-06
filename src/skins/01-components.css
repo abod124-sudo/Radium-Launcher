@@ -404,8 +404,7 @@ body:not(.glass-enabled) {
   /* Section titles */
   & .sg-title,
   & .caption-header,
-  & .profile-side-title,
-  & #roomsDetailPhotosSection h4 {
+  & .profile-side-title {
     padding-bottom: 4px;
     margin-bottom: 2px;
     font-family: var(--title-font);
@@ -418,7 +417,6 @@ body:not(.glass-enabled) {
     border-bottom: var(--title-border);
     box-shadow: none;
   }
-  & #roomsDetailPhotosSection h4 { margin-bottom: 10px; }
 
   /* Sunken wells: grids, tables, logs, notes */
   & .log-output,

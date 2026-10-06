@@ -1034,9 +1034,10 @@ body:not(.network-stella) .fav-icon { display: none; }
    The modern family and Liquid Glass keep the pill above. */
 body:not(.glass-enabled):not(:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
                                   .theme-blackandwhite, .theme-blackandwhite-inverted)) {
+  /* Only while it is a button: on Radium the tile is a plain number. */
   & :is(.card-cheer,
-        .cheer-stat .room-stat-val,
-        .cheer-stat .photo-detail-stat-value) {
+        .cheer-stat:not(:disabled) .room-stat-val,
+        .cheer-stat:not(:disabled) .photo-detail-stat-value) {
     font-family: var(--btn-font);
     color: var(--btn-fg);
     background: var(--btn-bg) !important;
@@ -1046,7 +1047,7 @@ body:not(.glass-enabled):not(:is(.theme-neondark, .theme-modernlight, .theme-mod
     text-shadow: var(--btn-tshadow);
   }
   & .card-cheer { height: 24px; padding: 0 10px; }
-  & .cheer-stat :is(.room-stat-val, .photo-detail-stat-value) { padding: 2px 10px; }
+  & .cheer-stat:not(:disabled) :is(.room-stat-val, .photo-detail-stat-value) { padding: 2px 10px; }
   /* Never while held or cheered: the tile hover outranks the pressed rule
      below, so a cheer popped back out under the mouse that just clicked it. */
   & .card-cheer:not(.is-on, :active):hover,
@@ -1077,11 +1078,11 @@ body:is(.theme-winxp, .theme-royalenoir):not(.glass-enabled) :is(.card-cheer, .c
   color: var(--accent-text);
 }
 
-/* Play is the room's main action, so it sits under the description rather
+/* Play is the room's main action: in the header, under who made it, rather
    than in the stats row, where it read as a fourth stat. */
 .room-details-content .room-play-btn {
   align-self: flex-start;
-  margin-top: 4px;
+  margin-top: 6px;
   min-width: 150px; min-height: 42px;
   padding: 0 22px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -3407,10 +3408,7 @@ body.theme-moderndark .border,
 body.theme-moderndark .photo-card,
 
 body.theme-moderndark .photo-detail-img-wrap,
-body.theme-moderndark #roomsDetailImage,
 body.theme-moderndark #photoDetailImage,
-body.theme-moderndark #roomsDetailCreatorLink img,
-body.theme-moderndark #roomsDetailCreatorAvatar,
 body.theme-moderndark #peopleDetailAvatar,
 body.theme-moderndark #photoDetailCreatorAvatar {
   border: 1px solid var(--border-light) !important;
@@ -3418,16 +3416,6 @@ body.theme-moderndark #photoDetailCreatorAvatar {
   box-shadow: none !important;
 }
 
-/* Aqua scrollbar */
-#roomsDetailPhotosSection h4 {
-  font-size: 13px;
-  font-weight: bold;
-  color: var(--text);
-  margin: 0 0 10px 0;
-  font-family: var(--font-mono);
-  border-bottom: 1px dashed var(--border-dark);
-  padding-bottom: 4px;
-}
 
 .caption-header {
   font-size: 9px;
@@ -4476,178 +4464,200 @@ body:not(.network-vanilla):not(.network-stella) .people-level-col { display: non
 .profile-photo-tile:hover img { transform: scale(1.05); }
 .profile-photo-tile:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 2px; }
 
-/* Redesigned Room Details Card */
+/* Room detail. A header card: the room's picture beside its name, who made
+   it, how many are in it now and PLAY, all over a blurred, darkened copy of
+   the same picture; then one strip of numbers. Below it, two columns as on
+   a profile (.profile-columns): About at the left, the photos at the right.
+   The header is a fixed dark scrim on every skin, so its text is white on
+   all of them; the rest takes each skin's paint (03-content.css). */
 .room-card-container {
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-radius: 6px;
   overflow: hidden;
-  margin-bottom: 24px;
+  margin-bottom: 12px;
 }
 
-.room-card-main {
+.room-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: #16161c;
+}
+/* Overscanned so the blur's soft edge falls outside the card. */
+.room-hero-backdrop {
+  position: absolute;
+  inset: -48px;
+  width: calc(100% + 96px);
+  height: calc(100% + 96px);
+  object-fit: cover;
+  filter: blur(28px) saturate(1.35) brightness(0.55);
+  z-index: -1;
+  pointer-events: none;
+}
+/* Darker toward the text, so a bright picture can't wash the name out. */
+.room-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.45) 100%);
+}
+
+.room-hero-inner {
   display: flex;
-  flex-direction: column;
-  padding: 16px;
-  gap: 16px;
-}
-
-@media (min-width: 768px) {
-  .room-card-main {
-    flex-direction: row;
-    align-items: flex-start;
-  }
+  align-items: center;
+  gap: 24px;
+  padding: 22px;
 }
 
 .room-thumbnail-wrapper {
-  width: 100%;
-  flex-shrink: 0;
-  box-sizing: border-box;
-}
-
-@media (min-width: 768px) {
-  .room-thumbnail-wrapper {
-    width: 280px;
-  }
+  flex: 0 0 auto;
+  width: clamp(220px, 40%, 380px);
 }
 
 .room-thumbnail-image {
+  display: block;
   width: 100%;
-  aspect-ratio: 16/9;
-  object-fit: contain;
-  border: 2px solid;
-  border-color: var(--border-dark) var(--border-light) var(--border-light) var(--border-dark);
-  background: var(--bg-dark);
-  border-radius: 4px;
-  transition: border-color 0.2s ease;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 14px 34px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.12);
+  box-sizing: border-box;
 }
 
 .room-details-content {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 10px;
-  flex-grow: 1;
+  flex: 1;
+  min-width: 0;
+  color: #fff;
   text-align: left;
 }
 
 .room-title {
-  font-size: 22px;
-  font-weight: bold;
-  color: var(--text);
   margin: 0;
-  line-height: 1.2;
+  font-size: 28px;
+  font-weight: bold;
+  line-height: 1.15;
+  color: #fff;
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.4);
+  overflow-wrap: anywhere;
 }
 
+/* Over the picture: a dark chip, whatever the skin. */
+.room-hero .room-live-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.38);
+  color: #fff;
+  font-size: 11px;
+}
+.room-hero .room-live-pill.is-empty { color: rgba(255, 255, 255, 0.72); }
+.room-hero .room-live-pill.is-empty .room-live-dot { background: rgba(255, 255, 255, 0.55); }
+
+/* "by <avatar> Name": a chip that opens the creator's profile. */
 .room-creator-box {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  border-radius: 4px;
-  background: var(--bg-dark);
-  width: fit-content;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.room-creator-box:hover {
-  background: var(--bg-btn);
-}
-
-.room-creator-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 5px;
-  object-fit: cover;
-  border: 1px solid var(--border-dark);
-}
-
-.room-creator-info {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.1;
-}
-
-.room-creator-name {
-  font-weight: bold;
+  gap: 8px;
+  max-width: 100%;
+  padding: 4px 12px 4px 4px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-family: var(--font-ui);
   font-size: 12px;
-  color: var(--text);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
 }
-
-.room-creator-handle {
-  font-size: 11px;
-  color: var(--text-muted);
+.room-creator-box:hover { background: rgba(255, 255, 255, 0.22); }
+.room-creator-box:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.room-creator-avatar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.1);
+}
+.room-creator-by { color: rgba(255, 255, 255, 0.7); }
+.room-creator-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: bold;
 }
 
 .room-description {
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--text);
-  margin: 4px 0;
+  margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--font-ui);
 }
 
-.room-card-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 0 16px 16px 16px;
-  background: var(--bg-panel);
-}
+/* The numbers: one strip of equal cells, divided by hairlines. */
+.room-card-footer { background: transparent; }
 
 .room-stats-grid {
-  display: flex;
-  gap: 10px;
-  width: 100%;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .room-stat-item {
   display: flex;
-  flex: 1;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
-  background: var(--bg-dark);
-  padding: 10px;
-  border-radius: 4px;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 8px;
+  background: transparent;
+  border: 0;
   text-align: center;
-  min-height: 52px;
   box-sizing: border-box;
-  min-width: 90px;
 }
+.room-stat-item + .room-stat-item { border-left: 1px solid var(--border-dark); }
 
 .room-stat-val {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-weight: bold;
-  font-size: 16px;
-  color: var(--green);
-  line-height: 1;
+  font-size: 17px;
+  color: var(--text);
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .room-stat-lbl {
-  font-size: 9px;
-  color: var(--text-muted);
-  font-weight: bold;
-  margin-top: 4px;
-  letter-spacing: 0.5px;
-}
-
-.room-meta-bar {
   font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-muted);
-  background: var(--bg-dark);
-  padding: 6px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--border-dark);
-  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-.room-meta-bar span {
-  color: var(--text);
+/* About gets a little more room than a profile's. */
+.room-columns { grid-template-columns: 280px minmax(0, 1fr); }
+.room-columns .profile-side-title { margin-bottom: 10px; }
+.room-columns .profile-about { gap: 0; }
+/* A profile trims this panel's top for its tab row; a room has a title there. */
+.room-columns .profile-main { padding-top: 14px; }
+
+/* A narrow window: the picture goes above the name, the columns stack. */
+@media (max-width: 720px) {
+  .room-hero-inner { flex-direction: column; align-items: stretch; }
+  .room-thumbnail-wrapper { width: 100%; }
+  .room-columns { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ==========================================================================
@@ -4940,59 +4950,6 @@ body.theme-moderndark .room-card-container {
   overflow: hidden !important;
 }
 
-body.theme-moderndark .room-thumbnail-image {
-  border: 1px solid var(--border-light) !important;
-  border-radius: 8px !important;
-  background: var(--bg-dark) !important;
-}
-
-body.theme-moderndark .room-creator-box {
-  background: var(--bg-dark) !important;
-  border: 1px solid var(--border-light) !important;
-  border-radius: 8px !important;
-  transition: all 0.2s ease !important;
-}
-
-/* Tinted, not filled. `--bg-btn` is a neutral button surface in the retro
-   skins but the *accent* colour in these, so filling a box full of text with
-   it wrecks the labels inside: measured on hover, the creator name sat at
-   2.42 contrast on moderngreen and at 1.00 on both black-and-white skins —
-   where `--bg-btn` and `--text` are literally the same value, so the name
-   disappeared. These themes already solved exactly this for table rows with a
-   translucent tint; the accent stays as the border, which is what makes the
-   hover read. */
-body.theme-moderndark .room-creator-box:hover {
-  background: rgba(255, 255, 255, 0.10) !important;
-  border-color: var(--green) !important;
-}
-body.theme-moderndark .room-creator-avatar {
-  border: none !important;
-  border-radius: 6px !important;
-}
-
-body.theme-moderndark .room-stat-item {
-  background: var(--bg-dark) !important;
-  border: 1px solid var(--border-light) !important;
-  border-radius: 10px !important;
-  box-shadow: none !important;
-  padding: 12px 8px !important;
-  transition: all 0.2s ease !important;
-}
-
-body.theme-moderndark .room-meta-bar {
-  background: var(--bg-dark) !important;
-  border: 1px solid var(--border-light) !important;
-  border-radius: 6px !important;
-  box-shadow: none !important;
-}
-
-body.theme-moderndark #roomsDetailPhotosSection h4 {
-  font-family: var(--font-ui) !important;
-  border-bottom: 1px solid var(--border-light) !important;
-  letter-spacing: 0.5px !important;
-  color: var(--text) !important;
-}
-
 body.theme-moderndark .caption-header {
   font-family: var(--font-ui) !important;
   border-bottom: 1px solid var(--border-light) !important;
@@ -5012,11 +4969,6 @@ body.animations-enabled.theme-moderndark .room-card {
 
 body.animations-enabled.theme-moderndark #roomsDetailView:not(.hidden) {
   animation: modernTabFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
-}
-
-body.animations-enabled.theme-moderndark .room-stat-item:hover {
-  border-color: var(--green) !important;
-  transform: translateY(-2px) !important;
 }
 
 @keyframes modernCardFadeIn {

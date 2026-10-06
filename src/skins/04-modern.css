@@ -394,18 +394,6 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   & #manageMenu:not([hidden]) .manage-item:nth-of-type(6) { animation-delay: 0.18s; }
   & #manageMenu.is-closing .manage-item { animation: none; }
 
-  /* Stat tiles rise on hover. */
-  & .room-stat-item {
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-                border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  & .room-stat-item:hover {
-    transform: translateY(-2px);
-    border: var(--card-hover-border);
-  }
-  & .room-creator-box { transition: background-color 0.2s ease, border-color 0.2s ease; }
-
   /* Cards arrive with a short cascade each time a page of them renders
      (not the placeholders, which would cascade twice). */
   & :is(.room-card, .player-card, .feed-post-card):not(.is-skeleton) {
