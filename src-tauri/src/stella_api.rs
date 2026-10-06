@@ -1373,17 +1373,16 @@ fn rooms_of(v: Value) -> (Vec<Value>, Option<i64>) {
 
 // ─── Public API (mirrors the server.rs command shapes) ───────────────────────
 
-/// The full `hot` list: every public room (~3,900), as one 5.5 MB answer that
-/// Stella takes about 7 seconds to build, whatever is asked for (`skip`/`take`
-/// are ignored, and a `?tag=` list takes as long) — measured 2026-10-02. So it
-/// is fetched once and everything else is done here: paging, sorting, and the
-/// tag filters (see [`filter_tag`]), which matched Stella's own `?tag=` lists
-/// room for room and in the same order.
+/// The full `hot` list: every public room, official and community, in
+/// Stella's Hot order. Stella serves it in two parts now ([`fetch_hot_rooms`]),
+/// so it is put back together once and everything else is done here: paging,
+/// sorting, and the tag filters (see [`filter_tag`]), which matched Stella's
+/// own `?tag=` lists room for room and in the same order.
 ///
-/// Nobody should sit through those 7 seconds twice. The list is fetched in the
-/// background as soon as the player signs in ([`prefetch_rooms`]); once it is
-/// [`HOT_FRESH`] old it is still served at once while a fresh copy is fetched
-/// behind it; and only one fetch is ever in flight.
+/// Built once per [`HOT_FRESH`]: the list is fetched in the background as
+/// soon as the player signs in ([`prefetch_rooms`]); once it is stale it is
+/// still served at once while a fresh copy is fetched behind it; and only one
+/// fetch is ever in flight.
 ///
 /// Shared rather than copied: the list is tens of megabytes as parsed JSON,
 /// and every page, sort and tag works from references into it, so only the
@@ -1417,8 +1416,7 @@ async fn fetch_hot(force: bool) -> Result<Arc<Vec<Value>>, String> {
             return Ok(rooms);
         }
     }
-    let data = api_get("/roomserver/rooms/hot?skip=0&take=1000").await?;
-    let rows = Arc::new(rooms_of(data).0);
+    let rows = Arc::new(fetch_hot_rooms().await?);
     // Logged out meanwhile: don't keep it.
     if !signed_out() {
         if let Ok(mut guard) = HOT_CACHE.lock() {
@@ -1426,6 +1424,57 @@ async fn fetch_hot(force: bool) -> Result<Arc<Vec<Value>>, String> {
         }
     }
     Ok(rows)
+}
+
+/// Rows per `hot` page: Stella answers at most this many, whatever `take` asks.
+const HOT_PAGE: i64 = 100;
+/// Pages asked for at once.
+const HOT_PARALLEL: usize = 10;
+
+/// Every page of one `hot` list (`tag` empty for the plain one).
+async fn hot_pages(tag: &str) -> Result<Vec<Value>, String> {
+    let tag = if tag.is_empty() { String::new() } else { format!("&tag={}", urlenc(tag)) };
+    let page = |skip: i64| format!("/roomserver/rooms/hot?skip={skip}&take={HOT_PAGE}{tag}");
+    let (mut rows, total) = rooms_of(api_get(&page(0)).await?);
+    let total = total.unwrap_or(0);
+    let skips: Vec<i64> = (1..).map(|n| n * HOT_PAGE).take_while(|&s| s < total).collect();
+    for chunk in skips.chunks(HOT_PARALLEL) {
+        let pages = futures_util::future::join_all(chunk.iter().map(|&s| api_get_owned(page(s)))).await;
+        for p in pages {
+            rows.extend(rooms_of(p?).0);
+        }
+    }
+    Ok(rows)
+}
+
+async fn api_get_owned(path: String) -> Result<Value, String> {
+    api_get(&path).await
+}
+
+/// The whole room list. Until October 2026 one `hot` answer held every
+/// public room, RecCenter first. Now (checked 2026-10-06) the plain list is
+/// the community rooms only, 100 a page, and the 25 official ones (RecCenter,
+/// Paintball…) come only from `?tag=rro`. Both are ordered by visits, most
+/// first, with no exceptions across all of them, so merging the two by
+/// visits rebuilds Stella's own Hot. Its paging also repeats rooms (3,963 rows
+/// for 3,783 rooms, the same every time), so repeats are dropped.
+async fn fetch_hot_rooms() -> Result<Vec<Value>, String> {
+    let (official, community) = futures_util::future::join(hot_pages("rro"), hot_pages("")).await;
+    Ok(merge_hot(official?, community?))
+}
+
+/// Official and community rooms as one list in Hot's order (visits, most
+/// first; ties keep the order they came in), each room once.
+fn merge_hot(official: Vec<Value>, community: Vec<Value>) -> Vec<Value> {
+    let mut seen = std::collections::HashSet::new();
+    let mut rooms: Vec<Value> = official
+        .into_iter()
+        .chain(community)
+        .filter(|r| seen.insert(i64_at(r, "RoomId")))
+        .collect();
+    let visits = |r: &Value| r.get("Stats").and_then(|s| s.get("VisitCount")).and_then(Value::as_i64).unwrap_or(0);
+    rooms.sort_by_key(|r| std::cmp::Reverse(visits(r)));
+    rooms
 }
 
 /// Fetch a fresh copy in the background, unless one is already coming.
@@ -2835,6 +2884,17 @@ mod tests {
         // Not in any listed copy (a private one): nothing is known.
         assert_eq!(join_check_of(&list, 5), json!({ "known": false }));
         assert_eq!(join_check_of(&json!({ "error": 1 }), 5), json!({ "known": false }));
+    }
+
+    #[test]
+    fn hot_is_rebuilt_from_both_lists() {
+        let room = |id: i64, visits: i64| json!({ "RoomId": id, "Stats": { "VisitCount": visits } });
+        let official = vec![room(1, 500), room(2, 40)];
+        // Stella's paging repeats a room now and then.
+        let community = vec![room(10, 90), room(11, 40), room(10, 90), room(12, 5)];
+        let ids: Vec<i64> = merge_hot(official, community).iter().map(|r| i64_at(r, "RoomId")).collect();
+        // By visits; the tie (2 and 11) keeps official first; 10 once.
+        assert_eq!(ids, vec![1, 10, 2, 11, 12]);
     }
 
     #[test]
