@@ -3124,6 +3124,12 @@ body.theme-moderndark .modal-close-btn {
   width: 100%; height: 100%;
   object-fit: cover;
   border: 0;
+  /* On its own layer from the start, not only once the hover zoom begins:
+     a card in the grid's middle column sits at a fractional x (465.33 at
+     1000px), and moving the picture onto a layer there snapped it about
+     half a pixel right the moment the pointer arrived. Measured in the app:
+     0.45px before, 0.00 after, and the resting picture is pixel-identical. */
+  will-change: transform;
 }
 /* The shade the name sits on: the picture fades into black toward the
    bottom, so the name reads on any picture. A mask on the picture, over a
