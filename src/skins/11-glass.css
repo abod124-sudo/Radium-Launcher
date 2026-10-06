@@ -1301,12 +1301,6 @@
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18), 0 3px 8px rgba(0, 0, 0, 0.45) !important;
 }
 :root body.glass-enabled .tint-hue-thumb { width: 20px !important; height: 20px !important; }
-:root body.glass-enabled .tint-sv:focus-visible,
-:root body.glass-enabled .tint-hue:focus-visible {
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-    0 0 0 2px rgba(10, 132, 255, 0.9) !important;
-}
 :root body.glass-enabled .tint-picker .tint-hex {
   height: 30px !important;
   padding: 0 12px !important;
@@ -1587,6 +1581,76 @@
     inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 :root body.glass-enabled .home-friends .friend-card { border-radius: 14px; }
+/* Settings → Home's style tiles, as the friends on the Home card, the one
+   in use ringed in the system blue. */
+:root body.glass-enabled .home-style-option {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  border-radius: 16px;
+  padding: 8px 8px 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transition: background-color 0.2s var(--lg-ease), box-shadow 0.2s var(--lg-ease);
+}
+:root body.glass-enabled .home-style-option:hover { background: rgba(255, 255, 255, 0.09); }
+:root body.glass-enabled .home-style-option[aria-checked="true"] {
+  outline: none;
+  background: rgba(10, 132, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 0 1.5px var(--lg-accent);
+}
+:root body.glass-enabled .home-style-name { font-weight: 600; }
+:root body.glass-enabled .home-style-desc { color: rgba(235, 235, 245, 0.6); }
+:root body.glass-enabled :is(.home-layout-group, .home-layout-empty) { color: rgba(235, 235, 245, 0.6); }
+:root body.glass-enabled .hs-thumb {
+  --hs-bg: rgba(0, 0, 0, 0.22);
+  --hs-block: rgba(255, 255, 255, 0.13);
+  --hs-card: rgba(255, 255, 255, 0.22);
+  border: none;
+  border-radius: 10px;
+}
+:root body.glass-enabled .hs-thumb :is(.hs-art, .hs-strip, .hs-panel, .hs-cards > span) { border-radius: 3px; }
+:root body.glass-enabled .hs-play::before { background: rgba(255, 255, 255, 0.85); border-radius: 3px; }
+
+/* Home styles on glass: Compact's scrim comes in from the right, as the
+   other skins have it, but as glass's softer one. */
+:root body.glass-enabled.home-style-compact .home-hero-bar {
+  background: linear-gradient(90deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.3) 35%,
+    rgba(0, 0, 0, 0.6) 100%) !important;
+}
+:root body.glass-enabled.home-style-compact .home-stat { padding-top: 10px; padding-bottom: 10px; }
+:root body.glass-enabled.home-style-dashboard .home-side .home-stat + .home-stat {
+  border-left: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* The Stella account chooser's tiles, as the friends on the Home card. */
+:root body.glass-enabled .account-choice {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transition: background-color 0.2s var(--lg-ease);
+}
+:root body.glass-enabled .account-choice:not(:disabled):hover { background: rgba(255, 255, 255, 0.09); }
+:root body.glass-enabled .account-choice[aria-current="true"] {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+:root body.glass-enabled .account-choice-avatar { border-radius: 50%; background: rgba(255, 255, 255, 0.06); }
+:root body.glass-enabled .account-choice-sub,
+:root body.glass-enabled .account-choice-state { color: rgba(235, 235, 245, 0.6); }
+:root body.glass-enabled .account-choice[aria-current="true"] .account-choice-state { color: var(--lg-positive); }
+:root body.glass-enabled .account-chooser-intro { color: rgba(235, 235, 245, 0.78); }
 :root body.glass-enabled .home-friends .friend-card:hover,
 :root body.glass-enabled .friend-chip:hover {
   background: rgba(255, 255, 255, 0.09);

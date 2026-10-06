@@ -325,6 +325,10 @@ pub const STEAM_NOT_RUNNING: &str = "Steam isn't running.";
 /// prompt for it rather than an error.
 pub const SIGNED_OUT_ERROR: &str = "Signed out of Stella.";
 
+/// What a sign-in answers when the Steam account has no Stella account. The
+/// frontend matches on it to say how to make one (play Stella once).
+pub const NO_ACCOUNT: &str = "This Steam account has no Stella account yet.";
+
 /// Whether the page has Stella picked ([`stella_set_in_use`]). Half of
 /// [`in_use`]; the window being on screen is the other.
 ///
@@ -382,6 +386,7 @@ pub fn init(app: tauri::AppHandle, local_data_dir: std::path::PathBuf) {
     SIGNED_OUT.store(marker.exists(), std::sync::atomic::Ordering::SeqCst);
     let _ = SIGNED_OUT_MARKER.set(marker);
     let _ = DEVICE_ID_FILE.set(local_data_dir.join(DEVICE_ID_FILE_NAME));
+    let _ = ACCOUNT_FILE.set(local_data_dir.join(ACCOUNT_FILE_NAME));
 }
 
 pub(crate) fn signed_out() -> bool {
@@ -430,14 +435,89 @@ pub async fn stella_auth_status() -> Value {
 }
 
 /// LOG IN: clear the signed-out state and sign in with Steam now. Refused,
-/// with the current sign-in left as it was, while Stella isn't in use.
+/// with the current sign-in left as it was, while Stella isn't in use. Also
+/// how the page asks again after "no Stella account" (the player may have
+/// made one in the game since).
 #[tauri::command]
 pub async fn stella_login() -> Result<Value, String> {
     if !in_use() {
         return Err(NOT_IN_USE.into());
     }
     set_signed_out(false);
+    forget_no_account();
     forget_session();
+    let player = me().await?;
+    prefetch_rooms();
+    Ok(player)
+}
+
+/// The Stella accounts on the Steam account last signed in with, for the
+/// page's account chooser: `{ current, chosen, accounts: [person row +
+/// lastLogin, requirePassword, isJunior] }`, most recently played first.
+/// `chosen` is whether one of them was picked in the launcher: with several
+/// and none picked, the page asks which to use. Asked of
+/// Stella again each time (the lookup needs only the Steam id, no sign-in), so
+/// an account made in the game since shows up; the last answer stands in if
+/// Stella can't be reached.
+#[tauri::command]
+pub async fn stella_accounts() -> Value {
+    let steam_id = LINKED.lock().ok().and_then(|l| l.as_ref().map(|l| l.steam_id.clone()));
+    if let Some(steam_id) = steam_id {
+        if let Ok(accounts) = lookup_accounts(&steam_id).await {
+            remember_linked(&steam_id, accounts);
+        }
+    }
+    let mut accounts = LINKED
+        .lock()
+        .ok()
+        .and_then(|l| l.as_ref().map(|l| l.accounts.clone()))
+        .unwrap_or_default();
+    accounts.sort_by_key(|a| std::cmp::Reverse(login_time_key(&a.last_login)));
+    let current = cached_valid().map(|(_, id)| id).filter(|_| !signed_out());
+    let (_, chosen) = linked_summary();
+    json!({
+        "current": current,
+        "chosen": chosen,
+        "accounts": accounts.iter().map(|a| {
+            let mut row = person_row(&a.account);
+            row["id"] = json!(a.account_id);
+            row["lastLogin"] = json!(a.last_login);
+            row["requirePassword"] = json!(a.require_password);
+            row["isJunior"] = json!(a.account.get("isJunior").and_then(Value::as_bool).unwrap_or(false));
+            row
+        }).collect::<Vec<_>>(),
+    })
+}
+
+/// Use `account_id`, one of the Stella accounts on this Steam account, from
+/// now on: sign in to it and keep it as the one picked. The current sign-in
+/// stays until the new one has worked, so a refusal (an account with a
+/// password, say) changes nothing. Picking the account already signed in only
+/// keeps the choice.
+#[tauri::command]
+pub async fn stella_use_account(account_id: i64) -> Result<Value, String> {
+    if !in_use() {
+        return Err(NOT_IN_USE.into());
+    }
+    let signed_in_as = cached_valid().map(|(_, id)| id).filter(|_| !signed_out());
+    if signed_in_as == Some(account_id) {
+        save_chosen_account(account_id);
+        return me().await;
+    }
+    {
+        let _guard = login_lock().lock().await;
+        forget_no_account();
+        let session = login(Some(account_id)).await?;
+        save_chosen_account(account_id);
+        set_signed_out(false);
+        if let Ok(mut s) = SESSION.lock() {
+            *s = Some(session);
+        }
+        // The friends connection belongs to the account it signed in as; the
+        // page's next friends refresh starts it again for this one.
+        crate::stella_hub::stop();
+    }
+    applog::backend("info", "account", format!("Switched to Stella account {account_id}; it is the one used from now on."));
     let player = me().await?;
     prefetch_rooms();
     Ok(player)
@@ -451,6 +531,194 @@ pub fn stella_logout() {
     crate::stella_hub::stop();
     if let Ok(mut c) = HOT_CACHE.lock() {
         *c = None;
+    }
+}
+
+// ─── Accounts on one Steam account ──────────────────────────────────────────
+//
+// A Steam account can hold more than one Stella account (the game asks which
+// one is playing), or none at all yet (the game makes one on its first run).
+// The sign-in lookup, `/auth/cachedlogin/forplatformid/0/{steam id}`, answers
+// the list without a token: `[{ accountId, lastLoginTime, requirePassword,
+// account: { username, displayName, profileImage, … } }]`, and `[]` (HTTP
+// 200) for none. The launcher signs in to the account picked in its chooser
+// (kept in [`ACCOUNT_FILE_NAME`]), else to the one played last.
+
+/// One Stella account on the signed-in Steam account.
+#[derive(Debug, Clone, PartialEq)]
+struct LinkedAccount {
+    account_id: i64,
+    /// When it last signed in, as Stella writes it (ISO 8601); may be empty.
+    last_login: String,
+    /// It has a password set in the game.
+    require_password: bool,
+    /// The account as `/account/bulk` has it (names, picture), which the
+    /// lookup carries along; `{}` if it didn't.
+    account: Value,
+}
+
+/// The last lookup: whose it was, and what it found.
+struct Linked {
+    steam_id: String,
+    accounts: Vec<LinkedAccount>,
+}
+static LINKED: Mutex<Option<Linked>> = Mutex::new(None);
+
+/// Where the account picked in the launcher is kept (its id, as text).
+static ACCOUNT_FILE: OnceLock<std::path::PathBuf> = OnceLock::new();
+const ACCOUNT_FILE_NAME: &str = "stella-account";
+
+/// When a sign-in last found no Stella account. Until [`NO_ACCOUNT_RECHECK`]
+/// has passed, a sign-in answers [`NO_ACCOUNT`] without asking: each would
+/// start Steam's API again, showing the player as playing Rec Room for a
+/// moment, and every list on screen asks for one. LOG IN asks at once, and the
+/// page presses it for the player after the game has run (when an account may
+/// have been made).
+static NO_ACCOUNT_AT: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+const NO_ACCOUNT_RECHECK: Duration = Duration::from_secs(10 * 60);
+
+fn no_account_recently() -> bool {
+    NO_ACCOUNT_AT
+        .lock()
+        .ok()
+        .and_then(|at| *at)
+        .is_some_and(|at| at.elapsed() < NO_ACCOUNT_RECHECK)
+}
+
+fn note_no_account() {
+    if let Ok(mut at) = NO_ACCOUNT_AT.lock() {
+        *at = Some(std::time::Instant::now());
+    }
+}
+
+fn forget_no_account() {
+    if let Ok(mut at) = NO_ACCOUNT_AT.lock() {
+        *at = None;
+    }
+}
+
+/// The accounts in a lookup's answer, each once. Rows without an account id
+/// are left out.
+fn parse_linked_accounts(v: &Value) -> Vec<LinkedAccount> {
+    let mut out: Vec<LinkedAccount> = Vec::new();
+    for row in v.as_array().map(Vec::as_slice).unwrap_or_default() {
+        let account_id = i64_at(row, "accountId");
+        if account_id <= 0 || out.iter().any(|a| a.account_id == account_id) {
+            continue;
+        }
+        out.push(LinkedAccount {
+            account_id,
+            last_login: str_at(row, "lastLoginTime").to_string(),
+            require_password: row.get("requirePassword").and_then(Value::as_bool).unwrap_or(false),
+            account: row.get("account").filter(|a| a.is_object()).cloned().unwrap_or_else(|| json!({})),
+        });
+    }
+    out
+}
+
+/// A sign-in time as something that sorts in time order: the date and time to
+/// the second, then the fraction as microseconds. Compared as plain text,
+/// ".2Z" would come after ".209Z".
+fn login_time_key(s: &str) -> (String, u32) {
+    let (whole, rest) = s.split_once('.').unwrap_or((s.trim_end_matches('Z'), ""));
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).take(6).collect();
+    let micros = format!("{digits:0<6}").parse().unwrap_or(0);
+    (whole.to_string(), micros)
+}
+
+/// The account to use when none was picked: the one played last, as the
+/// game's own chooser has it. One with a password set is passed over while
+/// another has none.
+fn default_account(accounts: &[LinkedAccount]) -> Option<&LinkedAccount> {
+    let key = |a: &&LinkedAccount| login_time_key(&a.last_login);
+    accounts
+        .iter()
+        .filter(|a| !a.require_password)
+        .max_by_key(key)
+        .or_else(|| accounts.iter().max_by_key(key))
+}
+
+/// The account to sign in to: the one picked in the launcher while it is
+/// still on this Steam account, else [`default_account`].
+fn pick_account(accounts: &[LinkedAccount], chosen: Option<i64>) -> Option<&LinkedAccount> {
+    chosen
+        .and_then(|id| accounts.iter().find(|a| a.account_id == id))
+        .or_else(|| default_account(accounts))
+}
+
+/// Ask Stella which accounts `steam_id` holds. Needs no sign-in.
+async fn lookup_accounts(steam_id: &str) -> Result<Vec<LinkedAccount>, String> {
+    let lookup_url = url(&format!("/auth/cachedlogin/forplatformid/0/{steam_id}")).await;
+    let lookup = send_with_retry(http_client_besthttp().get(&lookup_url).timeout(Duration::from_secs(15))).await?;
+    // Checked before the body is read as an account list, or a Cloudflare
+    // block page or an outage would read as "no Stella account".
+    if !lookup.status().is_success() {
+        let status = lookup.status();
+        let body = read_capped(lookup, 64 * 1024).await.unwrap_or_default();
+        log_http_failure("account", "GET", &lookup_url, status, &body);
+        return Err(format!("Stella sign-in failed (HTTP {}). Try again later.", status.as_u16()));
+    }
+    let body = read_capped(lookup, MAX_API_BYTES).await?;
+    match serde_json::from_slice::<Value>(&body) {
+        Ok(v) if v.is_array() => Ok(parse_linked_accounts(&v)),
+        _ => {
+            applog::backend(
+                "error",
+                "account",
+                format!("Stella's account lookup (GET {}) wasn't a list: {}", for_log(&lookup_url), applog::snippet(&body, 300)),
+            );
+            Err("Stella sign-in failed: its account lookup wasn't readable. Try again later.".into())
+        }
+    }
+}
+
+fn remember_linked(steam_id: &str, accounts: Vec<LinkedAccount>) {
+    if let Ok(mut l) = LINKED.lock() {
+        *l = Some(Linked { steam_id: steam_id.to_string(), accounts });
+    }
+}
+
+/// How many Stella accounts the Steam account has, and whether the one picked
+/// in the launcher is among them.
+fn linked_summary() -> (usize, bool) {
+    let chosen = chosen_account();
+    LINKED
+        .lock()
+        .ok()
+        .and_then(|l| {
+            l.as_ref()
+                .map(|l| (l.accounts.len(), chosen.is_some_and(|id| l.accounts.iter().any(|a| a.account_id == id))))
+        })
+        .unwrap_or((0, false))
+}
+
+/// The account picked in the launcher's chooser, if one was.
+fn chosen_account() -> Option<i64> {
+    let text = std::fs::read_to_string(ACCOUNT_FILE.get()?).ok()?;
+    text.trim().parse().ok().filter(|id: &i64| *id > 0)
+}
+
+fn save_chosen_account(account_id: i64) {
+    let Some(path) = ACCOUNT_FILE.get() else { return };
+    if chosen_account() == Some(account_id) {
+        return;
+    }
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(e) = std::fs::write(path, account_id.to_string()) {
+        applog::backend("warn", "account", format!("Couldn't keep the picked Stella account: {e}"));
+    }
+}
+
+/// A refused sign-in's message, with a note when the account has a password
+/// set in the game: the launcher signs in the way the game does for an
+/// account without one.
+fn password_note(message: String, require_password: bool) -> String {
+    if require_password {
+        format!("{message} That account has a password set in the game, which may be why.")
+    } else {
+        message
     }
 }
 
@@ -841,9 +1109,12 @@ fn base64url_decode(s: &str) -> Option<Vec<u8>> {
 /// one Stella turns down may simply be out of date (the game registers a new
 /// id when this PC's hardware changes), so the game's files are asked again,
 /// and a different id there gets one more try.
-async fn login() -> Result<Session, String> {
+///
+/// `want` is an account to sign in to (the account chooser); `None` signs in
+/// to the one picked before, or the one played last.
+async fn login(want: Option<i64>) -> Result<Session, String> {
     let device = tokio::task::spawn_blocking(device_id).await.map_err(|e| e.to_string())??;
-    match login_as(&device.id).await {
+    match login_as(&device.id, want).await {
         Ok(session) => {
             if !device.kept {
                 keep_device_id(&device.id);
@@ -858,7 +1129,7 @@ async fn login() -> Result<Session, String> {
                 .flatten()
                 .filter(|id| *id != kept)
                 .ok_or(e)?;
-            let session = login_as(&fresh).await?;
+            let session = login_as(&fresh, want).await?;
             keep_device_id(&fresh);
             Ok(session)
         }
@@ -871,8 +1142,9 @@ fn is_device_rejection(body: &[u8]) -> bool {
     String::from_utf8_lossy(body).to_ascii_lowercase().contains("platform verification failed")
 }
 
-/// One sign-in attempt with `device` as the device id.
-async fn login_as(device: &str) -> Result<Session, String> {
+/// One sign-in attempt with `device` as the device id, to `want` if given,
+/// else to the account picked in the launcher (see [`pick_account`]).
+async fn login_as(device: &str, want: Option<i64>) -> Result<Session, String> {
     // Kept until this sign-in is over: the helper, and Steam's "playing Rec
     // Room" with it, goes when this is dropped.
     let ticket = tokio::task::spawn_blocking(steam_ticket).await.map_err(|e| e.to_string())??;
@@ -880,22 +1152,34 @@ async fn login_as(device: &str) -> Result<Session, String> {
 
     let client = http_client_besthttp();
 
-    // account id for the signed-in Steam id (also tells us the account exists)
-    let lookup_url = url(&format!("/auth/cachedlogin/forplatformid/0/{steam_id}")).await;
-    let lookup = send_with_retry(client.get(&lookup_url).timeout(Duration::from_secs(15))).await?;
-    // Checked before the body is read as an account list, or a Cloudflare
-    // block page or an outage would read as "no Stella account".
-    if !lookup.status().is_success() {
-        let status = lookup.status();
-        let body = read_capped(lookup, 64 * 1024).await.unwrap_or_default();
-        log_http_failure("account", "GET", &lookup_url, status, &body);
-        return Err(format!("Stella sign-in failed (HTTP {}). Try again later.", status.as_u16()));
+    // The Stella accounts on this Steam account (none: it has no account yet).
+    let accounts = lookup_accounts(&steam_id).await?;
+    remember_linked(&steam_id, accounts.clone());
+    if accounts.is_empty() {
+        applog::backend("info", "account", "This Steam account has no Stella account yet; playing Stella once makes one.");
+        return Err(NO_ACCOUNT.into());
     }
-    let lookup_body = read_capped(lookup, MAX_API_BYTES).await?;
-    let account_id = serde_json::from_slice::<Value>(&lookup_body)
-        .ok()
-        .and_then(|v| v.get(0).and_then(|x| x.get("accountId")).and_then(|x| x.as_i64()))
-        .ok_or("This Steam account has no Stella account yet. Launch the game once to create one.")?;
+    let account = match want {
+        Some(id) => accounts
+            .iter()
+            .find(|a| a.account_id == id)
+            .ok_or("That Stella account isn't on this Steam account any more.")?,
+        None => pick_account(&accounts, chosen_account()).ok_or(NO_ACCOUNT)?,
+    };
+    let account_id = account.account_id;
+    if accounts.len() > 1 {
+        applog::backend(
+            "info",
+            "account",
+            format!(
+                "This Steam account has {} Stella accounts; signing in to @{} ({}).",
+                accounts.len(),
+                str_at(&account.account, "username"),
+                if want.is_some() { "picked just now" } else if chosen_account() == Some(account_id) { "picked in the launcher" } else { "played last" },
+            ),
+        );
+    }
+    let require_password = account.require_password;
 
     // eac challenge (the server wants the value echoed back; it isn't verified)
     let eac_url = url("/auth/eac/challenge").await;
@@ -962,7 +1246,7 @@ async fn login_as(device: &str) -> Result<Session, String> {
     // The body is quoted only for a failure: a successful one holds the token.
     if !status.is_success() {
         log_http_failure("account", "POST", &token_url, status, &body);
-        return Err(format!("Stella sign-in was refused (HTTP {}).", status.as_u16()));
+        return Err(password_note(format!("Stella sign-in was refused (HTTP {}).", status.as_u16()), require_password));
     }
     let token: Value = serde_json::from_slice(&body).map_err(|e| {
         applog::backend(
@@ -991,10 +1275,11 @@ async fn login_as(device: &str) -> Result<Session, String> {
                     reason.unwrap_or("none given"),
                 ),
             );
-            match reason {
+            let message = match reason {
                 Some(reason) => format!("Stella sign-in was refused ({}).", reason.chars().take(200).collect::<String>()),
                 None => "Stella sign-in returned no token.".to_string(),
-            }
+            };
+            password_note(message, require_password)
         })?
         .to_string();
     let expires_at = jwt_expiry(&access_token);
@@ -1048,8 +1333,20 @@ pub(crate) async fn ensure_session() -> Result<(String, i64), String> {
     if !in_use() {
         return Err(NOT_IN_USE.into());
     }
+    // Found no account a moment ago: not asked again yet (see NO_ACCOUNT_AT).
+    if no_account_recently() {
+        return Err(NO_ACCOUNT.into());
+    }
 
-    let session = login().await?;
+    let session = match login(None).await {
+        Ok(session) => session,
+        Err(e) => {
+            if e == NO_ACCOUNT {
+                note_no_account();
+            }
+            return Err(e);
+        }
+    };
     // Logged out while that sign-in was under way: don't keep it.
     if signed_out() {
         return Err(SIGNED_OUT_ERROR.into());
@@ -3074,6 +3371,63 @@ mod tests {
         assert_eq!(out["userName"], "abod124");
         assert_eq!(out["AvatarUrl"], "https://api.stellaonline.org/img/ProfileThumbnail-70541-x?width=256");
         assert!(out["isOnline"].is_null());
+    }
+
+    /// A lookup answer shaped like Stella's (2026-10-06): two accounts on one
+    /// Steam account, the newer one listed second.
+    fn two_accounts() -> Value {
+        json!([
+            { "platform": 0, "platformId": "1", "accountId": 70541, "lastLoginTime": "2026-10-06T20:25:43.209Z",
+              "requirePassword": false, "account": { "accountId": 70541, "username": "abod124", "displayName": "abod124" } },
+            { "platform": 0, "platformId": "1", "accountId": 72407, "lastLoginTime": "2026-10-06T20:25:23.984Z",
+              "requirePassword": false, "account": { "accountId": 72407, "username": "CarefreeSalmon", "displayName": "HelpfulBee5763", "isJunior": true } },
+        ])
+    }
+
+    #[test]
+    fn linked_accounts_are_read_from_the_lookup() {
+        let accounts = parse_linked_accounts(&two_accounts());
+        assert_eq!(accounts.iter().map(|a| a.account_id).collect::<Vec<_>>(), [70541, 72407]);
+        assert_eq!(accounts[1].account["username"], "CarefreeSalmon");
+        // No account yet: Stella answers an empty list.
+        assert!(parse_linked_accounts(&json!([])).is_empty());
+        // Rows without an id, and repeats, are left out; a row without the
+        // embedded account still counts.
+        let odd = json!([{ "accountId": 0 }, { "lastLoginTime": "x" }, { "accountId": 5 }, { "accountId": 5 }]);
+        let accounts = parse_linked_accounts(&odd);
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].account, json!({}));
+        assert!(parse_linked_accounts(&json!({ "error": "nope" })).is_empty());
+    }
+
+    #[test]
+    fn the_account_played_last_is_used_until_one_is_picked() {
+        let accounts = parse_linked_accounts(&two_accounts());
+        assert_eq!(pick_account(&accounts, None).map(|a| a.account_id), Some(70541));
+        // Picked in the launcher: that one, while it is still on the Steam account.
+        assert_eq!(pick_account(&accounts, Some(72407)).map(|a| a.account_id), Some(72407));
+        assert_eq!(pick_account(&accounts, Some(99)).map(|a| a.account_id), Some(70541));
+        assert!(pick_account(&[], Some(72407)).is_none());
+    }
+
+    #[test]
+    fn an_account_with_a_password_is_passed_over_by_default() {
+        let mut accounts = parse_linked_accounts(&two_accounts());
+        accounts[0].require_password = true;
+        assert_eq!(default_account(&accounts).map(|a| a.account_id), Some(72407));
+        accounts[1].require_password = true;
+        assert_eq!(default_account(&accounts).map(|a| a.account_id), Some(70541));
+        // Picked on purpose, it is still used.
+        accounts[1].require_password = false;
+        assert_eq!(pick_account(&accounts, Some(70541)).map(|a| a.account_id), Some(70541));
+    }
+
+    #[test]
+    fn sign_in_times_sort_in_time_order() {
+        assert!(login_time_key("2026-10-06T20:25:43.2Z") < login_time_key("2026-10-06T20:25:43.209Z"));
+        assert!(login_time_key("2026-10-06T20:25:43Z") < login_time_key("2026-10-06T20:25:43.001Z"));
+        assert!(login_time_key("2026-10-05T23:59:59.999Z") < login_time_key("2026-10-06T00:00:00Z"));
+        assert!(login_time_key("") < login_time_key("2020-01-01T00:00:00Z"));
     }
 
     #[test]

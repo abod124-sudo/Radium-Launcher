@@ -182,6 +182,9 @@
               <span class="account-meta-tokens">Signed in with Steam</span>
             </div>
             <button class="nav-btn network-option" role="menuitem" id="stellaProfileBtn">MY PROFILE</button>
+            <!-- Only when the Steam account holds more than one Stella
+                 account; opens #stellaAccountsModal. -->
+            <button class="nav-btn network-option" role="menuitem" id="stellaSwitchBtn" hidden>SWITCH ACCOUNT</button>
             <button class="nav-btn network-option" role="menuitem" id="stellaLogoutBtn">LOG OUT</button>
           </div>
         </div>
@@ -965,7 +968,57 @@
             <div class="settings-page" id="setpage-home" role="tabpanel" aria-labelledby="setnav-home" hidden>
               <div class="settings-page-head">
                 <h3 class="settings-page-title">Home</h3>
-                <p class="settings-page-desc">What Home shows, in what order, and the picture at the top of it.</p>
+                <p class="settings-page-desc">How Home is laid out, what it shows and in what order, and the picture at the top of it.</p>
+              </div>
+
+              <!-- config.home.style; body.home-style-* (applyHomeLayout). Each
+                   option draws a little plan of its layout: art blocks, the
+                   status strip, panels and room cards. -->
+              <div class="settings-group">
+                <div class="sg-title">Style</div>
+                <div class="home-style-picker" id="homeStylePicker" role="radiogroup" aria-label="Home style">
+                  <button type="button" class="home-style-option" role="radio" aria-checked="true" data-style="showcase">
+                    <span class="hs-thumb hs-showcase" aria-hidden="true">
+                      <span class="hs-art"><span class="hs-mark"></span><span class="hs-play"></span></span>
+                      <span class="hs-strip"></span>
+                      <span class="hs-cards"><span></span><span></span><span></span><span></span></span>
+                    </span>
+                    <span class="home-style-name">Showcase</span>
+                    <span class="home-style-desc">The network's art across the top, the rest below it.</span>
+                  </button>
+                  <button type="button" class="home-style-option" role="radio" aria-checked="false" data-style="spotlight" tabindex="-1">
+                    <span class="hs-thumb hs-spotlight" aria-hidden="true">
+                      <span class="hs-art"><span class="hs-mark"></span><span class="hs-play"></span></span>
+                      <span class="hs-strip"></span>
+                    </span>
+                    <span class="home-style-name">Spotlight</span>
+                    <span class="home-style-desc">The art fills the window, with PLAY in the middle.</span>
+                  </button>
+                  <button type="button" class="home-style-option" role="radio" aria-checked="false" data-style="compact" tabindex="-1">
+                    <span class="hs-thumb hs-compact" aria-hidden="true">
+                      <span class="hs-art"><span class="hs-mark"></span><span class="hs-play"></span></span>
+                      <span class="hs-strip"></span>
+                      <span class="hs-cards"><span></span><span></span><span></span><span></span></span>
+                      <span class="hs-panel"></span>
+                    </span>
+                    <span class="home-style-name">Compact</span>
+                    <span class="home-style-desc">A slim banner, so more of Home fits at once.</span>
+                  </button>
+                  <button type="button" class="home-style-option" role="radio" aria-checked="false" data-style="dashboard" tabindex="-1">
+                    <span class="hs-thumb hs-dashboard" aria-hidden="true">
+                      <span class="hs-main">
+                        <span class="hs-art"><span class="hs-mark"></span><span class="hs-play"></span></span>
+                        <span class="hs-cards"><span></span><span></span><span></span></span>
+                      </span>
+                      <span class="hs-side">
+                        <span class="hs-strip"></span>
+                        <span class="hs-panel"></span>
+                      </span>
+                    </span>
+                    <span class="home-style-name">Dashboard</span>
+                    <span class="home-style-desc">Status and friends in a column beside the game.</span>
+                  </button>
+                </div>
               </div>
 
               <div class="settings-group">
@@ -1552,6 +1605,26 @@
         <button class="modal-btn modal-btn-secondary" id="roomFullCancelBtn">Cancel</button>
         <button class="modal-btn modal-btn-secondary" id="roomFullAnywayBtn">Join Anyway</button>
         <button class="modal-btn modal-btn-primary" id="roomFullPlayBtn">Play</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stella account chooser: the Stella accounts on the player's Steam
+       account, one tile each (picture, names, when last played). Opened by
+       itself the first time a Steam account with several signs in, and from
+       the account menu's SWITCH ACCOUNT. See openStellaAccounts() in app.js. -->
+  <div class="modal-overlay" id="stellaAccountsModal" style="display:none">
+    <div class="modal-box account-chooser-box" role="dialog" aria-modal="true" aria-labelledby="stellaAccountsTitle" aria-describedby="stellaAccountsIntro">
+      <div class="modal-titlebar">
+        <span class="modal-title" id="stellaAccountsTitle">STELLA ACCOUNTS</span>
+        <button class="modal-close-btn" id="stellaAccountsClose" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="account-chooser-intro" id="stellaAccountsIntro"></p>
+        <div class="account-chooser-list" id="stellaAccountsList"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn-secondary" id="stellaAccountsDone">Close</button>
       </div>
     </div>
   </div>

@@ -157,6 +157,8 @@ pub fn run() {
             stella_api::stella_auth_status,
             stella_api::stella_login,
             stella_api::stella_logout,
+            stella_api::stella_accounts,
+            stella_api::stella_use_account,
             stella_api::stella_set_in_use,
             stella_api::stella_room_players,
             stella_api::stella_join_check,

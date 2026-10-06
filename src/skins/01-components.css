@@ -23,10 +23,6 @@ body:not(.glass-enabled) {
   box-shadow: none;
 
   & ::selection { background: var(--sel-bg); color: var(--sel-fg); }
-  & :focus-visible { outline: 1px dotted var(--focus); outline-offset: 1px; }
-  /* The focus outline is for keyboard users; never draw it over a control
-     while the mouse is holding it down. */
-  & :focus-visible:active { outline-color: transparent; }
   & input::placeholder, & textarea::placeholder { color: var(--placeholder); opacity: 1; }
 
   & a, & .text-link { color: var(--link); }

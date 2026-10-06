@@ -16,6 +16,9 @@
   --pop-avatar-radius: 8px;
 }
 
+/* No keyboard focus ring, as in the launcher's own window (style.css). */
+:focus-visible { outline: none; }
+
 html, body {
   margin: 0;
   height: 100%;
@@ -206,7 +209,6 @@ html, body {
   cursor: pointer;
 }
 .action:hover { background: color-mix(in srgb, var(--pop-accent) 18%, transparent); }
-.action:focus-visible { outline: 1px dotted var(--pop-accent); outline-offset: 2px; }
 /* Retro skins: framed like the card itself, so it reads as that skin's push
    button rather than a modern chip. */
 .retro .action {

@@ -474,6 +474,8 @@ function withoutBackdrop(cfg) {
     stellaAuthStatus:     () => invoke('stella_auth_status'),
     stellaLogin:          () => invoke('stella_login'),
     stellaLogout:         () => invoke('stella_logout'),
+    stellaAccounts:       () => invoke('stella_accounts'),
+    stellaUseAccount:     (accountId) => invoke('stella_use_account', { accountId: Number(accountId) }),
     stellaRoomInteraction:    (roomId) => invoke('stella_room_interaction', { roomId: Number(roomId) }),
     stellaSetRoomInteraction: (roomId, kind, on) => invoke('stella_set_room_interaction', { roomId: Number(roomId), kind, on }),
     stellaRoomPlayers:    (roomId) => invoke('stella_room_players', { roomId: Number(roomId) }),
@@ -1997,45 +1999,177 @@ function homeSectionAvailable(name) {
   return name !== 'friends' || activeNetwork === 'stella';
 }
 
-/// Put Home's sections in the saved order and hide the ones switched off.
-/// The hero and the download panel always lead. Moved rather than reordered
-/// with CSS `order`, so keyboard focus follows what is on screen.
+/// Home's layouts (config::HOME_STYLES); the first is the default.
+const HOME_STYLES = ['showcase', 'spotlight', 'compact', 'dashboard'];
+/// The sections Dashboard puts in its side column when none were moved.
+const HOME_SIDE_DEFAULT = ['status', 'friends'];
+
+/// The sections Dashboard puts in its column beside the game (config.home.side);
+/// the rest go under the game.
+function homeSide() {
+  const side = config?.home?.side;
+  return Array.isArray(side) ? side.filter(n => HOME_SECTIONS.includes(n)) : HOME_SIDE_DEFAULT;
+}
+
+/// Home's layout. Before the config arrives, the one boot.js replayed.
+function homeStyle() {
+  const style = config?.home?.style;
+  if (HOME_STYLES.includes(style)) return style;
+  return HOME_STYLES.find(s => document.body.classList.contains(`home-style-${s}`)) || HOME_STYLES[0];
+}
+
+/// Make `parent`'s children `els`, in that order, moving only the ones out of
+/// place: a node that is moved loses keyboard focus and restarts its
+/// animations, so the hero is left where it is unless it has to go.
+function arrangeChildren(parent, els) {
+  let ref = parent.firstElementChild;
+  for (const el of els) {
+    if (el === ref) {
+      ref = ref.nextElementSibling;
+      continue;
+    }
+    parent.insertBefore(el, ref);
+  }
+}
+
+/// Lay Home out in its style, put its sections in the saved order and hide
+/// the ones switched off. The hero and the download panel always lead.
+/// Moved rather than reordered with CSS `order`, so keyboard focus follows
+/// what is on screen. Dashboard puts them in two columns (.home-columns):
+/// the hero and the download panel lead the wide one, the sections in
+/// homeSide() go in the narrow one beside it (status and friends unless
+/// moved), the rest under the hero, each column in the saved order.
 function applyHomeLayout() {
   const tab = $('tab-home');
   if (!tab) return;
+  const style = homeStyle();
+  for (const s of HOME_STYLES) document.body.classList.toggle(`home-style-${s}`, s === style);
+  // Replayed by boot.js before the next start's first paint.
+  try { localStorage.setItem('radium-home-style', style); } catch (e) {}
+  const lead = [tab.querySelector('.home-hero-wrap'), $('downloadSection')].filter(Boolean);
   const nodes = {
     status: tab.querySelector('.home-stats'),
     friends: $('stellaFriendsCard'),
     rooms: $('homeRoomsSection'),
   };
   const { order, hidden } = homeLayout();
-  for (const name of order) if (nodes[name]) tab.appendChild(nodes[name]);
+  const sections = order.map(name => nodes[name]).filter(Boolean);
+  let columns = $('homeColumns');
+  if (style === 'dashboard') {
+    if (!columns) {
+      columns = document.createElement('div');
+      columns.id = 'homeColumns';
+      columns.className = 'home-columns';
+      columns.innerHTML = '<div class="home-col home-main"></div><div class="home-col home-side"></div>';
+    }
+    const [main, side] = columns.children;
+    const inSide = homeSide();
+    arrangeChildren(tab, [columns]);
+    arrangeChildren(main, [...lead, ...order.filter(n => !inSide.includes(n)).map(n => nodes[n]).filter(Boolean)]);
+    arrangeChildren(side, order.filter(n => inSide.includes(n)).map(n => nodes[n]).filter(Boolean));
+  } else {
+    arrangeChildren(tab, [...lead, ...sections]);
+    columns?.remove();
+  }
+  syncHomeStylePicker();
   // Friends' place on Home is friendsView's to decide (body.friends-view-*).
   nodes.status?.classList.toggle('is-turned-off', hidden.includes('status'));
   nodes.rooms?.classList.toggle('is-turned-off', hidden.includes('rooms'));
   renderHomeLayoutList();
 }
 
+/// Settings' style picker: the option in use is the checked radio, and the
+/// one Tab lands on.
+function syncHomeStylePicker() {
+  const style = homeStyle();
+  document.querySelectorAll('#homeStylePicker .home-style-option').forEach(opt => {
+    const on = opt.dataset.style === style;
+    opt.setAttribute('aria-checked', String(on));
+    opt.tabIndex = on ? 0 : -1;
+  });
+}
+
+function setHomeStyle(style) {
+  if (!HOME_STYLES.includes(style) || style === homeStyle()) return;
+  config.home = { ...(config.home || {}), style };
+  applyHomeLayout();
+  addLog(`Home style: ${style}.`, 'info');
+  autoSaveSettings();
+}
+
+document.querySelectorAll('#homeStylePicker .home-style-option').forEach(opt => {
+  opt.addEventListener('click', () => setHomeStyle(opt.dataset.style));
+});
+// Arrow keys move the choice, as in any radio group.
+$('homeStylePicker')?.addEventListener('keydown', (e) => {
+  const keys = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+  if (!(e.key in keys) && e.key !== 'Home' && e.key !== 'End') return;
+  e.preventDefault();
+  const opts = [...document.querySelectorAll('#homeStylePicker .home-style-option')];
+  const i = Math.max(0, opts.findIndex(o => o.dataset.style === homeStyle()));
+  const j = e.key === 'Home' ? 0 : e.key === 'End' ? opts.length - 1 : (i + keys[e.key] + opts.length) % opts.length;
+  setHomeStyle(opts[j].dataset.style);
+  opts[j].focus();
+});
+// Laid out now in the style boot.js replayed, rather than when the config
+// arrives, so Dashboard opens in its columns.
+applyHomeLayout();
+
 /// Settings' list of Home's sections: arrows to move each one, and its
 /// switch. Rebuilt from config whenever either changes.
+/// The sections Settings lists, top to bottom, on the network in use. On
+/// Dashboard they come in its two columns, under the game then beside it,
+/// and `split` is where the second begins; elsewhere it is the length.
+function homeLayoutRows() {
+  const { order } = homeLayout();
+  const shown = order.filter(homeSectionAvailable);
+  if (homeStyle() !== 'dashboard') return { rows: shown, split: shown.length };
+  const side = homeSide();
+  const main = shown.filter(n => !side.includes(n));
+  return { rows: [...main, ...shown.filter(n => side.includes(n))], split: main.length };
+}
+
 function renderHomeLayoutList() {
   const list = $('homeLayoutList');
   if (!list) return;
-  const { order, hidden } = homeLayout();
-  const shown = order.filter(homeSectionAvailable);
+  const { hidden } = homeLayout();
+  const { rows: shown, split } = homeLayoutRows();
+  const columns = homeStyle() === 'dashboard';
   list.textContent = '';
+  // Dashboard: a heading over each column, and a word in an empty one on
+  // how to fill it.
+  const group = (text, empty) => {
+    const head = document.createElement('div');
+    head.className = 'home-layout-group';
+    head.textContent = text;
+    list.appendChild(head);
+    if (!empty) return;
+    const note = document.createElement('div');
+    note.className = 'home-layout-empty';
+    note.textContent = empty;
+    list.appendChild(note);
+  };
+  if (columns) group('Under the game', split === 0 ? 'Nothing here. Move a section up into this column.' : '');
   shown.forEach((name, i) => {
+    if (columns && i === split) group('Beside the game', '');
     const info = HOME_SECTION_INFO[name];
     const on = name === 'friends' ? friendsView() === 'home' : !hidden.includes(name);
+    // Past the end of its column, an arrow takes a section into the other one.
+    const crossUp = columns && i === split;
+    const crossDown = columns && i === split - 1;
+    const upLabel = crossUp ? `Move ${info.label} under the game` : `Move ${info.label} up`;
+    const downLabel = crossDown ? `Move ${info.label} beside the game` : `Move ${info.label} down`;
+    const upOff = i === 0 && !crossUp;
+    const downOff = i === shown.length - 1 && !crossDown;
     const row = document.createElement('div');
     row.className = 'sg-toggle-row home-layout-row';
     row.dataset.section = name;
     row.innerHTML = `
       <span class="home-layout-move">
-        <button type="button" class="btn-open-folder layout-move" data-dir="-1" aria-label="Move ${escapeHtml(info.label)} up"${i === 0 ? ' disabled' : ''}>
+        <button type="button" class="btn-open-folder layout-move" data-dir="-1" aria-label="${escapeHtml(upLabel)}"${upOff ? ' disabled' : ''}>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
         </button>
-        <button type="button" class="btn-open-folder layout-move" data-dir="1" aria-label="Move ${escapeHtml(info.label)} down"${i === shown.length - 1 ? ' disabled' : ''}>
+        <button type="button" class="btn-open-folder layout-move" data-dir="1" aria-label="${escapeHtml(downLabel)}"${downOff ? ' disabled' : ''}>
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
         </button>
       </span>
@@ -2057,20 +2191,43 @@ function renderHomeLayoutList() {
     });
     list.appendChild(row);
   });
+  if (columns && split === shown.length) group('Beside the game', 'Nothing here. Move a section down into this column.');
 }
 
 /// Move a section one place up (-1) or down (1) among the ones this network
 /// shows — past a section that is only on another network, never just onto it.
+/// On Dashboard, moving down off the end of the column under the game puts
+/// the section at the top of the one beside it, and moving up off the top of
+/// that one puts it back at the bottom of the first.
 function moveHomeSection(name, dir) {
   const { order, hidden } = homeLayout();
-  const shown = order.filter(homeSectionAvailable);
-  const i = shown.indexOf(name);
-  const j = i + dir;
-  if (i < 0 || j < 0 || j >= shown.length) return;
-  const a = order.indexOf(shown[i]);
-  const b = order.indexOf(shown[j]);
-  [order[a], order[b]] = [order[b], order[a]];
-  config.home = { ...(config.home || {}), order, hidden };
+  const { rows, split } = homeLayoutRows();
+  const i = rows.indexOf(name);
+  if (i < 0) return;
+  let side = homeSide();
+  const crossing = homeStyle() === 'dashboard'
+    && ((dir > 0 && i === split - 1) || (dir < 0 && i === split));
+  if (crossing) {
+    // Placed in the saved order next to where it lands, so it shows at that
+    // end of its new column.
+    order.splice(order.indexOf(name), 1);
+    if (dir > 0) {
+      side = [...side, name];
+      const first = rows[split];
+      order.splice(first ? order.indexOf(first) : order.length, 0, name);
+    } else {
+      side = side.filter(n => n !== name);
+      const last = rows[split - 1];
+      order.splice(last ? order.indexOf(last) + 1 : 0, 0, name);
+    }
+  } else {
+    const j = i + dir;
+    if (j < 0 || j >= rows.length) return;
+    const a = order.indexOf(rows[i]);
+    const b = order.indexOf(rows[j]);
+    [order[a], order[b]] = [order[b], order[a]];
+  }
+  config.home = { ...(config.home || {}), order, hidden, side };
   applyHomeLayout();
   // Keep the moved row's arrow under the keyboard.
   const btn = document.querySelector(`.home-layout-row[data-section="${name}"] .layout-move[data-dir="${dir}"]`);
@@ -5274,6 +5431,7 @@ window.radium?.onGameState((data) => {
     const code = data.exitCode !== undefined ? ` (exit ${data.exitCode})` : '';
     addLog(`Game closed${code}`, 'info', 'game');
     toast('Game closed.', 'info', 2000);
+    stellaRecheckAfterGame();
   } else if (data.running === true) {
     setGameRunning(true);
   }
@@ -6134,9 +6292,17 @@ const STEAM_NOT_RUNNING = "Steam isn't running.";
 /// What a sign-in answers while the launcher is hidden or minimized, or Stella
 /// isn't picked (`stella_api::NOT_IN_USE`).
 const STELLA_NOT_IN_USE = 'Stella signs in when you open it.';
+/// What a sign-in answers when the Steam account has no Stella account yet
+/// (`stella_api::NO_ACCOUNT`). The game makes one the first time it runs.
+const STELLA_NO_ACCOUNT = 'This Steam account has no Stella account yet.';
+/// How the launcher says so, wherever it does.
+const STELLA_NO_ACCOUNT_TEXT = "Your Steam account doesn't have a Stella account yet. Play Stella once to make one.";
 let stellaAuthPending = false;
 /// Why the last sign-in failed, if it did.
 let stellaAuthError = '';
+/// How many Stella accounts the Steam account holds (stella_accounts); SWITCH
+/// ACCOUNT is offered when it is more than one.
+let stellaAccountCount = 0;
 
 function renderStellaAccount() {
   const name = $('stellaAccountName');
@@ -6162,6 +6328,7 @@ function renderStellaAccount() {
       display.hidden = !differs;
     }
     if ($('stellaNotifsBtn')) $('stellaNotifsBtn').hidden = false;
+    if ($('stellaSwitchBtn')) $('stellaSwitchBtn').hidden = stellaAccountCount < 2;
   } else {
     if ($('stellaNotifsBtn')) $('stellaNotifsBtn').hidden = true;
     name.textContent = stellaAuthPending ? 'SIGNING IN…' : 'LOG IN';
@@ -6212,6 +6379,9 @@ function applyStellaAuth(player) {
   if (stellaPlayer) loadNotifications(notifSources.stella);
   if (stellaPlayer) addLog(`Signed in to Stella as @${stellaPlayer.userName}`, 'ok', 'account');
   else if (was) addLog('Signed out of Stella', 'info', 'account');
+  // Whether there are other accounts to switch to, and, the first time a
+  // Steam account with several signs in, which one to use.
+  if (stellaPlayer) syncStellaAccounts({ ask: true });
   reloadStellaLists();
 }
 
@@ -6231,7 +6401,9 @@ async function refreshStellaAuth() {
   applyStellaAuth(state?.authenticated ? state.player : null);
 }
 
-async function stellaSignIn() {
+/// LOG IN. `quiet`: asked by the launcher rather than the player, so a
+/// failure only shows where the lists and the friends card say why.
+async function stellaSignIn({ quiet = false } = {}) {
   if (stellaAuthPending) return;
   stellaAuthPending = true;
   renderStellaAccount();
@@ -6247,11 +6419,175 @@ async function stellaSignIn() {
     // Signed out stays cleared: the next list load tries again, and shows
     // the real reason (Steam not running) rather than a sign-in prompt.
     reloadStellaLists();
-    toast(stellaAuthError === STEAM_NOT_RUNNING
-      ? "Steam isn't running. Start Steam, then try again."
-      : `Stella sign-in failed: ${e}`, 'error', 6000);
+    refreshStellaFriends();
+    if (quiet) return;
+    toast(stellaAuthError === STEAM_NOT_RUNNING ? "Steam isn't running. Start Steam, then try again."
+      : stellaAuthError === STELLA_NO_ACCOUNT ? STELLA_NO_ACCOUNT_TEXT
+      : `Stella sign-in failed: ${e}`, stellaAuthError === STELLA_NO_ACCOUNT ? 'info' : 'error', 6000);
   }
 }
+
+/// The game has just closed on Stella while the Steam account had no Stella
+/// account: it makes one on its first run, so ask again (the backend would
+/// otherwise wait a while before asking, see stella_api::NO_ACCOUNT_AT).
+function stellaRecheckAfterGame() {
+  if (activeNetwork !== 'stella' || stellaPlayer || stellaAuthError !== STELLA_NO_ACCOUNT) return;
+  stellaSignIn({ quiet: true });
+}
+
+// ── Stella account chooser ────────────────────────────────────────────────
+// One Steam account can hold several Stella accounts. The backend signs in to
+// the one picked here (kept across restarts), or until then the one played
+// last; the first time a Steam account with several signs in, this asks.
+
+/// Asked once per run at most, so closing the chooser is never met by it again.
+let stellaAccountsAsked = false;
+/// The chooser's rows as last fetched, and the account it was opened as.
+let stellaAccountsShown = null;
+
+/// Ask the backend which Stella accounts the Steam account holds: shows or
+/// hides SWITCH ACCOUNT, and with `ask`, opens the chooser if there are
+/// several and none was picked yet.
+async function syncStellaAccounts({ ask = false } = {}) {
+  let res;
+  try {
+    res = await window.radium.stellaAccounts();
+  } catch (e) {
+    return null;
+  }
+  if (activeNetwork !== 'stella' || !stellaPlayer) return null;
+  const accounts = Array.isArray(res?.accounts) ? res.accounts : [];
+  stellaAccountCount = accounts.length;
+  renderStellaAccount();
+  if (ask && accounts.length > 1 && !res.chosen && !stellaAccountsAsked) {
+    stellaAccountsAsked = true;
+    openStellaAccounts({ first: true, res });
+  }
+  return res;
+}
+
+/// "played 3 hours ago", from an ISO time; empty if it can't be read.
+function playedAgo(iso) {
+  const at = Date.parse(iso || '');
+  if (!Number.isFinite(at)) return '';
+  const mins = Math.max(0, Math.round((Date.now() - at) / 60000));
+  if (mins < 1) return 'played just now';
+  if (mins < 60) return `played ${mins} ${mins === 1 ? 'minute' : 'minutes'} ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `played ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `played ${days} ${days === 1 ? 'day' : 'days'} ago`;
+  return `played ${new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+}
+
+/// Open the chooser. `first`: the launcher is asking by itself, so the intro
+/// says why, and closing it keeps the account already signed in to.
+async function openStellaAccounts({ first = false, res = null } = {}) {
+  const modal = $('stellaAccountsModal');
+  if (!modal) return;
+  res = res || await syncStellaAccounts();
+  if (!res || !stellaPlayer) return;
+  stellaAccountsShown = { first, current: Number(res.current) || Number(stellaPlayer.id) };
+  const count = (res.accounts || []).length;
+  $('stellaAccountsIntro').textContent = first
+    ? `Your Steam account has ${count} Stella accounts. Which one should the launcher use? You can change it later from the account menu.`
+    : 'The Stella accounts on your Steam account. The launcher signs in to the one you pick.';
+  renderStellaAccountChoices(res.accounts || []);
+  showModal(modal);
+  const current = $('stellaAccountsList')?.querySelector('[aria-current="true"]');
+  (current || $('stellaAccountsList')?.querySelector('.account-choice'))?.focus();
+}
+
+function renderStellaAccountChoices(accounts) {
+  const list = $('stellaAccountsList');
+  if (!list) return;
+  const current = stellaAccountsShown?.current;
+  list.textContent = '';
+  for (const a of accounts) {
+    const id = Number(a.id);
+    const handle = a.userName || '';
+    const name = a.displayName || handle || `Account ${id}`;
+    const isCurrent = id === current;
+    const sub = [handle && handle !== name ? `@${handle}` : '', playedAgo(a.lastLogin)].filter(Boolean).join(' · ');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'account-choice';
+    btn.dataset.accountId = String(id);
+    if (isCurrent) btn.setAttribute('aria-current', 'true');
+    btn.setAttribute('aria-label', `${name}${handle && handle !== name ? ` (@${handle})` : ''}${isCurrent ? ', signed in' : ''}`);
+    btn.innerHTML = `
+      <img class="account-choice-avatar" alt="" />
+      <span class="account-choice-text">
+        <span class="account-choice-name">${escapeHtml(name)}</span>
+        <span class="account-choice-sub">${escapeHtml(sub)}</span>
+      </span>
+      <span class="account-choice-state" aria-hidden="true">${isCurrent ? 'Signed in' : ''}</span>
+    `;
+    const img = btn.querySelector('img');
+    img.dataset.fallback = PLACEHOLDER_AVATAR;
+    img.src = a.AvatarUrl ? thumbSrc(a.AvatarUrl, avatarWidth(40)) : PLACEHOLDER_AVATAR;
+    btn.addEventListener('click', () => pickStellaAccount(id, btn));
+    list.appendChild(btn);
+  }
+}
+
+/// Use account `id`: sign in to it, unless it is the one already signed in,
+/// and keep it as the one picked.
+async function pickStellaAccount(id, btn) {
+  const list = $('stellaAccountsList');
+  if (!list || list.classList.contains('is-busy')) return;
+  const switching = id !== Number(stellaPlayer?.id);
+  list.classList.add('is-busy');
+  list.querySelectorAll('.account-choice').forEach(b => { b.disabled = true; });
+  const state = btn.querySelector('.account-choice-state');
+  if (switching && state) state.textContent = 'Signing in…';
+  let player = null;
+  try {
+    player = await window.radium.stellaUseAccount(id);
+  } catch (e) {
+    list.classList.remove('is-busy');
+    list.querySelectorAll('.account-choice').forEach(b => { b.disabled = false; });
+    if (state) state.textContent = btn.getAttribute('aria-current') === 'true' ? 'Signed in' : '';
+    const why = String(e).trim().replace(/([^.!?])$/, '$1.');
+    addLog(`Couldn't switch Stella accounts: ${why}`, 'error', 'account');
+    toast(`Couldn't sign in to that account: ${why}`, 'error', 7000);
+    btn.focus();
+    return;
+  }
+  list.classList.remove('is-busy');
+  stellaAccountsShown = null;
+  hideModal($('stellaAccountsModal'));
+  if (switching && player) {
+    applyStellaAuth(player);
+    toast(`Signed in to Stella as @${player.userName || player.displayName}.`, 'ok', 3000);
+  }
+}
+
+/// Closed without picking. Asked by the launcher itself, that keeps the
+/// account signed in to, so it isn't asked again.
+function closeStellaAccounts() {
+  const shown = stellaAccountsShown;
+  if ($('stellaAccountsList')?.classList.contains('is-busy')) return;
+  stellaAccountsShown = null;
+  hideModal($('stellaAccountsModal'));
+  if (shown?.first && stellaPlayer) window.radium.stellaUseAccount(stellaPlayer.id).catch(() => {});
+}
+$('stellaAccountsClose')?.addEventListener('click', closeStellaAccounts);
+$('stellaAccountsDone')?.addEventListener('click', closeStellaAccounts);
+$('stellaAccountsModal')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeStellaAccounts();
+});
+document.addEventListener('keydown', (e) => {
+  const modal = $('stellaAccountsModal');
+  if (e.key === 'Escape' && modal && modal.style.display !== 'none' && !modal.classList.contains('is-closing')) {
+    e.preventDefault();
+    closeStellaAccounts();
+  }
+});
+$('stellaSwitchBtn')?.addEventListener('click', () => {
+  closeStellaAccountMenu();
+  openStellaAccounts();
+});
 
 /// Back on screen on Stella, from the tray or from being minimized: the
 /// backend let Stella go meanwhile (see stella_api::in_use), so sign in if that
@@ -6704,7 +7040,9 @@ function renderStellaFriendsInto(list, count, res, isTab) {
 
   if (!stellaPlayer) {
     count.textContent = '';
-    note(stellaAuthPending ? 'Signing in…' : 'Log in to Stella to see your friends.');
+    note(stellaAuthPending ? 'Signing in…'
+      : stellaAuthError === STELLA_NO_ACCOUNT ? STELLA_NO_ACCOUNT_TEXT
+      : 'Log in to Stella to see your friends.');
     return;
   }
   if (!res?.success) {
@@ -6823,6 +7161,8 @@ document.addEventListener('click', (e) => {
     reloadStellaLists();
     refreshStellaAuth();
   }
+  // No Stella account yet: the game makes one on its first run.
+  if (e.target.closest?.('[data-stella-play]')) $('btnPlay')?.click();
 });
 
 document.addEventListener('click', (e) => {
@@ -8759,6 +9099,14 @@ function listErrorHtml(res, what) {
     // Lets the window's focus handler retry once Steam is up.
     stellaAuthError = STEAM_NOT_RUNNING;
     return `Start Steam to see ${what}. Stella signs in with your Steam account.<br><button type="button" class="btn-refresh stella-login-prompt" data-stella-retry>TRY AGAIN</button>`;
+  }
+  if (res?.error === STELLA_NO_ACCOUNT) {
+    // The game closing asks again (stellaRecheckAfterGame).
+    stellaAuthError = STELLA_NO_ACCOUNT;
+    const play = document.body.classList.contains('client-installed')
+      ? '<br><button type="button" class="btn-refresh stella-login-prompt" data-stella-play>PLAY STELLA</button>'
+      : '';
+    return `${escapeHtml(STELLA_NO_ACCOUNT_TEXT)}${play}`;
   }
   return `Error: ${escapeHtml(res?.error || `Failed to fetch ${what}`)}`;
 }

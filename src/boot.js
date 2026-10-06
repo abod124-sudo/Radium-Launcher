@@ -68,6 +68,15 @@ try {
       document.body.classList.add('has-home-banner');
     }
   } catch (e) {}
+  // Home's layout (Settings → Home → Style). A known name only, like the skin.
+  // Mirrors applyHomeLayout() in app.js, which wrote it; Dashboard's two
+  // columns are put together there, once the page's script runs.
+  var homeStyle = localStorage.getItem('radium-home-style');
+  if (homeStyle === 'spotlight' || homeStyle === 'compact' || homeStyle === 'dashboard') {
+    document.body.classList.add('home-style-' + homeStyle);
+  } else {
+    document.body.classList.add('home-style-showcase');
+  }
   // Every network now has a rooms/people API, so none start socially hidden.
   // (applyNetworkUI still toggles `network-no-social` from NETWORKS[*].hasSocial
   // if a future network opts out.)

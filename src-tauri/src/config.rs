@@ -114,6 +114,10 @@ impl GlassSettings {
 /// download panel always lead.
 pub const HOME_SECTIONS: [&str; 3] = ["status", "friends", "rooms"];
 
+/// How Home is laid out, picked in Settings → Home. The first is the default:
+/// the network's art across the top, everything else below it.
+pub const HOME_STYLES: [&str; 4] = ["showcase", "spotlight", "compact", "dashboard"];
+
 /// Largest banner picture kept, as an encoded `data:` URI. The page downscales
 /// a picked file to fit (see `prepareBannerImage` in app.js); the hero is at
 /// most ~1,700 CSS px wide and 248 tall, so this is plenty.
@@ -132,6 +136,11 @@ pub struct HomeSettings {
     pub hidden: Vec<String>,
     /// Each network's banner picture.
     pub banners: HomeBanners,
+    /// The layout, by [`HOME_STYLES`] name.
+    pub style: String,
+    /// The sections Dashboard puts in its column beside the game; the rest go
+    /// under the game. Each column keeps `order`'s order.
+    pub side: Vec<String>,
 }
 
 impl Default for HomeSettings {
@@ -140,6 +149,8 @@ impl Default for HomeSettings {
             order: HOME_SECTIONS.iter().map(|s| s.to_string()).collect(),
             hidden: Vec::new(),
             banners: HomeBanners::default(),
+            style: HOME_STYLES[0].to_string(),
+            side: vec!["status".to_string(), "friends".to_string()],
         }
     }
 }
@@ -179,8 +190,9 @@ fn is_safe_banner(s: &str) -> bool {
 
 impl HomeSettings {
     /// Repair the order (known names, each once, every one present), the
-    /// hidden list (known names, each once) and any banner that isn't safe to
-    /// paint. Returns true if something changed.
+    /// hidden list (known names, each once), the style (a known one, else the
+    /// default) and any banner that isn't safe to paint. Returns true if
+    /// something changed.
     pub(crate) fn sanitize(&mut self) -> bool {
         let before = self.clone();
         let known = |name: &String| HOME_SECTIONS.contains(&name.as_str());
@@ -208,6 +220,18 @@ impl HomeSettings {
             }
         }
         self.hidden = hidden;
+
+        let mut side: Vec<String> = Vec::new();
+        for name in self.side.iter().filter(|n| known(n)) {
+            if !side.contains(name) {
+                side.push(name.clone());
+            }
+        }
+        self.side = side;
+
+        if !HOME_STYLES.contains(&self.style.as_str()) {
+            self.style = HOME_STYLES[0].to_string();
+        }
 
         for banner in [&mut self.banners.radium, &mut self.banners.vanilla, &mut self.banners.stella] {
             if !is_safe_banner(banner) {
@@ -1727,6 +1751,32 @@ mod tests {
         let cfg = config_from_frontend_json(serde_json::json!({ "theme": "win98" }));
         assert_eq!(cfg.home.order, ["status", "friends", "rooms"]);
         assert!(cfg.home.hidden.is_empty());
+        assert_eq!(cfg.home.style, "showcase");
+        assert_eq!(cfg.home.side, ["status", "friends"]);
+    }
+
+    #[test]
+    fn dashboard_side_column_keeps_known_sections_each_once() {
+        let mut home = HomeSettings { side: vec!["rooms".into(), "x".into(), "rooms".into()], ..HomeSettings::default() };
+        assert!(home.sanitize());
+        assert_eq!(home.side, ["rooms"]);
+        // Empty is a choice too: everything under the game.
+        let cfg = config_from_frontend_json(serde_json::json!({ "home": { "side": [] } }));
+        assert!(cfg.home.side.is_empty());
+    }
+
+    #[test]
+    fn home_style_is_kept_when_known_and_reset_otherwise() {
+        let cfg = config_from_frontend_json(serde_json::json!({ "home": { "style": "dashboard" } }));
+        assert_eq!(cfg.home.style, "dashboard");
+
+        let mut home = HomeSettings { style: "dashboard".into(), ..HomeSettings::default() };
+        assert!(!home.sanitize());
+        for bad in ["", "Dashboard", "x\"); color: red", "spotlight "] {
+            home.style = bad.into();
+            assert!(home.sanitize(), "{bad:?} should be reset");
+            assert_eq!(home.style, "showcase");
+        }
     }
 
     #[test]
@@ -1734,7 +1784,7 @@ mod tests {
         let mut home = HomeSettings {
             order: vec!["rooms".into(), "bogus".into(), "rooms".into(), "status".into()],
             hidden: vec!["rooms".into(), "rooms".into(), "<script>".into()],
-            banners: HomeBanners::default(),
+            ..HomeSettings::default()
         };
         assert!(home.sanitize());
         // Known names in the saved order, then whatever was missing.

@@ -184,6 +184,46 @@ body:not(.glass-enabled) {
     border-radius: var(--avatar-radius, var(--media-radius));
     box-sizing: border-box;
   }
+
+  /* Settings → Home's style tiles and the Stella account chooser's: the
+     Home card's friend tiles. The style in use is ringed in the accent. */
+  & .home-style-option {
+    font-family: var(--font-ui);
+    color: var(--well-fg);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--tile-radius);
+    box-shadow: var(--tile-shadow);
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  & .home-style-option:hover { background: var(--tile-hover-bg, var(--tile-bg)); border: var(--card-hover-border); }
+  & .home-style-option[aria-checked="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+  & .home-style-option[aria-checked="true"] .home-style-name { color: var(--accent-text); }
+  & .home-style-desc { color: var(--muted); }
+  & :is(.home-layout-group, .home-layout-empty) { font-family: var(--font-ui); color: var(--muted); }
+  & .hs-thumb { border-radius: var(--media-radius); }
+  & .hs-play::before { background: var(--accent); border-radius: var(--btn-radius); }
+  & .account-chooser-intro { font-family: var(--font-ui); color: var(--panel-fg); }
+  & .account-choice {
+    font-family: var(--font-ui);
+    color: var(--well-fg);
+    background: var(--tile-bg);
+    border: var(--tile-border);
+    border-radius: var(--tile-radius);
+    box-shadow: var(--tile-shadow);
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  }
+  & .account-choice:not(:disabled):hover { background: var(--tile-hover-bg, var(--tile-bg)); border: var(--card-hover-border); }
+  & .account-choice[aria-current="true"] { border: var(--card-hover-border); }
+  & .account-choice-avatar {
+    background: var(--media-bg);
+    border: var(--media-border);
+    border-radius: var(--avatar-radius, var(--media-radius));
+    box-sizing: border-box;
+  }
+  & .account-choice-sub { color: var(--muted); }
+  & .account-choice-state { color: var(--muted); }
+  & .account-choice[aria-current="true"] .account-choice-state { color: var(--ok); }
   & .friend-dot { border-radius: var(--dot-radius); }
   & .is-online .friend-dot { background: var(--ok); }
   & .friend-name { font-family: var(--font-ui); color: inherit; }

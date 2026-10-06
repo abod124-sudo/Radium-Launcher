@@ -278,14 +278,6 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
 
   & .modal-close-btn { border-radius: 7px; }
 
-  /* Keyboard focus: a soft 2px ring that follows the control's radius. The
-     retro dotted 1px rectangle, drawn in white on Black & White, read as a
-     broken border. */
-  & :focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--focus) 55%, transparent);
-    outline-offset: 2px;
-  }
-  & :focus-visible:active { outline-color: transparent; }
   & .settings-group { gap: 10px; }
 
   & .toggle-wrap { transition: background-color 0.25s cubic-bezier(0.22, 1, 0.36, 1); }

@@ -371,6 +371,11 @@ body.theme-moderndark .cfg-input {
 body.theme-moderndark .log-output { background: #07080a !important; }
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* No keyboard focus ring anywhere, the browser's own included: the user
+   found that the ring Tab put round a control broke its look. Menus and
+   lists still light the focused row the way a hover does. */
+:focus-visible { outline: none; }
+
 body {
   width: 100vw; height: 100vh;
   overflow: hidden;
@@ -570,6 +575,8 @@ a:hover, .text-link:hover {
   width: 100%;
   cursor: pointer;
 }
+/* Same reason as .network-menu[hidden] (SWITCH ACCOUNT, say). */
+.network-menu .network-option[hidden] { display: none; }
 .network-option-icon {
   width: 22px; height: 22px; flex-shrink: 0;
   object-fit: contain; image-rendering: pixelated;
@@ -879,7 +886,6 @@ body #vanillaNotifsPanel.network-menu {
 .notif-item:last-child { border-bottom: 0; }
 button.notif-item { cursor: pointer; }
 button.notif-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
-button.notif-item:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: -2px; }
 .notif-item.unread::before {
   content: "";
   position: absolute; left: 11px; top: 24px;
@@ -933,7 +939,6 @@ body.glass-enabled .notif-avatar {
   cursor: pointer;
 }
 .notif-item-open:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
-.notif-item-open:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: -2px; }
 button.notif-accept { background: transparent; cursor: pointer; }
 button.notif-accept:hover:not(:disabled) { background: color-mix(in srgb, var(--accent, var(--green)) 14%, transparent); }
 button.notif-accept:disabled { opacity: 0.6; cursor: default; }
@@ -968,7 +973,6 @@ button.notif-accept:disabled { opacity: 0.6; cursor: default; }
 .photo-detail-stats .cheer-stat { background: transparent; }
 .cheer-stat:disabled { color: inherit; cursor: default; }
 .cheer-stat:not(:disabled) { cursor: pointer; }
-.cheer-stat:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 2px; }
 /* The count is drawn as the website's cheer pill: muted thumb and a soft
    chip, lit in the accent once cheered. !important because every skin
    colours stat values at a higher specificity than a component rule can
@@ -1020,7 +1024,6 @@ body:not(.network-stella) .fav-icon { display: none; }
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 .card-cheer:hover { background: color-mix(in srgb, var(--text) 13%, transparent); }
-.card-cheer:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 2px; }
 .card-cheer:active .cheer-icon { transform: scale(0.8); }
 .card-cheer.is-on {
   color: var(--accent-text, var(--green));
@@ -1483,8 +1486,9 @@ body.has-home-banner .home-hero-name {
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
 }
 
-/* A section switched off in Settings → Home (applyHomeLayout). */
-#tab-home > .is-turned-off { display: none !important; }
+/* A section switched off in Settings → Home (applyHomeLayout). Not only a
+   direct child: Dashboard puts the sections in columns. */
+#tab-home .is-turned-off { display: none !important; }
 
 /* A network with no rooms or people API (Stella) has no ROOMS or PEOPLE. */
 body.network-no-social .network-social-only { display: none !important; }
@@ -1503,7 +1507,7 @@ body.stella-update-needed .home-hero-bar :is(.btn-play, .hero-mode) { display: n
 .home-hero-bar .btn-steam-update {
   display: flex; align-items: center; justify-content: center; gap: 10px;
   min-width: 148px; height: 44px; padding: 0 22px; flex-shrink: 0;
-  border: none; border-radius: 2px; box-shadow: none; outline-offset: 2px;
+  border: none; border-radius: 2px; box-shadow: none;
   background: linear-gradient(90deg, #47bfff 0%, #2f8ef4 45%, #1a6fe8 100%);
   color: #ffffff;
   font-family: "Motiva Sans", var(--font-ui), sans-serif;
@@ -1780,6 +1784,125 @@ body.glass-enabled .btn-play.running:is(:active, .is-pressed) {
   border: 1px solid var(--border-light);
 }
 
+/* ── Home styles (Settings → Home → Style) ─────────────────────────────
+   body.home-style-<name>, from applyHomeLayout() and, before the first
+   paint, boot.js. Showcase is everything above as it is. The others resize
+   and move the same pieces, so each skin paints them as it paints Showcase.
+   Where a skin sizes a piece itself (PLAY, the status tiles), the rule here
+   leads with :root to stay ahead of it. */
+
+/* Spotlight: the art fills the window down to the status strip, which sits
+   at the fold, with the brand large and PLAY centred on it. */
+body.home-style-spotlight .home-hero {
+  height: clamp(320px, calc(100vh - 176px), 820px);
+}
+body.home-style-spotlight .home-hero-brand {
+  left: 32px; right: 32px; bottom: 92px;
+  flex-direction: column; justify-content: center; gap: 14px;
+}
+body.network-radium.home-style-spotlight .home-hero-mark {
+  width: 460px; max-width: 80%; height: 92px;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+body.network-vanilla.home-style-spotlight .home-hero-mark { width: 104px; max-width: 40%; height: 112px; }
+body.network-stella.home-style-spotlight .home-hero-mark { width: 124px; max-width: 40%; height: 124px; }
+body.home-style-spotlight .home-hero-name { max-width: 100%; font-size: 50px; text-align: center; }
+/* A picture of the user's own: the shade gathers behind the brand in the
+   middle rather than down the left. */
+body.has-home-banner.home-style-spotlight .home-hero-art::after {
+  background: radial-gradient(ellipse 60% 55% at 50% 42%, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.18) 60%, rgba(0, 0, 0, 0) 100%);
+}
+body.home-style-spotlight .home-hero-bar {
+  justify-content: center;
+  padding: 72px 20px 20px;
+}
+/* The gear keeps to the far end without its auto margin, which would take
+   all the room centring leaves: lifted out of the row and pinned level with
+   PLAY (52px tall, 20px up). */
+body.home-style-spotlight #btnManageClient {
+  position: absolute;
+  right: 20px; bottom: 29px;
+  margin-left: 0 !important;
+}
+:root body.home-style-spotlight .home-hero-bar :is(.btn-play, .btn-download-big) {
+  min-width: 210px; height: 52px;
+  font-size: 17px;
+}
+
+/* Compact: a slim banner, brand at the left and the actions at the right on
+   the one row, and a shorter status strip, so Popular right now and the
+   friends start higher up. */
+body.home-style-compact .home-hero { height: 124px; }
+body.home-style-compact .home-hero-brand {
+  left: 22px; right: auto; bottom: 0;
+  max-width: 46%;
+  gap: 12px;
+}
+body.network-radium.home-style-compact .home-hero-mark { width: 220px; max-width: 100%; height: 44px; }
+body.network-vanilla.home-style-compact .home-hero-mark { width: 50px; max-width: 30%; height: 54px; }
+body.network-stella.home-style-compact .home-hero-mark { width: 62px; max-width: 30%; height: 62px; }
+body.home-style-compact .home-hero-name { font-size: 26px; }
+/* The scrim runs in from the right edge, under the actions, instead of up
+   from the bottom. */
+body.home-style-compact .home-hero-bar {
+  top: 0; left: auto;
+  padding: 0 14px 0 64px;
+  border-bottom-left-radius: 0;
+  border-top-right-radius: inherit;
+  background: linear-gradient(90deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.6) 30%,
+    rgba(0, 0, 0, 0.92) 60%,
+    rgba(0, 0, 0, 1) 100%);
+}
+/* The art fades out before the right edge, so the hero's own black is all
+   that is left under the scrim there. Two rounded layers (art and scrim)
+   clipped to the same corner each let a little of the other through their
+   soft edge, which drew a brown or green sliver at both right corners. */
+body.home-style-compact .home-hero-art {
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 92%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 50%, transparent 92%);
+}
+body.home-style-compact .hero-note { max-width: 180px; }
+:root body.home-style-compact .home-stat { padding-top: 8px; padding-bottom: 8px; }
+
+/* Dashboard: two columns (built by applyHomeLayout). The hero, the download
+   panel and Popular right now in the wide one; the status strip, stacked,
+   and the friends in the narrow one beside it. The narrow column's width is
+   on its sections, so a network with nothing to put there (no friends,
+   status switched off) gets the whole width. */
+.home-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  container-type: inline-size;
+}
+.home-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.home-main { container: home-main / inline-size; }
+.home-side > * { width: clamp(220px, 30cqw, 300px); margin-left: 12px; }
+body.home-style-dashboard .home-side .home-stats { grid-template-columns: minmax(0, 1fr); }
+:root body.home-style-dashboard .home-side .home-stat + .home-stat {
+  border-left: 0;
+  border-top: var(--stat-divider, 1px solid var(--line, var(--border-light)));
+}
+body.home-style-dashboard .home-side .home-friends-list { max-height: min(440px, 60vh); }
+/* Popular right now, when moved beside the game: one card a row, three. */
+body.home-style-dashboard .home-side .home-rooms { grid-template-columns: minmax(0, 1fr); }
+body.home-style-dashboard .home-side .home-rooms > :nth-child(n+4) { display: none; }
+body.home-style-dashboard .home-side :is(.friends-grid, .friends-grid-online) { grid-template-columns: minmax(0, 1fr); }
+/* Rooms by the main column's width: two rows of two, then of three, then
+   one row of six. */
+body.home-style-dashboard .home-rooms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+body.home-style-dashboard .home-rooms > :nth-child(n+5) { display: none; }
+@container home-main (min-width: 600px) {
+  body.home-style-dashboard .home-rooms { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  body.home-style-dashboard .home-rooms > :nth-child(n+5) { display: flex; }
+}
+@container home-main (min-width: 1100px) {
+  body.home-style-dashboard .home-rooms { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+
 /* ── Friends (Stella): the Home card and the FRIENDS tab ──────────────────
    One set of pieces for both, built by renderStellaFriendsInto(). A friend
    who is online is a card: picture with a presence dot, name, where they
@@ -1910,7 +2033,6 @@ body.glass-enabled .btn-play.running:is(:active, .is-pressed) {
 }
 .friend-fav:hover,
 .friend-fav:focus-visible { opacity: 1; }
-.friend-fav:focus-visible { outline: 1px dotted currentColor; outline-offset: 1px; }
 .friend-fav[aria-pressed="true"] { color: #e8a400; opacity: 1; }
 .friends-grid-online .friend-fav { position: absolute; top: 8px; right: 8px; }
 .friends-grid-online .friend-card-main { padding-right: 22px; }
@@ -2588,6 +2710,15 @@ body.animations-enabled.theme-moderndark .hero-gear[aria-expanded="false"]:hover
   padding: 0;
 }
 .layout-move svg { width: 16px; height: 16px; fill: currentColor; }
+/* Dashboard: the list in its two columns, each under a heading. */
+.home-layout-group {
+  padding: 12px 0 4px;
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.home-layout-group:first-child { padding-top: 0; }
+.home-layout-empty { padding: 6px 0 8px; font-size: 11px; color: var(--text-muted); }
 /* The banner: a little preview of what Home shows (the network's own art
    until a picture is chosen), what it is, and the two buttons. */
 .banner-row { flex-wrap: wrap; }
@@ -2601,6 +2732,117 @@ body.animations-enabled.theme-moderndark .hero-gear[aria-expanded="false"]:hover
 .banner-preview[data-network="radium"]:not(.is-custom) { background-image: url('assets/brand-pattern.png'); }
 .banner-preview[data-network="vanilla"]:not(.is-custom) { background-image: url('assets/vanilla-hero.png'); background-position: center top; }
 .banner-preview[data-network="stella"]:not(.is-custom) { background-image: url('assets/stella-pattern.jpg'); }
+
+/* The Home style picker: four tiles, each a little plan of its layout over
+   the name and a line on it. The plans use the network's own art and mark
+   (or the user's banner), so they look like the Home they stand for. Each
+   skin paints the tiles as it paints the friend tiles (03-content.css). */
+.settings-group:has(> .home-style-picker) { container-type: inline-size; }
+.home-style-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+@container (min-width: 480px) {
+  .home-style-picker { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.home-style-option {
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 0;
+  margin: 0; padding: 8px 8px 10px;
+  font: inherit; text-align: left;
+  color: var(--text);
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  cursor: pointer;
+}
+.home-style-option[aria-checked="true"] {
+  outline: 2px solid var(--accent, var(--green));
+  outline-offset: 1px;
+}
+.home-style-name { margin-top: 4px; font-size: 12px; font-weight: 700; }
+.home-style-desc { font-size: 10.5px; line-height: 1.35; color: var(--text-muted); }
+
+/* The plan. --hs-* are its three greys, from the skin's text colour over its
+   surface; glass sets its own. */
+.hs-thumb {
+  --hs-bg: var(--surface, var(--bg-dark));
+  --hs-block: color-mix(in srgb, var(--panel-fg, var(--text)) 13%, var(--hs-bg));
+  --hs-card: color-mix(in srgb, var(--panel-fg, var(--text)) 24%, var(--hs-bg));
+  display: grid;
+  gap: 3px;
+  aspect-ratio: 16 / 10;
+  padding: 4px;
+  background: var(--hs-bg);
+  border: 1px solid var(--line-strong, var(--border-dark));
+  overflow: hidden;
+}
+.hs-thumb > *, .hs-main > *, .hs-side > * { min-height: 0; }
+.hs-art {
+  position: relative;
+  display: flex; align-items: center;
+  padding: 0 8%;
+  background: #000 url('assets/brand-pattern.png') center / cover no-repeat;
+}
+body.network-vanilla .hs-art { background-image: url('assets/vanilla-hero.png'); background-position: center top; }
+body.network-stella .hs-art { background-image: url('assets/stella-pattern.jpg'); }
+body.has-home-banner .hs-art { background-image: var(--home-banner); background-position: center; }
+/* The network's mark, as the hero draws it. */
+.hs-mark {
+  width: 46%; height: 26%;
+  background: #0d1410;
+  -webkit-mask: url('assets/wordmark.png') left center / contain no-repeat;
+  mask: url('assets/wordmark.png') left center / contain no-repeat;
+}
+body.network-vanilla .hs-mark {
+  width: 16%; height: 46%;
+  background: #3a2418;
+  -webkit-mask-image: url('assets/vanilla-mark.svg');
+  mask-image: url('assets/vanilla-mark.svg');
+}
+body.network-stella .hs-mark {
+  width: 18%; height: 48%;
+  background: url('assets/stella-logo.png') center / contain no-repeat;
+  -webkit-mask: none;
+  mask: none;
+}
+body.has-home-banner:not(.network-stella) .hs-mark { background-color: #ffffff; }
+/* PLAY, on its strip of scrim. */
+.hs-play {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 30%;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.85) 55%);
+}
+.hs-play::before {
+  content: '';
+  position: absolute; left: 7%; bottom: 22%;
+  width: 22%; height: 44%;
+  background: var(--accent, var(--green));
+}
+.hs-strip { background: var(--hs-block); }
+.hs-panel { background: var(--hs-block); }
+.hs-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; }
+.hs-cards > span { background: var(--hs-card); }
+
+.hs-showcase { grid-template-rows: 48fr 11fr 30fr; }
+.hs-spotlight { grid-template-rows: 82fr 11fr; }
+.hs-spotlight .hs-art { flex-direction: column; justify-content: center; padding-bottom: 12%; }
+.hs-spotlight .hs-mark { -webkit-mask-position: center; mask-position: center; }
+.hs-spotlight .hs-play::before { left: 36%; width: 28%; }
+.hs-compact { grid-template-rows: 24fr 8fr 26fr 22fr; }
+.hs-compact .hs-art { padding: 0 5%; }
+.hs-compact .hs-mark { height: 46%; }
+.hs-compact .hs-play {
+  top: 0; left: auto; width: 46%; height: auto;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.85) 45%);
+}
+.hs-compact .hs-play::before { left: auto; right: 10%; bottom: 26%; width: 44%; height: 48%; }
+.hs-dashboard { grid-template-columns: minmax(0, 1fr) 30%; }
+.hs-main, .hs-side { display: grid; gap: 3px; min-width: 0; }
+.hs-main { grid-template-rows: 56fr 34fr; }
+.hs-main .hs-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hs-side { grid-template-rows: 40fr 50fr; }
+.hs-dashboard .hs-mark { width: 52%; }
 
 /* About: the launcher's mark, name and version. */
 .settings-group.about-card { flex-direction: row; align-items: center; gap: 14px; padding: 16px; }
@@ -2873,6 +3115,52 @@ body.theme-moderndark .toast.info {
 .modal-btn-primary:disabled {
   background: var(--bg-btn); color: var(--text-muted); cursor: default;
 }
+
+/* ── Stella account chooser ────────────────────────────────────────────
+   One tile per Stella account on the player's Steam account: picture,
+   names, when it last played, and "Signed in" on the one in use. Shapes
+   here; each skin paints the tiles as it paints the Home card's friends
+   (03-content.css), glass in 11-glass.css. */
+.modal-box.account-chooser-box { width: 420px; max-width: calc(100vw - 32px); }
+.account-chooser-intro { margin: 0; font-size: 12px; line-height: 1.45; color: var(--text); }
+.account-chooser-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: min(324px, 52vh);
+  overflow-y: auto;
+}
+.account-choice {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-width: 0; flex-shrink: 0;
+  margin: 0; padding: 8px 12px 8px 8px;
+  font: inherit; text-align: left;
+  color: var(--text);
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  cursor: pointer;
+}
+.account-choice:disabled { cursor: default; }
+.account-choice-avatar {
+  width: 40px; height: 40px; flex-shrink: 0;
+  object-fit: cover;
+  background: var(--bg-dark);
+}
+.account-choice-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.account-choice-name {
+  font-size: 13px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.account-choice-sub {
+  font-size: 11px; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.account-choice-sub:empty, .account-choice-state:empty { display: none; }
+.account-choice-state {
+  flex-shrink: 0;
+  font-size: 11px; font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.account-choice[aria-current="true"] .account-choice-state { color: var(--status-online); }
 
 .toast.ok { border-left: 4px solid var(--green); }
 .toast.error { border-left: 4px solid #ff4444; }
@@ -4162,7 +4450,6 @@ body.theme-moderndark .feed-post-footer {
 }
 
 .profile-tab-btn[hidden] { display: none; }
-.profile-tab-btn:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 3px; }
 
 /* ── Feed tab ───────────────────────────────────────────────────────────
    Vanilla-only, so the nav button is hidden everywhere else. Gated from
@@ -4377,7 +4664,6 @@ body:not(.network-vanilla):not(.network-stella) .people-level-col { display: non
   border: 1px solid var(--border-light);
   border-radius: 8px;
 }
-.invention-card:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 2px; }
 .invention-thumb {
   position: relative;
   aspect-ratio: 16 / 9;
@@ -4476,7 +4762,6 @@ body:not(.network-vanilla):not(.network-stella) .people-level-col { display: non
   transition: transform 0.25s ease;
 }
 .profile-photo-tile:hover img { transform: scale(1.05); }
-.profile-photo-tile:focus-visible { outline: 2px solid var(--accent, var(--green)); outline-offset: 2px; }
 
 /* Room detail. A header card: the room's picture beside its name, who made
    it, how many are in it now and PLAY, all over a blurred, darkened copy of
@@ -4598,7 +4883,6 @@ body:not(.network-vanilla):not(.network-stella) .people-level-col { display: non
   transition: background-color 0.15s ease;
 }
 .room-creator-box:hover { background: rgba(255, 255, 255, 0.22); }
-.room-creator-box:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .room-creator-avatar {
   flex-shrink: 0;
   width: 26px;
@@ -5173,8 +5457,6 @@ body.theme-moderndark .feed-post-avatar[src="logo.png"] {
   background: var(--tint-current);
 }
 .tint-hue-thumb { top: 50%; width: 16px; height: 16px; background: var(--tint-hue-color); }
-.tint-sv:focus-visible,
-.tint-hue:focus-visible { box-shadow: 0 0 0 2px #0a84ff; }
 /* No separate preview circle: the swatch the picker opens from and the
    square's thumb already show the colour live. */
 .tint-row { display: flex; align-items: center; gap: 8px; }
