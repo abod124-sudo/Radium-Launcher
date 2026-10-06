@@ -14,7 +14,10 @@
 
 @keyframes sk-tab-in     { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes sk-shimmer    { from { background-position: 100% 0; } to { background-position: 0 0; } }
-@keyframes sk-card-in    { from { opacity: 0; transform: scale(0.96) translateY(6px); } to { opacity: 1; transform: none; } }
+/* Cards rise and fade, without growing: grown from its centre, a grid's
+   left column started ~5px right of the page title and slid back into line
+   on every tab switch, which read as the pictures being shifted right. */
+@keyframes sk-card-in    { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes sk-item-in    { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
 @keyframes sk-overlay-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes sk-overlay-out { from { opacity: 1; } to { opacity: 0; } }
