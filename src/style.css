@@ -4470,6 +4470,12 @@ body:not(.network-vanilla):not(.network-stella) .people-level-col { display: non
    a profile (.profile-columns): About at the left, the photos at the right.
    The header is a fixed dark scrim on every skin, so its text is white on
    all of them; the rest takes each skin's paint (03-content.css). */
+/* The detail pages keep their scrollbar's room from the start. Without it,
+   the photos landing a moment after a room opened made the page scroll, the
+   scrollbar took 10px, and the header picture (a share of the width) shrank
+   and the name beside it moved. Same for a profile. */
+:is(#roomsDetailView, #peopleDetailView) > .bevel-inset { scrollbar-gutter: stable; }
+
 .room-card-container {
   display: flex;
   flex-direction: column;
