@@ -3125,13 +3125,22 @@ body.theme-moderndark .modal-close-btn {
   object-fit: cover;
   border: 0;
 }
-/* The shade the name sits on. Over the picture rather than under the name
-   alone, so it reads on any picture. */
-.room-card-media::after {
+/* The shade the name sits on: the picture fades into black toward the
+   bottom, so the name reads on any picture. A mask on the picture, over a
+   black backing, rather than a shade laid on top: the picture zooms on
+   hover in its own GPU layer, and while the card is still moving (the tab
+   and card entrance animations after switching tabs) WebView2 clips that
+   layer a pixel lower than the shade, which showed the picture's bottom row
+   as a bright line. Measured in the app: 189 under a shade of ~35; masked,
+   the same row is 45. The mask moves with the picture, so it can't drift. */
+.room-card:not(.is-skeleton) .room-card-media::before {
   content: '';
-  position: absolute; left: 0; right: 0; bottom: 0; height: 58%;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 50%, rgba(0, 0, 0, 0.82) 100%);
-  pointer-events: none;
+  position: absolute; inset: 0;
+  background: #000;
+}
+.room-card-image {
+  -webkit-mask-image: linear-gradient(180deg, #000 42%, rgba(0, 0, 0, 0.5) 71%, rgba(0, 0, 0, 0.18) 100%);
+          mask-image: linear-gradient(180deg, #000 42%, rgba(0, 0, 0, 0.5) 71%, rgba(0, 0, 0, 0.18) 100%);
 }
 .room-card-name {
   position: absolute; left: 10px; right: 10px; bottom: 8px; z-index: 1;
@@ -3300,7 +3309,6 @@ button.room-card-creator:hover .room-card-creator-name { color: var(--text); tex
   border-color: transparent;
   color: transparent;
 }
-.room-card.is-skeleton .room-card-media::after { display: none; }
 .skel-line { display: block; width: 64%; height: 10px; margin: 3px 0; border-radius: 5px; }
 .skel-line.is-short { width: 40%; }
 .player-card.is-skeleton .player-avatar { border-radius: 6px; }
