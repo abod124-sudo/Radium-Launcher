@@ -122,3 +122,124 @@ body:is(.theme-winxp, .theme-royalenoir, .theme-win95, .theme-win98,
   & .settings-nav-btn[data-section="friends"]       { --ico: var(--ico-friends); }
   & .settings-nav-btn[data-section="about"]         { --ico: var(--ico-about); }
 }
+
+/* Report a Problem: the Logs button, the six kinds of problem (at 32px, as
+   the systems' own task lists drew them), the privacy note's padlock and the
+   sent page. XP's shell32 has no report icon, so it gets a text document;
+   Vista and 7 get their problem-report list. Platinum has no padlock or tick
+   of its own, so those two keep the line art there. */
+
+body:is(.theme-winxp, .theme-royalenoir, .theme-steam-green) {
+  --ico-report: image-set(url("../assets/icons/xp/report-16.png") 1x, url("../assets/icons/xp/report-32.png") 2x);
+  --ico-launch: image-set(url("../assets/icons/xp/launch-32.png") 1x, url("../assets/icons/xp/launch-48.png") 1.5x);
+  --ico-download: image-set(url("../assets/icons/xp/download-32.png") 1x);
+  --ico-account: image-set(url("../assets/icons/xp/account-32.png") 1x, url("../assets/icons/xp/account-48.png") 1.5x);
+  --ico-looks: image-set(url("../assets/icons/xp/looks-32.png") 1x, url("../assets/icons/xp/looks-48.png") 1.5x);
+  --ico-launcher: image-set(url("../assets/icons/xp/launcher-32.png") 1x);
+  --ico-help: image-set(url("../assets/icons/xp/help-32.png") 1x, url("../assets/icons/xp/help-48.png") 1.5x);
+  --ico-lock: image-set(url("../assets/icons/xp/lock-16.png") 1x, url("../assets/icons/xp/lock-32.png") 2x);
+  --ico-sent: url("../assets/icons/xp/sent-48.png");
+  --ico-sent-size: 48px;
+}
+
+body:is(.theme-win95, .theme-win98) {
+  --ico-report: image-set(url("../assets/icons/win9x/report-16.png") 1x, url("../assets/icons/win9x/report-32.png") 2x);
+  --ico-launch: image-set(url("../assets/icons/win9x/launch-32.png") 1x, url("../assets/icons/win9x/launch-48.png") 1.5x);
+  --ico-download: image-set(url("../assets/icons/win9x/download-32.png") 1x);
+  --ico-account: image-set(url("../assets/icons/win9x/account-32.png") 1x, url("../assets/icons/win9x/account-48.png") 1.5x);
+  --ico-looks: image-set(url("../assets/icons/win9x/looks-32.png") 1x, url("../assets/icons/win9x/looks-48.png") 1.5x);
+  --ico-launcher: image-set(url("../assets/icons/win9x/launcher-32.png") 1x);
+  --ico-help: image-set(url("../assets/icons/win9x/help-32.png") 1x, url("../assets/icons/win9x/help-48.png") 1.5x);
+  --ico-lock: image-set(url("../assets/icons/win9x/lock-16.png") 1x, url("../assets/icons/win9x/lock-32.png") 2x);
+  --ico-sent: url("../assets/icons/win9x/sent-48.png");
+  --ico-sent-size: 48px;
+}
+
+body:is(.theme-winvista) {
+  --ico-report: image-set(url("../assets/icons/vista/report-16.png") 1x, url("../assets/icons/vista/report-32.png") 2x);
+  --ico-launch: image-set(url("../assets/icons/vista/launch-32.png") 1x, url("../assets/icons/vista/launch-48.png") 1.5x);
+  --ico-download: image-set(url("../assets/icons/vista/download-32.png") 1x, url("../assets/icons/vista/download-48.png") 1.5x);
+  --ico-account: image-set(url("../assets/icons/vista/account-32.png") 1x, url("../assets/icons/vista/account-48.png") 1.5x);
+  --ico-looks: image-set(url("../assets/icons/vista/looks-32.png") 1x, url("../assets/icons/vista/looks-48.png") 1.5x);
+  --ico-launcher: image-set(url("../assets/icons/vista/launcher-32.png") 1x, url("../assets/icons/vista/launcher-48.png") 1.5x);
+  --ico-help: image-set(url("../assets/icons/vista/help-32.png") 1x, url("../assets/icons/vista/help-48.png") 1.5x);
+  --ico-lock: image-set(url("../assets/icons/vista/lock-16.png") 1x, url("../assets/icons/vista/lock-32.png") 2x);
+  --ico-sent: url("../assets/icons/vista/sent-32.png");
+  --ico-sent-size: 32px;
+}
+
+body:is(.theme-win7, .theme-steam2010) {
+  --ico-report: image-set(url("../assets/icons/win7/report-16.png") 1x, url("../assets/icons/win7/report-32.png") 2x);
+  --ico-launch: image-set(url("../assets/icons/win7/launch-32.png") 1x, url("../assets/icons/win7/launch-48.png") 1.5x);
+  --ico-download: image-set(url("../assets/icons/win7/download-32.png") 1x, url("../assets/icons/win7/download-48.png") 1.5x);
+  --ico-account: image-set(url("../assets/icons/win7/account-32.png") 1x, url("../assets/icons/win7/account-48.png") 1.5x);
+  --ico-looks: image-set(url("../assets/icons/win7/looks-32.png") 1x, url("../assets/icons/win7/looks-48.png") 1.5x);
+  --ico-launcher: image-set(url("../assets/icons/win7/launcher-32.png") 1x, url("../assets/icons/win7/launcher-48.png") 1.5x);
+  --ico-help: image-set(url("../assets/icons/win7/help-32.png") 1x, url("../assets/icons/win7/help-48.png") 1.5x);
+  --ico-lock: image-set(url("../assets/icons/win7/lock-16.png") 1x, url("../assets/icons/win7/lock-32.png") 2x);
+  --ico-sent: url("../assets/icons/win7/sent-32.png");
+  --ico-sent-size: 32px;
+}
+
+body:is(.theme-macosclassic) {
+  --ico-report: image-set(url("../assets/icons/mac9/report-16.png") 1x, url("../assets/icons/mac9/report-32.png") 2x);
+  --ico-launch: image-set(url("../assets/icons/mac9/launch-32.png") 1x, url("../assets/icons/mac9/launch-48.png") 1.5x);
+  --ico-download: image-set(url("../assets/icons/mac9/download-32.png") 1x, url("../assets/icons/mac9/download-48.png") 1.5x);
+  --ico-account: image-set(url("../assets/icons/mac9/account-32.png") 1x, url("../assets/icons/mac9/account-48.png") 1.5x);
+  --ico-looks: image-set(url("../assets/icons/mac9/looks-32.png") 1x, url("../assets/icons/mac9/looks-48.png") 1.5x);
+  --ico-launcher: image-set(url("../assets/icons/mac9/launcher-32.png") 1x, url("../assets/icons/mac9/launcher-48.png") 1.5x);
+  --ico-help: image-set(url("../assets/icons/mac9/help-32.png") 1x, url("../assets/icons/mac9/help-48.png") 1.5x);
+}
+
+body:is(.theme-macosaqua) {
+  --ico-report: image-set(url("../assets/icons/aqua/report-16.png") 1x, url("../assets/icons/aqua/report-32.png") 2x);
+  --ico-launch: image-set(url("../assets/icons/aqua/launch-32.png") 1x, url("../assets/icons/aqua/launch-48.png") 1.5x);
+  --ico-download: image-set(url("../assets/icons/aqua/download-32.png") 1x, url("../assets/icons/aqua/download-48.png") 1.5x);
+  --ico-account: image-set(url("../assets/icons/aqua/account-32.png") 1x, url("../assets/icons/aqua/account-48.png") 1.5x);
+  --ico-looks: image-set(url("../assets/icons/aqua/looks-32.png") 1x, url("../assets/icons/aqua/looks-48.png") 1.5x);
+  --ico-launcher: image-set(url("../assets/icons/aqua/launcher-32.png") 1x, url("../assets/icons/aqua/launcher-48.png") 1.5x);
+  --ico-help: image-set(url("../assets/icons/aqua/help-32.png") 1x, url("../assets/icons/aqua/help-48.png") 1.5x);
+  --ico-lock: image-set(url("../assets/icons/aqua/lock-16.png") 1x, url("../assets/icons/aqua/lock-32.png") 2x);
+  --ico-sent: url("../assets/icons/aqua/sent-48.png");
+  --ico-sent-size: 48px;
+}
+
+body:is(.theme-winxp, .theme-royalenoir, .theme-win95, .theme-win98,
+        .theme-winvista, .theme-win7, .theme-steam-green, .theme-steam2010,
+        .theme-macosclassic, .theme-macosaqua) {
+  & :is(.log-report-btn, .report-cat) svg { display: none; }
+  & .log-report-btn::before {
+    content: "";
+    flex-shrink: 0;
+    width: 16px; height: 16px;
+    background: var(--ico-report) center / 16px 16px no-repeat;
+  }
+  & .report-cat::before {
+    content: "";
+    flex-shrink: 0;
+    width: 32px; height: 32px;
+    background: var(--ico) center / 32px 32px no-repeat;
+  }
+  & .report-cat[data-cat="launch"]   { --ico: var(--ico-launch); }
+  & .report-cat[data-cat="download"] { --ico: var(--ico-download); }
+  & .report-cat[data-cat="account"]  { --ico: var(--ico-account); }
+  & .report-cat[data-cat="looks"]    { --ico: var(--ico-looks); }
+  & .report-cat[data-cat="launcher"] { --ico: var(--ico-launcher); }
+  & .report-cat[data-cat="other"]    { --ico: var(--ico-help); }
+}
+
+body:is(.theme-winxp, .theme-royalenoir, .theme-win95, .theme-win98,
+        .theme-winvista, .theme-win7, .theme-steam-green, .theme-steam2010,
+        .theme-macosaqua) {
+  & :is(.report-privacy, .report-done-icon) svg { display: none; }
+  & .report-privacy::before {
+    content: "";
+    flex-shrink: 0;
+    width: 16px; height: 16px;
+    background: var(--ico-lock) center / 16px 16px no-repeat;
+  }
+  & .report-done-icon {
+    width: var(--ico-sent-size); height: var(--ico-sent-size);
+    background: var(--ico-sent) center / contain no-repeat;
+  }
+}
