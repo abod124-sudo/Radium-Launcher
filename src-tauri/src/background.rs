@@ -452,6 +452,37 @@ pub fn sharpen_window_icon(win: &tauri::WebviewWindow) {
 #[cfg(not(windows))]
 pub fn sharpen_window_icon(_: &tauri::WebviewWindow) {}
 
+/// Round the window's corners the way Windows 11 rounds every other app's.
+///
+/// Windows 11 only rounds a window that keeps its standard frame, and this
+/// one is undecorated, so it is asked to. Windows 10 has no such attribute
+/// and refuses the call, which leaves it square — as it has to be there,
+/// where the frame stays a sharp rectangle whatever the page draws (see the
+/// square `border-radius` in style.css).
+#[cfg(windows)]
+pub fn round_window_corners(win: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    };
+
+    let Ok(hwnd) = win.hwnd() else { return };
+    let preference = DWMWCP_ROUND;
+    // SAFETY: `hwnd` is this live window's handle, and the value is a
+    // DWM_WINDOW_CORNER_PREFERENCE of exactly the size passed. The error on
+    // Windows 10 is the expected answer, so it is ignored.
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd.0 as _,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            &preference as *const _ as *const _,
+            std::mem::size_of_val(&preference) as u32,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+pub fn round_window_corners(_: &tauri::WebviewWindow) {}
+
 /// The app icon at the small (title bar) and large (Alt-Tab) sizes Windows
 /// draws at `dpi`, as raw `HICON`s.
 ///

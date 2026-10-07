@@ -63,6 +63,8 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_LibraryLoader",
     # Capturing the screen behind the frosted tray menu and pop-up.
     "Win32_Graphics_Gdi",
+    # Windows 11's rounded corners on the undecorated main window.
+    "Win32_Graphics_Dwm",
     # Loading Stella's patch into the game it starts (stella.rs).
     "Win32_System_Memory",
     "Win32_System_Diagnostics_Debug",

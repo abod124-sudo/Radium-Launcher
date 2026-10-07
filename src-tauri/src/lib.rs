@@ -232,6 +232,7 @@ pub fn run() {
             background::apply_startup_default(&app_handle);
             if let Some(main) = app.get_webview_window("main") {
                 background::sharpen_window_icon(&main);
+                background::round_window_corners(&main);
             }
 
             // The window is created hidden (tauri.conf.json). Started with
