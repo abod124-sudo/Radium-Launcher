@@ -6,10 +6,11 @@
   <link rel="stylesheet" href="traymenu.css" />
 </head>
 <body>
-  <!-- The tray icon's right-click menu (see the tray menu section of
+  <!-- The tray icon's right-click panel (see the tray menu section of
        background.rs). Drawn here rather than by Windows so it wears the
-       launcher's skin, which app.js measures and hands over. -->
-  <div id="menu" class="menu" role="menu" aria-label="Radium Launcher"></div>
+       launcher's skin, which app.js measures and hands over along with what
+       the launcher is doing; traymenu.js builds it. -->
+  <div id="menu" class="menu" role="dialog" aria-label="Radium Launcher"></div>
   <script src="traymenu.js"></script>
 </body>
 </html>

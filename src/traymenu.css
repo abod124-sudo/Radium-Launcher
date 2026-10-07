@@ -1,7 +1,10 @@
-/* The tray menu. Like the notification pop-up, its look is not fixed here:
-   app.js measures the launcher's own menus under the current skin and
-   traymenu.js writes that into these variables. The values below are only a
-   fallback for a menu opened before the launcher page has reported. */
+/* The tray panel. Like the notification pop-up, its look is not fixed here:
+   app.js measures the launcher's own menus under the current skin and reads
+   the skin's design tokens for its buttons, switches and progress bar, and
+   traymenu.js writes them into these variables (--tm-* for the menu itself,
+   --sk-* for the tokens). The values below are only a fallback for a panel
+   opened before the launcher page has reported — and, for the tokens, what
+   Liquid Glass starts from, since glass has none (see `.glass` below). */
 
 /* The modern skins' font, as style.css loads it. */
 @font-face {
@@ -16,6 +19,7 @@
   --tm-bg-image: none;
   --tm-border: 1px solid rgba(255, 255, 255, 0.12);
   --tm-radius: 8px;
+  --tm-inner-radius: 4px;
   --tm-shadow: none;
   --tm-pad: 4px;
   --tm-fg: #f2f2f2;
@@ -33,6 +37,95 @@
   --tm-sep-bottom: 0 none transparent;
   --tm-sep-shadow: none;
   --tm-sep-bg: transparent;
+
+  /* The panel's own measures. */
+  --w: 304px;
+  --gap: 6px;
+  --muted: color-mix(in srgb, var(--tm-fg) 62%, transparent);
+  --online: var(--sk-ok, #3fb950);
+
+  /* The skin's tokens, as skins/00-tokens.css names them. */
+  --sk-dur: 0.12s;
+  --sk-ease: ease;
+  --sk-accent: #3b82f6;
+  --sk-on-accent: #ffffff;
+  --sk-btn-bg: rgba(255, 255, 255, 0.08);
+  --sk-btn-fg: var(--tm-fg);
+  --sk-btn-border: 1px solid rgba(255, 255, 255, 0.12);
+  --sk-btn-radius: 6px;
+  --sk-btn-shadow: none;
+  --sk-btn-tshadow: none;
+  --sk-btn-font: var(--tm-font);
+  --sk-btn-weight: 600;
+  --sk-btn-hover-bg: rgba(255, 255, 255, 0.14);
+  --sk-btn-hover-fg: var(--sk-btn-fg);
+  --sk-btn-hover-border: var(--sk-btn-border);
+  --sk-btn-hover-shadow: var(--sk-btn-shadow);
+  --sk-btn-active-bg: var(--sk-btn-hover-bg);
+  --sk-btn-active-fg: var(--sk-btn-hover-fg);
+  --sk-btn-active-border: var(--sk-btn-hover-border);
+  --sk-btn-active-shadow: var(--sk-btn-hover-shadow);
+  --sk-btn-disabled-fg: var(--muted);
+  --sk-pri-bg: var(--sk-accent);
+  --sk-pri-fg: var(--sk-on-accent);
+  --sk-pri-border: 1px solid transparent;
+  --sk-pri-radius: var(--sk-btn-radius);
+  --sk-pri-shadow: none;
+  --sk-pri-tshadow: none;
+  --sk-pri-font: var(--sk-btn-font);
+  --sk-pri-weight: 700;
+  --sk-pri-hover-bg: color-mix(in srgb, var(--sk-pri-bg) 88%, #ffffff);
+  --sk-pri-hover-fg: var(--sk-pri-fg);
+  --sk-pri-hover-border: var(--sk-pri-border);
+  --sk-pri-hover-shadow: var(--sk-pri-shadow);
+  --sk-pri-active-bg: var(--sk-pri-hover-bg);
+  --sk-pri-active-border: var(--sk-pri-hover-border);
+  --sk-pri-active-shadow: var(--sk-pri-hover-shadow);
+  --sk-run-bg: #c42b1c;
+  --sk-run-fg: #ffffff;
+  --sk-run-border: 1px solid #9e2316;
+  --sk-run-shadow: none;
+  --sk-run-hover-bg: #d13b2c;
+  /* A skin that sends no segment colours (the modern ones, whose own are
+     drawn for Home's dark hero scrim) gets a track tinted from the menu's
+     text, and its primary button's colours on the chosen segment. */
+  --sk-seg-bg: color-mix(in srgb, var(--tm-fg) 7%, transparent);
+  --sk-seg-border: 1px solid color-mix(in srgb, var(--tm-fg) 10%, transparent);
+  --sk-seg-radius: 6px;
+  --sk-seg-shadow: none;
+  --sk-seg-pad: 2px;
+  --sk-seg-fg: var(--tm-fg);
+  --sk-seg-divider: 0 none transparent;
+  --sk-seg-btn-radius: 4px;
+  --sk-seg-active-bg: var(--sk-pri-bg);
+  --sk-seg-active-fg: var(--sk-pri-fg);
+  --sk-seg-active-shadow: none;
+  --sk-tgl-w: 34px;
+  --sk-tgl-h: 18px;
+  --sk-tgl-bw: 1px;
+  --sk-tgl-radius: 9px;
+  --sk-tgl-bg: rgba(255, 255, 255, 0.08);
+  --sk-tgl-border: 1px solid rgba(255, 255, 255, 0.2);
+  --sk-tgl-shadow: none;
+  --sk-tgl-on-bg: var(--sk-accent);
+  --sk-tgl-on-border: var(--sk-tgl-border);
+  --sk-knob: 12px;
+  --sk-knob-inset: 2px;
+  --sk-knob-radius: 50%;
+  --sk-knob-bg: var(--muted);
+  --sk-knob-border: 0;
+  --sk-knob-shadow: none;
+  --sk-knob-on-bg: var(--sk-on-accent);
+  --sk-bar-h: 8px;
+  --sk-bar-bg: rgba(255, 255, 255, 0.1);
+  --sk-bar-border: 0 none transparent;
+  --sk-bar-radius: 999px;
+  --sk-bar-shadow: none;
+  --sk-bar-pad: 0px;
+  --sk-bar-fill: var(--sk-accent);
+  --sk-bar-fill-size: auto;
+  --sk-bar-fill-radius: 999px;
+  --sk-bar-fill-shadow: none;
 }
 
 html, body {
@@ -44,11 +137,12 @@ html, body {
   cursor: default;
 }
 
-/* The window is sized for the tallest menu any network gives, so a network
+/* The window is sized for the tallest panel any network gives, so a network
    switch never resizes it: Windows repaints a resized webview a frame late,
-   which flickered. The menu is pinned to the edge by the cursor — the bottom,
-   when it opens upwards from the tray as it normally does — and whatever of
-   the window it doesn't fill is left clear (see `roomFor` in traymenu.js). */
+   which flickered. The panel is pinned to the edge by the cursor — the
+   bottom, when it opens upwards from the tray as it normally does — and
+   whatever of the window it doesn't fill is left clear (see `roomFor` in
+   traymenu.js). */
 body {
   display: flex;
   flex-direction: column;
@@ -56,7 +150,7 @@ body {
 }
 body.above { justify-content: flex-end; }
 
-/* An offscreen copy of the menu, for measuring the other networks' menus. */
+/* An offscreen copy of the panel, for measuring the other networks'. */
 .menu.probe {
   position: absolute;
   top: 0;
@@ -65,12 +159,15 @@ body.above { justify-content: flex-end; }
   pointer-events: none;
 }
 
+/* No ring round a focused control, anywhere in the launcher: a focused row
+   lights up as a hovered one does instead. */
+:focus-visible { outline: none; }
+
 .menu {
-  display: inline-flex;
+  display: flex;
   flex: none;
   flex-direction: column;
-  gap: 1px;
-  min-width: 190px;
+  width: var(--w);
   box-sizing: border-box;
   padding: var(--tm-pad);
   font-family: var(--tm-font);
@@ -83,13 +180,13 @@ body.above { justify-content: flex-end; }
   border-radius: var(--tm-radius);
   box-shadow: var(--tm-shadow);
   /* Hidden until the window is on screen, so the frame Windows shows first is
-     never last time's menu (see traymenu.js). */
+     never last time's panel (see traymenu.js). */
   opacity: 0;
 }
 .menu.in { opacity: 1; }
-.motion .menu.in { animation: menu-in 0.14s cubic-bezier(0.16, 1, 0.3, 1); }
+.motion .menu.in { animation: menu-in 0.18s cubic-bezier(0.16, 1, 0.3, 1); }
 @keyframes menu-in {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
   to   { opacity: 1; transform: none; }
 }
 /* XP to 7: a plain fade, as their own menus open. */
@@ -103,12 +200,806 @@ body.above { justify-content: flex-end; }
   .fade .menu.in { animation: none; }
 }
 
-/* Liquid Glass: frosted, as the pop-up is. The backend captures the screen
-   behind the menu just before it appears and blurs it (frost.rs); the skin's
-   colour goes over it thinly, with a lit edge. The menu's own rounded corner
-   clips it, so the edge is smooth. The picture is of the whole window, so it
-   is laid over the window (`fixed`) rather than stretched to the menu, and
-   stays true to the screen behind as the menu changes height. */
+/* A section a network switch is adding or folding away (traymenu.js). Its
+   height is animated, so its contents are clipped to it; one on its way out
+   is no longer a target. Its own minimum height is lifted meanwhile: a row's
+   (the pop-ups switch is one) held it at 30px of its 38, so it appeared
+   nearly whole in the first frame and only its last few pixels grew. */
+.menu > .moving { overflow: hidden; box-sizing: border-box; min-height: 0; }
+.leaving { pointer-events: none; }
+
+button {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: default;
+}
+
+.ic {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: currentColor;
+}
+
+/* ── Head: the network's art ─────────────────────────────────────────────
+   Drawn as Home's hero is, and like it deliberately not themed: it is the
+   network's brand, the same in every skin. */
+.hero {
+  position: relative;
+  height: 92px;
+  flex: none;
+  overflow: hidden;
+  background: #000;
+  border-radius: var(--tm-inner-radius);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+}
+.hero-art,
+.hero-ghost {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.hero-art { background: url('assets/brand-pattern.png') center / cover no-repeat; }
+[data-network="vanilla"] > .hero-art {
+  background-image: url('assets/vanilla-hero.png');
+  background-position: center top;
+}
+[data-network="stella"] > .hero-art { background-image: url('assets/stella-pattern.jpg'); }
+/* The user's own banner (Settings → Home), with a shade so the brand, which
+   turns white over it, reads on any picture. */
+.hero.has-banner > .hero-art { background: var(--tm-banner) center / cover no-repeat; }
+.hero.has-banner > .hero-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.2) 50%, rgba(0, 0, 0, 0.1) 100%);
+}
+/* The old network's head — art, name and badges — fading out over the new
+   one (crossfadeHero). It wears the old network's `data-network` itself, so
+   the network rules below go by the nearest one (`>`), never by the head it
+   sits in. */
+.hero-ghost { z-index: 3; overflow: hidden; pointer-events: none; }
+
+.hero-brand {
+  position: absolute;
+  z-index: 2;
+  left: 14px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.hero-mark {
+  flex: none;
+  width: 116px;
+  height: 30px;
+  background-color: #0d1410;
+  -webkit-mask: url('assets/wordmark.png') left center / contain no-repeat;
+          mask: url('assets/wordmark.png') left center / contain no-repeat;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
+}
+.hero-name {
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+[data-network="vanilla"] > .hero-brand > .hero-mark {
+  width: 30px;
+  height: 33px;
+  background-color: #3a2418;
+  -webkit-mask: url('assets/vanilla-mark.svg') center / contain no-repeat;
+          mask: url('assets/vanilla-mark.svg') center / contain no-repeat;
+  filter: none;
+}
+[data-network="vanilla"] > .hero-brand > .hero-name { color: #3a2418; }
+[data-network="stella"] > .hero-brand > .hero-mark {
+  width: 38px;
+  height: 38px;
+  background: url('assets/stella-logo.png') center / contain no-repeat;
+  -webkit-mask: none;
+          mask: none;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.45));
+}
+[data-network="stella"] > .hero-brand > .hero-name { color: #ffffff; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45); }
+.hero.has-banner:not([data-network="stella"]) > .hero-brand > .hero-mark { background-color: #ffffff; filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5)); }
+.hero.has-banner > .hero-brand > .hero-name { color: #ffffff; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55); }
+
+/* Status, top right over the art: dark glass pills, so they read on any
+   network's art and on any picture of the user's. */
+.hero-pills {
+  position: absolute;
+  z-index: 2;
+  right: 10px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+  max-width: 54%;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 9px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: #ffffff;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: rgba(8, 10, 14, 0.58);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: blur(8px);
+          backdrop-filter: blur(8px);
+  font-variant-numeric: tabular-nums;
+}
+.pill .ic { width: 13px; height: 13px; opacity: 0.85; }
+.pill.is-quiet { font-weight: 500; color: rgba(255, 255, 255, 0.82); }
+.pill .dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: #9aa0a6;
+}
+.pill.is-online .dot,
+.pill.is-playing .dot { background: #3ddc6b; box-shadow: 0 0 0 3px rgba(61, 220, 107, 0.22); }
+.pill.is-offline .dot { background: #ff5a4f; box-shadow: 0 0 0 3px rgba(255, 90, 79, 0.22); }
+.motion .pill.is-checking .dot,
+.motion .pill.is-playing .dot { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+
+/* ── PLAY ───────────────────────────────────────────────────────────────
+   The skin's primary button (--pri-*), its running colours for STOP
+   (--run-*), its segmented control for Screen / VR (--seg-*), its push
+   button (--btn-*) and its progress bar (--bar-*). */
+.primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  flex: none;
+  box-sizing: border-box;
+  padding: 0 2px;
+  margin-top: var(--gap);
+}
+
+.btn-pri {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 14px;
+  font-family: var(--sk-pri-font);
+  font-size: 13px;
+  font-weight: var(--sk-pri-weight);
+  letter-spacing: 1.5px;
+  white-space: nowrap;
+  color: var(--sk-pri-fg);
+  text-shadow: var(--sk-pri-tshadow);
+  background: var(--sk-pri-bg);
+  border: var(--sk-pri-border);
+  border-radius: var(--sk-pri-radius);
+  box-shadow: var(--sk-pri-shadow);
+  transition: background-color var(--sk-dur) var(--sk-ease), color var(--sk-dur) var(--sk-ease),
+              box-shadow var(--sk-dur) var(--sk-ease), transform var(--sk-dur) var(--sk-ease);
+}
+.btn-pri .ic { width: 15px; height: 15px; }
+/* PLAY's own label, as Home's hero sets it (measured by app.js): on the XP
+   skins PLAY is the Start button, in bold italic. STOP is the same button. */
+.btn-pri[data-id="play"] {
+  font-family: var(--tm-play-font, var(--sk-pri-font));
+  font-style: var(--tm-play-style, normal);
+  font-weight: var(--tm-play-weight, var(--sk-pri-weight));
+  letter-spacing: var(--tm-play-ls, 1.5px);
+}
+.btn-pri:is(:hover, :focus-visible) {
+  color: var(--sk-pri-hover-fg);
+  background: var(--sk-pri-hover-bg);
+  border: var(--sk-pri-hover-border);
+  box-shadow: var(--sk-pri-hover-shadow);
+}
+.btn-pri:active {
+  background: var(--sk-pri-active-bg);
+  border: var(--sk-pri-active-border);
+  box-shadow: var(--sk-pri-active-shadow);
+}
+.motion .btn-pri:active { transform: scale(0.98); }
+.btn-pri.is-run {
+  color: var(--sk-run-fg);
+  text-shadow: none;
+  background: var(--sk-run-bg);
+  border: var(--sk-run-border);
+  box-shadow: var(--sk-run-shadow);
+}
+.btn-pri.is-run:is(:hover, :focus-visible) { background: var(--sk-run-hover-bg); }
+.btn-pri:disabled,
+.btn-pri:disabled:hover {
+  color: var(--sk-btn-disabled-fg);
+  text-shadow: none;
+  background: var(--sk-btn-bg);
+  border: var(--sk-btn-border);
+  box-shadow: var(--sk-btn-shadow);
+  transform: none;
+}
+.btn-pri.btn-small {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.8px;
+}
+
+.btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 11px;
+  font-family: var(--sk-btn-font);
+  font-size: 11px;
+  font-weight: var(--sk-btn-weight);
+  white-space: nowrap;
+  color: var(--sk-btn-fg);
+  text-shadow: var(--sk-btn-tshadow);
+  background: var(--sk-btn-bg);
+  border: var(--sk-btn-border);
+  border-radius: var(--sk-btn-radius);
+  box-shadow: var(--sk-btn-shadow);
+  transition: background-color var(--sk-dur) var(--sk-ease), color var(--sk-dur) var(--sk-ease);
+}
+.btn .ic { width: 13px; height: 13px; }
+.btn:is(:hover, :focus-visible) {
+  color: var(--sk-btn-hover-fg);
+  background: var(--sk-btn-hover-bg);
+  border: var(--sk-btn-hover-border);
+  box-shadow: var(--sk-btn-hover-shadow);
+}
+.btn:active {
+  color: var(--sk-btn-active-fg);
+  background: var(--sk-btn-active-bg);
+  border: var(--sk-btn-active-border);
+  box-shadow: var(--sk-btn-active-shadow);
+}
+
+/* Segmented controls: Screen / VR, and the network. */
+.seg {
+  display: flex;
+  flex: none;
+  box-sizing: border-box;
+  padding: var(--sk-seg-pad);
+  overflow: hidden;
+  background: var(--sk-seg-bg);
+  border: var(--sk-seg-border);
+  border-radius: var(--sk-seg-radius);
+  box-shadow: var(--sk-seg-shadow);
+}
+.seg-btn {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 10px;
+  font-family: var(--sk-btn-font);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--sk-seg-fg);
+  background: transparent;
+  border: 0;
+  border-right: var(--sk-seg-divider);
+  border-radius: var(--sk-seg-btn-radius);
+  transition: background-color var(--sk-dur) var(--sk-ease), color var(--sk-dur) var(--sk-ease);
+}
+.seg-btn:last-child { border-right: 0; }
+.seg-btn:is(:hover, :focus-visible):not([aria-checked="true"]) {
+  background: color-mix(in srgb, var(--sk-seg-fg) 10%, transparent);
+}
+.seg-btn[aria-checked="true"] {
+  color: var(--sk-seg-active-fg);
+  background: var(--sk-seg-active-bg);
+  box-shadow: var(--sk-seg-active-shadow);
+}
+.seg-mode { height: 38px; }
+.seg-mode .seg-btn { flex: none; width: 52px; padding: 0; }
+
+/* The chosen segment's fill as a thumb of its own that slides to the one
+   picked, on the skins whose menus move (the modern ones and Liquid Glass:
+   `.motion`). The retro skins keep the instant fill above, as their own
+   controls of the period did. Every segment is one width, so the thumb is
+   one segment wide and moved along by whole segments (`--i` of `--n`, set
+   by traymenu.js).
+
+   It lies over the buttons (clicks pass through it) and carries a copy of
+   their labels in the chosen colour. That row is as wide as the whole
+   control and slides back by exactly as much as the thumb slides on, in
+   step, so it stays put over the real labels and the thumb shows each one
+   turning colour just where it covers it. The buttons underneath keep the
+   unchosen colour throughout. */
+.seg { position: relative; }
+.seg-thumb { display: none; }
+.motion .seg-thumb {
+  --slide: 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  display: block;
+  position: absolute;
+  z-index: 2;
+  top: var(--sk-seg-pad);
+  bottom: var(--sk-seg-pad);
+  left: var(--sk-seg-pad);
+  width: calc((100% - 2 * var(--sk-seg-pad)) / var(--n, 1));
+  overflow: hidden;
+  background: var(--sk-seg-active-bg);
+  border-radius: var(--sk-seg-btn-radius);
+  box-shadow: var(--sk-seg-active-shadow);
+  transform: translateX(calc(var(--i, 0) * 100%));
+  transition: transform var(--slide);
+  pointer-events: none;
+}
+.seg-thumb-row {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: calc(var(--n, 1) * 100%);
+  color: var(--sk-seg-active-fg);
+  transform: translateX(calc(var(--i, 0) * -100% / var(--n, 1)));
+  transition: transform var(--slide);
+}
+.seg-label {
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 10px;
+  font-family: var(--sk-btn-font);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.seg-mode .seg-label { flex: none; width: 52px; padding: 0; }
+.motion .seg-btn[aria-checked="true"] {
+  color: var(--sk-seg-fg);
+  background: transparent;
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion :is(.seg-thumb, .seg-thumb-row) { transition: none; }
+}
+
+.seg-networks {
+  height: 34px;
+  margin: 2px 2px;
+}
+.seg-logo {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  object-fit: contain;
+}
+/* The Vanilla mark is a square painting that runs to its edges, so it is
+   cropped to a rounded square, as the launcher shows it everywhere (see
+   skins/01-components.css). Radium's and Stella's art has its own outline. */
+.seg-logo[src$="vanilla-logo.png"] {
+  border-radius: 22%;
+  image-rendering: auto;
+}
+
+/* A download or update under way, in PLAY's place. */
+.progress {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding-left: 4px;
+}
+.progress-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.progress-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.progress-pct { flex: none; font-variant-numeric: tabular-nums; font-weight: 700; }
+.progress-detail {
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+/* With a detail line there are three lines to fit, so the bar is held to
+   a slimmer height on the skins whose bar is tall. */
+.progress:has(.progress-detail) .bar { height: min(var(--sk-bar-h), 10px); }
+
+.bar {
+  position: relative;
+  height: var(--sk-bar-h);
+  box-sizing: border-box;
+  padding: var(--sk-bar-pad);
+  overflow: hidden;
+  background: var(--sk-bar-bg);
+  border: var(--sk-bar-border);
+  border-radius: var(--sk-bar-radius);
+  box-shadow: var(--sk-bar-shadow);
+}
+.bar-fill {
+  height: 100%;
+  width: calc(var(--pct) * 1%);
+  background: var(--sk-bar-fill);
+  background-size: var(--sk-bar-fill-size);
+  border-radius: var(--sk-bar-fill-radius);
+  box-shadow: var(--sk-bar-fill-shadow);
+  transition: width 0.3s ease-out;
+}
+/* Fills by whole blocks on the skins that draw the bar in them. */
+.blocky-bar .bar-fill { width: round(down, calc(var(--pct) * 1%), 10px); transition: none; }
+.bar.indeterminate .bar-fill {
+  width: 32%;
+  animation: bar-sweep 1.3s ease-in-out infinite;
+}
+@keyframes bar-sweep {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(320%); }
+}
+.bar.is-paused .bar-fill { filter: saturate(0.4); opacity: 0.75; }
+
+/* ── Friends (Stella) ─────────────────────────────────────────────────── */
+.friends {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+.sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px 2px 10px;
+}
+.sec-title {
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+.sec-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px 3px 8px;
+  font-size: 0.92em;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--tm-item-radius);
+}
+.sec-link .ic { width: 14px; height: 14px; }
+.sec-link:is(:hover, :focus-visible) { color: var(--tm-hover-fg); background: var(--tm-hover-bg); }
+
+/* Three rows' height whatever is in it: see `friends` in traymenu.js. */
+.friend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: calc(3 * 42px + 2px);
+}
+.friend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 42px;
+  padding-right: 6px;
+  border-radius: var(--tm-item-radius);
+}
+.friend:has(.friend-main:is(:hover, :focus-visible)) {
+  color: var(--tm-hover-fg);
+  background: var(--tm-hover-bg);
+}
+.friend-main {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 8px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+.avatar {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+/* A rounded square, as the launcher's friend cards draw a picture (8px on
+   their 40px, 24% under Liquid Glass). The presence dot sits on its corner. */
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 24%;
+  background: color-mix(in srgb, var(--tm-fg) 12%, transparent);
+}
+.friend.is-offline .avatar img { filter: grayscale(1); opacity: 0.6; }
+.avatar .dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--tm-bg);
+}
+.friend.is-online .avatar .dot { background: var(--online); }
+.friend.is-unknown .avatar .dot { background: #9aa0a6; }
+/* Offline needs no dot, as on the launcher's cards: the line under the name
+   says so and the picture is greyed. Its cut-out ring would notch the corner. */
+.friend.is-offline .avatar .dot { display: none; }
+.friend-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.friend-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.friend-fav { width: 12px; height: 12px; fill: #f5b301; }
+.friend-where {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  font-size: 0.92em;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.friend.is-online .friend-where { color: color-mix(in srgb, var(--online) 75%, var(--tm-fg)); }
+.friend-lock { width: 11px; height: 11px; }
+.friend.is-offline .friend-name { opacity: 0.7; }
+.friends-note {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ── Pages ────────────────────────────────────────────────────────────── */
+.tiles {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.tile {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  height: 50px;
+  padding: 0;
+  font-size: 0.92em;
+  background: transparent;
+  border: 0;
+  border-radius: var(--tm-item-radius);
+  transition: background-color var(--sk-dur) var(--sk-ease), color var(--sk-dur) var(--sk-ease);
+}
+.tile .ic { width: 19px; height: 19px; opacity: 0.85; }
+.tile:is(:hover, :focus-visible) { color: var(--tm-hover-fg); background: var(--tm-hover-bg); }
+.tile:is(:hover, :focus-visible) .ic { opacity: 1; }
+
+/* ── System icons ─────────────────────────────────────────────────────────
+   On the Windows, Steam and Mac skins the launcher draws that system's own
+   icons (skins/12-system-icons.css), and the panel uses the same set, named
+   by app.js (`body[data-icons]`): the pages at 32px, as Control Panel and
+   the Start menu showed theirs, and the rows at 16px. Home is the house,
+   Rooms the network globe, People the users, Feed the pictures, Settings the
+   gear, pop-ups the information balloon and Open the application window.
+   Quit keeps its line icon: no set has a shut-down one. */
+.sys-ico { display: none; }
+body[data-icons] .has-sys > .ic { display: none; }
+body[data-icons] .has-sys > .sys-ico {
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background: var(--ico) center / contain no-repeat;
+}
+body[data-icons] .tile > .sys-ico { width: 32px; height: 32px; }
+body[data-icons] .tile { height: 60px; gap: 3px; }
+.sys-ico[data-ico="home"] { --ico: var(--ico-home); }
+.sys-ico[data-ico="rooms"] { --ico: var(--ico-rooms); }
+.sys-ico[data-ico="people"] { --ico: var(--ico-people); }
+.sys-ico[data-ico="feed"] { --ico: var(--ico-feed); }
+.sys-ico[data-ico="settings"] { --ico: var(--ico-settings); }
+.sys-ico[data-ico="popups"] { --ico: var(--ico-popups); }
+.sys-ico[data-ico="open"] { --ico: var(--ico-open); }
+
+body[data-icons="xp"] {
+  --ico-home: url("assets/icons/xp/home-32.png");
+  --ico-rooms: image-set(url("assets/icons/xp/servers-32.png") 1x, url("assets/icons/xp/servers-48.png") 1.5x);
+  --ico-people: image-set(url("assets/icons/xp/players-32.png") 1x, url("assets/icons/xp/players-48.png") 1.5x);
+  --ico-feed: image-set(url("assets/icons/xp/looks-32.png") 1x, url("assets/icons/xp/looks-48.png") 1.5x);
+  --ico-settings: url("assets/icons/xp/general-32.png");
+  --ico-popups: image-set(url("assets/icons/xp/notifications-16.png") 1x, url("assets/icons/xp/notifications-32.png") 2x);
+  --ico-open: image-set(url("assets/icons/xp/launcher-32.png") 2x);
+}
+body[data-icons="win9x"] {
+  --ico-home: url("assets/icons/win9x/home-32.png");
+  --ico-rooms: image-set(url("assets/icons/win9x/servers-32.png") 1x, url("assets/icons/win9x/servers-48.png") 1.5x);
+  --ico-people: image-set(url("assets/icons/win9x/players-32.png") 1x, url("assets/icons/win9x/players-48.png") 1.5x);
+  --ico-feed: image-set(url("assets/icons/win9x/looks-32.png") 1x, url("assets/icons/win9x/looks-48.png") 1.5x);
+  --ico-settings: url("assets/icons/win9x/general-32.png");
+  --ico-popups: image-set(url("assets/icons/win9x/notifications-16.png") 1x, url("assets/icons/win9x/notifications-32.png") 2x);
+  --ico-open: image-set(url("assets/icons/win9x/launcher-32.png") 2x);
+}
+body[data-icons="vista"] {
+  --ico-home: url("assets/icons/vista/home-32.png");
+  --ico-rooms: image-set(url("assets/icons/vista/servers-32.png") 1x, url("assets/icons/vista/servers-48.png") 1.5x);
+  --ico-people: image-set(url("assets/icons/vista/players-32.png") 1x, url("assets/icons/vista/players-48.png") 1.5x);
+  --ico-feed: image-set(url("assets/icons/vista/looks-32.png") 1x, url("assets/icons/vista/looks-48.png") 1.5x);
+  --ico-settings: url("assets/icons/vista/general-32.png");
+  --ico-popups: image-set(url("assets/icons/vista/notifications-16.png") 1x, url("assets/icons/vista/notifications-32.png") 2x);
+  --ico-open: image-set(url("assets/icons/vista/launcher-32.png") 2x, url("assets/icons/vista/launcher-48.png") 3x);
+}
+body[data-icons="win7"] {
+  --ico-home: url("assets/icons/win7/home-32.png");
+  --ico-rooms: image-set(url("assets/icons/win7/servers-32.png") 1x, url("assets/icons/win7/servers-48.png") 1.5x);
+  --ico-people: image-set(url("assets/icons/win7/players-32.png") 1x, url("assets/icons/win7/players-48.png") 1.5x);
+  --ico-feed: image-set(url("assets/icons/win7/looks-32.png") 1x, url("assets/icons/win7/looks-48.png") 1.5x);
+  --ico-settings: url("assets/icons/win7/general-32.png");
+  --ico-popups: image-set(url("assets/icons/win7/notifications-16.png") 1x, url("assets/icons/win7/notifications-32.png") 2x);
+  --ico-open: image-set(url("assets/icons/win7/launcher-32.png") 2x, url("assets/icons/win7/launcher-48.png") 3x);
+}
+body[data-icons="mac9"] {
+  --ico-home: url("assets/icons/mac9/home-32.png");
+  --ico-rooms: image-set(url("assets/icons/mac9/servers-32.png") 1x, url("assets/icons/mac9/servers-48.png") 1.5x);
+  --ico-people: image-set(url("assets/icons/mac9/players-32.png") 1x, url("assets/icons/mac9/players-48.png") 1.5x);
+  --ico-feed: image-set(url("assets/icons/mac9/looks-32.png") 1x, url("assets/icons/mac9/looks-48.png") 1.5x);
+  --ico-settings: url("assets/icons/mac9/general-32.png");
+  --ico-popups: image-set(url("assets/icons/mac9/notifications-16.png") 1x, url("assets/icons/mac9/notifications-32.png") 2x);
+  --ico-open: image-set(url("assets/icons/mac9/launcher-32.png") 2x, url("assets/icons/mac9/launcher-48.png") 3x);
+}
+body[data-icons="aqua"] {
+  --ico-home: url("assets/icons/aqua/home-32.png");
+  --ico-rooms: image-set(url("assets/icons/aqua/servers-32.png") 1x, url("assets/icons/aqua/servers-48.png") 1.5x);
+  --ico-people: image-set(url("assets/icons/aqua/players-32.png") 1x, url("assets/icons/aqua/players-48.png") 1.5x);
+  --ico-feed: image-set(url("assets/icons/aqua/looks-32.png") 1x, url("assets/icons/aqua/looks-48.png") 1.5x);
+  --ico-settings: url("assets/icons/aqua/general-32.png");
+  --ico-popups: image-set(url("assets/icons/aqua/notifications-16.png") 1x, url("assets/icons/aqua/notifications-32.png") 2x);
+  --ico-open: image-set(url("assets/icons/aqua/launcher-32.png") 2x, url("assets/icons/aqua/launcher-48.png") 3x);
+}
+
+/* ── Rows ─────────────────────────────────────────────────────────────── */
+.item {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  gap: 9px;
+  padding: var(--tm-item-pad);
+  min-height: 30px;
+  text-align: left;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: var(--tm-item-radius);
+}
+.item .ic { opacity: 0.85; }
+.item:is(:hover, :focus-visible) { color: var(--tm-hover-fg); background: var(--tm-hover-bg); }
+.item:is(:hover, :focus-visible) .ic { opacity: 1; }
+.item-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.item-switch { width: 100%; }
+
+.footer {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.item-open { flex: 1 1 auto; min-width: 0; }
+.item-quit { flex: none; }
+
+/* The skin's switch (--tgl-*), as Settings draws it. */
+.switch {
+  position: relative;
+  flex: none;
+  width: var(--sk-tgl-w);
+  height: var(--sk-tgl-h);
+  box-sizing: border-box;
+  background: var(--sk-tgl-bg);
+  border: var(--sk-tgl-border);
+  border-radius: var(--sk-tgl-radius);
+  box-shadow: var(--sk-tgl-shadow);
+  transition: background-color var(--sk-dur) var(--sk-ease);
+}
+.knob {
+  position: absolute;
+  top: calc((var(--sk-tgl-h) - 2 * var(--sk-tgl-bw) - var(--sk-knob)) / 2);
+  left: var(--sk-knob-inset);
+  width: var(--sk-knob);
+  height: var(--sk-knob);
+  box-sizing: border-box;
+  background: var(--sk-knob-bg);
+  border: var(--sk-knob-border);
+  border-radius: var(--sk-knob-radius);
+  box-shadow: var(--sk-knob-shadow);
+  transition: transform var(--sk-dur) var(--sk-ease), background-color var(--sk-dur) var(--sk-ease);
+}
+.switch.on { background: var(--sk-tgl-on-bg); border: var(--sk-tgl-on-border); }
+.switch.on .knob {
+  background: var(--sk-knob-on-bg);
+  transform: translateX(calc(var(--sk-tgl-w) - 2 * var(--sk-tgl-bw) - 2 * var(--sk-knob-inset) - var(--sk-knob)));
+}
+
+.sep {
+  flex: none;
+  height: var(--tm-sep-height, 0);
+  margin: var(--tm-sep-margin, 3px 1px);
+  background: var(--tm-sep-bg);
+  border-top: var(--tm-sep-top);
+  border-bottom: var(--tm-sep-bottom);
+  box-shadow: var(--tm-sep-shadow);
+}
+
+/* ── Liquid Glass ─────────────────────────────────────────────────────────
+   Frosted, as the pop-up is. The backend captures the screen behind the
+   panel just before it appears and blurs it (frost.rs); the skin's colour
+   goes over it thinly, with a lit edge. The panel's own rounded corner clips
+   it, so the edge is smooth. The picture is of the whole window, so it is
+   laid over the window (`fixed`) rather than stretched to the panel, and
+   stays true to the screen behind as the panel changes height.
+
+   Glass has no design tokens, so its controls are drawn here, after the
+   launcher's own glass ones: translucent white buttons with a lit rim,
+   pill-shaped segments and switch, a blue-to-cyan bar. */
 .glass .menu {
   background:
     linear-gradient(color-mix(in srgb, var(--tm-bg) 55%, transparent),
@@ -118,79 +1009,67 @@ body.above { justify-content: flex-end; }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18),
               inset 0 0 0 1px rgba(255, 255, 255, 0.09);
 }
-
-/* A row a network switch is adding or folding away (traymenu.js). Its
-   height is animated, so its contents are clipped to it; one on its way out
-   is no longer a target. */
-.moving { overflow: hidden; box-sizing: border-box; }
-.leaving { pointer-events: none; }
-
-.item {
-  display: flex;
-  align-items: center;
-  box-sizing: border-box;
-  gap: 8px;
-  width: 100%;
-  margin: 0;
-  padding: var(--tm-item-pad);
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  white-space: nowrap;
-  background: transparent;
-  border: 0;
-  border-radius: var(--tm-item-radius);
-  outline: none;
-  cursor: default;
+.glass {
+  --online: #30d158;
+  --sk-pri-font: var(--tm-font);
+  --sk-btn-font: var(--tm-font);
+  --sk-pri-weight: 600;
+  --sk-pri-fg: #ffffff;
+  --sk-pri-tshadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+  --sk-pri-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.08) 55%, rgba(255, 255, 255, 0.12) 100%) rgba(255, 255, 255, 0.12);
+  --sk-pri-hover-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.14) 55%, rgba(255, 255, 255, 0.18) 100%) rgba(255, 255, 255, 0.16);
+  --sk-pri-active-bg: rgba(255, 255, 255, 0.12);
+  --sk-pri-border: 0 none transparent;
+  --sk-pri-radius: 12px;
+  --sk-pri-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(255, 255, 255, 0.14),
+                   inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  --sk-pri-hover-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.2),
+                         inset 0 0 0 1px rgba(255, 255, 255, 0.26), 0 0 18px -6px rgba(255, 255, 255, 0.35);
+  --sk-run-bg: linear-gradient(180deg, rgba(255, 69, 58, 0.62), rgba(255, 69, 58, 0.42));
+  --sk-run-hover-bg: linear-gradient(180deg, rgba(255, 69, 58, 0.75), rgba(255, 69, 58, 0.55));
+  --sk-run-fg: #ffffff;
+  --sk-run-border: 0 none transparent;
+  --sk-run-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  --sk-btn-bg: rgba(255, 255, 255, 0.12);
+  --sk-btn-hover-bg: rgba(255, 255, 255, 0.2);
+  --sk-btn-fg: #ffffff;
+  --sk-btn-border: 0 none transparent;
+  --sk-btn-radius: 999px;
+  --sk-btn-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  --sk-seg-bg: rgba(118, 118, 128, 0.32);
+  --sk-seg-border: 0 none transparent;
+  --sk-seg-radius: 999px;
+  --sk-seg-pad: 3px;
+  --sk-seg-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  --sk-seg-fg: rgba(255, 255, 255, 0.72);
+  --sk-seg-btn-radius: 999px;
+  --sk-seg-active-fg: #ffffff;
+  --sk-seg-active-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.2));
+  --sk-seg-active-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+                          0 3px 10px -2px rgba(0, 0, 0, 0.4);
+  --sk-tgl-w: 38px;
+  --sk-tgl-h: 22px;
+  --sk-tgl-bw: 0px;
+  --sk-tgl-radius: 999px;
+  --sk-tgl-bg: rgba(120, 120, 128, 0.36);
+  --sk-tgl-border: 0 none transparent;
+  --sk-tgl-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  --sk-tgl-on-bg: #30d158;
+  --sk-knob: 18px;
+  --sk-knob-inset: 2px;
+  --sk-knob-bg: #ffffff;
+  --sk-knob-on-bg: #ffffff;
+  --sk-knob-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  --sk-bar-h: 7px;
+  --sk-bar-bg: rgba(255, 255, 255, 0.1);
+  --sk-bar-radius: 999px;
+  --sk-bar-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  --sk-bar-fill: linear-gradient(90deg, #0a84ff, #64d2ff);
+  --sk-bar-fill-radius: 999px;
+  --sk-bar-fill-shadow: 0 0 10px rgba(10, 132, 255, 0.55);
+  --sk-dur: 0.25s;
+  --sk-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.item:hover,
-.item:focus-visible {
-  color: var(--tm-hover-fg);
-  background: var(--tm-hover-bg);
-}
-.item.selected {
-  font-weight: var(--tm-sel-weight);
-  color: var(--tm-sel-fg);
-  background: var(--tm-sel-bg);
-}
-.item.selected:hover,
-.item.selected:focus-visible {
-  color: var(--tm-hover-fg);
-  background: var(--tm-hover-bg);
-}
-
-.item.play { font-weight: var(--tm-sel-weight); }
-
-.icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  object-fit: contain;
-}
-.glyph {
-  width: 12px;
-  height: 12px;
-  margin: 0 2px;
-  flex-shrink: 0;
-  background-color: currentColor;
-  -webkit-mask: var(--glyph) center / contain no-repeat;
-          mask: var(--glyph) center / contain no-repeat;
-}
-.glyph-play { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 3.5v17a1 1 0 0 0 1.5.87l14-8.5a1 1 0 0 0 0-1.74l-14-8.5A1 1 0 0 0 6 3.5z'/%3E%3C/svg%3E"); }
-.glyph-stop { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='4' width='16' height='16' rx='2'/%3E%3C/svg%3E"); }
-
-.header {
-  padding: 6px 10px 2px;
-  font-size: 0.85em;
-  opacity: 0.6;
-  white-space: nowrap;
-}
-
-.sep {
-  height: var(--tm-sep-height, 0);
-  margin: var(--tm-sep-margin, 3px 1px);
-  background: var(--tm-sep-bg);
-  border-top: var(--tm-sep-top);
-  border-bottom: var(--tm-sep-bottom);
-  box-shadow: var(--tm-sep-shadow);
-}
+.glass.motion .btn-pri:hover { transform: translateY(-1px); }
+.glass.motion .btn-pri:active { transform: scale(0.97); }
+.glass .avatar .dot { box-shadow: 0 0 0 2px rgba(20, 20, 24, 0.85); }

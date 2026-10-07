@@ -337,7 +337,8 @@ pub const NO_ACCOUNT: &str = "This Steam account has no Stella account yet.";
 /// is in use. Hidden in the tray, minimized or on another network, a sign-in
 /// that has expired is left until Stella is opened again, rather than renewed
 /// in the background, and the live hub (`stella_hub`) is closed. A sign-in
-/// that is still valid is kept, so coming back needs no Steam at all.
+/// that is still valid is kept, so coming back needs no Steam at all. Opening
+/// the tray panel counts as coming back (see [`window_on_screen`]).
 static IN_USE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The app, for [`window_on_screen`].
@@ -354,12 +355,18 @@ pub(crate) fn in_use() -> bool {
 /// Whether the main window is showing: not hidden in the tray, not minimized.
 /// Asked of the window itself: hidden in the tray, the page inside it still
 /// reports itself visible.
+///
+/// The tray panel counts too, while it is up and for a little after: it shows
+/// Stella's friends and player count, so opening it is looking at Stella, and
+/// it has to be able to bring those up to date (see `tray_panel_in_view`).
 #[cfg(not(test))]
 fn window_on_screen() -> bool {
     use tauri::Manager;
-    APP.get()
+    let main = APP
+        .get()
         .and_then(|app| app.get_webview_window("main"))
-        .is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(true))
+        .is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(true));
+    main || crate::background::tray_panel_in_view()
 }
 
 /// Unit tests have no window. Linking the window calls into the test binary

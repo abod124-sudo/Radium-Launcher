@@ -124,6 +124,7 @@ pub fn run() {
             background::tray_menu_show,
             background::tray_menu_hide,
             background::tray_menu_pick,
+            background::tray_menu_warm,
             // Desktop notification pop-up
             desktop_notify::desktop_notify,
             desktop_notify::desktop_notif_take,

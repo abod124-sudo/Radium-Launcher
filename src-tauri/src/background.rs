@@ -1,9 +1,10 @@
 //! Running in the background and starting with Windows.
 //!
 //! * **Tray icon.** Always there while the launcher runs. Clicking it brings
-//!   the window back. Right-clicking opens a themed menu (a small window,
-//!   not a native menu) that plays or stops the game, opens a page of the
-//!   launcher, switches network, and quits.
+//!   the window back. Right-clicking opens a themed panel (a small window,
+//!   not a native menu): the network with its servers and players, PLAY with
+//!   any download or update in progress, Stella friends to join, the
+//!   launcher's pages, the network switch and Quit.
 //! * **Close to tray.** With `runInBackground` on (the default), closing the
 //!   window hides it instead of quitting, so notifications keep arriving. Quit
 //!   from the tray menu ends the process. The updater exits the app itself and
@@ -42,9 +43,11 @@ pub fn show_main(app: &AppHandle) {
 // ── The tray menu ────────────────────────────────────────────────────────
 //
 // Not a native menu: Windows draws those in its own grey, whatever skin the
-// launcher wears. It is a small borderless window (traymenu.html) painted
-// with the look the launcher page reports for its own menus, opened at the
-// cursor on a right-click and hidden again when it loses focus.
+// launcher wears, and can only list words. It is a small borderless window
+// (traymenu.html) painted with the look the launcher page reports for its own
+// menus and controls, showing what the page reports about the launcher's
+// state, opened at the cursor on a right-click and hidden again when it loses
+// focus.
 
 pub const TRAY_MENU_LABEL: &str = "tray-menu";
 
@@ -57,6 +60,10 @@ pub struct TrayState {
     /// The launcher's menu look, measured from its own menus (see
     /// `trayMenuStyle` in app.js). Only ever written into CSS variables.
     style: Option<serde_json::Value>,
+    /// What the panel shows: server status, players, PLAY's state and
+    /// progress, Stella friends (see `trayInfo` in app.js). Only ever written
+    /// in as text, and its pictures only through the thumbnail cache.
+    info: Option<serde_json::Value>,
 }
 
 static TRAY_STATE: std::sync::Mutex<Option<TrayState>> = std::sync::Mutex::new(None);
@@ -70,18 +77,27 @@ fn tray_state(app: &AppHandle) -> TrayState {
     })
 }
 
-/// Called by the launcher page when the network, the game's running state or
-/// the skin changes.
+/// Called by the launcher page when anything the panel shows changes: the
+/// network, the game's state, a download's progress, the skin, a friend.
 ///
 /// A menu that is open at the time is told to redraw itself. That is what lets
 /// the network rows act as a selection: picking one switches the launcher
 /// underneath, and the tick moves to the row that won — along with "Play
 /// Radium"/"Play Vanilla" and the Feed row, which only Vanilla has.
 #[tauri::command]
-pub fn set_tray_state(app: AppHandle, network: String, game_running: bool, style: Option<serde_json::Value>) {
-    *TRAY_STATE.lock().unwrap_or_else(|e| e.into_inner()) = Some(TrayState { network, game_running, style });
+pub fn set_tray_state(
+    app: AppHandle,
+    network: String,
+    game_running: bool,
+    style: Option<serde_json::Value>,
+    info: Option<serde_json::Value>,
+) {
+    let look = panel_look(style.as_ref());
+    *TRAY_STATE.lock().unwrap_or_else(|e| e.into_inner()) = Some(TrayState { network, game_running, style, info });
     if tray_menu_is_open(&app) {
         let _ = app.emit_to(TRAY_MENU_LABEL, "tray-menu-update", tray_state(&app));
+    } else if let Some(look) = look {
+        schedule_warm(&app, look);
     }
 }
 
@@ -93,6 +109,31 @@ pub fn set_tray_state(app: AppHandle, network: String, game_running: bool, style
 fn tray_menu_is_open(app: &AppHandle) -> bool {
     TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()).is_some()
         && app.get_webview_window(TRAY_MENU_LABEL).is_some()
+}
+
+/// When the panel was last put away, for [`tray_panel_in_view`].
+static TRAY_CLOSED_AT: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// How long after the panel goes Stella is still treated as looked at, so
+/// opening it again a moment later finds the friends connection up and the
+/// player count already counting, rather than starting both over.
+#[cfg_attr(test, allow(dead_code))]
+const TRAY_PANEL_LINGER: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Whether the tray panel is up, or was a moment ago. The panel shows the
+/// launcher's live state (friends, the player count), so while it is up the
+/// launcher counts as being looked at even with its window hidden in the tray:
+/// see `stella_api::in_use`. (Unit tests have no window to ask about, so
+/// nothing calls this there.)
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn tray_panel_in_view() -> bool {
+    if TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+        return true;
+    }
+    TRAY_CLOSED_AT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some_and(|at| at.elapsed() < TRAY_PANEL_LINGER)
 }
 
 /// Bring the window back from the page's side (see `playFromTray` in app.js).
@@ -139,10 +180,154 @@ fn tray_menu_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
 /// itself and calls [`tray_menu_show`] back with its size.
 fn open_tray_menu(app: &AppHandle, x: f64, y: f64) {
     *TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()) = Some((x, y));
-    if tray_menu_window(app).is_some() {
+    if let Some(win) = tray_menu_window(app) {
+        // A warm-up still showing off screen is put away first, so the open
+        // finds the window hidden, as it always does.
+        end_warm(&win);
         let _ = app.emit_to(TRAY_MENU_LABEL, "tray-menu-open", tray_state(app));
     }
+    // The launcher brings what the panel shows up to date (see
+    // `onTrayPanel` in app.js); the panel redraws as the answers come in.
+    let _ = app.emit_to("main", "tray-panel", true);
 }
+
+// ── Painting the panel once, off screen ──────────────────────────────────
+//
+// The first panel of a session took 50-90 ms longer to paint than every one
+// after it: its fonts rasterised at each size, the icons, the network art
+// decoded, the badges' blur set up on the GPU. All of it landed in the middle
+// of the first entrance, which stalled and then jumped to its end — measured
+// 2026-10-07 as a 79-93 ms gap between frames, with nothing on the page's
+// main thread; a window resize alone, the panel painted before, was smooth.
+// `warm_tray_menu` gives the webview its first frame at startup, but of an
+// empty page, so none of that work was done there.
+//
+// So once the launcher has reported how the panel looks, the page draws a
+// real panel in the window parked off screen, entrance and all, and the first
+// right-click finds the work done. Again whenever the look changes (another
+// font, or Liquid Glass), since that is new painting too.
+
+/// The look the panel was last painted in off screen.
+static WARMED_LOOK: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// Bumped by every warm-up asked for and every one shown, so a timer that a
+/// newer one (or a right-click) has overtaken does nothing.
+static WARM_REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static WARM_SHOWN_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Whether a warm-up has the window shown off screen right now.
+static WARM_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// What decides the painting a panel needs: its font, and whether it is glass.
+fn panel_look(style: Option<&serde_json::Value>) -> Option<String> {
+    let style = style?;
+    let font = style.get("font")?.as_str()?;
+    let glass = style.get("glass").and_then(|g| g.as_bool()).unwrap_or(false);
+    Some(format!("{font}|{glass}"))
+}
+
+/// Have the page paint a panel off screen, unless this look has been painted
+/// already. Waits a moment first: for the startup warm-up to have hidden the
+/// window again, and for a run of changes (skins tried one after another in
+/// Settings) to settle on one.
+fn schedule_warm(app: &AppHandle, look: String) {
+    {
+        let mut warmed = WARMED_LOOK.lock().unwrap_or_else(|e| e.into_inner());
+        if warmed.as_deref() == Some(look.as_str()) {
+            return;
+        }
+        *warmed = Some(look);
+    }
+    let request = WARM_REQUEST.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        // A right-click in the meantime paints the panel for real.
+        if WARM_REQUEST.load(std::sync::atomic::Ordering::SeqCst) != request || tray_menu_is_open(&app) {
+            return;
+        }
+        let _ = app.emit_to(TRAY_MENU_LABEL, "tray-menu-warm", tray_state(&app));
+    });
+}
+
+/// The page has drawn its panel at `width` x `height` (logical pixels): show
+/// the window off screen at that size long enough for it to be painted, then
+/// hide it again and tell the page it can put the panel away.
+///
+/// Shown without activating it, unlike a real open: nothing is on screen and
+/// nothing should lose the focus. Done with Win32 directly, and undone the
+/// same way, because tao's own show would activate the window (only its very
+/// first show doesn't, which the startup warm-up has used) — and tao, which
+/// never saw this show, is left believing the window hidden, which it is
+/// again by the time anything asks it.
+#[tauri::command]
+pub fn tray_menu_warm(app: AppHandle, width: f64, height: f64) {
+    let Some(win) = app.get_webview_window(TRAY_MENU_LABEL) else { return };
+    if tray_menu_is_open(&app) || win.is_visible().unwrap_or(true) || WARM_SHOWN.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
+        return;
+    }
+    // Physical pixels at the scale a menu will most likely open at, so the
+    // first real one doesn't have to resize the window either.
+    let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(1.0);
+    let (w, h) = ((width.min(600.0) * scale).round() as i32, (height.min(900.0) * scale).round() as i32);
+    if !show_off_screen(&win, w, h) {
+        return;
+    }
+    WARM_SHOWN.store(true, std::sync::atomic::Ordering::SeqCst);
+    let gen = WARM_SHOWN_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    tauri::async_runtime::spawn(async move {
+        // Long enough for the page to paint and run its entrance once.
+        tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+        if WARM_SHOWN_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen {
+            end_warm(&win);
+        }
+    });
+}
+
+/// Put a warm-up away, if one is showing.
+fn end_warm(win: &tauri::WebviewWindow) {
+    WARM_SHOWN_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    if WARM_SHOWN.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        hide_off_screen(win);
+        let _ = win.emit_to(TRAY_MENU_LABEL, "tray-menu-warm-done", ());
+    }
+}
+
+#[cfg(windows)]
+fn show_off_screen(win: &tauri::WebviewWindow, w: i32, h: i32) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER, SWP_SHOWWINDOW};
+    const OFF_SCREEN: i32 = -32000;
+    let Ok(hwnd) = win.hwnd() else { return false };
+    // SAFETY: `hwnd` is this live window's handle; the call moves, sizes and
+    // shows it without activating it or changing its place in the z-order.
+    unsafe {
+        SetWindowPos(hwnd.0 as _, std::ptr::null_mut(), OFF_SCREEN, OFF_SCREEN, w, h,
+                     SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW) != 0
+    }
+}
+
+#[cfg(windows)]
+fn hide_off_screen(win: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    };
+    if let Ok(hwnd) = win.hwnd() {
+        // SAFETY: as above; this only hides the window again.
+        unsafe {
+            SetWindowPos(hwnd.0 as _, std::ptr::null_mut(), 0, 0, 0, 0,
+                         SWP_HIDEWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn show_off_screen(_win: &tauri::WebviewWindow, _w: i32, _h: i32) -> bool {
+    false
+}
+
+#[cfg(not(windows))]
+fn hide_off_screen(_win: &tauri::WebviewWindow) {}
 
 /// What to draw, for a page that finished loading after the right-click
 /// that opened it. `None` when no menu is waiting to open.
@@ -249,7 +434,11 @@ fn resize_in_place(win: &tauri::WebviewWindow, x: i32, y: i32, w: i32, h: i32) -
 
 #[tauri::command]
 pub fn tray_menu_hide(app: AppHandle) {
-    *TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    let was_open = TRAY_ANCHOR.lock().unwrap_or_else(|e| e.into_inner()).take().is_some();
+    if was_open {
+        *TRAY_CLOSED_AT.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+        let _ = app.emit_to("main", "tray-panel", false);
+    }
     if let Some(win) = app.get_webview_window(TRAY_MENU_LABEL) {
         let _ = win.hide();
     }
@@ -257,16 +446,21 @@ pub fn tray_menu_hide(app: AppHandle) {
 
 /// A choice from the tray menu.
 ///
-/// The network rows are a selection rather than a command: they leave the menu
-/// up, the way a radio group in a menu does, so the tick can move to the row
-/// that was picked and the rest of the menu can follow the switch. Everything
-/// else closes the menu, as choosing an item should.
+/// Settings leave the menu up, the way a radio group or a switch in a menu
+/// does, so the panel can show the change land: the network, Screen/VR, the
+/// pop-ups switch, and a download's Pause/Resume or Stella's UPDATE, whose
+/// progress it then shows. Everything else closes the menu, as choosing an
+/// item should.
 #[tauri::command]
 pub fn tray_menu_pick(app: AppHandle, id: String) {
-    if !id.starts_with("network:") {
+    if !keeps_menu_open(&id) {
         tray_menu_hide(app.clone());
     }
     on_menu(&app, &id);
+}
+
+fn keeps_menu_open(id: &str) -> bool {
+    ["network:", "mode:", "popups:", "dl:"].iter().any(|prefix| id.starts_with(prefix))
 }
 
 /// Close the tray menu with the launcher, so its hidden window can't keep the
@@ -296,10 +490,32 @@ fn on_menu(app: &AppHandle, id: &str) {
         // the window itself if the launch needs the user (a warning, a
         // missing install, the stop confirmation).
         "play" => action("play", ""),
+        // Downloading may ask where to put the game.
+        "download" => {
+            show_main(app);
+            action("download", "");
+        }
+        "friends" => {
+            show_main(app);
+            action("friends", "");
+        }
         _ => {
             if let Some(tab) = id.strip_prefix("tab:") {
                 show_main(app);
                 action("tab", tab);
+            } else if let Some(friend) = id.strip_prefix("friend:") {
+                show_main(app);
+                action("friend", friend);
+            } else if let Some(friend) = id.strip_prefix("join:") {
+                // Like Play: the page brings the window up only if the join
+                // needs the user.
+                action("join", friend);
+            } else if let Some(mode) = id.strip_prefix("mode:") {
+                action("mode", mode);
+            } else if let Some(on) = id.strip_prefix("popups:") {
+                action("popups", on);
+            } else if let Some(what) = id.strip_prefix("dl:") {
+                action("dl", what);
             } else if let Some(name) = id.strip_prefix("network:") {
                 // The window stays where it is: switching network from the
                 // menu is a setting, not a reason to interrupt whatever is on
@@ -354,7 +570,9 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 ///
 /// So the window is shown once here, far enough off screen that nothing is
 /// visible, and hidden again a moment later. From then on it is in exactly the
-/// state every later open finds it in.
+/// state every later open finds it in — except for the panel itself, which is
+/// not drawn yet at this point; `tray_menu_warm` paints that once the launcher
+/// has said how it looks.
 ///
 /// The position is set after the build rather than in the builder: a builder
 /// `position` this far out is not honoured (measured 2026-09-20 — the window
@@ -701,6 +919,33 @@ mod icon_tests {
         assert_eq!(icon.rgba().len(), (size * size * 4) as usize);
         // Not blank: the logo's green survives the scaling.
         assert!(icon.rgba().chunks(4).any(|p| p[1] > 150 && p[3] > 200));
+    }
+}
+
+#[cfg(test)]
+mod menu_tests {
+    use super::{keeps_menu_open, panel_look};
+
+    #[test]
+    fn the_panel_is_repainted_off_screen_only_for_a_new_font_or_glass() {
+        let look = |v: serde_json::Value| panel_look(Some(&v));
+        let inter = look(serde_json::json!({ "font": "Inter", "glass": false, "bg": "#111" }));
+        assert_eq!(inter, look(serde_json::json!({ "font": "Inter", "glass": false, "bg": "#fff" })));
+        assert_ne!(inter, look(serde_json::json!({ "font": "Inter", "glass": true })));
+        assert_ne!(inter, look(serde_json::json!({ "font": "Tahoma", "glass": false })));
+        // Nothing reported yet: nothing to paint with.
+        assert_eq!(panel_look(None), None);
+        assert_eq!(look(serde_json::json!({ "glass": true })), None);
+    }
+
+    #[test]
+    fn settings_keep_the_menu_up_and_commands_close_it() {
+        for id in ["network:stella", "mode:vr", "popups:off", "dl:pause", "dl:update"] {
+            assert!(keeps_menu_open(id), "{id}");
+        }
+        for id in ["play", "download", "open", "quit", "tab:rooms", "join:42", "friend:42", "friends"] {
+            assert!(!keeps_menu_open(id), "{id}");
+        }
     }
 }
 

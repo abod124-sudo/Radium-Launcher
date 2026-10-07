@@ -136,13 +136,18 @@ let activeNetwork = 'radium';
 /// before the rest of this file has been evaluated.
 let stellaInUseSent = null;
 
+/// Whether the tray panel is up (the backend says so: `tray-panel`). It shows
+/// the launcher's live state, so while it is up the launcher is being looked
+/// at even from the tray. See onTrayPanel.
+let trayPanelOpen = false;
+
 /// Tell the backend whether Stella is in use: the network picked, in a window
-/// on screen. Only then does it sign in with Steam (which Steam shows to your
-/// friends as playing Rec Room) or keep Stella's live friends connection open;
-/// hidden in the tray or on another network, it does neither. See
-/// stella_api::IN_USE.
+/// on screen (or in the tray panel). Only then does it sign in with Steam
+/// (which Steam shows to your friends as playing Rec Room) or keep Stella's
+/// live friends connection open; hidden in the tray or on another network, it
+/// does neither. See stella_api::IN_USE.
 function syncStellaInUse() {
-  const inUse = activeNetwork === 'stella' && !document.hidden;
+  const inUse = activeNetwork === 'stella' && (!document.hidden || trayPanelOpen);
   if (inUse === stellaInUseSent) return;
   stellaInUseSent = inUse;
   window.radium?.stellaSetInUse?.(inUse);
@@ -504,11 +509,15 @@ function withoutBackdrop(cfg) {
       if (unlistenMap['launcher-hidden']) unlistenMap['launcher-hidden']();
       unlistenMap['launcher-hidden'] = await listen('launcher-hidden', () => cb());
     },
-    setTrayState: (network, gameRunning, style) => invoke('set_tray_state', { network, gameRunning, style }),
+    setTrayState: (network, gameRunning, style, info) => invoke('set_tray_state', { network, gameRunning, style, info }),
     showLauncher: () => invoke('show_launcher'),
     onTrayAction: async (cb) => {
       if (unlistenMap['tray-action']) unlistenMap['tray-action']();
       unlistenMap['tray-action'] = await listen('tray-action', (event) => cb(event.payload));
+    },
+    onTrayPanel: async (cb) => {
+      if (unlistenMap['tray-panel']) unlistenMap['tray-panel']();
+      unlistenMap['tray-panel'] = await listen('tray-panel', (event) => cb(event.payload === true));
     },
 
     // Desktop notification pop-up (a separate always-on-top window).
@@ -567,6 +576,12 @@ function withoutBackdrop(cfg) {
 let config                = {};
 let isGameRunning         = false;
 let isGameLaunching       = false;
+/// When the game was seen to start, for the tray panel's "Playing · 12:34".
+let gameStartedAt         = 0;
+/// What was last handed to the tray panel (see syncTray), so a push that
+/// would change nothing is not sent, and whether one is already queued.
+let traySent              = '';
+let trayQueued            = false;
 // Set while a launch started from the tray is under way; see playFromTray().
 let revealOnModal         = false;
 let revealOnModalTimer    = null;
@@ -603,6 +618,9 @@ let sacWarnedThisSession  = false;
 // Last-known reachability from checkServerStatus(), surfaced in bug reports.
 // null = not checked yet this session.
 let lastServerStatus      = { apiOnline: null, cdnOnline: null };
+/// The network lastServerStatus was taken on, so the tray panel doesn't call
+/// the network just switched to online on the strength of the last one.
+let serverStatusNetwork   = '';
 
 // ── Image load handling ──────────────────────────────────────────────────
 // Every thumbnail in the app wants the same two things: drop the shimmer class
@@ -4617,7 +4635,8 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
 async function checkServerStatus(silent = false) {
   // Radium's API host is user-configurable; Vanilla's is fixed. The CDN check
   // is Radium's download host, so it is only meaningful there.
-  const isRadium = activeNetwork === 'radium';
+  const network = activeNetwork;
+  const isRadium = network === 'radium';
   const apiUrl = isRadium
     ? (config.apiUrl || 'https://api.radie.app/')
     : { vanilla: 'https://api.vanillarec.net', stella: 'https://api.stellaonline.org' }[activeNetwork];
@@ -4645,6 +4664,8 @@ async function checkServerStatus(silent = false) {
   // reporter renders differently from a real offline.
   const cdnOnline = isRadium ? (cdnResult?.online ?? false) : null;
   lastServerStatus = { apiOnline, cdnOnline };
+  serverStatusNetwork = network;
+  syncTray();
 
   // Quick stats card on home tab
   if (qsS) qsS.textContent = apiOnline ? 'Online' : 'Offline';
@@ -4744,6 +4765,7 @@ async function updatePlayerCount(silent = false) {
 
 // Game execution and process monitoring
 function setGameRunning(running) {
+  if (running && !isGameRunning) gameStartedAt = Date.now();
   isGameRunning = running;
   if (running) {
     isGameLaunching = false;
@@ -5281,15 +5303,169 @@ $('roomFullPlayBtn')?.addEventListener('click', () => {
 });
 
 // Tray menu ────────────────────────────────────────────────────────────────
-// The tray's Play entry launches without opening the window, like Steam's
-// game entries. If the launch then needs the user (a warning, the Steam
-// check), the first dialog it opens brings the window up.
+// The tray icon's panel (traymenu.js): the launcher at a glance — the network,
+// its servers and players, PLAY with whatever download or update is under
+// way, Stella friends to join — and the pages, the network and Quit. What is
+// picked there comes back through onTrayAction below.
+//
+// The tray's Play launches without opening the window, like Steam's game
+// entries. If the launch then needs the user (a warning, the Steam check), the
+// first dialog it opens brings the window up.
 
-/// Tell the tray menu which network is active, whether the game is running
-/// (its Play entry reads "Play Radium" / "Play Vanilla" / "Stop Game"), and
-/// what the current skin's menus look like.
+/// Tell the tray panel what to show and what the current skin looks like.
+///
+/// Many things call this, often several in one go (a network switch touches
+/// most of the page, a download reports several times a second), so the push
+/// waits for the end of the current task and goes once, and only when
+/// something in it has changed. A microtask rather than a timer: a hidden
+/// window's timers are throttled to a second, and a network picked in the
+/// panel would wait that long for its Play label.
 function syncTray() {
-  window.radium?.setTrayState(activeNetwork, isGameRunning, trayMenuStyle()).catch(() => {});
+  if (trayQueued) return;
+  trayQueued = true;
+  queueMicrotask(() => {
+    trayQueued = false;
+    const style = trayMenuStyle();
+    const info = trayInfo();
+    const key = JSON.stringify([activeNetwork, isGameRunning, style, info]);
+    if (key === traySent) return;
+    traySent = key;
+    window.radium?.setTrayState(activeNetwork, isGameRunning, style, info).catch(() => { traySent = ''; });
+  });
+}
+
+/// What the panel shows, read from the same state Home is drawn from.
+function trayInfo() {
+  return {
+    server: trayServer(),
+    players: trayPlayers(),
+    game: trayGame(),
+    mode: playMode === 'vr' ? 'vr' : 'screen',
+    // Pop-ups are Vanilla's and Stella's notifications; Radium has none.
+    popups: activeNetwork === 'radium' ? null : getToggle('tgl-notifPopups'),
+    friends: trayFriends(),
+    // Whether Stella shows friends at all (Settings: Friends → Hidden), for
+    // sizing the panel on any network: Stella's is the tallest.
+    stellaFriends: friendsView() !== 'hidden',
+  };
+}
+
+/// 'online', 'offline' or 'checking', for the network on screen. A re-check
+/// keeps the last answer rather than flickering to "checking" every minute.
+function trayServer() {
+  if (serverStatusNetwork !== activeNetwork || lastServerStatus.apiOnline == null) return 'checking';
+  return lastServerStatus.apiOnline ? 'online' : 'offline';
+}
+
+/// The player count as Home's status strip shows it: `{ count }` for a
+/// number, `{ note }` for anything else ('' when there is nothing to say).
+const TRAY_PLAYER_NOTES = {
+  '': '', '—': '', 'Not published': '',
+  'Loading…': 'Counting players…',
+  'Counting…': 'Counting players…',
+  'Paused': 'Count paused while you play',
+  'Signed out': 'Sign in to count players',
+  'Unavailable': 'Player count unavailable',
+};
+function trayPlayers() {
+  const text = ($('qsPlayers')?.textContent || '').trim();
+  const counting = text === 'Counting…' || text.endsWith('+');
+  if (!counting && !Object.hasOwn(TRAY_PLAYER_NOTES, text)) {
+    trayLastCount = { network: activeNetwork, text, at: Date.now() };
+  }
+  // Stella counts its players afresh each time its friends connection comes
+  // back (opening the panel brings it back; see onTrayPanel), from nothing up
+  // over a minute. Meanwhile the last full count, if it is recent, says more
+  // than "Counting…" or a floor below it, so the panel keeps it until the
+  // new count passes it.
+  const last = trayLastCount;
+  if (counting && last?.network === activeNetwork && Date.now() - last.at < 10 * 60_000) {
+    const floor = Number(text.replace(/\D/g, '')) || 0;
+    const known = Number(last.text.replace(/\D/g, ''));
+    if (Number.isFinite(known) && known > floor) return { count: last.text };
+  }
+  return Object.hasOwn(TRAY_PLAYER_NOTES, text) ? { note: TRAY_PLAYER_NOTES[text] } : { count: text };
+}
+
+/// The last player count the panel showed that wasn't still counting.
+let trayLastCount = null;
+
+/// What PLAY is right now, and the progress of a download or update.
+function trayGame() {
+  const text = (id) => ($(id)?.textContent || '').trim();
+  if (isGameRunning) return { state: 'stop', startedAt: gameStartedAt };
+  if (activeNetwork === 'stella' && stellaPatchUpdating) {
+    const pct = parseFloat($('stellaUpdateFill')?.style.width);
+    return { state: 'progress', title: 'Updating Stella', pct: Number.isFinite(pct) ? Math.round(pct) : 0, detail: '', canPause: false };
+  }
+  if (isDownloading || isPaused || isCancelling) {
+    const fill = $('dlBarFill');
+    const pct = fill?.classList.contains('indeterminate') ? -1 : Number(fill?.dataset.pct || 0);
+    const detail = isPaused || isCancelling ? '' : [text('dlSpeedLabel'), text('dlEtaLabel')].filter(v => v && v !== '—').join(' · ');
+    const title = isCancelling ? 'Cancelling…' : isPaused ? 'Paused' : text('dlPhaseLabel').replace(/\.\.\.$/, '…');
+    const pauseBtn = $('btnPauseDl');
+    return {
+      state: 'progress', title: title || 'Downloading…', pct: Number.isFinite(pct) ? pct : 0, detail,
+      paused: isPaused, canPause: !isCancelling && !!pauseBtn && pauseBtn.style.display !== 'none',
+    };
+  }
+  if (!isInstalled) return { state: 'download', repair: needsRepair };
+  if (stellaUpdateNeeded()) return { state: 'update' };
+  if (isGameLaunching) return { state: 'starting' };
+  return { state: 'play' };
+}
+
+/// Stella only, where Home shows them: up to three friends, the online ones
+/// first, or a note saying why there are none.
+const TRAY_FRIEND_ROWS = 3;
+function trayFriends() {
+  if (activeNetwork !== 'stella' || friendsView() === 'hidden') return null;
+  if (!stellaPlayer) {
+    return { note: stellaAuthPending ? 'Signing in…'
+      : stellaAuthError === STELLA_NO_ACCOUNT ? 'Play Stella once to make your account.'
+      : 'Log in to Stella to see your friends.' };
+  }
+  const res = stellaFriendsRes;
+  if (!res || (res.success && !res.loaded)) return { note: 'Loading friends…' };
+  if (!res.success) return { note: res.error || "Couldn't load your friends." };
+  const friends = res.friends || [];
+  if (!friends.length) return { note: "No friends yet. Add some in game and they'll show up here." };
+  const online = friends.filter(f => f.status === 'online');
+  const rows = [...online, ...friends.filter(f => f.status !== 'online')].slice(0, TRAY_FRIEND_ROWS);
+  const summary = res.paused ? 'Paused while you play'
+    : !res.connected && res.error ? 'Reconnecting…'
+    : `${online.length} of ${friends.length} online`;
+  return {
+    summary,
+    rows: rows.map(f => {
+      const where = friendWhere(f);
+      return {
+        id: String(f.id),
+        name: f.displayName || f.userName || 'Player',
+        where: where.text,
+        locked: where.locked,
+        status: f.status === 'online' ? 'online' : f.status === 'offline' ? 'offline' : 'unknown',
+        favorite: !!f.favorite,
+        avatar: f.AvatarUrl ? thumbSrc(f.AvatarUrl, avatarWidth(28)) : '',
+      };
+    }),
+  };
+}
+
+// The panel shows what Home shows, and these are the parts of Home that
+// change on their own — a ping, a count, a download's progress, a friend
+// coming online — so a change to any of them is a change to the panel.
+// Everything else that matters (the network, the skin, the game starting)
+// already calls syncTray() itself.
+{
+  const watch = new MutationObserver(() => syncTray());
+  for (const id of ['qsPlayers', 'qsc-status', 'dlPhaseLabel', 'dlSpeedLabel', 'dlEtaLabel', 'dlBarFill',
+                    'btnPauseDl', 'stellaUpdateFill', 'stellaFriendsList', 'modeScreen', 'tgl-notifPopups']) {
+    const el = $(id);
+    if (el) watch.observe(el, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-pct'] });
+  }
+  // client-installed, stella-update-needed and friends-view-* live here.
+  watch.observe(document.body, { attributes: true, attributeFilter: ['class'] });
 }
 
 /// Only the inset layers of a `box-shadow`: the bevels the retro skins draw
@@ -5299,6 +5475,28 @@ function insetShadows(shadow) {
   const layers = (shadow || '').split(/,(?![^(]*\))/).map(s => s.trim()).filter(s => /\binset\b/.test(s));
   return layers.length ? layers.join(', ') : 'none';
 }
+
+/// The skin's own controls, for the panel's buttons, switches and progress
+/// bar: the design tokens every skin sets on <body> (skins/00-tokens.css),
+/// passed on as they are. Liquid Glass sets none of them — its look is not
+/// token-driven — so under glass the list comes back empty and traymenu.css
+/// draws glass itself.
+const TRAY_TOKENS = [
+  'accent', 'on-accent', 'muted', 'line', 'ok', 'err', 'dur', 'ease',
+  'btn-bg', 'btn-fg', 'btn-border', 'btn-radius', 'btn-shadow', 'btn-tshadow', 'btn-font', 'btn-weight',
+  'btn-hover-bg', 'btn-hover-fg', 'btn-hover-border', 'btn-hover-shadow',
+  'btn-active-bg', 'btn-active-fg', 'btn-active-border', 'btn-active-shadow', 'btn-disabled-fg',
+  'pri-bg', 'pri-fg', 'pri-border', 'pri-radius', 'pri-shadow', 'pri-tshadow', 'pri-font', 'pri-weight',
+  'pri-hover-bg', 'pri-hover-fg', 'pri-hover-border', 'pri-hover-shadow',
+  'pri-active-bg', 'pri-active-border', 'pri-active-shadow',
+  'run-bg', 'run-fg', 'run-border', 'run-shadow', 'run-hover-bg',
+  'seg-bg', 'seg-border', 'seg-radius', 'seg-shadow', 'seg-pad', 'seg-fg', 'seg-divider', 'seg-btn-radius',
+  'seg-active-bg', 'seg-active-fg', 'seg-active-shadow',
+  'tgl-w', 'tgl-h', 'tgl-bw', 'tgl-radius', 'tgl-bg', 'tgl-border', 'tgl-shadow', 'tgl-on-bg', 'tgl-on-border',
+  'knob', 'knob-inset', 'knob-radius', 'knob-bg', 'knob-border', 'knob-shadow', 'knob-on-bg',
+  'bar-h', 'bar-bg', 'bar-border', 'bar-radius', 'bar-shadow', 'bar-pad',
+  'bar-fill', 'bar-fill-size', 'bar-fill-radius', 'bar-fill-shadow',
+];
 
 /// What a menu looks like under the current skin, for the tray menu's window
 /// to copy (traymenu.css). Measured from the Manage Client menu, which is in
@@ -5354,7 +5552,47 @@ function trayMenuStyle() {
       'sep-margin': s.margin,
     });
   }
+  // PLAY's label as Home's hero sets it. Not a token: the XP skins' PLAY is
+  // the Start button, in bold italic, by a rule of their own (.play-text).
+  const playText = $('playText');
+  if (playText) {
+    const p = getComputedStyle(playText);
+    Object.assign(style, {
+      'play-font': p.fontFamily,
+      'play-style': p.fontStyle,
+      'play-weight': p.fontWeight,
+      'play-ls': p.letterSpacing,
+    });
+  }
+  const skin = getComputedStyle(document.body);
+  // The system's own icons the launcher draws under this skin
+  // (skins/12-system-icons.css), named by their folder, for the panel to use
+  // the same ones; none for the modern skins and Liquid Glass.
+  style.icons = (/assets\/icons\/([a-z0-9]+)\//.exec(skin.getPropertyValue('--ico-home')) || [])[1] || '';
+  style.tokens = {};
+  for (const name of TRAY_TOKENS) {
+    const value = skin.getPropertyValue(`--${name}`).trim();
+    if (value) style.tokens[name] = value;
+  }
+  // The modern skins draw their segmented control for Home's dark hero scrim:
+  // translucent white, which vanishes on a light skin's panel. Those colours
+  // are left out, and traymenu.css takes them from the menu's own text and
+  // the skin's primary button instead.
+  if (/^rgba\(255, 255, 255, 0?\.\d+\)$/.test(style.tokens['seg-bg'] || '')) {
+    for (const name of ['seg-bg', 'seg-fg', 'seg-border', 'seg-active-bg', 'seg-active-fg']) delete style.tokens[name];
+  }
   return style;
+}
+
+/// Start the reveal-on-dialog window for a launch begun from the tray: the
+/// window stays hidden unless the launch needs the user, and then the first
+/// dialog brings it up (showModal). A launch that fails without a dialog
+/// must not leave a later, unrelated dialog popping the window open, hence
+/// the minute's limit.
+function revealOnNextModal() {
+  revealOnModal = true;
+  clearTimeout(revealOnModalTimer);
+  revealOnModalTimer = setTimeout(() => { revealOnModal = false; }, 60000);
 }
 
 function playFromTray() {
@@ -5369,12 +5607,25 @@ function playFromTray() {
     return;
   }
   if (isGameLaunching) return;
-  revealOnModal = true;
-  clearTimeout(revealOnModalTimer);
-  // A launch that fails without a dialog must not leave a later, unrelated
-  // dialog popping the window open.
-  revealOnModalTimer = setTimeout(() => { revealOnModal = false; }, 60000);
+  revealOnNextModal();
   btn.click();
+}
+
+/// A friend's JOIN in the tray panel. A plain join starts the game with the
+/// window left hidden, as the panel's PLAY does. Anything that answers in a
+/// toast instead — a private room's "asked them", the game already running,
+/// nothing installed — brings the window up first, since a toast behind a
+/// hidden window says nothing.
+function joinFromTray(id) {
+  const friend = stellaFriendsById.get(Number(id));
+  if (activeNetwork !== 'stella' || !friend) return;
+  if (friend.private || isGameRunning || isGameLaunching || !isInstalled || stellaUpdateNeeded()) {
+    window.radium?.showLauncher();
+  } else {
+    pendingJoin = null;
+    revealOnNextModal();
+  }
+  joinStellaFriend(friend);
 }
 
 window.radium?.onTrayAction?.(async ({ action, value }) => {
@@ -5389,6 +5640,60 @@ window.radium?.onTrayAction?.(async ({ action, value }) => {
     await setNetwork(value);
     if (activeNetwork !== value) window.radium?.showLauncher();
   }
+  // The panel's Screen / VR switch, as the hero's.
+  else if (action === 'mode') {
+    if ((value === 'screen' || value === 'vr') && playMode !== value) $(value === 'vr' ? 'modeVR' : 'modeScreen')?.click();
+  }
+  // Settings → Notifications → Show pop-ups.
+  else if (action === 'popups') {
+    if (getToggle('tgl-notifPopups') !== (value === 'on')) $('tgl-notifPopups')?.click();
+  }
+  // A download's Pause / Resume, and Stella's patch UPDATE: all carry on
+  // in the background, so the panel stays up to show it.
+  else if (action === 'dl') {
+    const pause = $('btnPauseDl');
+    if (value === 'update') {
+      if (stellaUpdateNeeded() && !stellaPatchUpdating) $('btnStellaUpdate')?.click();
+    } else if ((value === 'pause' && !isPaused) || (value === 'resume' && isPaused)) {
+      if (pause && pause.style.display !== 'none') pause.click();
+    }
+  }
+  // DOWNLOAD may ask where to put the game; the backend has already brought
+  // the window up for it.
+  else if (action === 'download') {
+    switchTab('home');
+    $('btnDownload')?.click();
+  }
+  else if (action === 'join') joinFromTray(value);
+  else if (action === 'friend') {
+    const friend = stellaFriendsById.get(Number(value));
+    if (friend) openFriendProfile(friend);
+  }
+  else if (action === 'friends') switchTab(friendsView() === 'tab' ? 'friends' : 'home');
+});
+
+/// When what the tray panel shows was last brought up to date for it.
+let trayRefreshedAt = 0;
+
+/// The tray panel opening or closing. Hidden in the tray, the launcher checks
+/// its servers and player count only once a minute, and Stella not at all
+/// (its sign-in and live friends wait for the launcher to be looked at; see
+/// syncStellaInUse) — so the panel opened on whatever was last seen. Opening
+/// it now counts as looking: the servers, the player count and Stella's
+/// friends are asked for at once, and the panel redraws as the answers land.
+/// Not more than every ten seconds, for a panel opened and closed in a row.
+window.radium?.onTrayPanel?.((open) => {
+  trayPanelOpen = open;
+  syncStellaInUse();
+  if (!open || Date.now() - trayRefreshedAt < 10_000) return;
+  trayRefreshedAt = Date.now();
+  checkServerStatus(true);
+  updatePlayerCount(true);
+  if (activeNetwork !== 'stella') return;
+  // As resumeStella: only a sign-in that was waiting for the launcher to be
+  // looked at (or for Steam) is tried again.
+  if (!stellaPlayer && ['', STELLA_NOT_IN_USE, STEAM_NOT_RUNNING].includes(stellaAuthError)) refreshStellaAuth();
+  refreshStellaFriends();
 });
 
 function showSacModal() {
