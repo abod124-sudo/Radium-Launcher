@@ -61,19 +61,11 @@ fn ps_quote(s: &str) -> String {
     out
 }
 
-/// The script the non-elevated PowerShell runs to apply `cmdlet` to `dirs` in
-/// an elevated one, all in one call so there is one UAC prompt.
-///
-/// No folder ever appears in either script as text. The elevated script is
-/// handed over as `-EncodedCommand`, and inside it each path is decoded from
-/// base64 at run time, so no character a folder name can hold — quotes of any
-/// kind, `$`, backticks — is ever parsed as PowerShell.
-///
-/// `$ErrorActionPreference = 'Stop'` plus the `catch` is what makes a declined
-/// UAC prompt a failure. Without them Start-Process's error ended only that
-/// statement, `$p` stayed null, and `exit $null` exited 0 — so declining the
-/// prompt reported the exclusion as added and the launcher saved it as done.
-fn elevated_script(powershell_path: &str, cmdlet: &str, dirs: &[&str]) -> String {
+/// `cmdlet` (`Add-MpPreference` or `Remove-MpPreference`) for every folder in
+/// `dirs`, in one call. Each path is decoded from base64 at run time, so no
+/// character a folder name can hold — quotes of any kind, `$`, backticks — is
+/// ever parsed as PowerShell.
+fn exclusion_call(cmdlet: &str, dirs: &[&str]) -> String {
     let paths = dirs
         .iter()
         .map(|dir| {
@@ -84,7 +76,40 @@ fn elevated_script(powershell_path: &str, cmdlet: &str, dirs: &[&str]) -> String
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let inner = format!("{} -ExclusionPath @({})", cmdlet, paths);
+    format!("{} -ExclusionPath @({})", cmdlet, paths)
+}
+
+/// What the elevated PowerShell runs: `cmdlet` for `dirs`, after quietly
+/// taking `stale` out of the exclusions.
+///
+/// `stale` is the folders a client was excluded at before it moved. Their
+/// removal is wrapped so it can't fail the call: one Defender no longer lists
+/// is no reason to refuse the new exclusion. The call that matters is last,
+/// because its success is what the process's exit code reports.
+fn exclusion_script(cmdlet: &str, dirs: &[&str], stale: &[&str]) -> String {
+    let main = exclusion_call(cmdlet, dirs);
+    if stale.is_empty() {
+        return main;
+    }
+    format!(
+        "try {{ {} -ErrorAction Stop }} catch {{}}; {}",
+        exclusion_call("Remove-MpPreference", stale),
+        main
+    )
+}
+
+/// The script the non-elevated PowerShell runs to run `inner` in an elevated
+/// one, so there is one UAC prompt however much `inner` does.
+///
+/// No folder ever appears in either script as text. The elevated script is
+/// handed over as `-EncodedCommand`, and inside it each path is decoded from
+/// base64 at run time (see [`exclusion_call`]).
+///
+/// `$ErrorActionPreference = 'Stop'` plus the `catch` is what makes a declined
+/// UAC prompt a failure. Without them Start-Process's error ended only that
+/// statement, `$p` stayed null, and `exit $null` exited 0 — so declining the
+/// prompt reported the exclusion as added and the launcher saved it as done.
+fn elevated_script(powershell_path: &str, inner: &str) -> String {
     format!(
         "$ErrorActionPreference = 'Stop'; \
          try {{ \
@@ -92,37 +117,92 @@ fn elevated_script(powershell_path: &str, cmdlet: &str, dirs: &[&str]) -> String
            exit $p.ExitCode \
          }} catch {{ exit {} }}",
         ps_quote(powershell_path),
-        utf16_base64(&inner),
+        utf16_base64(inner),
         ELEVATION_CANCELLED
     )
 }
 
-/// Every folder `network`'s exclusion covers: its client folder, and for
-/// Stella also the folder its patch DLL is kept in, which is outside the
-/// client folder (see `stella::patch_path`) and is injected into the game — a
-/// quarantined patch is as broken as a quarantined client.
-fn exclusion_dirs(app: &tauri::AppHandle, cfg: &config::Config, network: Network) -> Vec<String> {
-    let mut dirs = vec![config::get_client_dir_for(app, cfg, network)];
-    if network == Network::Stella {
-        if let Some(patch_dir) = crate::stella::patch_path(app).parent() {
-            dirs.push(patch_dir.to_string_lossy().to_string());
-        }
+/// Run `inner` as administrator, through one UAC prompt. The error is what to
+/// tell the user.
+///
+/// Awaited, not blocked on: this waits for an elevated PowerShell process and,
+/// with it, for the user to answer a UAC prompt — which could be a long time
+/// to hold a tokio worker that other commands are queued behind.
+async fn run_elevated(inner: &str) -> Result<(), String> {
+    let powershell_path = get_powershell_path();
+    let script = elevated_script(&powershell_path, inner);
+
+    let mut command = Command::new(&powershell_path);
+    command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    #[cfg(target_os = "windows")]
+    {
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
-    dirs
+
+    match command.output().await {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => Err(match output.status.code() {
+            Some(ELEVATION_CANCELLED) => {
+                "The administrator prompt was declined, so nothing was changed.".to_string()
+            }
+            code => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let detail = stderr.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+                format!(
+                    "Windows Defender did not accept the change (exit code {}). {}",
+                    code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".into()),
+                    detail
+                )
+                .trim()
+                .to_string()
+            }
+        }),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
-/// Apply `cmdlet` (`Add-MpPreference` or `Remove-MpPreference`) to
-/// `network`'s folders, through one UAC prompt.
-///
-/// The network is the one the page names, as for every other install command,
-/// rather than the one last saved to config: the page records the result
-/// against the network it is showing, so the folder has to be that one's.
-async fn change_exclusion(app: &tauri::AppHandle, cmdlet: &str, network: Option<String>) -> Value {
-    let cfg = config::current(app);
-    let network = network.map_or_else(|| cfg.network(), |n| Network::parse(Some(&n)));
-    let dirs = exclusion_dirs(app, &cfg, network);
+/// The network a command is about: the one the page names, as for every other
+/// install command, rather than the one last saved to config — the page
+/// records the result against the network it is showing.
+fn network_of(cfg: &config::Config, network: Option<String>) -> Network {
+    network.map_or_else(|| cfg.network(), |n| Network::parse(Some(&n)))
+}
 
-    if !dirs.iter().all(|d| is_path_safe(d)) {
+/// `dirs` without any folder another network has excluded too: taking it out
+/// for this one would take it out for that one as well.
+fn not_held_by_others(cfg: &config::Config, network: Network, dirs: &[String]) -> Vec<String> {
+    dirs.iter()
+        .filter(|dir| {
+            !Network::ALL
+                .into_iter()
+                .filter(|&other| other != network)
+                .any(|other| cfg.defender_dirs_for(other).iter().any(|d| config::same_dir(d, dir)))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Exclude `network`'s folders (see [`config::exclusion_dirs_for`]) from
+/// Windows Defender through one UAC prompt, and record them as excluded.
+///
+/// Folders on record from before the client moved are taken out in the same
+/// prompt, so the exclusion moves with the client rather than staying behind
+/// on a folder the launcher no longer uses. Answers `{ success, excluded,
+/// movedFrom: [folders taken out] }` or `{ success: false, error }`.
+#[tauri::command]
+pub async fn add_defender_exclusion(app: tauri::AppHandle, network: Option<String>) -> Value {
+    let cfg = config::current(&app);
+    let network = network_of(&cfg, network);
+    let dirs = config::exclusion_dirs_for(&cfg, network, &config::app_data_dir(&app));
+    let stale: Vec<String> = cfg
+        .defender_dirs_for(network)
+        .iter()
+        .filter(|old| !dirs.iter().any(|dir| config::same_dir(dir, old)))
+        .cloned()
+        .collect();
+    let stale = not_held_by_others(&cfg, network, &stale);
+
+    if !dirs.iter().chain(&stale).all(|d| is_path_safe(d)) {
         return json!({ "success": false, "error": "Invalid characters in client path." });
     }
 
@@ -140,58 +220,51 @@ async fn change_exclusion(app: &tauri::AppHandle, cmdlet: &str, network: Option<
         });
     }
 
-    let powershell_path = get_powershell_path();
     let dir_refs: Vec<&str> = dirs.iter().map(String::as_str).collect();
-    let script = elevated_script(&powershell_path, cmdlet, &dir_refs);
-
-    let mut command = Command::new(&powershell_path);
-    command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
-    #[cfg(target_os = "windows")]
-    {
-        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let stale_refs: Vec<&str> = stale.iter().map(String::as_str).collect();
+    if let Err(error) = run_elevated(&exclusion_script("Add-MpPreference", &dir_refs, &stale_refs)).await {
+        return json!({ "success": false, "error": error });
     }
 
-    // Awaited, not blocked on: this waits for an elevated PowerShell process
-    // and, with it, for the user to answer a UAC prompt — which could be a long
-    // time to hold a tokio worker that other commands are queued behind.
-    match command.output().await {
-        Ok(output) if output.status.success() => json!({ "success": true }),
-        Ok(output) => {
-            let error = match output.status.code() {
-                Some(ELEVATION_CANCELLED) => {
-                    "The administrator prompt was declined, so nothing was changed.".to_string()
-                }
-                code => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let detail = stderr.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
-                    format!(
-                        "Windows Defender did not accept the change (exit code {}). {}",
-                        code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".into()),
-                        detail
-                    )
-                    .trim()
-                    .to_string()
-                }
-            };
-            json!({ "success": false, "error": error })
-        }
-        Err(e) => json!({ "success": false, "error": e.to_string() }),
-    }
+    // Defender has the folders now, whatever happens here. A record that
+    // couldn't be saved only means they read as not excluded, and the next
+    // launch offers to exclude them again, which is harmless.
+    let recorded = config::update(&app, |cfg| cfg.set_defender_dirs(network, dirs.clone()));
+    json!({
+        "success": true,
+        "excluded": recorded.is_ok(),
+        "dirs": if recorded.is_ok() { dirs } else { Vec::new() },
+        "movedFrom": stale,
+    })
 }
 
-/// Add the Rec Room client directory to the Windows Defender exclusion list.
-///
-/// The command is executed through an elevated (`-Verb RunAs`) PowerShell
-/// process so that the user sees a single UAC prompt.
-#[tauri::command]
-pub async fn add_defender_exclusion(app: tauri::AppHandle, network: Option<String>) -> Value {
-    change_exclusion(&app, "Add-MpPreference", network).await
-}
-
-/// Remove the Rec Room client directory from the Windows Defender exclusion list.
+/// Take the folders on record for `network` back out of Windows Defender's
+/// exclusions, through one UAC prompt. Exactly those: after the client has
+/// moved, they are not the folders it is in now. Answers `{ success,
+/// excluded: false }` or `{ success: false, error }`.
 #[tauri::command]
 pub async fn remove_defender_exclusion(app: tauri::AppHandle, network: Option<String>) -> Value {
-    change_exclusion(&app, "Remove-MpPreference", network).await
+    let cfg = config::current(&app);
+    let network = network_of(&cfg, network);
+    let targets = not_held_by_others(&cfg, network, cfg.defender_dirs_for(network));
+
+    if !targets.iter().all(|d| is_path_safe(d)) {
+        return json!({ "success": false, "error": "Invalid characters in a recorded folder path." });
+    }
+    if !targets.is_empty() {
+        let refs: Vec<&str> = targets.iter().map(String::as_str).collect();
+        if let Err(error) = run_elevated(&exclusion_call("Remove-MpPreference", &refs)).await {
+            return json!({ "success": false, "error": error });
+        }
+    }
+
+    match config::update(&app, |cfg| cfg.set_defender_dirs(network, Vec::new())) {
+        Ok(()) => json!({ "success": true, "excluded": false }),
+        Err(e) => json!({
+            "success": false,
+            "error": format!("The exclusion was removed, but the launcher couldn't record that. {}", e)
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -209,11 +282,30 @@ mod tests {
     #[test]
     fn the_folder_never_appears_in_the_script_as_text() {
         let dir = "C:\\Users\\O\u{2019}Brien\\$(calc)'; Remove-Item C:\\ -Recurse #\\client";
-        let script = elevated_script("C:\\ps.exe", "Add-MpPreference", &[dir, "C:\\data\\stella"]);
-        assert!(!script.contains("Brien"));
-        assert!(!script.contains("calc"));
-        assert!(!script.contains("Remove-Item"));
-        assert!(!script.contains("stella"));
+        let old = "C:\\old\\it's $(notepad)";
+        let inner = exclusion_script("Add-MpPreference", &[dir, "C:\\data\\stella"], &[old]);
+        for script in [inner.clone(), elevated_script("C:\\ps.exe", &inner)] {
+            assert!(!script.contains("Brien"));
+            assert!(!script.contains("calc"));
+            assert!(!script.contains("Remove-Item"));
+            assert!(!script.contains("stella"));
+            assert!(!script.contains("notepad"));
+        }
+    }
+
+    /// The folders a moved client was excluded at go first, and can't fail
+    /// the call: the new exclusion is last, so it is what the exit code says.
+    #[test]
+    fn a_moved_clients_old_folders_go_quietly_before_the_new_ones() {
+        let inner = exclusion_script("Add-MpPreference", &["C:\\new"], &["C:\\old"]);
+        assert!(inner.starts_with("try { Remove-MpPreference -ExclusionPath @("));
+        assert!(inner.contains("-ErrorAction Stop } catch {}; Add-MpPreference -ExclusionPath @("));
+        assert!(inner.ends_with(&exclusion_call("Add-MpPreference", &["C:\\new"])));
+        // Nothing to take out: the one call, as before.
+        assert_eq!(
+            exclusion_script("Add-MpPreference", &["C:\\new"], &[]),
+            exclusion_call("Add-MpPreference", &["C:\\new"])
+        );
     }
 
     /// Stella's exclusion covers two folders in one elevated call: both are
@@ -222,7 +314,7 @@ mod tests {
     #[test]
     fn several_folders_go_to_one_exclusion_call() {
         let dirs = ["C:\\data\\client-stella", "C:\\data\\it's stella"];
-        let script = elevated_script("C:\\ps.exe", "Add-MpPreference", &dirs);
+        let script = elevated_script("C:\\ps.exe", &exclusion_call("Add-MpPreference", &dirs));
         // Pull the elevated command back out and decode it, as PowerShell would.
         let encoded = script.split("-EncodedCommand ").nth(1).unwrap().split('\'').next().unwrap();
         let script = format!(
@@ -272,7 +364,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_failed_elevation_is_not_reported_as_success() {
-        let script = elevated_script("C:\\radium-no-such-dir\\missing.exe", "Add-MpPreference", &["C:\\x"]);
+        let script = elevated_script("C:\\radium-no-such-dir\\missing.exe", &exclusion_call("Add-MpPreference", &["C:\\x"]));
         let status = std::process::Command::new(get_powershell_path())
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
             .status()

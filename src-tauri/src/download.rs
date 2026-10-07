@@ -1595,10 +1595,12 @@ async fn uninstall_client_impl(
         return Err("Cannot uninstall while the game is running.".into());
     }
     // A running download or extraction is writing into the folder this would
-    // delete, and would then record an install that is no longer there.
-    if DOWNLOAD_IN_PROGRESS.load(Ordering::SeqCst) {
-        return Err("Cannot uninstall while a download is in progress.".into());
-    }
+    // delete, and would then record an install that is no longer there. Held
+    // for the whole uninstall rather than only checked: one started while the
+    // files were being deleted did exactly that, and the game could be
+    // launched from a folder half gone.
+    let _guard = claim_client_task()
+        .map_err(|_| "Cannot uninstall while a download or file check is in progress.".to_string())?;
 
     let cfg = config::current(&app);
     let client_dir = config::get_client_dir_for(&app, &cfg, network);
@@ -1626,11 +1628,11 @@ async fn uninstall_client_impl(
         }
     }
 
-    // Clear relevant config fields.
-    config::update(&app, |cfg| {
-        cfg.clear_client_install(network);
-        cfg.set_defender_excluded(network, false);
-    })?;
+    // Clear relevant config fields. Not the Defender exclusion: that is still
+    // in Windows whether or not the files are, and clearing it here is what
+    // used to leave it there with nothing on record to remove it by. The
+    // uninstall dialog offers to remove it (`remove_defender_exclusion`).
+    config::update(&app, |cfg| cfg.clear_client_install(network))?;
     if network == Network::Stella {
         crate::stella::remove_patch(&app);
     }
@@ -1716,12 +1718,18 @@ pub async fn check_install(
         "clientBuild": cfg.client_build_for(network),
         "requiredBuild": REQUIRED_CLIENT_BUILD,
         // Stella's patch lives outside the client folder, so an antivirus has
-        // to be told about both. See `defender::exclusion_dirs`.
+        // to be told about both. See `config::exclusion_dirs_for`.
         "patchDir": (network == Network::Stella).then(|| {
             crate::stella::patch_path(&app)
                 .parent()
                 .map(|d| d.to_string_lossy().to_string())
-        }).flatten()
+        }).flatten(),
+        // Whether this client's folders are excluded from Windows Defender,
+        // and which folders the launcher has excluded for this network (the
+        // ones it would take out, which differ after the client has moved).
+        // Worked out by the backend; the page's own copy can be stale.
+        "avExcluded": cfg.defender_excluded_for(network),
+        "defenderDirs": cfg.defender_dirs_for(network),
     }))
 }
 

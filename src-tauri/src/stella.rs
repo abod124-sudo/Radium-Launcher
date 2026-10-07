@@ -24,6 +24,8 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tauri::Emitter;
@@ -63,6 +65,21 @@ const PROGRESS_EVENT: &str = "stella-patch-progress";
 /// One patch update at a time.
 static UPDATING: AtomicBool = AtomicBool::new(false);
 
+/// The patch as the last check that offered an update downloaded it, and
+/// when.
+///
+/// Stella serves the patch with no ETag, no Last-Modified and no byte ranges
+/// (measured 2026-10-07), so nothing short of the whole file says whether it
+/// has changed, and every check downloads it. UPDATE, pressed after the check
+/// that offered it, installs these same bytes rather than fetching the file a
+/// second time, which also makes what it installs exactly the build that check
+/// reported. Kept only while an update is on offer, and taken by the install
+/// that uses it.
+static OFFERED: Mutex<Option<(Instant, Vec<u8>)>> = Mutex::new(None);
+
+/// How long a check's download stands in for a fresh one.
+const OFFER_FRESH: Duration = Duration::from_secs(10 * 60);
+
 struct UpdatingGuard;
 impl Drop for UpdatingGuard {
     fn drop(&mut self) {
@@ -80,7 +97,7 @@ pub fn is_pinned(sha256: &str) -> bool {
 /// reinstall of the client can't lose it and a folder picked by the user never
 /// holds a file the launcher injects.
 pub fn patch_path(app: &tauri::AppHandle) -> PathBuf {
-    config::app_data_dir(app).join("stella").join(PATCH_FILE)
+    config::stella_patch_dir(&config::app_data_dir(app)).join(PATCH_FILE)
 }
 
 /// Whether `bytes` is a 64-bit Windows DLL — the only thing that can load into
@@ -239,10 +256,14 @@ pub async fn stella_patch_status(app: tauri::AppHandle) -> Value {
     match fetch_patch(|_, _| {}).await {
         Ok(bytes) => {
             let latest = sha256_of(&bytes);
+            let update_available = !installed || !crate::download::digest_matches(&latest, &accepted);
+            if let Ok(mut offered) = OFFERED.lock() {
+                *offered = update_available.then(|| (Instant::now(), bytes));
+            }
             json!({
                 "success": true,
                 "installed": installed,
-                "updateAvailable": !installed || !crate::download::digest_matches(&latest, &accepted),
+                "updateAvailable": update_available,
                 "latestSha256": latest,
                 "installedSha256": accepted,
                 "latestPinned": is_pinned(&latest),
@@ -285,19 +306,32 @@ async fn update_patch(app: &tauri::AppHandle) -> Result<String, String> {
     }
 
     let _ = app.emit(PROGRESS_EVENT, json!({ "phase": "download", "pct": 0 }));
-    let mut last_pct = -1i64;
-    let bytes = fetch_patch(|done, total| {
-        if total == 0 {
-            return;
+    // The build the check that offered this update downloaded, if it was a
+    // moment ago (see OFFERED); else the current one, fetched now.
+    let offered = OFFERED
+        .lock()
+        .ok()
+        .and_then(|mut offered| offered.take())
+        .filter(|(at, _)| at.elapsed() < OFFER_FRESH)
+        .map(|(_, bytes)| bytes);
+    let bytes = match offered {
+        Some(bytes) => bytes,
+        None => {
+            let mut last_pct = -1i64;
+            fetch_patch(|done, total| {
+                if total == 0 {
+                    return;
+                }
+                // Held below 100 until the file is in place.
+                let pct = ((done as f64 / total as f64) * 99.0) as i64;
+                if pct != last_pct {
+                    last_pct = pct;
+                    let _ = app.emit(PROGRESS_EVENT, json!({ "phase": "download", "pct": pct }));
+                }
+            })
+            .await?
         }
-        // Held below 100 until the file is in place.
-        let pct = ((done as f64 / total as f64) * 99.0) as i64;
-        if pct != last_pct {
-            last_pct = pct;
-            let _ = app.emit(PROGRESS_EVENT, json!({ "phase": "download", "pct": pct }));
-        }
-    })
-    .await?;
+    };
 
     let _ = app.emit(PROGRESS_EVENT, json!({ "phase": "install", "pct": 99 }));
     let app_for_write = app.clone();
@@ -445,7 +479,7 @@ mod inject {
             std::thread::sleep(POLL);
         }
         // The handle from CreateProcess carries full access to the process.
-        load_library(child.as_raw_handle() as HANDLE, patch)
+        load_library(child.as_raw_handle() as HANDLE, child.id(), patch)
     }
 
     /// Whether process `pid` has a module named `name` loaded.
@@ -480,8 +514,9 @@ mod inject {
         }
     }
 
-    /// Have `process` load the DLL at `dll` with `LoadLibraryW`.
-    fn load_library(process: HANDLE, dll: &Path) -> Result<(), String> {
+    /// Have `process` (whose id is `pid`) load the DLL at `dll` with
+    /// `LoadLibraryW`.
+    fn load_library(process: HANDLE, pid: u32, dll: &Path) -> Result<(), String> {
         let wide: Vec<u16> = dll
             .as_os_str()
             .to_string_lossy()
@@ -523,8 +558,14 @@ mod inject {
                     return Err("The patch took too long to load.".into());
                 }
                 // The thread's exit code is the low half of the module handle
-                // LoadLibraryW returned: zero means it failed.
-                if !got_code || code == 0 {
+                // LoadLibraryW returned. Zero means it failed — or, about once
+                // in 65,536 loads, that the patch landed at an address whose
+                // low 32 bits are all zero (a module base is only 64 KB
+                // aligned). The game's module list tells the two apart, rather
+                // than closing a game that loaded its patch fine.
+                let loaded = (got_code && code != 0)
+                    || dll.file_name().is_some_and(|name| has_module(pid, &name.to_string_lossy()));
+                if !loaded {
                     return Err("Windows refused to load the patch. An antivirus may have blocked it.".into());
                 }
                 Ok(())

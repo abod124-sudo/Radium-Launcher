@@ -116,8 +116,28 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
         })
     });
 
+    // The installer's signature, published beside it as `<installer>.sig` by
+    // `npm run build` (scripts/sign-update.mjs). Without one the release is
+    // offered as a page to download from, as a release with no installer is,
+    // and never installed from here: see `download_update`.
+    let signature_url = asset
+        .and_then(|a| a["name"].as_str())
+        .and_then(|name| {
+            let sig_name = format!("{name}.sig");
+            release["assets"]
+                .as_array()?
+                .iter()
+                .find(|s| s["name"].as_str() == Some(sig_name.as_str()))
+        })
+        .and_then(|s| s["browser_download_url"].as_str())
+        .filter(|url| is_official_release_asset(url))
+        .unwrap_or("")
+        .to_string();
+    let signed = !signature_url.is_empty();
+
     let download_url = asset
         .and_then(|a| a["browser_download_url"].as_str())
+        .filter(|_| signed)
         .unwrap_or("")
         .to_string();
 
@@ -133,8 +153,11 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
 
     // What `download_update` will accept: this installer, checked against this
     // digest — not whatever the page hands back.
-    *OFFERED.lock().unwrap_or_else(|e| e.into_inner()) = (has_update && !download_url.is_empty())
-        .then(|| Offer { url: download_url.clone(), digest: download_digest.clone() });
+    *OFFERED.lock().unwrap_or_else(|e| e.into_inner()) = (has_update && !download_url.is_empty()).then(|| Offer {
+        url: download_url.clone(),
+        digest: download_digest.clone(),
+        signature_url: signature_url.clone(),
+    });
 
     json!({
         "hasUpdate": has_update,
@@ -143,6 +166,9 @@ pub async fn check_for_update(app: tauri::AppHandle) -> serde_json::Value {
         "releaseUrl": release_url,
         "downloadUrl": download_url,
         "downloadDigest": download_digest,
+        // False for a release published without its installer's signature,
+        // which is offered as its page instead (`downloadUrl` is empty).
+        "signed": signed,
         "releaseNotes": release_notes
     })
 }
@@ -179,11 +205,70 @@ fn is_official_release_asset(url: &str) -> bool {
         && segments[4..].iter().all(|s| !s.is_empty())
 }
 
-/// The installer the last update check offered, and the digest GitHub
-/// published for it.
+/// The installer the last update check offered, the digest GitHub published
+/// for it, and where its signature is.
 struct Offer {
     url: String,
     digest: String,
+    signature_url: String,
+}
+
+/// The public half of the key every launcher installer is signed with, as
+/// `tauri signer generate` writes it (`radium-launcher-updates.key.pub`): the
+/// base64 of a minisign public key file. Key id C37ABF0654950DCF.
+///
+/// The private half never leaves the developer's PC
+/// (`%USERPROFILE%\.tauri\radium-launcher-updates.key`); `npm run build` signs
+/// the installer with it (scripts/sign-update.mjs). Everything else about an
+/// update — the release, its installer, the digest GitHub publishes — comes
+/// from the GitHub account, so anyone who got into that account could publish
+/// an installer and a digest that agree. They could not sign it.
+///
+/// Replacing this key strands every launcher that has the old one: they can
+/// no longer update themselves, and need the new version installed by hand.
+const UPDATE_PUBLIC_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMzN0FCRjA2NTQ5NTBEQ0YKUldUUERaVlVCcjk2d3o5R25ZYVM5cGYxVDBxMDZMcXJwcjhINENXN0FWVjU0eERBTEVWUHEzRlMK";
+
+/// Largest signature file accepted. A real one is about 400 bytes.
+const MAX_SIGNATURE_BYTES: u64 = 4096;
+
+/// Check `installer` against `signature`, the text of its `.sig` file as
+/// `tauri signer sign` writes it (base64 of a minisign signature file), and
+/// [`UPDATE_PUBLIC_KEY`]. The error is what to tell the user.
+fn verify_update_signature(installer: &[u8], signature: &str) -> Result<(), String> {
+    use base64::Engine;
+    let decode = |text: &str| {
+        base64::engine::general_purpose::STANDARD
+            .decode(text.trim())
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+    };
+    let key = decode(UPDATE_PUBLIC_KEY)
+        .and_then(|text| minisign_verify::PublicKey::decode(&text).ok())
+        .ok_or("The launcher's update key is unreadable. Download the update from its release page instead.")?;
+    let signature = decode(signature)
+        .and_then(|text| minisign_verify::Signature::decode(&text).ok())
+        .ok_or("The update's signature is unreadable, so it was not installed.")?;
+    key.verify(installer, &signature, false).map_err(|_| {
+        "The update isn't signed with the launcher's key, so it was not installed. \
+         Download it from the release page only if you trust where it came from."
+            .to_string()
+    })
+}
+
+/// Fetch an installer's `.sig` file.
+async fn fetch_signature(client: &reqwest::Client, url: &str) -> Result<String, String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download the update's signature: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!("The update's signature couldn't be downloaded (HTTP {}).", response.status().as_u16()));
+    }
+    let bytes = crate::server::read_capped(response, MAX_SIGNATURE_BYTES)
+        .await
+        .map_err(|_| "The update's signature is far larger than a signature should be.".to_string())?;
+    String::from_utf8(bytes).map_err(|_| "The update's signature is unreadable, so it was not installed.".to_string())
 }
 
 /// Set by [`check_for_update`], required by [`download_update`].
@@ -256,13 +341,16 @@ pub async fn download_update(
         return Err("Untrusted update download URL.".into());
     }
     // And to the one the last check offered. See [`OFFERED`].
-    let digest = {
+    let (digest, signature_url) = {
         let offered = OFFERED.lock().unwrap_or_else(|e| e.into_inner());
         match offered.as_ref() {
-            Some(offer) if offer.url == url => offer.digest.clone(),
+            Some(offer) if offer.url == url => (offer.digest.clone(), offer.signature_url.clone()),
             _ => return Err("That isn't the update the launcher last found. Check for updates again.".into()),
         }
     };
+    if !is_official_release_asset(&signature_url) {
+        return Err("The update isn't signed, so it can't be installed from here. Download it from its release page instead.".into());
+    }
 
     // Unique per run. A fixed name here is a file another process running as
     // this user can replace in the window between writing the installer and
@@ -287,9 +375,8 @@ pub async fn download_update(
     // `https_only` covers the redirects, which `is_official_release_asset`
     // cannot see: GitHub bounces a release asset to its object storage, and
     // without this a hop to plain http would be followed and the bytes could
-    // be rewritten in transit. What arrives here is executed and then elevated
-    // by NSIS, and the digest below is fail-open when the API doesn't publish
-    // one — so the transport is the only guarantee left in that case.
+    // be rewritten in transit. What arrives here is executed, so the transport
+    // is held to that even though the signature below is what decides.
     let client = reqwest::Client::builder()
         .https_only(true)
         .connect_timeout(std::time::Duration::from_secs(15))
@@ -318,8 +405,8 @@ pub async fn download_update(
     // publishes the asset digest alongside the download URL; when it is
     // present, bytes that don't match it are not an installer we are willing to
     // run. When it is absent — an older API response, a release published
-    // before digests existed — this falls through, because failing closed would
-    // break updating entirely on a signal we don't control.
+    // before digests existed — this falls through to the signature, which is
+    // required and is the check that doesn't rest on the GitHub account.
     if !digest.trim().is_empty() {
         let actual = crate::download::sha256_of(&bytes);
         if !crate::download::digest_matches(&actual, &digest) {
@@ -330,6 +417,12 @@ pub async fn download_update(
             ));
         }
     }
+
+    // And the signature, which only the developer's own key can make (see
+    // [`UPDATE_PUBLIC_KEY`]). Required, unlike the digest: an installer that
+    // doesn't verify is never written where it could be run.
+    let signature = fetch_signature(&client, &signature_url).await?;
+    verify_update_signature(&bytes, &signature)?;
 
     // A new file only. The name is unpredictable, but if something did put a
     // file there first, that file is not the one that was just checked.
@@ -374,6 +467,48 @@ pub async fn download_update(
 #[tauri::command(async)]
 pub fn get_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
+}
+
+#[cfg(test)]
+mod signature_tests {
+    use super::verify_update_signature;
+
+    /// `tauri signer sign` with the real key over the bytes `hello radium`,
+    /// as written to the `.sig` file (2026-10-07).
+    const SIGNED: &[u8] = b"hello radium";
+    const SIGNATURE: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUERaVlVCcjk2dzFHU3JZV1NqQ2pSbk4xTzFtR1RHZHljcTJjeTBTSlI4R0VjRmxsVy9OWTdFMjlDZFY0MFN6QmVDc0s0Ulc1bmgzL3RVUHBhVTFUbzdiNDlaQkNDK3c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMzkyNTIwCWZpbGU6cmFkaXVtLXNpZy10ZXN0LmJpbgpWVStwLzRraDlNaGR2NGlKN2dmUENJd0FKWXNDdkhFQ3RWSklmWG4rbU5iWW0wVjROZFhoV3l0NkFqR1V6Q1ByaGVpK1l1UE1mK1hrbDdhYmxDRVdDZz09Cg==";
+
+    #[test]
+    fn what_the_signer_signed_verifies() {
+        assert_eq!(verify_update_signature(SIGNED, SIGNATURE), Ok(()));
+        // As it arrives from a file, with its line break.
+        assert_eq!(verify_update_signature(SIGNED, &format!("{SIGNATURE}\n")), Ok(()));
+    }
+
+    #[test]
+    fn anything_else_is_refused() {
+        // One byte changed.
+        assert!(verify_update_signature(b"hello radiun", SIGNATURE).is_err());
+        assert!(verify_update_signature(b"", SIGNATURE).is_err());
+        // Not a signature at all, or someone else's.
+        assert!(verify_update_signature(SIGNED, "").is_err());
+        assert!(verify_update_signature(SIGNED, "not base64 !!").is_err());
+        let other = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSb2JoZmRxTWlVMGlMK3V6VGxUeldvY0pnUzNEa3FDUjlBV29SdmF5U0FBUGNoRkNkdXFJODZmZVlUc0NyelJFZGN1VjJTRG9YMHpMbkZhN1ZPNlNvRlBXUDUxU0l5aWdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNjk5OTk5OTk5CWZpbGU6eAo3bmZ3K2U3VjlVWVNZRDFMZ2N0eUd6NmhHM3pJRU5ld0tJSkJFN3Z2QW1OVEdHTnBRQkp6c3lSS0RZTDZFQVNLY2dZR0tXdDJMUzRWa09lckJJb3VEZz09Cg==";
+        assert!(verify_update_signature(SIGNED, other).is_err());
+    }
+
+    /// Before uploading a release: the installer verifies against its .sig the
+    /// way the launcher will check it.
+    ///
+    /// `RADIUM_INSTALLER="<path to ...-setup.exe>" cargo test -- --ignored a_built_installer`
+    #[test]
+    #[ignore = "checks a built installer named by RADIUM_INSTALLER"]
+    fn a_built_installer_verifies_against_its_signature() {
+        let installer = std::env::var("RADIUM_INSTALLER").expect("set RADIUM_INSTALLER to a built -setup.exe");
+        let bytes = std::fs::read(&installer).expect("the installer");
+        let signature = std::fs::read_to_string(format!("{installer}.sig")).expect("its .sig (npm run sign:update)");
+        assert_eq!(verify_update_signature(&bytes, &signature), Ok(()));
+    }
 }
 
 #[cfg(test)]

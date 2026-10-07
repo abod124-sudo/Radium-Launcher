@@ -252,6 +252,8 @@ pub fn previous_session() -> Option<(String, Ending)> {
 // page and written to this file). Lines from before the page is listening
 // wait in `pending` until it asks for them with [`log_backend_ready`].
 
+// Tests have no page to send it to (see `send_to_page`).
+#[cfg_attr(test, allow(dead_code))]
 const BACKEND_EVENT: &str = "backend-log";
 
 /// The most lines kept for a page that hasn't started listening yet.

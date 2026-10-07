@@ -65,14 +65,16 @@ const SERVICES: &[(&str, &str, &str)] = &[
 const NAME_SERVER_TTL: Duration = Duration::from_secs(60 * 60);
 const NAME_SERVER_RETRY: Duration = Duration::from_secs(60);
 
-/// The last name-server answer (service key → base URL), and when it lapses.
-static SERVICE_URLS: Mutex<Option<(Arc<std::collections::HashMap<String, String>>, std::time::Instant)>> =
-    Mutex::new(None);
+/// A name-server answer: service key → base URL.
+type ServiceMap = Arc<std::collections::HashMap<String, String>>;
+
+/// The last name-server answer, and when it lapses.
+static SERVICE_URLS: Mutex<Option<(ServiceMap, std::time::Instant)>> = Mutex::new(None);
 
 /// The name server's map, fetched at most once per [`NAME_SERVER_TTL`]. Only
 /// https URLs on Stella's own domain are taken from it, since the session token
 /// goes wherever it points; anything else falls back to [`SERVICES`].
-async fn service_urls() -> Arc<std::collections::HashMap<String, String>> {
+async fn service_urls() -> ServiceMap {
     if let Some((map, until)) = SERVICE_URLS.lock().ok().and_then(|g| g.clone()) {
         if std::time::Instant::now() < until {
             return map;
@@ -215,10 +217,18 @@ fn html_title(body: &[u8]) -> Option<String> {
 }
 
 /// Whether `url` is https on `stellaonline.org` or one of its subdomains.
+///
+/// Judged on the parsed URL, which is what the request is then sent to. Cut
+/// out of the string by hand, the host was everything up to the first `/`,
+/// so `https://evil.example\.stellaonline.org/` passed — a URL parser reads
+/// that `\` as a `/`, and the session token went to `evil.example`.
 fn on_stella(url: &str) -> bool {
-    let Some(rest) = url.strip_prefix("https://") else { return false };
-    let host = rest.split(['/', '?', '#']).next().unwrap_or("").to_ascii_lowercase();
-    host == "stellaonline.org" || host.ends_with(".stellaonline.org")
+    let Ok(parsed) = reqwest::Url::parse(url) else { return false };
+    let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    parsed.scheme() == "https"
+        && parsed.username().is_empty()
+        && parsed.password().is_none()
+        && (host == "stellaonline.org" || host.ends_with(".stellaonline.org"))
 }
 
 /// Absolute URL for an API `path` such as `/account/bulk?id=1`: its first
@@ -3090,6 +3100,10 @@ mod tests {
         assert!(!on_stella("http://auth.stellaonline.org/auth"));
         assert!(!on_stella("https://stellaonline.org.evil.com/"));
         assert!(!on_stella("https://google.com/generate_204"));
+        // Read by a URL parser as host `evil.com`, path `/.stellaonline.org`.
+        assert!(!on_stella(r"https://evil.com\.stellaonline.org/auth"));
+        assert!(!on_stella("https://auth.stellaonline.org@evil.com/auth"));
+        assert!(!on_stella("https://user@auth.stellaonline.org/auth"));
     }
 
     #[test]

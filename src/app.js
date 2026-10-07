@@ -249,20 +249,39 @@ function configInstallDir(network = activeNetwork) {
   return networkState(network).installDir || '';
 }
 
-/// Whether `network`'s client folder has been excluded from Windows Defender
-/// (or, with a third-party antivirus, the warning acknowledged for it).
+/// Whether `network`'s client folders, where they are now, are excluded from
+/// Windows Defender. The backend works it out from the folders it excluded,
+/// so a client moved elsewhere reads as not excluded; the page only mirrors
+/// it (syncAvState). A third-party antivirus is never excluded, only
+/// acknowledged, in `thirdPartyAvAcknowledged`.
 ///
 /// Per network, like the folder it describes: Radium's is the flat
-/// `config.defenderExcluded`, Vanilla's `config.vanilla.defenderExcluded`, and
-/// each network's uninstall clears its own. A single flat flag meant excluding
-/// Radium's folder also skipped the check for Vanilla's, which never was.
+/// `config.defenderExcluded`, Vanilla's `config.vanilla.defenderExcluded`. A
+/// single flat flag meant excluding Radium's folder also skipped the check for
+/// Vanilla's, which never was.
 function avExcluded(network = activeNetwork) {
   if (!config) return false;
   return networkState(network).defenderExcluded === true;
 }
 
-function setAvExcluded(value, network = activeNetwork) {
-  setNetworkState(network, { defenderExcluded: value });
+/// Whether the launcher has folders of `network`'s excluded from Windows
+/// Defender: its current ones, or ones from before the client moved, which
+/// the next exclusion takes out. The backend keeps this (`defenderDirs`) and
+/// works out `defenderExcluded` from it; see refresh_defender_flags in
+/// config.rs.
+function avExclusionOnRecord(network = activeNetwork) {
+  const dirs = networkState(network).defenderDirs;
+  return Array.isArray(dirs) && dirs.length > 0;
+}
+
+/// Take the backend's word for `network`'s Defender exclusion: whether its
+/// folders are excluded, and which folders are on record.
+function syncAvState(network, excluded, dirs) {
+  setNetworkState(network, {
+    defenderExcluded: excluded === true,
+    defenderDirs: Array.isArray(dirs) ? dirs : [],
+  });
+  if (network === activeNetwork) setExcludeAvLabel(avExcluded());
 }
 
 /// Placeholder for the log/modal text before checkInstall() has resolved the
@@ -3044,12 +3063,21 @@ function logInstallState(kind, msg, level) {
 let outdatedPromptKey = '';
 
 async function checkInstall() {
+  const network = activeNetwork;
   let result = null;
   try {
     result = await window.radium?.checkInstall();
   } catch (e) {
     console.error('checkInstall error:', e);
   }
+  // An answer about a network switched away from while it was on its way.
+  // A settings autosave and a network switch can both ask at once, and the
+  // old network's answer used to land last and paint its install state over
+  // the new one's. The switch runs a check of its own for the new network.
+  if (network !== activeNetwork) return;
+  // The Defender exclusion follows the folder, which a settings change or
+  // another window may have moved since the page last looked.
+  if (result) syncAvState(network, result.avExcluded, result.defenderDirs);
   isInstalled = result?.installed ?? false;
   needsRepair = !isInstalled && !!result?.needsRepair;
   if (result?.patchDir) stellaPatchDir = result.patchDir;
@@ -4235,10 +4263,20 @@ $('btnUninstall')?.addEventListener('click', () => {
     toast('Cannot uninstall while the game is running.', 'error');
     return;
   }
+  const label = networkInfo().label;
+  const question = $('uninstallQuestion');
+  if (question) question.textContent = `Are you sure you want to uninstall the ${label.charAt(0)}${label.slice(1).toLowerCase()} client?`;
+  // Offered only when there is an exclusion to remove, and ticked: a folder
+  // left excluded with nothing in it is one Defender never scans again.
+  const avRow = $('uninstallAvRow');
+  if (avRow) avRow.style.display = avExclusionOnRecord() ? 'flex' : 'none';
+  const removeAv = $('uninstallRemoveAv');
+  if (removeAv) removeAv.checked = true;
   showModal(uninstallModal);
 });
 
 $('uninstallConfirmBtn')?.addEventListener('click', async () => {
+  const removeAv = avExclusionOnRecord() && $('uninstallRemoveAv')?.checked === true;
   closeUninstallModal();
   addLog('Uninstalling client...', 'info', 'install');
   toast('Uninstalling...', 'info');
@@ -4247,6 +4285,9 @@ $('uninstallConfirmBtn')?.addEventListener('click', async () => {
   if (result?.success) {
     addLog('Client uninstalled successfully.', 'ok', 'install');
     toast(`${networkInfo().label} client uninstalled.`, 'ok');
+    if (removeAv && !(await removeAvExclusion())) {
+      addLog('Windows Defender still excludes the client folder. Remove it in Windows Security (Virus & threat protection → Exclusions), or with UNExclude AV after reinstalling.', 'warn', 'game');
+    }
     await loadConfig();
     await checkInstall();
   } else {
@@ -4275,9 +4316,30 @@ function installRowNetwork(btn, attr) {
   return NETWORKS[name] ? name : activeNetwork;
 }
 
+/// After `network`'s install folder moved: the Defender exclusion stays on the
+/// old folder (the backend no longer counts the new one as excluded), so take
+/// the backend's word for it and say so. The next Exclude AV, or the check
+/// when PLAY is pressed, moves it across.
+async function noteAvAfterFolderMove(network) {
+  if (!avExclusionOnRecord(network)) return;
+  let fresh = null;
+  try {
+    fresh = await window.radium?.getConfig();
+  } catch (e) {
+    console.error('getConfig error:', e);
+  }
+  if (!fresh) return;
+  const state = network === 'radium' ? fresh : (fresh[network] || {});
+  syncAvState(network, state.defenderExcluded, state.defenderDirs);
+  if (avExclusionOnRecord(network) && !avExcluded(network)) {
+    addLog(`Windows Defender still excludes ${networkInfo(network).label}'s old folder (${networkState(network).defenderDirs.join(', ')}). Excluding the new one, from Exclude AV or when you press PLAY, takes that off.`, 'warn', 'game');
+  }
+}
+
 /// A folder change only invalidates launcher state when it moved the client
 /// the launcher is currently pointed at.
 async function afterInstallDirChange(network) {
+  await noteAvAfterFolderMove(network);
   if (network !== activeNetwork) return;
   // The client at this new location may be a different install entirely — any
   // cached update-check result is meaningless here, so force a fresh check.
@@ -4420,12 +4482,14 @@ async function executeExcludeAv() {
   toast('Please approve the Administrator prompt...', 'info');
   const result = await window.radium?.addDefenderExclusion();
   if (result && result.success) {
-    setAvExcluded(true);
-    await window.radium?.saveConfig(config);
-    setExcludeAvLabel(true);
+    // The backend has recorded the folders; nothing for the page to save.
+    syncAvState(activeNetwork, result.excluded !== false, result.dirs);
     toast('Defender exclusion added!', 'ok');
     addLog('Exclusion successfully added to Windows Defender.', 'ok', 'game');
-    
+    if (result.movedFrom?.length) {
+      addLog(`Took the exclusion off the folder the client was in before: ${result.movedFrom.join(', ')}`, 'info', 'game');
+    }
+
     // Check if we need to proceed to Smart App Control and Steam check and launch
     if (launchAfterExclusion) {
       launchAfterExclusion = false;
@@ -4438,6 +4502,26 @@ async function executeExcludeAv() {
     launchAfterExclusion = false;
     isGameLaunching = false;
   }
+}
+
+/// Take the active network's Defender exclusion back out: exactly the folders
+/// the backend has on record, through one administrator prompt. Returns
+/// whether it worked.
+async function removeAvExclusion() {
+  addLog('Requesting Windows Defender exclusion removal for client folder...', 'info', 'game');
+  toast('Please approve the Administrator prompt...', 'info');
+  const network = activeNetwork;
+  const result = await window.radium?.removeDefenderExclusion();
+  if (result && result.success) {
+    syncAvState(network, false, []);
+    toast('Defender exclusion removed!', 'ok');
+    addLog('Exclusion successfully removed from Windows Defender.', 'ok', 'game');
+    return true;
+  }
+  const err = result?.error || 'UAC elevation cancelled or failed';
+  toast('Failed to remove exclusion.', 'error');
+  addLog(`Exclusion removal failed: ${err}`, 'error', 'game');
+  return false;
 }
 
 $('btnExcludeAvConfirm')?.addEventListener('click', () => {
@@ -4553,46 +4637,11 @@ $('btnExcludeAv')?.addEventListener('click', async () => {
   const btn = $('btnExcludeAv');
   if (!btn) return;
 
-  const isCurrentlyExcluded = avExcluded();
-
-  if (isCurrentlyExcluded) {
-    // The "excluded" flag covers two different situations:
-    //  • a real Windows Defender exclusion was added (Defender-only machine), or
-    //  • a third-party AV was merely acknowledged (nothing was added to Defender).
-    // Only the first case has a Defender exclusion to remove. For a third-party
-    // AV there is nothing to Remove-MpPreference, so skip the pointless UAC
-    // prompt and just clear the acknowledgement locally.
-    let avs = [];
-    try {
-      avs = await window.radium?.detectAntivirus() || [];
-    } catch (e) {
-      console.error('detectAntivirus error:', e);
-    }
-    const hasThirdParty = avs.some(av => !av.isDefender);
-
-    if (hasThirdParty) {
-      setAvExcluded(false);
-      await window.radium?.saveConfig(config);
-      setExcludeAvLabel(false);
-      toast('AV acknowledgement cleared.', 'ok');
-      addLog('Third-party AV acknowledgement cleared (no Defender exclusion to remove).', 'info', 'game');
-      return;
-    }
-
-    addLog('Requesting Windows Defender exclusion removal for client folder...', 'info', 'game');
-    toast('Please approve the Administrator prompt...', 'info');
-    const result = await window.radium?.removeDefenderExclusion();
-    if (result && result.success) {
-      setAvExcluded(false);
-      await window.radium?.saveConfig(config);
-      setExcludeAvLabel(false);
-      toast('Defender exclusion removed!', 'ok');
-      addLog('Exclusion successfully removed from Windows Defender.', 'ok', 'game');
-    } else {
-      const err = result?.error || 'UAC elevation cancelled or failed';
-      toast('Failed to remove exclusion.', 'error');
-      addLog(`Exclusion removal failed: ${err}`, 'error', 'game');
-    }
+  if (avExcluded()) {
+    // The flag means a real Defender exclusion now: the backend works it out
+    // from the folders it excluded (a third-party antivirus is only ever
+    // acknowledged, in thirdPartyAvAcknowledged), so there is one to remove.
+    await removeAvExclusion();
   } else {
     // Detect third party AV
     const avs = await window.radium?.detectAntivirus() || [];
@@ -5774,7 +5823,12 @@ function showUpdateModal(info) {
   const status = $('updateStatus');
   if (status) status.style.display = 'none';
   const nowBtn = $('updateNowBtn');
-  if (nowBtn) { nowBtn.disabled = false; nowBtn.textContent = '⬇ Update Now'; }
+  // No installer to run from here (a release without one, or without its
+  // signature): the button opens the release page instead, and says so.
+  if (nowBtn) { nowBtn.disabled = false; nowBtn.textContent = info.downloadUrl ? '⬇ Update Now' : 'Open Release Page'; }
+  if (info.signed === false) {
+    addLog(`${info.latestVersion} was published without its signature, so the launcher won't install it itself. Its release page has the installer.`, 'warn', 'update');
+  }
   showModal($('updateModal'));
 }
 

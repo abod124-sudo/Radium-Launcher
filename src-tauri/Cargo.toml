@@ -34,6 +34,11 @@ tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 # Integrity checks on the two things this launcher downloads and then executes:
 # the game client zip and its own installer. See download.rs / updater.rs.
 sha2 = "0.10"
+# The launcher's own updates are signed with a key that never leaves the
+# developer's PC, and an installer that doesn't verify is not run (updater.rs).
+# The same verifier, and the same signature format, as Tauri's own updater.
+minisign-verify = "0.2"
+base64 = "0.22"
 rfd = "0.15"
 # Wipes the Vanilla session cookie from memory when it is dropped.
 zeroize = "1"

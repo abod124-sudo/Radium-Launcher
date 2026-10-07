@@ -1637,12 +1637,19 @@
         <button class="modal-close-btn" id="uninstallModalClose">✕</button>
       </div>
       <div class="modal-body">
-        <p style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
+        <p id="uninstallQuestion" style="font-size: 13px; line-height: 1.5; color: var(--text); font-weight: bold;">
           Are you sure you want to uninstall the Radium client?
         </p>
         <p style="font-size: 12px; line-height: 1.4; color: var(--text); margin-top: 8px;">
           This will delete all downloaded game files. You will need to download them again if you want to play.
         </p>
+        <!-- Only while the launcher has the client's folder excluded from
+             Windows Defender (app.js sets display). Left behind, the exclusion
+             would keep the folder unscanned with nothing in it. -->
+        <label id="uninstallAvRow" style="display: none; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--text); cursor: pointer;">
+          <input type="checkbox" id="uninstallRemoveAv" checked style="cursor: pointer;" />
+          Also remove its Windows Defender exclusion (asks for administrator approval)
+        </label>
       </div>
       <div class="modal-footer">
         <button class="modal-btn modal-btn-secondary" id="uninstallCancelBtn">Cancel</button>

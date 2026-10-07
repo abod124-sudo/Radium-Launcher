@@ -2356,6 +2356,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "minisign-verify"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22f9645cb765ea72b8111f36c522475d2daa0d22c957a9826437e97534bc4e9e"
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3141,10 +3147,12 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 name = "radium-launcher"
 version = "4.0.0"
 dependencies = [
+ "base64 0.22.1",
  "crc32fast",
  "flate2",
  "futures-util",
  "image",
+ "minisign-verify",
  "regex",
  "reqwest 0.12.28",
  "rfd",

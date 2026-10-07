@@ -300,6 +300,8 @@ pub struct VanillaState {
     pub client_etag: String,
     pub client_build: String,
     pub defender_excluded: bool,
+    /// See [`Config::defender_dirs`].
+    pub defender_dirs: Vec<String>,
 }
 
 /// Stella-specific install state.
@@ -319,6 +321,8 @@ pub struct StellaState {
     pub client_etag: String,
     pub client_build: String,
     pub defender_excluded: bool,
+    /// See [`Config::defender_dirs`].
+    pub defender_dirs: Vec<String>,
     /// Lowercase hex SHA-256 of the patch DLL the user has accepted: a pinned
     /// build, or one they installed by pressing UPDATE. Launch injects the
     /// patch on disk only if it still hashes to this.
@@ -342,7 +346,21 @@ pub struct Config {
     pub minimize_on_launch: bool,
     pub auto_update: bool,
     pub install_dir: String,
+    /// Whether every folder Radium's exclusion has to cover (see
+    /// [`exclusion_dirs_for`]) is excluded from Windows Defender. Worked out
+    /// from [`Config::defender_dirs`] on every load and save rather than
+    /// trusted from the page: see [`Config::refresh_defender_flags`].
     pub defender_excluded: bool,
+    /// The folders the launcher added to Windows Defender's exclusions for
+    /// Radium and has not removed since: exactly what a removal takes out.
+    ///
+    /// The exclusion used to be a bare flag, with the folders worked out
+    /// again from the current install location whenever one was removed. A
+    /// client moved to another folder kept the flag, so the new folder was
+    /// taken as excluded when it wasn't, and the removal took out the new
+    /// folder (which was never in the list) and left the old one excluded for
+    /// good. Uninstalling cleared the flag and left the exclusion behind.
+    pub defender_dirs: Vec<String>,
     /// Whether the user has opted out of the launch-time third-party antivirus
     /// warning ("Don't warn me again"). Distinct from `defender_excluded`, which
     /// tracks a real Windows Defender folder exclusion — a third-party AV can't
@@ -410,8 +428,9 @@ impl Config {
     /// silently revert these to the values it holds (typically the empty
     /// defaults from startup). That is what made a freshly-downloaded client
     /// read as "outdated" on the next check, triggering an endless re-download
-    /// loop. `defender_excluded` is deliberately *not* preserved: the AV-exclude
-    /// UI owns it and must be able to save changes to it.
+    /// loop. The Defender exclusions are the defender commands' too: the
+    /// folders they recorded are kept, and the flag is worked out from them
+    /// when the config is saved (see [`Config::refresh_defender_flags`]).
     pub fn preserve_backend_managed_fields(&mut self, current: &Config) {
         self.client_build = current.client_build.clone();
         self.client_version = current.client_version.clone();
@@ -443,6 +462,11 @@ impl Config {
         // Home's banner pictures likewise (`cmd_set_home_banner`): up to a
         // megabyte each, and never part of a whole-config save.
         self.home.banners = current.home.banners.clone();
+        // What Windows Defender actually has excluded, which only the
+        // defender commands know.
+        for network in Network::ALL {
+            self.set_defender_dirs(network, current.defender_dirs_for(network).to_vec());
+        }
     }
 
     /// The currently selected network.
@@ -483,6 +507,67 @@ impl Config {
             Network::Vanilla => self.vanilla.defender_excluded = value,
             Network::Stella => self.stella.defender_excluded = value,
         }
+    }
+
+    /// The folders the launcher has excluded from Windows Defender for
+    /// `network`. See [`Config::defender_dirs`].
+    pub fn defender_dirs_for(&self, network: Network) -> &[String] {
+        match network {
+            Network::Radium => &self.defender_dirs,
+            Network::Vanilla => &self.vanilla.defender_dirs,
+            Network::Stella => &self.stella.defender_dirs,
+        }
+    }
+
+    pub fn set_defender_dirs(&mut self, network: Network, dirs: Vec<String>) {
+        match network {
+            Network::Radium => self.defender_dirs = dirs,
+            Network::Vanilla => self.vanilla.defender_dirs = dirs,
+            Network::Stella => self.stella.defender_dirs = dirs,
+        }
+    }
+
+    /// Work out each network's `defender_excluded` from what is recorded as
+    /// excluded: true when every folder its exclusion has to cover now (see
+    /// [`exclusion_dirs_for`]) is one of those, or inside one. Returns true if
+    /// a flag changed.
+    ///
+    /// A client moved to another folder therefore stops counting as excluded
+    /// the moment it moves, and the launch check offers to exclude the new
+    /// folder, while the old one stays recorded for that exclusion to take out.
+    pub fn refresh_defender_flags(&mut self, app_data_dir: &std::path::Path) -> bool {
+        let mut changed = false;
+        for network in Network::ALL {
+            let recorded = self.defender_dirs_for(network);
+            let excluded = !recorded.is_empty()
+                && exclusion_dirs_for(self, network, app_data_dir)
+                    .iter()
+                    .all(|dir| recorded.iter().any(|r| is_inside(dir, r)));
+            if excluded != self.defender_excluded_for(network) {
+                self.set_defender_excluded(network, excluded);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Give a flag-only exclusion from an older launcher the folders it was
+    /// made for. Returns true if anything changed.
+    ///
+    /// Before the folders were recorded, a set flag meant the current folders
+    /// had been excluded, so those are the best record there is. Without this
+    /// the flag, worked out from an empty record, would turn off on upgrade and
+    /// the launch check would ask to exclude a folder that already is.
+    pub fn adopt_legacy_defender_flags(&mut self, app_data_dir: &std::path::Path) -> bool {
+        let mut changed = false;
+        for network in Network::ALL {
+            if self.defender_excluded_for(network) && self.defender_dirs_for(network).is_empty() {
+                let dirs = exclusion_dirs_for(self, network, app_data_dir);
+                self.set_defender_dirs(network, dirs);
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// Recorded game executable path for `network`.
@@ -592,6 +677,7 @@ impl Default for Config {
             auto_update: true,
             install_dir: String::new(),
             defender_excluded: false,
+            defender_dirs: Vec::new(),
             third_party_av_acknowledged: false,
             theme: DEFAULT_THEME.to_string(),
             baseline_theme: DEFAULT_THEME.to_string(),
@@ -790,7 +876,7 @@ fn norm_dir(p: &str) -> String {
 /// `app_data_dir()`) that do not agree on separators or casing, so a plain
 /// string compare misses real collisions. Empty is never equal to anything,
 /// including another empty.
-fn same_dir(a: &str, b: &str) -> bool {
+pub(crate) fn same_dir(a: &str, b: &str) -> bool {
     !a.is_empty() && !b.is_empty() && norm_dir(a) == norm_dir(b)
 }
 
@@ -1310,6 +1396,14 @@ fn load_config(app_handle: &tauri::AppHandle) -> (Config, bool) {
     if dedupe_install_dirs_at(&mut config, &data_dir) {
         changed = true;
     }
+    // Last, with the install folders settled: whether each network's are
+    // excluded from Defender depends on where they are.
+    if config.adopt_legacy_defender_flags(&data_dir) {
+        changed = true;
+    }
+    if config.refresh_defender_flags(&data_dir) {
+        changed = true;
+    }
 
     // Persist only when something actually changed, to avoid rewriting
     // config.json on every command that reads the config.
@@ -1324,6 +1418,11 @@ fn load_config(app_handle: &tauri::AppHandle) -> (Config, bool) {
 ///
 /// Updates [`CACHED`] on success, so the memoized copy and the file never
 /// disagree.
+///
+/// Each network's `defender_excluded` is worked out here, from the folders on
+/// record and where the client is now (see [`Config::refresh_defender_flags`]),
+/// whatever the caller set it to: a settings save after the install folder
+/// moved still carries the page's old `true`.
 pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(), String> {
     let config_path = get_config_path(app_handle);
 
@@ -1332,8 +1431,11 @@ pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(),
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
+    let mut config = config.clone();
+    config.refresh_defender_flags(&app_data_dir(app_handle));
+
     let json =
-        serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+        serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
 
     let temp_path = config_path.with_extension("json.tmp");
     write_synced(&temp_path, json.as_bytes()).map_err(|e| e.to_string())?;
@@ -1344,7 +1446,7 @@ pub fn save_config(app_handle: &tauri::AppHandle, config: &Config) -> Result<(),
 
     // Only after the rename succeeded: a failed write must leave the cache
     // holding what is actually on disk, not what we hoped to put there.
-    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(std::sync::Arc::new(config.clone()));
+    *CACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(std::sync::Arc::new(config));
 
     Ok(())
 }
@@ -1448,6 +1550,24 @@ pub fn app_data_dir(app_handle: &tauri::AppHandle) -> PathBuf {
 /// single definition that tests can exercise directly.
 pub fn client_dir_for(config: &Config, network: Network, app_data_dir: &std::path::Path) -> String {
     resolve_install_dir(config.install_dir_for(network), network, app_data_dir)
+}
+
+/// The folder Stella's patch DLL is kept in: in app data, outside every client
+/// folder (see `stella::patch_path`).
+pub fn stella_patch_dir(app_data_dir: &std::path::Path) -> PathBuf {
+    app_data_dir.join("stella")
+}
+
+/// Every folder `network`'s Windows Defender exclusion has to cover: its
+/// client folder, and for Stella also the folder its patch is kept in, which
+/// is injected into the game — a quarantined patch is as broken as a
+/// quarantined client.
+pub fn exclusion_dirs_for(config: &Config, network: Network, app_data_dir: &std::path::Path) -> Vec<String> {
+    let mut dirs = vec![client_dir_for(config, network, app_data_dir)];
+    if network == Network::Stella {
+        dirs.push(stella_patch_dir(app_data_dir).to_string_lossy().to_string());
+    }
+    dirs
 }
 
 /// Where `network`'s client is for an install location of `configured`: its
@@ -1818,17 +1938,92 @@ mod tests {
         assert_eq!(home.banners.stella, "");
     }
 
+    // ── Windows Defender exclusions ─────────────────────────────────────────
+
+    fn defender_data_dir() -> PathBuf {
+        PathBuf::from("C:/data/com.radium.launcher")
+    }
+
     #[test]
-    fn defender_excluded_stays_frontend_owned() {
-        // The AV-exclude UI sets defender_excluded and saves it, so an incoming
-        // `true` must win over a stale `false` on disk (i.e. it is NOT preserved).
-        let on_disk = Config::default(); // defender_excluded == false
+    fn the_folders_defender_excluded_survive_a_stale_settings_save() {
+        let data = defender_data_dir();
+        let mut on_disk = Config::default();
+        on_disk.set_defender_dirs(Network::Radium, exclusion_dirs_for(&on_disk, Network::Radium, &data));
+
+        // The page loaded before the exclusion was added: no folders, flag off.
         let mut incoming = Config::default();
-        incoming.defender_excluded = true;
-
         incoming.preserve_backend_managed_fields(&on_disk);
+        incoming.refresh_defender_flags(&data);
 
-        assert!(incoming.defender_excluded, "frontend-owned field must not be reverted");
+        assert_eq!(incoming.defender_dirs_for(Network::Radium), on_disk.defender_dirs_for(Network::Radium));
+        assert!(incoming.defender_excluded, "the folder on record is the client's, so it is excluded");
+    }
+
+    #[test]
+    fn the_flag_comes_from_the_record_not_from_the_page() {
+        let data = defender_data_dir();
+        // The page says excluded, with nothing on record: nothing is.
+        let mut cfg = Config::default();
+        cfg.defender_excluded = true;
+        assert!(cfg.refresh_defender_flags(&data));
+        assert!(!cfg.defender_excluded);
+    }
+
+    #[test]
+    fn a_client_moved_to_another_folder_is_no_longer_excluded() {
+        let data = defender_data_dir();
+        let mut cfg = Config::default();
+        cfg.set_defender_dirs(Network::Radium, exclusion_dirs_for(&cfg, Network::Radium, &data));
+        cfg.refresh_defender_flags(&data);
+        assert!(cfg.defender_excluded);
+
+        cfg.install_dir = "D:/Games".into();
+        assert!(cfg.refresh_defender_flags(&data));
+        assert!(!cfg.defender_excluded, "D:/Games/Radium was never excluded");
+        // The old folder stays on record, for the next exclusion to take out.
+        assert_eq!(cfg.defender_dirs_for(Network::Radium).len(), 1);
+    }
+
+    #[test]
+    fn a_folder_inside_an_excluded_one_counts_as_excluded() {
+        // An exclusion made when a custom location held the client directly
+        // still covers the network's subfolder of it.
+        let data = defender_data_dir();
+        let mut cfg = Config::default();
+        cfg.install_dir = "D:/Games".into();
+        cfg.set_defender_dirs(Network::Radium, vec!["D:\\Games".into()]);
+        cfg.refresh_defender_flags(&data);
+        assert!(cfg.defender_excluded);
+    }
+
+    #[test]
+    fn stella_is_excluded_only_with_its_patch_folder() {
+        let data = defender_data_dir();
+        let mut cfg = Config::default();
+        let client_only = vec![client_dir_for(&cfg, Network::Stella, &data)];
+        cfg.set_defender_dirs(Network::Stella, client_only);
+        cfg.refresh_defender_flags(&data);
+        assert!(!cfg.stella.defender_excluded, "the patch folder isn't excluded");
+
+        cfg.set_defender_dirs(Network::Stella, exclusion_dirs_for(&cfg, Network::Stella, &data));
+        cfg.refresh_defender_flags(&data);
+        assert!(cfg.stella.defender_excluded);
+        assert!(!cfg.defender_excluded && !cfg.vanilla.defender_excluded, "per network");
+    }
+
+    #[test]
+    fn an_older_launchers_flag_is_given_the_folders_it_was_set_for() {
+        let data = defender_data_dir();
+        let mut cfg = Config::default();
+        cfg.vanilla.defender_excluded = true;
+
+        assert!(cfg.adopt_legacy_defender_flags(&data));
+        assert_eq!(cfg.vanilla.defender_dirs, exclusion_dirs_for(&cfg, Network::Vanilla, &data));
+        cfg.refresh_defender_flags(&data);
+        assert!(cfg.vanilla.defender_excluded, "an upgrade must not ask to exclude it again");
+        // Done once: nothing left to adopt.
+        assert!(!cfg.adopt_legacy_defender_flags(&data));
+        assert!(cfg.defender_dirs.is_empty(), "Radium's flag was off");
     }
 
     // ── Per-network install directories ─────────────────────────────────────
