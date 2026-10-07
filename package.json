@@ -5,7 +5,9 @@
   "private": true,
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "dev:x64": "tauri dev --target x86_64-pc-windows-msvc",
+    "build:x64": "tauri build --target x86_64-pc-windows-msvc"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

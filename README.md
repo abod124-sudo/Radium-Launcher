@@ -76,6 +76,11 @@ npm run build   # produce the installer
 cd src-tauri && cargo test
 ```
 
+On an ARM64 PC (a Surface Pro, say), use `npm run dev:x64` and `npm run build:x64`
+instead. The Steamworks SDK ships its Windows library for x64 only, so an ARM64
+build fails to link; the x64 build runs under Windows' emulation. The target
+needs adding once: `rustup target add x86_64-pc-windows-msvc`.
+
 ---
 
 ## Note
