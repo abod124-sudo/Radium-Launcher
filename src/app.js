@@ -2135,6 +2135,21 @@ function renderHomeLayoutList() {
   const { hidden } = homeLayout();
   const { rows: shown, split } = homeLayoutRows();
   const columns = homeStyle() === 'dashboard';
+  const isOn = name => name === 'friends' ? friendsView() === 'home' : !hidden.includes(name);
+  // Same rows in the same places: only a switch changed, so it is flipped
+  // where it is. Rebuilt, the clicked switch was replaced by one already in
+  // its new state, and the knob jumped across instead of sliding.
+  const shape = JSON.stringify([shown, split, columns]);
+  if (list.dataset.shape === shape) {
+    list.querySelectorAll('.home-layout-row').forEach(row => {
+      const on = isOn(row.dataset.section);
+      const toggle = row.querySelector('.toggle-wrap');
+      toggle.classList.toggle('on', on);
+      toggle.setAttribute('aria-checked', String(on));
+    });
+    return;
+  }
+  list.dataset.shape = shape;
   list.textContent = '';
   // Dashboard: a heading over each column, and a word in an empty one on
   // how to fill it.
@@ -2153,7 +2168,7 @@ function renderHomeLayoutList() {
   shown.forEach((name, i) => {
     if (columns && i === split) group('Beside the game', '');
     const info = HOME_SECTION_INFO[name];
-    const on = name === 'friends' ? friendsView() === 'home' : !hidden.includes(name);
+    const on = isOn(name);
     // Past the end of its column, an arrow takes a section into the other one.
     const crossUp = columns && i === split;
     const crossDown = columns && i === split - 1;

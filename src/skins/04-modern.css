@@ -215,7 +215,9 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   /* Sized and sprung like the Liquid Glass switch: 42×24, a 20px knob that
      springs across and stretches toward its destination while pressed (see
      the knob rules below). The outline is an inset shadow rather than a
-     border so the knob's travel is the full 18px. */
+     border so the knob's travel is the full 18px. The knob's radius is a
+     pill's, not the shared 50%: stretched to 25×20 while pressed, 50% drew
+     it as an oval that squashed back as it sprang across. */
   --tgl-w: 42px;
   --tgl-h: 24px;
   --tgl-bw: 0px;
@@ -225,6 +227,7 @@ body:is(.theme-neondark, .theme-modernlight, .theme-moderngreen,
   --tgl-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 2px rgba(0, 0, 0, 0.2);
   --knob: 20px;
   --knob-inset: 2px;
+  --knob-radius: 999px;
   --knob-bg: #ffffff;
   --knob-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
   --tgl-on-bg: var(--accent);
